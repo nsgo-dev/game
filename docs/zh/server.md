@@ -127,6 +127,22 @@ if action == server.GuardDisconnect {
 
 `Guard` 与传输无关：在收包循环调用 `Check`，按返回的 `GuardAction` 处理即可。
 
+## 审计日志
+
+`audit` 以 JSON Lines 追加记录服务器的管理与安全相关事件——踢人、会话顶替、运维命令、破坏性路由——每个 UTC 日一个文件：
+
+```go
+log, err := audit.Open(audit.Options{Dir: "audit", Retain: 30})
+log.Log(audit.Record{Actor: "admin:ada", Action: "peer.kick", Subject: "peer:42", Data: map[string]any{"reason": "cheating"}})
+// 停止时，在 runner 排空之后：
+log.Close()
+```
+
+- 每行一条记录：`{"v":1,"time":"2026-11-28T09:15:02.500Z","actor":"admin:ada","action":"peer.kick","subject":"peer:42","data":{"reason":"cheating"}}`；模式由每行的 `v` 标记版本，见[文件格式](formats.md)。`Log` 会补全 `v`、当前 `time`，并把空的 `actor` 写成 `"system"`；记录按自身 UTC 日期落盘，所以补录的一批记录会落在事情发生的那几天的文件里。
+- 文件为 `<Dir>/<yyyy-mm-dd>.jsonl`，以只追加方式打开、从不重写，在 UTC 零点滚动：可 grep、可 diff、可直接送进日志系统，无需数据库。
+- `Log` 从不阻塞 tick：记录在 `Queue`（默认 4096）里缓冲，队列满时丢弃并计数。`Dropped()` 返回累计丢弃数，值得导出到 `/metrics`。一个后台 goroutine 批量追加并 fsync；`Close` 冲刷剩余记录并返回第一个写入错误。
+- `Retain` 从正在写入的日期往前保留相应天数的文件，滚动时删除更早的；为 0 时全部保留。
+
 ## 点对点中继
 
 锁步与回滚会话是点对点的，但位于 NAT 之后或运行在浏览器里的玩家无法互相直连。`netplay.Relay` 负责转发他们的数据包：每个玩家用 `netplay.RelayTransport` 连接中继，中继把每一帧交给该玩家所在会话中被寻址的成员。

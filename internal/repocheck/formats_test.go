@@ -27,6 +27,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/fog"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/online/audit"
 	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 	"github.com/nsgo-dev/game/pkg/online/liveops"
 	"github.com/nsgo-dev/game/pkg/online/netplay"
@@ -88,6 +89,7 @@ var codeFormats = map[string]codeFormat{
 	"quest#snapshot":                      {decl: "Snapshot", lang: "json", read: readQuestSnapshot},
 	"online/leaderboard/selfhost#records": {decl: "FileStore.Load", lang: "json", read: readLeaderboardRecords},
 	"online/netplay":                      {decl: "ReadCapture", lang: "json", read: readNetplayCapture},
+	"online/audit":                        {decl: "Open", lang: "json", read: readAuditLog},
 	"l10n#catalog":                        {decl: "Catalog.LoadJSON", lang: "json", read: readStringTable},
 	"anim3d":                              {decl: "LoadEventsSidecar", lang: "json", read: readClipEvents},
 	"assets":                              {decl: "ParsePackManifest", lang: "json", read: readPackManifest},
@@ -112,6 +114,7 @@ var formatVersions = map[string]string{
 	"online/accounts/sqlstore.SchemaVersion":        "",
 	"online/accounts/token.KeySetVersion":           "online/accounts/token",
 	"online/achievements.CurrentVersion":            "online/achievements",
+	"online/audit.SchemaVersion":                    "online/audit",
 	"ai.BTFormatVersion":                            "ai#bt",
 	"ai.BTSnapshotVersion":                          "",
 	"ai.GOAPVersion":                                "ai#goap",
@@ -423,6 +426,22 @@ func readNetplayCapture(_ *testing.T, data []byte) error {
 		err = errors.New("ReadCapture read no record")
 	}
 	return err
+}
+
+// readAuditLog loads data as audit log lines, one strict Record per line.
+func readAuditLog(_ *testing.T, data []byte) error {
+	for i, l := range bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")) {
+		dec := json.NewDecoder(bytes.NewReader(l))
+		dec.DisallowUnknownFields()
+		var r audit.Record
+		if err := dec.Decode(&r); err != nil {
+			return fmt.Errorf("line %d: %w", i+1, err)
+		}
+		if _, err := dec.Token(); err != io.EOF {
+			return fmt.Errorf("line %d: trailing data", i+1)
+		}
+	}
+	return nil
 }
 
 func readStringTable(_ *testing.T, data []byte) error {

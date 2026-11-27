@@ -135,6 +135,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/online/cloudsave/sqlstore` | Experimental | SQL store backend for `game/online/cloudsave` |
 | `game/pkg/online/cloudsave/storetest` | Experimental | Conformance test suite for `game/online/cloudsave` stores |
 | `game/pkg/online/achievements` | Experimental | YAML achievement definitions, monotonic `core.Storage` progress, Game Center / Play Games |
+| `game/pkg/online/audit` | Experimental | Append-only JSON Lines audit log for servers, one file per UTC day, non-blocking queue with drop counter, retention |
 | `game/pkg/online/leaderboard` | Experimental | YAML leaderboards for Game Center and Play Games |
 | `game/pkg/online/leaderboard/selfhost` | Experimental | Self-hosted cross-platform leaderboards (all-time/daily/weekly, signed scores) |
 | `game/cmd/leaderboardd` | Experimental | Self-hosted leaderboard daemon |
