@@ -686,11 +686,11 @@ func (im *Image) validate() error {
 	}
 	if col := im.Collision; col != nil {
 		if col.Mode == "" && len(col.Cells) == 0 {
-			return errors.New("collision: must set mode or at least one cell")
+			return loaderr.Errorf("image.collision", "set image.collision.mode or add at least one image.collision.cells entry", "importsettings: image: collision: must set mode or at least one cell")
 		}
 		if col.Mode == "" {
 			if col.Tolerance != 0 || col.MaxVertices != 0 || len(col.Points) > 0 {
-				return errors.New("collision: tolerance, maxVertices and points require mode")
+				return loaderr.Errorf("image.collision.mode", "set image.collision.mode when specifying tolerance, maxVertices, or points", "importsettings: image: collision: tolerance, maxVertices and points require mode")
 			}
 		} else {
 			if err := validateCollisionSpec("default", col.Mode, col.Tolerance, col.MaxVertices, col.Points); err != nil {
@@ -698,23 +698,24 @@ func (im *Image) validate() error {
 			}
 		}
 		if len(col.Cells) > 0 && im.Slice == nil {
-			return errors.New("collision: cells require image.slice")
+			return loaderr.Errorf("image.collision.cells", "add an image.slice grid or remove image.collision.cells", "importsettings: image: collision: cells require image.slice")
 		}
 		for i, c := range col.Cells {
+			cPath := fmt.Sprintf("image.collision.cells[%d]", i)
 			if c.Cell < 0 {
-				return fmt.Errorf("collision: cell %d must not be negative", c.Cell)
+				return loaderr.Errorf(cPath+".cell", "set cell to a non-negative integer index", "importsettings: image: collision: cell %d must not be negative", c.Cell)
 			}
 			if i > 0 {
 				prev := col.Cells[i-1].Cell
 				if c.Cell == prev {
-					return fmt.Errorf("collision: duplicate cell %d", c.Cell)
+					return loaderr.Errorf(cPath+".cell", "remove the duplicate cell collision entry", "importsettings: image: collision: duplicate cell %d", c.Cell)
 				}
 				if c.Cell < prev {
-					return fmt.Errorf("collision: cells must be in ascending cell order (%d before %d)", prev, c.Cell)
+					return loaderr.Errorf(cPath+".cell", "sort image.collision.cells in ascending cell index order", "importsettings: image: collision: cells must be in ascending cell order (%d before %d)", prev, c.Cell)
 				}
 			}
 			if im.Slice != nil && im.Slice.Count > 0 && c.Cell >= im.Slice.Count {
-				return fmt.Errorf("collision: cell %d is out of range for slice count %d", c.Cell, im.Slice.Count)
+				return loaderr.Errorf(cPath+".cell", fmt.Sprintf("set cell to an index less than image.slice.count (%d)", im.Slice.Count), "importsettings: image: collision: cell %d is out of range for slice count %d", c.Cell, im.Slice.Count)
 			}
 			if err := validateCollisionSpec(fmt.Sprintf("cell %d", c.Cell), c.Mode, c.Tolerance, c.MaxVertices, c.Points); err != nil {
 				return err
@@ -728,26 +729,27 @@ func (im *Image) validate() error {
 	}
 	if len(im.CellPoints) > 0 {
 		if im.Slice == nil {
-			return errors.New("cellPoints: require image.slice")
+			return loaderr.Errorf("image.cellPoints", "add an image.slice grid or remove image.cellPoints", "importsettings: image: cellPoints: require image.slice")
 		}
 		for i, cp := range im.CellPoints {
+			cpPath := fmt.Sprintf("image.cellPoints[%d]", i)
 			if cp.Cell < 0 {
-				return fmt.Errorf("cellPoints: cell %d must not be negative", cp.Cell)
+				return loaderr.Errorf(cpPath+".cell", "set cell to a non-negative integer index", "importsettings: image: cellPoints: cell %d must not be negative", cp.Cell)
 			}
 			if i > 0 {
 				prev := im.CellPoints[i-1].Cell
 				if cp.Cell == prev {
-					return fmt.Errorf("cellPoints: duplicate cell %d", cp.Cell)
+					return loaderr.Errorf(cpPath+".cell", "remove the duplicate cellPoints entry", "importsettings: image: cellPoints: duplicate cell %d", cp.Cell)
 				}
 				if cp.Cell < prev {
-					return fmt.Errorf("cellPoints: cells must be in ascending cell order (%d before %d)", prev, cp.Cell)
+					return loaderr.Errorf(cpPath+".cell", "sort image.cellPoints in ascending cell index order", "importsettings: image: cellPoints: cells must be in ascending cell order (%d before %d)", prev, cp.Cell)
 				}
 			}
 			if im.Slice != nil && im.Slice.Count > 0 && cp.Cell >= im.Slice.Count {
-				return fmt.Errorf("cellPoints: cell %d is out of range for slice count %d", cp.Cell, im.Slice.Count)
+				return loaderr.Errorf(cpPath+".cell", fmt.Sprintf("set cell to an index less than image.slice.count (%d)", im.Slice.Count), "importsettings: image: cellPoints: cell %d is out of range for slice count %d", cp.Cell, im.Slice.Count)
 			}
 			if len(cp.Points) == 0 {
-				return fmt.Errorf("cellPoints: cell %d must define at least one point", cp.Cell)
+				return loaderr.Errorf(cpPath+".points", "add at least one named point or remove the empty cellPoints entry", "importsettings: image: cellPoints: cell %d must define at least one point", cp.Cell)
 			}
 			if err := validatePointMap(fmt.Sprintf("cellPoints[%d]", cp.Cell), cp.Points); err != nil {
 				return err
