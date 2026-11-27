@@ -718,14 +718,10 @@ func TestClipEventsLoopingFrameSkipCrossfadeAndLoaders(t *testing.T) {
 			}
 		}
 
-		// Also verify flat sidecar map format works.
+		// Legacy unversioned flat sidecar maps are refused.
 		flatJSON := []byte(`{"jump": [{"time": 0.2, "name": "takeoff"}]}`)
-		flatEvents, err := anim3d.LoadEventsSidecar(flatJSON)
-		if err != nil {
-			t.Fatalf("flat LoadEventsSidecar error: %v", err)
-		}
-		if len(flatEvents["jump"]) != 1 || flatEvents["jump"][0].Name != "takeoff" {
-			t.Fatalf("flat sidecar mismatch: %+v", flatEvents)
+		if _, err := anim3d.LoadEventsSidecar(flatJSON); err == nil {
+			t.Fatalf("expected error on unversioned flat sidecar map")
 		}
 
 		// Invalid JSON returns an error.

@@ -32,7 +32,7 @@ _ = joints
 
 `SkinMatrices(skinIndex)` computes glTF 2.0 joint matrices normalized by the skinned mesh node's inverse world transform (`inverse(worldMatrix[meshNode]) * worldMatrix[joint] * inverseBindMatrix[i]`), so bind-pose joints evaluate to identity matrices even under rotated root nodes.
 
-To feed glTF clips into `StateMachine`, `BlendSpace1D`, `BlendSpace2D`, `LayerStack`, or root motion extraction, convert them with `ClipFromGLTF` or `ClipsFromGLTF`. Unanimated TRS components on targeted nodes are seeded from each node's rest transform so bone offsets stay intact, untargeted nodes are omitted from `Tracks` so bone-masked layers leave them untouched, and any timed events in glTF `extras` are attached automatically.
+To feed glTF clips into `StateMachine`, `BlendSpace1D`, `BlendSpace2D`, `LayerStack`, or root motion extraction, convert them with `ClipFromGLTF` or `ClipsFromGLTF`. Unanimated TRS components on targeted nodes are seeded from each node's rest transform so bone offsets stay intact, untargeted nodes are omitted from `Tracks` so bone-masked layers leave them untouched, and any timed events in glTF `extras` (`events` or `nsgo_events`) are attached automatically — non-object `extras` and unrelated keys are ignored, while malformed event entries return a `*loaderr.Error` naming the animation index.
 
 ## Clips, state machines, and blend spaces
 
@@ -94,7 +94,7 @@ For manual composition, use `BlendPoses`, `BlendPosesWeighted`, `BlendPosesMaske
 
 ## Clip events
 
-Attach timed `ClipEvent` markers (`Time`, `Name`, `Payload`, `Data`) to clips directly via `clip.AddEvent` or load them from glTF `extras` (`LoadEventsFromGLTFExtras`) or JSON sidecar files (`LoadEventsSidecar` / `MarshalEventsSidecar`):
+Attach timed `ClipEvent` markers (`Time`, `Name`, `Payload`, `Data`) to clips directly via `clip.AddEvent` or load them from glTF `extras` (`LoadEventsFromGLTFExtras`) or versioned JSON sidecar files (`LoadEventsSidecar` / `MarshalEventsSidecar`):
 
 ```go
 walkClip.AddEvent(anim3d.ClipEvent{Time: 0.25, Name: "footstep", Payload: "left"})
@@ -105,6 +105,8 @@ sm.OnEvent(func(ev anim3d.FiredEvent) {
 	}
 })
 ```
+
+`LoadEventsSidecar` requires the versioned `{"version": 1, "clips": {...}}` envelope (`EventsSidecarVersion`) and refuses missing or unsupported versions, unknown or misspelled keys, duplicate keys, and trailing data with a located `*loaderr.Error`. `LoadEventsFromGLTFExtras` and `ClipFromGLTF` ignore absent, `null`, or non-object `extras` as well as unrelated `extras` keys, and return a `*loaderr.Error` naming `animations[i].extras...` when `events` or `nsgo_events` is present and malformed.
 
 During a crossfade each state fires its events at its crossfade weight at the midpoint of the part of the step inside the crossfade, so the step that completes the crossfade still fires the outgoing state's events.
 

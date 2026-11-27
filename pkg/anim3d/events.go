@@ -1,13 +1,21 @@
 package anim3d
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
 )
+
+// EventsSidecarVersion is the schema version of the JSON clip events sidecar
+// format written by MarshalEventsSidecar and read by LoadEventsSidecar.
+const EventsSidecarVersion = 1
 
 // ClipEvent marks a named gameplay or audio event at a specific time (in seconds)
 // within an animation Clip.
@@ -278,44 +286,39 @@ type gltfDocument struct {
 	} `json:"animations"`
 }
 
-type gltfAnimationExtras struct {
-	Events     []ClipEvent `json:"events"`
-	NsgoEvents []ClipEvent `json:"nsgo_events"`
-}
+const (
+	sidecarFix    = `write {"version": 1, "clips": {"<clip>": [{"time": <seconds>, "name": "<event>"}]}}`
+	gltfEventsFix = `write "events" or "nsgo_events" as an array of {"time": <seconds>, "name": "<event>"} objects`
+)
 
 // LoadEventsFromGLTFExtras parses animation events from a glTF 2.0 JSON document's
 // animations[i].extras.events and/or animations[i].extras.nsgo_events arrays.
 // Each clip's events are returned sorted by ascending Time.
 // Animations without a name fall back to "animation_<index>".
 //
-// Its errors are *loaderr.Error values that give the line of the problem and how to fix it; a caller that read the document from a file names it with loaderr.WithFile.
+// Per glTF 2.0, absent, null, or non-object extras and unrelated keys inside
+// an object extras are ignored. When "events" or "nsgo_events" is present and
+// malformed (wrong type, unknown event field, or duplicate event key), an
+// error is returned instead of dropping the clip's events.
+//
+// Its errors are *loaderr.Error values that give the line and field (including
+// the animation index) of the problem and how to fix it; a caller that read
+// the document from a file names it with loaderr.WithFile.
 func LoadEventsFromGLTFExtras(gltfJSON []byte) (map[string][]ClipEvent, error) {
 	var doc gltfDocument
 	if err := json.Unmarshal(gltfJSON, &doc); err != nil {
-		return nil, loaderr.Locate(err, "", gltfJSON, "export the glTF again, or correct its JSON so it parses")
+		return nil, loaderr.LocateJSON(err, "", gltfJSON, "export the glTF again, or correct its JSON so it parses")
 	}
 
 	result := make(map[string][]ClipEvent)
 	for i, anim := range doc.Animations {
-		if len(anim.Extras) == 0 {
-			continue
-		}
-		// In glTF 2.0, extras may be any JSON type; ignore non-object extras.
-		var extras gltfAnimationExtras
-		if err := json.Unmarshal(anim.Extras, &extras); err != nil {
-			continue
-		}
-		var combined []ClipEvent
-		if len(extras.Events) > 0 {
-			combined = append(combined, extras.Events...)
-		}
-		if len(extras.NsgoEvents) > 0 {
-			combined = append(combined, extras.NsgoEvents...)
+		combined, err := parseGLTFAnimationExtras(i, anim.Extras, gltfJSON)
+		if err != nil {
+			return nil, err
 		}
 		if len(combined) == 0 {
 			continue
 		}
-		SortClipEvents(combined)
 		name := anim.Name
 		if name == "" {
 			name = fmt.Sprintf("animation_%d", i)
@@ -323,6 +326,49 @@ func LoadEventsFromGLTFExtras(gltfJSON []byte) (map[string][]ClipEvent, error) {
 		result[name] = combined
 	}
 	return result, nil
+}
+
+// parseGLTFAnimationExtras extracts and validates timed clip events from one
+// animation's glTF extras payload. Non-object extras and unrelated object keys
+// are ignored; malformed "events" or "nsgo_events" entries return a *loaderr.Error
+// naming animations[animIndex].extras.<key>.... When docData is non-nil (the full
+// glTF JSON document), Line and Column are located in docData.
+func parseGLTFAnimationExtras(animIndex int, animExtras json.RawMessage, docData []byte) ([]ClipEvent, error) {
+	trimmed := bytes.TrimSpace(animExtras)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	baseField := loaderr.Path("animations", animIndex, "extras")
+	var probe any
+	if err := json.Unmarshal(animExtras, &probe); err != nil {
+		return nil, relocateJSONError(err, animExtras, baseField, docData, gltfEventsFix)
+	}
+	if _, ok := probe.(map[string]any); !ok {
+		// In glTF 2.0, extras may be any JSON type (null, string, number, bool, array); ignore non-object extras.
+		return nil, nil
+	}
+
+	var rawExtras map[string]json.RawMessage
+	if err := json.Unmarshal(animExtras, &rawExtras); err != nil {
+		return nil, relocateJSONError(err, animExtras, baseField, docData, gltfEventsFix)
+	}
+
+	var combined []ClipEvent
+	for _, key := range []string{"events", "nsgo_events"} {
+		raw, ok := rawExtras[key]
+		if !ok {
+			continue
+		}
+		evs, err := decodeClipEventSlice(raw, loaderr.Join(baseField, key), docData, gltfEventsFix)
+		if err != nil {
+			return nil, err
+		}
+		combined = append(combined, evs...)
+	}
+	if len(combined) > 0 {
+		SortClipEvents(combined)
+	}
+	return combined, nil
 }
 
 type eventsSidecarFile struct {
@@ -342,7 +388,7 @@ func MarshalEventsSidecar(clips map[string][]ClipEvent) ([]byte, error) {
 		normalized[name] = cp
 	}
 	doc := eventsSidecarFile{
-		Version: 1,
+		Version: EventsSidecarVersion,
 		Clips:   normalized,
 	}
 	data, err := json.MarshalIndent(doc, "", "  ")
@@ -352,38 +398,309 @@ func MarshalEventsSidecar(clips map[string][]ClipEvent) ([]byte, error) {
 	return data, nil
 }
 
-// LoadEventsSidecar parses a JSON sidecar file produced by MarshalEventsSidecar
-// ({"version": 1, "clips": {...}}) or a flat {"clipName": [...]} map into
-// per-clip event slices sorted by ascending Time.
+// LoadEventsSidecar parses a versioned JSON sidecar file produced by
+// MarshalEventsSidecar ({"version": 1, "clips": {...}}) into per-clip event
+// slices sorted by ascending Time.
 //
-// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
+// It requires version == EventsSidecarVersion (1) and refuses unknown fields,
+// duplicate keys, trailing data, and the legacy unversioned flat-map shape.
+//
+// Its errors are *loaderr.Error values that give the line and field of the
+// problem and how to fix it; a caller that read data from a file names it with
+// loaderr.WithFile.
 func LoadEventsSidecar(data []byte) (map[string][]ClipEvent, error) {
-	const fix = `write {"version": 1, "clips": {"<clip>": [{"time": <seconds>, "name": "<event>"}]}}`
-	// Probe top-level object keys to distinguish envelope format from flat map.
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, loaderr.Locate(err, "", data, fix)
+	// Validate JSON syntax and reject trailing bytes after the root value.
+	var syntaxCheck json.RawMessage
+	if err := json.Unmarshal(data, &syntaxCheck); err != nil {
+		return nil, loaderr.LocateJSON(err, "", data, sidecarFix)
 	}
-
-	var clips map[string][]ClipEvent
-	if _, hasClips := raw["clips"]; hasClips {
-		var doc eventsSidecarFile
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return nil, loaderr.Locate(err, "", data, fix)
-		}
-		clips = doc.Clips
-	} else {
-		if err := json.Unmarshal(data, &clips); err != nil {
-			return nil, loaderr.Locate(err, "", data, fix)
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		line, col := jsonTokenPosition(data, 0)
+		return nil, &loaderr.Error{
+			Line:     line,
+			Column:   col,
+			Problem:  "cannot use a JSON null here",
+			Expected: "an object",
+			Fix:      sidecarFix,
 		}
 	}
+	if err := refuseDuplicateJSONKeys(data, "", data, true); err != nil {
+		return nil, loaderr.LocateJSON(err, "", data, loaderr.FixDuplicateKey)
+	}
 
-	result := make(map[string][]ClipEvent, len(clips))
-	for name, events := range clips {
-		cp := make([]ClipEvent, len(events))
-		copy(cp, events)
-		SortClipEvents(cp)
-		result[name] = cp
+	var doc struct {
+		Version *int            `json:"version"`
+		Clips   json.RawMessage `json:"clips"`
+	}
+	if err := decodeStrictJSONObject(data, &doc, "", data, sidecarFix); err != nil {
+		return nil, err
+	}
+	if doc.Version == nil {
+		return nil, loaderr.LocateJSON(&loaderr.Error{
+			Field:    "version",
+			Problem:  "missing sidecar version",
+			Expected: fmt.Sprintf("%d", EventsSidecarVersion),
+			Fix:      fmt.Sprintf(`add "version": %d at the top level of the sidecar`, EventsSidecarVersion),
+		}, "", data, sidecarFix)
+	}
+	if *doc.Version != EventsSidecarVersion {
+		return nil, loaderr.LocateJSON(&loaderr.Error{
+			Field:    "version",
+			Problem:  fmt.Sprintf("unsupported sidecar version %d", *doc.Version),
+			Expected: fmt.Sprintf("%d", EventsSidecarVersion),
+			Fix:      fmt.Sprintf(`set "version": %d (the only supported version is %d)`, EventsSidecarVersion, EventsSidecarVersion),
+		}, "", data, sidecarFix)
+	}
+
+	result := make(map[string][]ClipEvent)
+	if len(doc.Clips) == 0 {
+		return result, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(doc.Clips), []byte("null")) {
+		return nil, loaderr.LocateJSON(&loaderr.Error{
+			Field:    "clips",
+			Problem:  "cannot use a JSON null here",
+			Expected: "an object",
+			Fix:      sidecarFix,
+		}, "", data, sidecarFix)
+	}
+	var rawClips map[string]json.RawMessage
+	if err := json.Unmarshal(doc.Clips, &rawClips); err != nil {
+		return nil, relocateJSONError(err, doc.Clips, "clips", data, sidecarFix)
+	}
+
+	clipNames := make([]string, 0, len(rawClips))
+	for name := range rawClips {
+		clipNames = append(clipNames, name)
+	}
+	sort.Strings(clipNames)
+
+	for _, name := range clipNames {
+		events, err := decodeClipEventSlice(rawClips[name], loaderr.Path("clips", name), data, sidecarFix)
+		if err != nil {
+			return nil, err
+		}
+		SortClipEvents(events)
+		result[name] = events
 	}
 	return result, nil
+}
+
+func decodeClipEventSlice(raw json.RawMessage, baseField string, docData []byte, fix string) ([]ClipEvent, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if bytes.Equal(trimmed, []byte("null")) {
+		e := &loaderr.Error{
+			Field:    baseField,
+			Problem:  "cannot use a JSON null here",
+			Expected: "an array",
+			Fix:      fix,
+		}
+		if docData != nil {
+			return nil, loaderr.LocateJSON(e, "", docData, fix)
+		}
+		return nil, e
+	}
+	var elems []json.RawMessage
+	if err := json.Unmarshal(raw, &elems); err != nil {
+		return nil, relocateJSONError(err, raw, baseField, docData, fix)
+	}
+	events := make([]ClipEvent, len(elems))
+	for i, elem := range elems {
+		elemField := loaderr.Join(baseField, i)
+		if bytes.Equal(bytes.TrimSpace(elem), []byte("null")) {
+			e := &loaderr.Error{
+				Field:    elemField,
+				Problem:  "cannot use a JSON null here",
+				Expected: "an object",
+				Fix:      fix,
+			}
+			if docData != nil {
+				return nil, loaderr.LocateJSON(e, "", docData, fix)
+			}
+			return nil, e
+		}
+		if err := refuseDuplicateJSONKeys(elem, elemField, docData, true); err != nil {
+			if docData != nil {
+				return nil, loaderr.LocateJSON(err, "", docData, loaderr.FixDuplicateKey)
+			}
+			return nil, err
+		}
+		if err := decodeStrictJSONObject(elem, &events[i], elemField, docData, fix); err != nil {
+			return nil, err
+		}
+	}
+	return events, nil
+}
+
+func decodeStrictJSONObject(sub []byte, dst any, baseField string, docData []byte, fix string) error {
+	dec := json.NewDecoder(bytes.NewReader(sub))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return relocateJSONError(err, sub, baseField, docData, fix)
+	}
+	return nil
+}
+
+func relocateJSONError(err error, sub []byte, baseField string, docData []byte, fix string) error {
+	loc := loaderr.LocateJSON(err, "", sub, fix)
+	e, ok := loaderr.As(loc)
+	if !ok {
+		return loc
+	}
+	subField := e.Field
+	if subField == "" {
+		if name, ok := unknownFieldName(e.Problem); ok {
+			subField = loaderr.Path(name)
+		}
+	}
+	origLine, origCol := e.Line, e.Column
+	e.Field = joinFormattedPath(baseField, subField)
+	if docData != nil {
+		e.Line, e.Column = 0, 0
+		res := loaderr.LocateJSON(e, "", docData, fix)
+		if le, ok := loaderr.As(res); ok && le.Line == 0 && sameSlice(sub, docData) {
+			le.Line, le.Column = origLine, origCol
+		}
+		return res
+	}
+	e.Line, e.Column = 0, 0
+	return e
+}
+
+func sameSlice(a, b []byte) bool {
+	return len(a) > 0 && len(a) == len(b) && &a[0] == &b[0]
+}
+
+func unknownFieldName(problem string) (string, bool) {
+	rest, ok := strings.CutPrefix(problem, "unknown field ")
+	if !ok {
+		return "", false
+	}
+	name, err := strconv.Unquote(rest)
+	if err != nil {
+		return "", false
+	}
+	return name, true
+}
+
+func joinFormattedPath(base, sub string) string {
+	switch {
+	case base == "":
+		return sub
+	case sub == "":
+		return base
+	case sub[0] == '[':
+		return base + sub
+	default:
+		return base + "." + sub
+	}
+}
+
+// refuseDuplicateJSONKeys rejects any JSON object in sub that repeats a key.
+// When foldRoot is true, the root object (which decodes into a Go struct whose
+// fields encoding/json matches case-insensitively) compares keys with
+// strings.EqualFold; nested objects (maps such as clips or ClipEvent.Data)
+// compare keys exactly so distinct clip or data names differing only in case
+// remain allowed.
+func refuseDuplicateJSONKeys(sub []byte, baseField string, docData []byte, foldRoot bool) error {
+	dec := json.NewDecoder(bytes.NewReader(sub))
+	sameDoc := sameSlice(sub, docData)
+	var path []any
+	var walk func(depth int) error
+	walk = func(depth int) error {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		delim, ok := tok.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delim {
+		case '{':
+			fold := foldRoot && depth == 0
+			var seenExact map[string]bool
+			var seenFold []string
+			if !fold {
+				seenExact = make(map[string]bool)
+			}
+			for dec.More() {
+				start := dec.InputOffset()
+				keyTok, err := dec.Token()
+				if err != nil {
+					return nil
+				}
+				key, _ := keyTok.(string)
+				dup := false
+				if fold {
+					for _, prev := range seenFold {
+						if strings.EqualFold(prev, key) {
+							dup = true
+							break
+						}
+					}
+					if !dup {
+						seenFold = append(seenFold, key)
+					}
+				} else {
+					dup = seenExact[key]
+					seenExact[key] = true
+				}
+				path = append(path, key)
+				if dup {
+					e := &loaderr.Error{
+						Field:   loaderr.Join(baseField, path...),
+						Problem: fmt.Sprintf("key %q appears more than once in one object", key),
+						Fix:     loaderr.FixDuplicateKey,
+					}
+					if sameDoc {
+						e.Line, e.Column = jsonTokenPosition(sub, start)
+					}
+					return e
+				}
+				if err := walk(depth + 1); err != nil {
+					return err
+				}
+				path = path[:len(path)-1]
+			}
+			_, _ = dec.Token()
+		case '[':
+			for i := 0; dec.More(); i++ {
+				path = append(path, i)
+				if err := walk(depth + 1); err != nil {
+					return err
+				}
+				path = path[:len(path)-1]
+			}
+			_, _ = dec.Token()
+		}
+		return nil
+	}
+	return walk(0)
+}
+
+func jsonTokenPosition(data []byte, start int64) (line, col int) {
+	off := int(start)
+	for off < len(data) {
+		b := data[off]
+		if b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == ',' || b == ':' {
+			off++
+			continue
+		}
+		break
+	}
+	line, col = 1, 1
+	for i := 0; i < off && i < len(data); {
+		if data[i] == '\n' {
+			line++
+			col = 1
+			i++
+			continue
+		}
+		_, size := utf8.DecodeRune(data[i:])
+		i += size
+		col++
+	}
+	return line, col
 }
