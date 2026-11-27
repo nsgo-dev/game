@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -55,7 +55,7 @@ type Game struct {
 	Loop *game.Loop
 
 	// Cursor is the cell the player builds on and picks towers with.
-	Cursor ai.Cell
+	Cursor pathfind.Cell
 	// Kind is the index in data/towers.yaml of the tower kind the player builds.
 	Kind int
 	// Speed is how many world steps run each update, from 1 to maxSpeed.
@@ -254,7 +254,7 @@ func axisStep(v float64) int {
 
 // MoveCursor moves the cursor by (dx, dy) tiles, staying on the map.
 func (g *Game) MoveCursor(dx, dy int) {
-	c := ai.Cell{Col: g.Cursor.Col + dx, Row: g.Cursor.Row + dy}
+	c := pathfind.Cell{Col: g.Cursor.Col + dx, Row: g.Cursor.Row + dy}
 	cols, rows := g.World.gridSize()
 	c.Col = min(max(c.Col, 0), cols-1)
 	c.Row = min(max(c.Row, 0), rows-1)
@@ -282,7 +282,7 @@ func (g *Game) Tap(p core.Point) {
 }
 
 // CellPoint returns the center of cell c in the canvas's view coordinates, where Tap takes it.
-func (g *Game) CellPoint(c ai.Cell) core.Point {
+func (g *Game) CellPoint(c pathfind.Cell) core.Point {
 	center := g.World.cellCenter(c)
 	return g.Viewport.GameToView(g.canvasSize, center.Point())
 }

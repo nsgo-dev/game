@@ -6,9 +6,9 @@ import (
 	"math"
 	"slices"
 
-	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/lights2d"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind/navbake"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -22,7 +22,7 @@ const (
 	navRegionEdgeMidMinLen float32 = 24
 )
 
-// NavPathPreview2D holds the active 2D navigation test-path endpoints and the latest path returned by ai.NavMesh.FindPath.
+// NavPathPreview2D holds the active 2D navigation test-path endpoints and the latest path returned by pathfind.NavMesh.FindPath.
 type NavPathPreview2D struct {
 	HasStart bool
 	HasEnd   bool
@@ -149,7 +149,7 @@ func (e *Editor) ClearNavPathPreview2D() {
 	e.notify()
 }
 
-// SetNavTestPathPoints sets both endpoints of the 2D navigation test path in world space and immediately evaluates ai.NavMesh.FindPath on the active built scene.
+// SetNavTestPathPoints sets both endpoints of the 2D navigation test path in world space and immediately evaluates pathfind.NavMesh.FindPath on the active built scene.
 func (e *Editor) SetNavTestPathPoints(start, end core.Point) ([]core.Point, bool) {
 	if e == nil || !isFiniteFloat32(float32(start.X)) || !isFiniteFloat32(float32(start.Y)) || !isFiniteFloat32(float32(end.X)) || !isFiniteFloat32(float32(end.Y)) {
 		return nil, false
@@ -641,7 +641,7 @@ func (e *Editor) drawNavMesh2DOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 		}
 	}
 
-	// 3. Test-path preview (start/end pins and the path ai.NavMesh.FindPath found).
+	// 3. Test-path preview (start/end pins and the path pathfind.NavMesh.FindPath found).
 	e.drawNavPathPreview2D(d)
 }
 

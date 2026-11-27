@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 // maxGameSteps bounds a played game: ten minutes of steps, well past the level's length.
@@ -43,13 +43,13 @@ func TestRouteFollowsTheRoadFromSpawnToGate(t *testing.T) {
 func TestBuildUpgradeAndSell(t *testing.T) {
 	w := newTestWorld(t)
 	bolt, _ := w.Data.Towers.Tower("bolt")
-	cell := ai.Cell{Col: 5, Row: 4}
+	cell := pathfind.Cell{Col: 5, Row: 4}
 	start := w.Money
 
-	if _, err := w.Build(bolt, ai.Cell{Col: 1, Row: 1}); err == nil {
+	if _, err := w.Build(bolt, pathfind.Cell{Col: 1, Row: 1}); err == nil {
 		t.Fatal("built a tower on the road")
 	}
-	if _, err := w.Build(bolt, ai.Cell{Col: 0, Row: 0}); err == nil {
+	if _, err := w.Build(bolt, pathfind.Cell{Col: 0, Row: 0}); err == nil {
 		t.Fatal("built a tower on a rock")
 	}
 	tower, err := w.Build(bolt, cell)
@@ -127,7 +127,7 @@ func TestFrostSlowsAndMortarSplashes(t *testing.T) {
 	w := newTestWorld(t)
 	frost, _ := w.Data.Towers.Tower("frost")
 	w.Money = 1000
-	if _, err := w.Build(frost, ai.Cell{Col: 3, Row: 2}); err != nil {
+	if _, err := w.Build(frost, pathfind.Cell{Col: 3, Row: 2}); err != nil {
 		t.Fatal(err)
 	}
 	w.CallWave()
@@ -150,7 +150,7 @@ func TestFrostSlowsAndMortarSplashes(t *testing.T) {
 	w.Reset()
 	mortar, _ := w.Data.Towers.Tower("mortar")
 	w.Money = 1000
-	tower, err := w.Build(mortar, ai.Cell{Col: 5, Row: 4})
+	tower, err := w.Build(mortar, pathfind.Cell{Col: 5, Row: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestPlanWinsAndThinPlanLoses(t *testing.T) {
 	if w.Outcome != Won || w.Wave != w.Waves() || w.Lives <= 0 {
 		t.Fatalf("the winning plan ended %v on wave %d with %d lives", w.Outcome, w.Wave, w.Lives)
 	}
-	if _, err := w.Build(&w.Data.Towers.Towers[0], ai.Cell{Col: 2, Row: 0}); err == nil {
+	if _, err := w.Build(&w.Data.Towers.Towers[0], pathfind.Cell{Col: 2, Row: 0}); err == nil {
 		t.Fatal("built a tower after the game was won")
 	}
 

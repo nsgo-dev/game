@@ -6,8 +6,8 @@ import (
 	"image/color"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
-	"github.com/nsgo-dev/game/pkg/ai/navbake"
+	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/game/pkg/pathfind/navbake"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/tilemap"
@@ -40,7 +40,7 @@ const TotalRooms = 7
 type EnemySpawn struct {
 	ID        string
 	Name      string
-	Waypoints []ai.Cell
+	Waypoints []pathfind.Cell
 }
 
 // World holds the tilemap, collision grid, navigation grid, spritesheet atlas,
@@ -49,14 +49,14 @@ type World struct {
 	Atlas       *sprite.Atlas
 	Map         *tilemap.Tilemap
 	Physics     *physics.Grid
-	Nav         *ai.BoolGrid
+	Nav         *pathfind.BoolGrid
 	PlayerSpawn core.Point
-	ElderCell   ai.Cell
+	ElderCell   pathfind.Cell
 	ElderPos    core.Point
-	ChestCell   ai.Cell
+	ChestCell   pathfind.Cell
 	ChestPos    core.Point
-	DoorCell    ai.Cell
-	ExitCell    ai.Cell
+	DoorCell    pathfind.Cell
+	ExitCell    pathfind.Cell
 	ExitPos     core.Point
 	EnemySpawns []EnemySpawn
 
@@ -128,19 +128,19 @@ func NewWorld() *World {
 
 	layer := tilemap.NewTileLayer("crypt", MapCols, MapRows, nil)
 	phys := physics.NewGrid(MapCols, MapRows, TileSize, TileSize)
-	nav := ai.NewBoolGrid(MapCols, MapRows)
+	nav := pathfind.NewBoolGrid(MapCols, MapRows)
 
 	w := &World{
 		Atlas:       atlas,
 		Map:         tm,
 		Physics:     phys,
 		Nav:         nav,
-		PlayerSpawn: cellCenter(ai.Cell{Col: 2, Row: 4}),
+		PlayerSpawn: cellCenter(pathfind.Cell{Col: 2, Row: 4}),
 		EnemySpawns: []EnemySpawn{
 			{
 				ID:   "bone-warden",
 				Name: "Bone Warden",
-				Waypoints: []ai.Cell{
+				Waypoints: []pathfind.Cell{
 					{Col: 9, Row: 2},
 					{Col: 12, Row: 2},
 					{Col: 12, Row: 8},
@@ -150,7 +150,7 @@ func NewWorld() *World {
 			{
 				ID:   "crypt-stalker",
 				Name: "Crypt Stalker",
-				Waypoints: []ai.Cell{
+				Waypoints: []pathfind.Cell{
 					{Col: 16, Row: 6},
 					{Col: 21, Row: 6},
 					{Col: 21, Row: 10},
@@ -160,7 +160,7 @@ func NewWorld() *World {
 			{
 				ID:   "vault-guard",
 				Name: "Vault Guard",
-				Waypoints: []ai.Cell{
+				Waypoints: []pathfind.Cell{
 					{Col: 9, Row: 11},
 					{Col: 12, Row: 11},
 					{Col: 12, Row: 14},
@@ -190,18 +190,18 @@ func NewWorld() *World {
 			case 'D':
 				gid = GIDDoorLocked
 				solid = true
-				w.DoorCell = ai.Cell{Col: col, Row: row}
+				w.DoorCell = pathfind.Cell{Col: col, Row: row}
 			case 'X':
 				gid = GIDExit
-				w.ExitCell = ai.Cell{Col: col, Row: row}
+				w.ExitCell = pathfind.Cell{Col: col, Row: row}
 				w.ExitPos = cellCenter(w.ExitCell)
 			case 'E':
 				gid = GIDFloor
-				w.ElderCell = ai.Cell{Col: col, Row: row}
+				w.ElderCell = pathfind.Cell{Col: col, Row: row}
 				w.ElderPos = cellCenter(w.ElderCell)
 			case 'C':
 				gid = GIDCarpet
-				w.ChestCell = ai.Cell{Col: col, Row: row}
+				w.ChestCell = pathfind.Cell{Col: col, Row: row}
 				w.ChestPos = cellCenter(w.ChestCell)
 			default:
 				gid = GIDFloor
@@ -253,7 +253,7 @@ func (w *World) LockDoor() {
 }
 
 // CellAt converts a world coordinate to a clamped grid cell.
-func (w *World) CellAt(x, y float32) ai.Cell {
+func (w *World) CellAt(x, y float32) pathfind.Cell {
 	col := int(x / TileSize)
 	row := int(y / TileSize)
 	if col < 0 {
@@ -266,15 +266,15 @@ func (w *World) CellAt(x, y float32) ai.Cell {
 	} else if row >= MapRows {
 		row = MapRows - 1
 	}
-	return ai.Cell{Col: col, Row: row}
+	return pathfind.Cell{Col: col, Row: row}
 }
 
 // CellCenter returns the center point of cell c in world points.
-func (w *World) CellCenter(c ai.Cell) core.Point {
+func (w *World) CellCenter(c pathfind.Cell) core.Point {
 	return cellCenter(c)
 }
 
-func cellCenter(c ai.Cell) core.Point {
+func cellCenter(c pathfind.Cell) core.Point {
 	return core.Point{
 		X: core.Points(float32(c.Col)*TileSize + TileSize*0.5),
 		Y: core.Points(float32(c.Row)*TileSize + TileSize*0.5),

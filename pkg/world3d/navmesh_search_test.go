@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
@@ -67,13 +67,13 @@ func TestNavMesh3DPartialAndBudgeted(t *testing.T) {
 	islandGoal := math3d.Vec3{X: 22, Y: 3, Z: 0}
 
 	// Without AllowPartial, disconnected island fails.
-	noPart := nm.FindPathWithOptions(start, islandGoal, ai.PathOptions{AllowPartial: false})
+	noPart := nm.FindPathWithOptions(start, islandGoal, pathfind.PathOptions{AllowPartial: false})
 	if noPart.Found || noPart.Partial || noPart.Exhausted {
 		t.Fatalf("expected clean failure without AllowPartial, got %+v", noPart)
 	}
 
 	// With AllowPartial, path ends at (16, 0, 0) — the closest reachable 3D point on eastLanding.
-	part := nm.FindPathWithOptions(start, islandGoal, ai.PathOptions{AllowPartial: true})
+	part := nm.FindPathWithOptions(start, islandGoal, pathfind.PathOptions{AllowPartial: true})
 	if !part.Found || !part.Partial || part.Exhausted {
 		t.Fatalf("expected partial path to disconnected island, got %+v", part)
 	}
@@ -94,7 +94,7 @@ func TestNavMesh3DPartialAndBudgeted(t *testing.T) {
 
 	// Off-mesh goal outside the bridge/ground returns partial path to nearest reachable edge point.
 	offMeshGoal := math3d.Vec3{X: 30, Y: 0, Z: 1}
-	offPart := nm.FindPathWithOptions(start, offMeshGoal, ai.PathOptions{AllowPartial: true})
+	offPart := nm.FindPathWithOptions(start, offMeshGoal, pathfind.PathOptions{AllowPartial: true})
 	if !offPart.Found || !offPart.Partial || offPart.Exhausted {
 		t.Fatalf("expected partial path for off-mesh goal, got %+v", offPart)
 	}
@@ -111,12 +111,12 @@ func TestNavMesh3DPartialAndBudgeted(t *testing.T) {
 	gStart := math3d.Vec3{X: 2, Y: 0, Z: 2}
 	gGoal := math3d.Vec3{X: 38, Y: 0, Z: 2}
 
-	failBudget := large.FindPathWithOptions(gStart, gGoal, ai.PathOptions{MaxExpansions: 5, AllowPartial: false})
+	failBudget := large.FindPathWithOptions(gStart, gGoal, pathfind.PathOptions{MaxExpansions: 5, AllowPartial: false})
 	if failBudget.Found || failBudget.Partial || !failBudget.Exhausted || failBudget.Expansions != 5 {
 		t.Fatalf("expected exhausted failure at 5 expansions, got %+v", failBudget)
 	}
 
-	partBudget := large.FindPathWithOptions(gStart, gGoal, ai.PathOptions{MaxExpansions: 5, AllowPartial: true})
+	partBudget := large.FindPathWithOptions(gStart, gGoal, pathfind.PathOptions{MaxExpansions: 5, AllowPartial: true})
 	if !partBudget.Found || !partBudget.Partial || !partBudget.Exhausted || partBudget.Expansions != 5 {
 		t.Fatalf("expected exhausted partial at 5 expansions, got %+v", partBudget)
 	}
@@ -151,12 +151,12 @@ func TestNavMesh3DIncrementalMatchesSingleShot(t *testing.T) {
 	scenarios := []struct {
 		name string
 		mesh *world3d.NavMesh
-		opts ai.PathOptions
+		opts pathfind.PathOptions
 	}{
-		{"complete", nm, ai.PathOptions{AllowPartial: true}},
-		{"walled_partial", walled, ai.PathOptions{AllowPartial: true}},
-		{"exhausted_partial", nm, ai.PathOptions{MaxExpansions: 15, AllowPartial: true}},
-		{"exhausted_fail", nm, ai.PathOptions{MaxExpansions: 15, AllowPartial: false}},
+		{"complete", nm, pathfind.PathOptions{AllowPartial: true}},
+		{"walled_partial", walled, pathfind.PathOptions{AllowPartial: true}},
+		{"exhausted_partial", nm, pathfind.PathOptions{MaxExpansions: 15, AllowPartial: true}},
+		{"exhausted_fail", nm, pathfind.PathOptions{MaxExpansions: 15, AllowPartial: false}},
 	}
 
 	for _, sc := range scenarios {
@@ -193,8 +193,8 @@ func TestNavMesh3DIncrementalMatchesSingleShot(t *testing.T) {
 		quadXZ(2, -2, 10, 2, 3),
 	}, math3d.DegToRad(45))
 	rampNM.VerticalTolerance = 1.2
-	wantClimb := rampNM.FindPathWithOptions(math3d.Vec3{X: 6, Y: 0, Z: 0}, math3d.Vec3{X: 6, Y: 3, Z: 0}, ai.PathOptions{})
-	climbSearch := rampNM.StartSearch(math3d.Vec3{X: 6, Y: 0, Z: 0}, math3d.Vec3{X: 6, Y: 3, Z: 0}, ai.PathOptions{})
+	wantClimb := rampNM.FindPathWithOptions(math3d.Vec3{X: 6, Y: 0, Z: 0}, math3d.Vec3{X: 6, Y: 3, Z: 0}, pathfind.PathOptions{})
+	climbSearch := rampNM.StartSearch(math3d.Vec3{X: 6, Y: 0, Z: 0}, math3d.Vec3{X: 6, Y: 3, Z: 0}, pathfind.PathOptions{})
 	for !climbSearch.Status().Done() {
 		climbSearch.Step(1)
 	}
@@ -212,15 +212,15 @@ func TestNavMesh3DWithPathQueueAndDeterminism(t *testing.T) {
 	nm := buildGridNavMesh3D(10, 10, blocked)
 
 	runOnce := func() ([]int, []world3d.NavPathResult) {
-		q := ai.NewPathQueue(ai.PathQueueConfig{
-			Policy:    ai.PathQueueRoundRobin,
+		q := pathfind.NewPathQueue(pathfind.PathQueueConfig{
+			Policy:    pathfind.PathQueueRoundRobin,
 			SliceSize: 4,
 		})
 		searches := make([]*world3d.NavMeshSearch, 12)
 		for i := range 12 {
 			start := math3d.Vec3{X: float32(2 + (i%3)*4), Y: 0, Z: float32(2 + (i%9)*4)}
 			goal := math3d.Vec3{X: float32(30 + (i%3)*4), Y: 0, Z: float32(2 + ((i*3)%9)*4)}
-			searches[i] = nm.StartSearch(start, goal, ai.PathOptions{AllowPartial: true})
+			searches[i] = nm.StartSearch(start, goal, pathfind.PathOptions{AllowPartial: true})
 			q.Submit(searches[i], i%2, nil)
 		}
 		var perStep []int
@@ -262,16 +262,16 @@ func BenchmarkNavMesh3DPathQueueBudgetedStep(b *testing.B) {
 	nm := buildGridNavMesh3D(12, 12, blocked)
 
 	const perStepBudget = 32
-	q := ai.NewPathQueue(ai.PathQueueConfig{
+	q := pathfind.NewPathQueue(pathfind.PathQueueConfig{
 		DefaultBudget: perStepBudget,
-		Policy:        ai.PathQueueRoundRobin,
+		Policy:        pathfind.PathQueueRoundRobin,
 		SliceSize:     8,
 	})
 	refill := func() {
 		for i := range 24 {
 			start := math3d.Vec3{X: float32(2 + (i%3)*4), Y: 0, Z: float32(2 + (i%10)*4)}
 			goal := math3d.Vec3{X: float32(38 + (i%3)*4), Y: 0, Z: float32(2 + ((i*3)%10)*4)}
-			q.Submit(nm.StartSearch(start, goal, ai.PathOptions{AllowPartial: true}), i%2, nil)
+			q.Submit(nm.StartSearch(start, goal, pathfind.PathOptions{AllowPartial: true}), i%2, nil)
 		}
 	}
 	refill()

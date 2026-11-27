@@ -283,7 +283,7 @@ Set `Orientation` (`OrientationOrthogonal`, `OrientationIsometric`, `Orientation
 
 - `TileOrigin(col, row)` and `TileToWorld(col, row)` return each cell's bounding-box origin and center in world coordinates, and `WorldToTile(p)` round-trips any interior world point back to `(col, row)`.
 - `HexNeighbors(col, row)` and `HexDistance(c1, r1, c2, r2)` compute exact 6-neighbor adjacency and cube distance for both stagger axes and indices.
-- For pathfinding and tactics movement ranges on these projections, pass `ai.TopologyFromTilemap(m)` to [`game/ai`](ai.md#hexagonal-and-staggered-topologies) (`AStar.Topology`, `AStar.MovementRange`, `ReachableCells`), or wrap a hex map directly with `ai.NewHexGrid(m)` for [`ai.GraphSearch`](ai.md#generic-graph-search-hex-adapters-and-waypoint-graphs) (including reconstructed paths to every cell in range).
+- For pathfinding and tactics movement ranges on these projections, pass `pathfind.TopologyFromTilemap(m)` to [`game/pathfind`](pathfind.md#hexagonal-and-staggered-topologies) (`AStar.Topology`, `AStar.MovementRange`, `ReachableCells`), or wrap a hex map directly with `pathfind.NewHexGrid(m)` for [`pathfind.GraphSearch`](pathfind.md#generic-graph-search-hex-adapters-and-waypoint-graphs) (including reconstructed paths to every cell in range).
 - For line-of-sight visibility and tile-aligned fog rendering over isometric, staggered, and hex maps, build a [`game/fog`](fog.md) with `fog.NewFromTilemap(m, tilemap.TileSolid)`.
 
 ## Sparse chunked layers and streaming

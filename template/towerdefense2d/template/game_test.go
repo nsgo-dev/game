@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -33,7 +33,7 @@ func startGame(t *testing.T) (*nsgotest.App, *Game) {
 // controls play the game the way one kind of player does: with the keyboard, a gamepad or touches.
 type controls interface {
 	// moveTo puts the cursor on c.
-	moveTo(c ai.Cell)
+	moveTo(c pathfind.Cell)
 	// choose picks the tower kind at index i of data/towers.yaml.
 	choose(i int)
 	// build builds the chosen tower on the cursor.
@@ -59,7 +59,7 @@ func (k keyboardControls) key(name string) {
 	k.app.Advance(2 * frame)
 }
 
-func (k keyboardControls) moveTo(c ai.Cell) {
+func (k keyboardControls) moveTo(c pathfind.Cell) {
 	steer(k.g, c, func(dx, dy int) {
 		switch {
 		case dx > 0:
@@ -94,7 +94,7 @@ func (p padControls) press(b gamepad.Button) {
 	p.app.Advance(2 * frame)
 }
 
-func (p padControls) moveTo(c ai.Cell) {
+func (p padControls) moveTo(c pathfind.Cell) {
 	steer(p.g, c, func(dx, dy int) {
 		switch {
 		case dx > 0:
@@ -130,7 +130,7 @@ type touchControls struct {
 	g   *Game
 }
 
-func (tc touchControls) tap(c ai.Cell) {
+func (tc touchControls) tap(c pathfind.Cell) {
 	tc.app.Touch("battlefield", tc.g.CellPoint(c)).Lift()
 	tc.app.Advance(2 * frame)
 }
@@ -140,7 +140,7 @@ func (tc touchControls) button(id string) {
 	tc.app.Advance(2 * frame)
 }
 
-func (tc touchControls) moveTo(c ai.Cell) {
+func (tc touchControls) moveTo(c pathfind.Cell) {
 	if tc.g.Cursor != c {
 		tc.tap(c)
 	}
@@ -156,7 +156,7 @@ func (tc touchControls) speedUp()   { tc.button("speed") }
 func (tc touchControls) playAgain() { tc.button("play-again") }
 
 // steer calls move with the direction from the cursor to c until the cursor is there.
-func steer(g *Game, c ai.Cell, move func(dx, dy int)) {
+func steer(g *Game, c pathfind.Cell, move func(dx, dy int)) {
 	for range 64 {
 		dx, dy := c.Col-g.Cursor.Col, c.Row-g.Cursor.Row
 		if dx == 0 && dy == 0 {
@@ -360,19 +360,19 @@ func TestHUDShowsTheTowerOnTheCursorAndRefusesWhatItCannotDo(t *testing.T) {
 	k.build()
 	app.Find("text:Cannot build there")
 
-	k.moveTo(ai.Cell{Col: 5, Row: 4})
+	k.moveTo(pathfind.Cell{Col: 5, Row: 4})
 	k.choose(0)
 	k.build()
 	bolt := g.World.Data.Towers.Towers[0]
 	mortar := g.World.Data.Towers.Towers[2]
-	k.moveTo(ai.Cell{Col: 6, Row: 2})
+	k.moveTo(pathfind.Cell{Col: 6, Row: 2})
 	k.choose(2)
 	k.build()
 	app.Find(fmt.Sprintf("text:Mortar needs %d", mortar.Cost))
 	if len(g.World.Towers) != 1 {
 		t.Fatal("built a mortar without the money for it")
 	}
-	k.moveTo(ai.Cell{Col: 5, Row: 4})
+	k.moveTo(pathfind.Cell{Col: 5, Row: 4})
 	app.Find(fmt.Sprintf("text:Money %d", g.World.Data.Level.Money-bolt.Cost))
 	app.Find(fmt.Sprintf("text:Upgrade %d", bolt.Upgrades[0].Cost))
 	app.Find(fmt.Sprintf("text:Sell %d", int(float64(bolt.Cost)*g.World.Data.Towers.Refund)))

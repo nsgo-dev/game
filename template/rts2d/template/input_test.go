@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -31,7 +31,7 @@ func selected(g *rootSkirmish) []*entity {
 
 // openGround is a point on the player's side of the map with no unit, building, rock or crystal on it.
 func openGround(g *rootSkirmish) math2d.Vec2 {
-	c, _ := g.w.nearestWalkable(ai.Cell{Col: g.w.cols/2 - 6, Row: g.w.rows - 6})
+	c, _ := g.w.nearestWalkable(pathfind.Cell{Col: g.w.cols/2 - 6, Row: g.w.rows - 6})
 	return g.w.cellCenter(c)
 }
 

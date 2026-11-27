@@ -8,10 +8,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/nsgo-dev/game/pkg/ai"
-	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/game/pkg/pathfind/navbake"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/screen"
@@ -91,22 +91,22 @@ func (d *DialogueState) VisibleText() string {
 	return string(runes[:n])
 }
 
-// Enemy represents a skeleton guardian driven by flow.Machine and ai.AStar.
+// Enemy represents a skeleton guardian driven by flow.Machine and pathfind.AStar.
 type Enemy struct {
 	ID            string
 	Name          string
 	Body          *physics.Body
 	PrevX, PrevY  float32
-	Waypoints     []ai.Cell
+	Waypoints     []pathfind.Cell
 	WaypointIndex int
 	State         *flow.Machine[EnemyState]
 	Alerted       bool
 	Defeated      bool
-	Path          []ai.Cell
+	Path          []pathfind.Cell
 	SmoothPath    []core.Point
 	PathStep      int
 	RepathTimer   time.Duration
-	LastGoal      ai.Cell
+	LastGoal      pathfind.Cell
 	Anim          sprite.Animation
 	FlipX         bool
 }
@@ -206,7 +206,7 @@ type Game struct {
 	// ShowNavMesh draws World.NavMesh over the crypt; N toggles it.
 	ShowNavMesh bool
 
-	astar        *ai.AStar
+	astar        *pathfind.AStar
 	store        *save.Store
 	moveRes      physics.MoveResult
 	keyMoveX     float32
@@ -230,7 +230,7 @@ func NewGame(store *save.Store) *Game {
 		},
 		Actions:      input.NewActions(),
 		VisitedRooms: make(map[string]bool),
-		astar:        ai.NewAStar(),
+		astar:        pathfind.NewAStar(),
 		store:        store,
 		batch:        sprite.Batch{Atlas: w.Atlas},
 	}
@@ -314,7 +314,7 @@ func (g *Game) newEnemy(sp EnemySpawn) *Enemy {
 		Body:          physics.NewBoxBody(float32(start.X)-enemyHitboxSize*0.5, float32(start.Y)-enemyHitboxSize*0.5, enemyHitboxSize, enemyHitboxSize),
 		Waypoints:     slices.Clone(sp.Waypoints),
 		WaypointIndex: 1 % len(sp.Waypoints),
-		Path:          make([]ai.Cell, 0, 64),
+		Path:          make([]pathfind.Cell, 0, 64),
 		SmoothPath:    make([]core.Point, 0, 64),
 		Anim: sprite.Animation{
 			Loop: true,
@@ -374,7 +374,7 @@ func (g *Game) PlayerCenter() core.Point {
 }
 
 // PlayerCell returns the tile cell containing the player's center.
-func (g *Game) PlayerCell() ai.Cell {
+func (g *Game) PlayerCell() pathfind.Cell {
 	p := g.PlayerCenter()
 	return g.World.CellAt(float32(p.X), float32(p.Y))
 }
@@ -730,12 +730,12 @@ func (g *Game) enemyShouldKeepChasing(e *Enemy) bool {
 	return distPoints(e.Center(), g.PlayerCenter()) <= loseAggroRadius
 }
 
-var enemyPathOptions = ai.GridPathOptions{
+var enemyPathOptions = pathfind.GridPathOptions{
 	CellSize: TileSize,
 	Radius:   enemyPathRadius,
 }
 
-func (g *Game) planEnemyPath(e *Enemy, goal ai.Cell) bool {
+func (g *Game) planEnemyPath(e *Enemy, goal pathfind.Cell) bool {
 	ep := e.Center()
 	start := g.World.CellAt(float32(ep.X), float32(ep.Y))
 	// Reuse AStar internal search buffers, e.Path cell slice, and e.SmoothPath world-space waypoints.
@@ -747,7 +747,7 @@ func (g *Game) planEnemyPath(e *Enemy, goal ai.Cell) bool {
 		return false
 	}
 	e.Path = path
-	e.SmoothPath = ai.SmoothGridPathInto(e.SmoothPath, g.World.Nav, e.Path, enemyPathOptions)
+	e.SmoothPath = pathfind.SmoothGridPathInto(e.SmoothPath, g.World.Nav, e.Path, enemyPathOptions)
 	e.LastGoal = goal
 	if len(e.SmoothPath) > 1 {
 		e.PathStep = 1

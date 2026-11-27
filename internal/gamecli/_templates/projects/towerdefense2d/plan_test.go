@@ -3,22 +3,22 @@ package main
 import (
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 // order is one thing the player does between waves: build a tower of kind on cell, or upgrade the tower on cell when kind is empty.
 type order struct {
 	kind string
-	cell ai.Cell
+	cell pathfind.Cell
 }
 
 // winningPlan is what a player who wins the level does before each wave, wave by wave: bolts covering the first bends, a frost tower to hold the enemies under them, a mortar for the crowds and upgrades as the money comes in. The towers stand where two stretches of the road pass them.
 var winningPlan = [][]order{
-	{{"bolt", ai.Cell{Col: 5, Row: 4}}, {"bolt", ai.Cell{Col: 6, Row: 2}}},
-	{{"bolt", ai.Cell{Col: 9, Row: 4}}},
-	{{"frost", ai.Cell{Col: 5, Row: 5}}, {"", ai.Cell{Col: 5, Row: 4}}},
-	{{"mortar", ai.Cell{Col: 8, Row: 5}}, {"", ai.Cell{Col: 6, Row: 2}}},
-	{{"", ai.Cell{Col: 9, Row: 4}}, {"", ai.Cell{Col: 8, Row: 5}}, {"bolt", ai.Cell{Col: 12, Row: 6}}},
+	{{"bolt", pathfind.Cell{Col: 5, Row: 4}}, {"bolt", pathfind.Cell{Col: 6, Row: 2}}},
+	{{"bolt", pathfind.Cell{Col: 9, Row: 4}}},
+	{{"frost", pathfind.Cell{Col: 5, Row: 5}}, {"", pathfind.Cell{Col: 5, Row: 4}}},
+	{{"mortar", pathfind.Cell{Col: 8, Row: 5}}, {"", pathfind.Cell{Col: 6, Row: 2}}},
+	{{"", pathfind.Cell{Col: 9, Row: 4}}, {"", pathfind.Cell{Col: 8, Row: 5}}, {"bolt", pathfind.Cell{Col: 12, Row: 6}}},
 }
 
 // thinPlan builds the first wave's bolts of winningPlan and then saves its money, which loses on a later wave.

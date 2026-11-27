@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/rts"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -67,7 +67,7 @@ func TestModeFor(t *testing.T) {
 }
 
 func newSelectorWorld() (*rts.Crowd, *rts.BoxSelector, []rts.UnitID) {
-	c := rts.NewCrowd(ai.NewBoolGrid(100, 100), rts.CrowdOptions{})
+	c := rts.NewCrowd(pathfind.NewBoolGrid(100, 100), rts.CrowdOptions{})
 	var ids []rts.UnitID
 	for i := range 10 {
 		ids = append(ids, c.Add(rts.UnitSpec{Pos: math2d.Vec2{X: 10 + float32(i)*5, Y: 10}, Radius: 1, Kind: i % 2}))

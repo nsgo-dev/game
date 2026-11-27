@@ -6,9 +6,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nsgo-dev/game/pkg/ai"
-	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/game/pkg/pathfind/navbake"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/game/pkg/tilemap/tileshape"
 	"github.com/nsgo-dev/nsgo/core"
@@ -155,11 +155,11 @@ func ExtractNavRegion2D(o *ObjectDoc, world *math2d.Affine) (NavRegion2DDebug, b
 	return dbg, true, nil
 }
 
-// BuildNavMesh2D constructs a baked *navbake.Mesh and runtime *ai.NavMesh from all built-in navregion2d components on visible world-space layers of scene, optionally subtracting solid tilemap collision geometry and attaching any authored 2D nav_link components.
+// BuildNavMesh2D constructs a baked *navbake.Mesh and runtime *pathfind.NavMesh from all built-in navregion2d components on visible world-space layers of scene, optionally subtracting solid tilemap collision geometry and attaching any authored 2D nav_link components.
 //
 // It returns (nil, nil, nil) when the scene declares no navregion2d components.
-// When navregion2d components exist but no enabled walkable polygon has at least 3 vertices, it returns an empty *navbake.Mesh and empty *ai.NavMesh without error.
-func BuildNavMesh2D(scene *BuiltScene) (*navbake.Mesh, *ai.NavMesh, error) {
+// When navregion2d components exist but no enabled walkable polygon has at least 3 vertices, it returns an empty *navbake.Mesh and empty *pathfind.NavMesh without error.
+func BuildNavMesh2D(scene *BuiltScene) (*navbake.Mesh, *pathfind.NavMesh, error) {
 	if scene == nil {
 		return nil, nil, nil
 	}
@@ -253,7 +253,7 @@ func BuildNavMesh2D(scene *BuiltScene) (*navbake.Mesh, *ai.NavMesh, error) {
 			Agent:   "default",
 			Radius:  maxRadius,
 		}
-		return empty, ai.BuildNavMesh(nil), nil
+		return empty, pathfind.BuildNavMesh(nil), nil
 	}
 	for _, pl := range linkObjects {
 		d, err := decodeNavLink(pl.objID, pl.raw)

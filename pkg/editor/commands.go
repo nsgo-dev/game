@@ -989,7 +989,7 @@ func (e *Editor) initBuiltinCommands() {
 		{
 			ID:          CmdToolNavTestPath,
 			Label:       "Tool: Test Nav Path",
-			Description: "Press start and end points in the 2D viewport to preview the path ai.NavMesh finds",
+			Description: "Press start and end points in the 2D viewport to preview the path pathfind.NavMesh finds",
 			Category:    "Tools",
 			Keywords:    []string{"nav", "navmesh", "path", "test", "preview", "ai", "2d"},
 			Scope:       ScopeViewport2D,

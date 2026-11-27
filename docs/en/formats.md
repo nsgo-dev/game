@@ -1901,7 +1901,7 @@ root:
         home: home_pos
 ```
 
-<!-- format: ai/navbake -->
+<!-- format: pathfind/navbake -->
 ### Navigation meshes
 
 | Files | Version | Read and written by | Fields |

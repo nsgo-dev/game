@@ -89,6 +89,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'animclip',
       'skeletal',
       'ai',
+      'pathfind',
       'navbake',
       'procgen',
       'replay',

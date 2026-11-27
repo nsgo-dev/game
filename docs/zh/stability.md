@@ -72,7 +72,6 @@
 | `game/pkg/a11y` | 实验性 | [a11y](a11y.md) |
 | `game/pkg/ability` | 实验性 | [ability](ability.md) |
 | `game/pkg/ai` | 稳定 | [ai](ai.md) |
-| `game/pkg/ai/navbake` | 实验性 | [navbake](navbake.md) |
 | `game/pkg/ai/navbake3d` | 实验性 | [navbake3d](navbake3d.md) |
 | `game/pkg/ai/perception3d` | 实验性 | [ai](ai.md) |
 | `game/pkg/anim3d` | 实验性 | [anim3d](anim3d.md) |
@@ -133,6 +132,8 @@
 | `game/pkg/online/presence` | 实验性 | [presence](presence.md) |
 | `game/pkg/online/wsclient` | 实验性 | [wsclient](wsclient.md) |
 | `game/pkg/particles` | 实验性 | [particles](particles.md) |
+| `game/pkg/pathfind` | 稳定 | [pathfind](pathfind.md) |
+| `game/pkg/pathfind/navbake` | 实验性 | [navbake](navbake.md) |
 | `game/pkg/physics` | 稳定 | [physics](physics.md) |
 | `game/pkg/physics3d` | 实验性 | [physics3d](physics3d.md) |
 | `game/pkg/pixelfx` | 实验性 | [pixelfx](pixelfx.md) |

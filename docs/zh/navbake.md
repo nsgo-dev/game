@@ -1,12 +1,12 @@
 # navbake
 
-`game/ai/navbake` 烘焙 `ai.NavMesh` 所搜索的 2D 导航网格：输入可以是关卡的外轮廓加上凹障碍物与洞，也可以是 tilemap 的实心格；按每种代理的半径收缩后，划分为凸多边形。烘焙结果保存为与关卡放在一起的带版本 YAML 文件，`Draw` 可将其绘制为调试叠加层。
+`game/pathfind/navbake` 烘焙 `pathfind.NavMesh` 所搜索的 2D 导航网格：输入可以是关卡的外轮廓加上凹障碍物与洞，也可以是 tilemap 的实心格；按每种代理的半径收缩后，划分为凸多边形。烘焙结果保存为与关卡放在一起的带版本 YAML 文件，`Draw` 可将其绘制为调试叠加层。
 
 ```go
-import "github.com/nsgo-dev/game/pkg/ai/navbake"
+import "github.com/nsgo-dev/game/pkg/pathfind/navbake"
 ```
 
-`ai.BuildNavMesh` 接收游戏已经切好的凸多边形，路径紧贴多边形的角走。`navbake` 负责切分，并让路径与每面墙保持代理半径的距离，就像 Godot 烘焙导航多边形、Recast 烘焙 3D 网格那样。
+`pathfind.BuildNavMesh` 接收游戏已经切好的凸多边形，路径紧贴多边形的角走。`navbake` 负责切分，并让路径与每面墙保持代理半径的距离，就像 Godot 烘焙导航多边形、Recast 烘焙 3D 网格那样。
 
 ## 从多边形烘焙
 
@@ -24,7 +24,7 @@ mesh, err := navbake.Bake(src, navbake.Agent{Name: "guard", Radius: 6}, navbake.
 if err != nil {
 	return err
 }
-nav := mesh.NavMesh() // 一个 *ai.NavMesh
+nav := mesh.NavMesh() // 一个 *pathfind.NavMesh
 path, ok := nav.FindPath(from, to)
 ```
 
@@ -77,7 +77,7 @@ polygons:
   - [[2.0078125, 2.0078125], [17.992188, 19.601562], [17.992188, 37.992188], [2.0078125, 37.992188]]
 ```
 
-`Mesh.Encode` 按固定的字段顺序写出，每个多边形占一行，每个坐标用能读回同一 `float32` 的最短形式；`Parse` 读取它，拒绝未知字段、其他版本、非法的离网连接，以及不凸、顺时针环绕、顶点少于三个或坐标非有限值的多边形。可通过 `Source.Links` 传入并在文件中以 `links:` 保存可选的点对点离网连接（跳跃、跌落、梯子、传送门；含 `id`、`start: [x, y]`、`end: [x, y]`、`radius`、`bidirectional`、`cost`、`area`、`flags`、`userData` 字段）。同样的输入烘焙两次得到逐字节相同的文件，加载后再保存也不会有任何改动，因此游戏可以在构建步骤中烘焙网格，与关卡一起提交，并以 diff 审阅每次改动。`Mesh.NavMesh` 构建运行时搜索用的 `ai.NavMesh` 并自动注册所有 `Links`，无需重新烘焙。如需运行时动态障碍物与按瓦片重建，可调用 `Mesh.TiledNavMesh(tileSize)` 构建 `*ai.TiledNavMesh`，同样会自动注册所有已保存的 `Links`，并在瓦片重建或障碍物挖空后自动重新挂接。
+`Mesh.Encode` 按固定的字段顺序写出，每个多边形占一行，每个坐标用能读回同一 `float32` 的最短形式；`Parse` 读取它，拒绝未知字段、其他版本、非法的离网连接，以及不凸、顺时针环绕、顶点少于三个或坐标非有限值的多边形。可通过 `Source.Links` 传入并在文件中以 `links:` 保存可选的点对点离网连接（跳跃、跌落、梯子、传送门；含 `id`、`start: [x, y]`、`end: [x, y]`、`radius`、`bidirectional`、`cost`、`area`、`flags`、`userData` 字段）。同样的输入烘焙两次得到逐字节相同的文件，加载后再保存也不会有任何改动，因此游戏可以在构建步骤中烘焙网格，与关卡一起提交，并以 diff 审阅每次改动。`Mesh.NavMesh` 构建运行时搜索用的 `pathfind.NavMesh` 并自动注册所有 `Links`，无需重新烘焙。如需运行时动态障碍物与按瓦片重建，可调用 `Mesh.TiledNavMesh(tileSize)` 构建 `*pathfind.TiledNavMesh`，同样会自动注册所有已保存的 `Links`，并在瓦片重建或障碍物挖空后自动重新挂接。
 
 ## 调试绘制
 
@@ -91,4 +91,4 @@ navbake.Draw(d, mesh, core.RGBA(0x40a0ff, 0.2), core.RGB(0x2060c0), core.RGB(0xf
 
 ## 在场景文件中编辑导航区域
 
-你也可以直接在 `*.scene.yaml` 场景文件中为对象声明可行走或障碍物 `navregion2d` 多边形组件（可选扣除瓦片地图实心碰撞），并在 [`game/editor`](editor.md#内置-2d-导航区域组件888) 中通过多边形顶点手柄、实时视口叠加层与 **Test Path** 路径测试工具进行编辑和验证。`sceneformat.Build` 会自动调用 `navbake.Bake` 生成 `BuiltScene.NavBake2D` 与 `BuiltScene.NavMesh2D`，使编辑器预览与游戏使用同一个 `ai.NavMesh`。
+你也可以直接在 `*.scene.yaml` 场景文件中为对象声明可行走或障碍物 `navregion2d` 多边形组件（可选扣除瓦片地图实心碰撞），并在 [`game/editor`](editor.md#内置-2d-导航区域组件888) 中通过多边形顶点手柄、实时视口叠加层与 **Test Path** 路径测试工具进行编辑和验证。`sceneformat.Build` 会自动调用 `navbake.Bake` 生成 `BuiltScene.NavBake2D` 与 `BuiltScene.NavMesh2D`，使编辑器预览与游戏使用同一个 `pathfind.NavMesh`。

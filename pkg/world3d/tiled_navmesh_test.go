@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
@@ -279,7 +279,7 @@ func TestNavTileStreamerFollowsChunkStreaming(t *testing.T) {
 	}
 
 	// Path across streamed chunks (-1,0) -> (0,0) -> (1,0) works and is watched.
-	res := tm.FindPathWithOptions(v3(-16, 0, 16), v3(48, 0, 16), ai.PathOptions{})
+	res := tm.FindPathWithOptions(v3(-16, 0, 16), v3(48, 0, 16), pathfind.PathOptions{})
 	if !res.Found {
 		t.Fatal("expected cross-chunk path across streamed tiles")
 	}
@@ -536,7 +536,7 @@ func TestTiledNavMesh3DTightenRespectsCheapRoadAndOversizedObstacleSafe(t *testi
 	filter := world3d.DefaultNavFilter()
 	filter.SetAreaCost(world3d.NavAreaRoad, 0.2)
 
-	res := tm.FindPathWithFilterAndOptions(v3(4, 0, 5), v3(4, 0, 27), filter, ai.PathOptions{})
+	res := tm.FindPathWithFilterAndOptions(v3(4, 0, 5), v3(4, 0, 27), filter, pathfind.PathOptions{})
 	if !res.Found {
 		t.Fatal("expected 3D path along cheap road")
 	}

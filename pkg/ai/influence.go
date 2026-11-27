@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -26,7 +27,7 @@ const (
 // InfluenceSource describes a point emitter stamped onto an InfluenceLayer.
 type InfluenceSource struct {
 	// Cell is the grid coordinate at the center of the source.
-	Cell Cell
+	Cell pathfind.Cell
 	// Strength is the peak influence value stamped at Cell. It may be positive or negative.
 	Strength float32
 	// Radius is the maximum stamp distance in grid cells. Values <= 0 stamp only Cell.
@@ -67,7 +68,7 @@ type WeightedLayer struct {
 type InfluenceQuery struct {
 	// Grid optionally filters candidate cells by walkability (and reachability when Reachable is true).
 	// When nil, all in-bounds cells within Radius are considered.
-	Grid Grid
+	Grid pathfind.Grid
 	// Reachable, when true and Grid is non-nil, restricts candidates to cells reachable from the center cell
 	// by walking through Grid.Walkable cells within Radius.
 	Reachable bool
@@ -128,7 +129,7 @@ var influenceSteps = [8]spreadStep{
 	{-1, -1, true},
 }
 
-// InfluenceLayer stores a 2D scalar influence grid matching an ai.Grid's dimensions.
+// InfluenceLayer stores a 2D scalar influence grid matching a pathfind.Grid's dimensions.
 //
 // Cells map to world coordinates via Origin and CellSize in the same convention as rts.FlowField:
 // cell (col, row) covers [Origin.X+col*CellSize, Origin.X+(col+1)*CellSize) horizontally and
@@ -181,7 +182,7 @@ func NewInfluenceLayer(cols, rows int) *InfluenceLayer {
 
 // NewInfluenceLayerForGrid returns an InfluenceLayer sized to g.GridSize() with the given world origin and cellSize.
 // If g is nil, the returned layer has size (0, 0).
-func NewInfluenceLayerForGrid(g Grid, origin math2d.Vec2, cellSize float32) *InfluenceLayer {
+func NewInfluenceLayerForGrid(g pathfind.Grid, origin math2d.Vec2, cellSize float32) *InfluenceLayer {
 	var cols, rows int
 	if g != nil {
 		cols, rows = g.GridSize()
@@ -336,28 +337,28 @@ func (l *InfluenceLayer) cellSize() float32 {
 }
 
 // CellAt returns the cell containing world position p and whether p lies inside the grid.
-func (l *InfluenceLayer) CellAt(p math2d.Vec2) (Cell, bool) {
+func (l *InfluenceLayer) CellAt(p math2d.Vec2) (pathfind.Cell, bool) {
 	if l == nil || l.cols == 0 || l.rows == 0 {
-		return Cell{}, false
+		return pathfind.Cell{}, false
 	}
 	size := float64(l.cellSize())
 	x := (float64(p.X) - float64(l.Origin.X)) / size
 	y := (float64(p.Y) - float64(l.Origin.Y)) / size
 	if math.IsNaN(x) || math.IsNaN(y) {
-		return Cell{}, false
+		return pathfind.Cell{}, false
 	}
 	fx, fy := math.Floor(x), math.Floor(y)
 	if fx < 0 || fy < 0 || fx >= float64(l.cols) || fy >= float64(l.rows) {
-		return Cell{
+		return pathfind.Cell{
 			Col: int(max(min(fx, float64(l.cols)), -1)),
 			Row: int(max(min(fy, float64(l.rows)), -1)),
 		}, false
 	}
-	return Cell{Col: int(fx), Row: int(fy)}, true
+	return pathfind.Cell{Col: int(fx), Row: int(fy)}, true
 }
 
 // CellCenter returns the world position at the center of cell c.
-func (l *InfluenceLayer) CellCenter(c Cell) math2d.Vec2 {
+func (l *InfluenceLayer) CellCenter(c pathfind.Cell) math2d.Vec2 {
 	size := l.cellSize()
 	return math2d.Vec2{
 		X: l.Origin.X + (float32(c.Col)+0.5)*size,
@@ -367,7 +368,7 @@ func (l *InfluenceLayer) CellCenter(c Cell) math2d.Vec2 {
 
 // Stamp additively stamps src directly onto the layer's current cell values, skipping blocked cells when g is non-nil.
 // Direct stamps are not tracked for incremental moves; use AddSource and Update for dynamic tracked sources.
-func (l *InfluenceLayer) Stamp(g Grid, src InfluenceSource) {
+func (l *InfluenceLayer) Stamp(g pathfind.Grid, src InfluenceSource) {
 	if l == nil || l.cols == 0 || l.rows == 0 {
 		return
 	}
@@ -443,7 +444,7 @@ func (l *InfluenceLayer) SetSource(id InfluenceSourceID, src InfluenceSource) bo
 
 // MoveSource moves the tracked source id to cell, marking its old and new footprints dirty only if cell changed.
 // It returns false if id is invalid or was already removed.
-func (l *InfluenceLayer) MoveSource(id InfluenceSourceID, cell Cell) bool {
+func (l *InfluenceLayer) MoveSource(id InfluenceSourceID, cell pathfind.Cell) bool {
 	idx, ok := l.lookupSlot(id)
 	if !ok {
 		return false
@@ -523,7 +524,7 @@ func (l *InfluenceLayer) ClearSources() {
 
 // MarkDirtyCell marks cell c for incremental recomputation on the next Update or Spread,
 // useful when a single obstacle on the underlying Grid toggles walkability.
-func (l *InfluenceLayer) MarkDirtyCell(c Cell) {
+func (l *InfluenceLayer) MarkDirtyCell(c pathfind.Cell) {
 	l.MarkDirtyRect(c.Col, c.Row, c.Col, c.Row)
 }
 
@@ -562,7 +563,7 @@ func (l *InfluenceLayer) MarkDirtyRect(minCol, minRow, maxCol, maxRow int) {
 // Update incrementally applies pending AddSource, MoveSource, SetSource, RemoveSource, and MarkDirty changes
 // to the layer, touching only the dirty cell footprints while matching Rebuild bit-for-bit.
 // When g is non-nil, blocked cells (!g.Walkable) receive 0.
-func (l *InfluenceLayer) Update(g Grid) {
+func (l *InfluenceLayer) Update(g pathfind.Grid) {
 	if l == nil || l.cols == 0 || l.rows == 0 {
 		return
 	}
@@ -571,7 +572,7 @@ func (l *InfluenceLayer) Update(g Grid) {
 
 // Rebuild forces a full recomputation of every cell from all active tracked sources,
 // skipping blocked cells when g is non-nil. Call Rebuild when terrain walkability changes across the whole Grid.
-func (l *InfluenceLayer) Rebuild(g Grid) {
+func (l *InfluenceLayer) Rebuild(g pathfind.Grid) {
 	if l == nil || l.cols == 0 || l.rows == 0 {
 		return
 	}
@@ -580,7 +581,7 @@ func (l *InfluenceLayer) Rebuild(g Grid) {
 	l.syncBase(g, true)
 }
 
-func (l *InfluenceLayer) syncBase(g Grid, copyToValues bool) {
+func (l *InfluenceLayer) syncBase(g pathfind.Grid, copyToValues bool) {
 	if !l.dirty {
 		if copyToValues && l.tracked && !l.valuesSynced && len(l.base) == len(l.values) {
 			copy(l.values, l.base)
@@ -760,7 +761,7 @@ func (l *InfluenceLayer) syncBase(g Grid, copyToValues bool) {
 	l.dirty = false
 }
 
-func (l *InfluenceLayer) stampIntoBase(g Grid, src InfluenceSource) {
+func (l *InfluenceLayer) stampIntoBase(g pathfind.Grid, src InfluenceSource) {
 	strength := sanitizeFloat32(src.Strength)
 	if strength == 0 {
 		return
@@ -792,7 +793,7 @@ func (l *InfluenceLayer) stampIntoBase(g Grid, src InfluenceSource) {
 // decay according to opts.Momentum. When no tracked sources are active (for example after direct Stamp
 // or Set calls), each cell anchors on its own current value so influence spreads outward around obstacles.
 // Blocked cells (!g.Walkable) always evaluate to 0 and never transmit influence.
-func (l *InfluenceLayer) Spread(g Grid, opts SpreadOptions) {
+func (l *InfluenceLayer) Spread(g pathfind.Grid, opts SpreadOptions) {
 	if l == nil || l.cols == 0 || l.rows == 0 {
 		return
 	}
@@ -1298,33 +1299,33 @@ func (l *InfluenceLayer) Gradient(p math2d.Vec2) math2d.Vec2 {
 
 // HighestInRadius finds the candidate cell with the highest value within Euclidean cell distance radius of center.
 // Ties break deterministically by closer distance to center, then smaller Row, then smaller Col.
-func (l *InfluenceLayer) HighestInRadius(center Cell, radius float32, q InfluenceQuery) (Cell, float32, bool) {
+func (l *InfluenceLayer) HighestInRadius(center pathfind.Cell, radius float32, q InfluenceQuery) (pathfind.Cell, float32, bool) {
 	return l.extremumInRadius(center, radius, q, true)
 }
 
 // LowestInRadius finds the candidate cell with the lowest value within Euclidean cell distance radius of center.
 // Ties break deterministically by closer distance to center, then smaller Row, then smaller Col.
-func (l *InfluenceLayer) LowestInRadius(center Cell, radius float32, q InfluenceQuery) (Cell, float32, bool) {
+func (l *InfluenceLayer) LowestInRadius(center pathfind.Cell, radius float32, q InfluenceQuery) (pathfind.Cell, float32, bool) {
 	return l.extremumInRadius(center, radius, q, false)
 }
 
 // Highest finds the highest-valued cell across the entire layer (restricted to walkable cells when g is non-nil).
 // Ties break deterministically by smaller Row, then smaller Col.
-func (l *InfluenceLayer) Highest(g Grid) (Cell, float32, bool) {
+func (l *InfluenceLayer) Highest(g pathfind.Grid) (pathfind.Cell, float32, bool) {
 	return l.extremumGlobal(g, true)
 }
 
 // Lowest finds the lowest-valued cell across the entire layer (restricted to walkable cells when g is non-nil).
 // Ties break deterministically by smaller Row, then smaller Col.
-func (l *InfluenceLayer) Lowest(g Grid) (Cell, float32, bool) {
+func (l *InfluenceLayer) Lowest(g pathfind.Grid) (pathfind.Cell, float32, bool) {
 	return l.extremumGlobal(g, false)
 }
 
-func (l *InfluenceLayer) extremumGlobal(g Grid, wantHigh bool) (Cell, float32, bool) {
+func (l *InfluenceLayer) extremumGlobal(g pathfind.Grid, wantHigh bool) (pathfind.Cell, float32, bool) {
 	if l == nil || l.cols == 0 || l.rows == 0 {
-		return Cell{}, 0, false
+		return pathfind.Cell{}, 0, false
 	}
-	var bestCell Cell
+	var bestCell pathfind.Cell
 	var bestVal float32
 	found := false
 	for row := range l.rows {
@@ -1335,7 +1336,7 @@ func (l *InfluenceLayer) extremumGlobal(g Grid, wantHigh bool) (Cell, float32, b
 			}
 			v := l.values[rowOff+col]
 			if !found || (wantHigh && v > bestVal) || (!wantHigh && v < bestVal) {
-				bestCell = Cell{Col: col, Row: row}
+				bestCell = pathfind.Cell{Col: col, Row: row}
 				bestVal = v
 				found = true
 			}
@@ -1344,9 +1345,9 @@ func (l *InfluenceLayer) extremumGlobal(g Grid, wantHigh bool) (Cell, float32, b
 	return bestCell, bestVal, found
 }
 
-func (l *InfluenceLayer) extremumInRadius(center Cell, radius float32, q InfluenceQuery, wantHigh bool) (Cell, float32, bool) {
+func (l *InfluenceLayer) extremumInRadius(center pathfind.Cell, radius float32, q InfluenceQuery, wantHigh bool) (pathfind.Cell, float32, bool) {
 	if l == nil || l.cols == 0 || l.rows == 0 {
-		return Cell{}, 0, false
+		return pathfind.Cell{}, 0, false
 	}
 	rad := float64(radius)
 	if math.IsNaN(rad) || rad < 0 {
@@ -1355,7 +1356,7 @@ func (l *InfluenceLayer) extremumInRadius(center Cell, radius float32, q Influen
 	infRad := math.IsInf(rad, 1)
 	r2 := rad * rad
 
-	var bestCell Cell
+	var bestCell pathfind.Cell
 	var bestVal float32
 	bestDistSq := 0
 	found := false
@@ -1369,7 +1370,7 @@ func (l *InfluenceLayer) extremumInRadius(center Cell, radius float32, q Influen
 		dr := row - center.Row
 		d2 := dc*dc + dr*dr
 		if !found {
-			bestCell = Cell{Col: col, Row: row}
+			bestCell = pathfind.Cell{Col: col, Row: row}
 			bestVal = v
 			bestDistSq = d2
 			found = true
@@ -1390,7 +1391,7 @@ func (l *InfluenceLayer) extremumInRadius(center Cell, radius float32, q Influen
 			}
 		}
 		if better {
-			bestCell = Cell{Col: col, Row: row}
+			bestCell = pathfind.Cell{Col: col, Row: row}
 			bestVal = v
 			bestDistSq = d2
 		}
@@ -1398,7 +1399,7 @@ func (l *InfluenceLayer) extremumInRadius(center Cell, radius float32, q Influen
 
 	if q.Reachable && q.Grid != nil {
 		if !l.inBounds(center.Col, center.Row) || !q.Grid.Walkable(center.Col, center.Row) {
-			return Cell{}, 0, false
+			return pathfind.Cell{}, 0, false
 		}
 		n := l.cols * l.rows
 		if cap(l.bfsGen) < n {
@@ -1465,7 +1466,7 @@ func (l *InfluenceLayer) extremumInRadius(center Cell, radius float32, q Influen
 		maxRow = min(l.rows-1, center.Row+ri)
 	}
 	if minCol > maxCol || minRow > maxRow {
-		return Cell{}, 0, false
+		return pathfind.Cell{}, 0, false
 	}
 	for row := minRow; row <= maxRow; row++ {
 		dr := float64(row - center.Row)
@@ -1486,7 +1487,7 @@ func (l *InfluenceLayer) extremumInRadius(center Cell, radius float32, q Influen
 	return bestCell, bestVal, found
 }
 
-func tieBreakBetter(d2, row, col, bestD2 int, best Cell) bool {
+func tieBreakBetter(d2, row, col, bestD2 int, best pathfind.Cell) bool {
 	if d2 != bestD2 {
 		return d2 < bestD2
 	}

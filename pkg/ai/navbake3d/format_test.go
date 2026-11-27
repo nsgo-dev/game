@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
@@ -181,7 +181,7 @@ func TestOffMeshLinksYAMLAndNavMesh(t *testing.T) {
 	}
 
 	nm := back.Meshes[0].NavMesh()
-	res := nm.FindPathWithOptions(math3d.Vec3{X: 0.5, Y: 0.1, Z: 2}, math3d.Vec3{X: 7.5, Y: 1, Z: 2}, ai.PathOptions{})
+	res := nm.FindPathWithOptions(math3d.Vec3{X: 0.5, Y: 0.1, Z: 2}, math3d.Vec3{X: 7.5, Y: 1, Z: 2}, pathfind.PathOptions{})
 	if !res.Found || len(res.Links) != 1 || res.Links[0].LinkID != 19 || res.Links[0].UserData != "teleport" {
 		t.Fatalf("expected path via YAML off-mesh link, got %+v", res)
 	}

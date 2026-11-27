@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 	"github.com/nsgo-dev/game/pkg/scene3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -336,11 +336,11 @@ func TestSceneFileBakesOffMeshLinksIntoNavMeshYAML(t *testing.T) {
 	}
 
 	nm := parsed.Meshes[0].NavMesh()
-	down := nm.FindPathWithOptions(v3(1.5, 3, 2), v3(10.5, 0, 2), ai.PathOptions{})
+	down := nm.FindPathWithOptions(v3(1.5, 3, 2), v3(10.5, 0, 2), pathfind.PathOptions{})
 	if !down.Found || len(down.Links) != 1 || down.Links[0].LinkID != 44 || down.Links[0].UserData != "drop" {
 		t.Fatalf("expected path down scene-baked drop link, got %+v", down)
 	}
-	if up := nm.FindPathWithOptions(v3(10.5, 0, 2), v3(1.5, 3, 2), ai.PathOptions{}); up.Found {
+	if up := nm.FindPathWithOptions(v3(10.5, 0, 2), v3(1.5, 3, 2), pathfind.PathOptions{}); up.Found {
 		t.Fatalf("one-way drop link baked from scene should not work in reverse: %+v", up)
 	}
 }

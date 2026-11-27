@@ -3,11 +3,11 @@ package rts
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
-// FlowField holds, for every cell of an ai.Grid, the cost of the cheapest path to the nearest of its goal cells (the integration field) and the direction a unit standing in that cell moves to follow that path (the direction field).
+// FlowField holds, for every cell of a pathfind.Grid, the cost of the cheapest path to the nearest of its goal cells (the integration field) and the direction a unit standing in that cell moves to follow that path (the direction field).
 //
 // One field serves every unit heading for the same goals: building it costs one Dijkstra search over the grid, and each unit then reads its direction in constant time with Sample. Cells map to world space through Origin and CellSize: cell (col, row) covers [Origin.X+col*CellSize, Origin.X+(col+1)*CellSize) horizontally and the same along Y.
 //
@@ -21,8 +21,8 @@ type FlowField struct {
 	Diagonal bool
 
 	cols, rows int
-	goals      []ai.Cell
-	request    []ai.Cell // the goals the last Build was given, valid or not, so the field can be built again from them
+	goals      []pathfind.Cell
+	request    []pathfind.Cell // the goals the last Build was given, valid or not, so the field can be built again from them
 	cost       []float32
 	enter      []float32
 	vec        []math2d.Vec2
@@ -44,8 +44,8 @@ func NewFlowField(origin math2d.Vec2, cellSize float32) *FlowField {
 
 // Build integrates g toward goals, replacing whatever the field held, and reports whether at least one goal is an in-bounds walkable cell. Goals that are out of bounds or blocked are ignored.
 //
-// Stepping into a cell costs the step's length (1, or sqrt(2) diagonally) times the cell's cost, which comes from g's MoveCost when g is an ai.CostGrid (values of 0 or less, and non-finite ones, count as 1, as ai.AStar treats them) and is 1 otherwise, so a cell's integration cost equals the cost ai.AStar finds from it to the nearest goal. Build reuses the field's buffers, so rebuilding a field of the same size allocates nothing.
-func (f *FlowField) Build(g ai.Grid, goals ...ai.Cell) bool {
+// Stepping into a cell costs the step's length (1, or sqrt(2) diagonally) times the cell's cost, which comes from g's MoveCost when g is a pathfind.CostGrid (values of 0 or less, and non-finite ones, count as 1, as pathfind.AStar treats them) and is 1 otherwise, so a cell's integration cost equals the cost pathfind.AStar finds from it to the nearest goal. Build reuses the field's buffers, so rebuilding a field of the same size allocates nothing.
+func (f *FlowField) Build(g pathfind.Grid, goals ...pathfind.Cell) bool {
 	f.goals = f.goals[:0]
 	f.request = append(f.request[:0], goals...)
 	if g == nil {
@@ -59,7 +59,7 @@ func (f *FlowField) Build(g ai.Grid, goals ...ai.Cell) bool {
 	}
 	f.resize(cols, rows)
 	// Read the grid once: enter holds each cell's step cost, or Unreachable when blocked, so the search below makes no interface calls.
-	cg, hasCost := g.(ai.CostGrid)
+	cg, hasCost := g.(pathfind.CostGrid)
 	for r := range rows {
 		for c := range cols {
 			id := r*cols + c
@@ -180,7 +180,7 @@ var fieldSteps = [8]fieldStep{
 	{-1, -1, math.Sqrt2, true},
 }
 
-func moveCost(g ai.CostGrid, col, row int) float32 {
+func moveCost(g pathfind.CostGrid, col, row int) float32 {
 	c := g.MoveCost(col, row)
 	if !(c > 0) || math.IsInf(c, 0) {
 		return 1
@@ -209,7 +209,7 @@ func (f *FlowField) inBounds(col, row int) bool {
 func (f *FlowField) Size() (cols, rows int) { return f.cols, f.rows }
 
 // Goals returns the in-bounds walkable goal cells of the last Build, in the order given, without duplicates. The slice is the field's own and changes on the next Build.
-func (f *FlowField) Goals() []ai.Cell { return f.goals }
+func (f *FlowField) Goals() []pathfind.Cell { return f.goals }
 
 // Cost returns the integration cost from (col, row) to the nearest goal, 0 on a goal and Unreachable for a cell outside the grid or with no path.
 func (f *FlowField) Cost(col, row int) float32 {
@@ -242,29 +242,29 @@ func validCellSize(s float32) float32 {
 }
 
 // CellAt returns the cell holding world position p and whether it is inside the grid.
-func (f *FlowField) CellAt(p math2d.Vec2) (ai.Cell, bool) {
+func (f *FlowField) CellAt(p math2d.Vec2) (pathfind.Cell, bool) {
 	return cellAt(p, f.Origin, f.cellSize(), f.cols, f.rows)
 }
 
 // CellCenter returns the world position of the center of cell c.
-func (f *FlowField) CellCenter(c ai.Cell) math2d.Vec2 {
+func (f *FlowField) CellCenter(c pathfind.Cell) math2d.Vec2 {
 	return cellCenter(c, f.Origin, f.cellSize())
 }
 
-func cellAt(p, origin math2d.Vec2, size float32, cols, rows int) (ai.Cell, bool) {
+func cellAt(p, origin math2d.Vec2, size float32, cols, rows int) (pathfind.Cell, bool) {
 	x := float64((p.X - origin.X) / size)
 	y := float64((p.Y - origin.Y) / size)
 	if math.IsNaN(x) || math.IsNaN(y) {
-		return ai.Cell{}, false
+		return pathfind.Cell{}, false
 	}
 	fx, fy := math.Floor(x), math.Floor(y)
 	if fx < 0 || fy < 0 || fx >= float64(cols) || fy >= float64(rows) {
-		return ai.Cell{Col: int(max(min(fx, float64(cols)), -1)), Row: int(max(min(fy, float64(rows)), -1))}, false
+		return pathfind.Cell{Col: int(max(min(fx, float64(cols)), -1)), Row: int(max(min(fy, float64(rows)), -1))}, false
 	}
-	return ai.Cell{Col: int(fx), Row: int(fy)}, true
+	return pathfind.Cell{Col: int(fx), Row: int(fy)}, true
 }
 
-func cellCenter(c ai.Cell, origin math2d.Vec2, size float32) math2d.Vec2 {
+func cellCenter(c pathfind.Cell, origin math2d.Vec2, size float32) math2d.Vec2 {
 	return math2d.Vec2{X: origin.X + (float32(c.Col)+0.5)*size, Y: origin.Y + (float32(c.Row)+0.5)*size}
 }
 

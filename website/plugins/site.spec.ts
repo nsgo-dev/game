@@ -48,6 +48,7 @@ describe('parsing', () => {
     assert.equal(category('game/cmd/game'), 'tools')
     assert.equal(category('game/pkg/pixelfx/fire'), 'ui')
     assert.equal(category('game/pkg/rts'), 'play')
+    assert.equal(category('game/pkg/pathfind'), 'play')
   })
 
   test('parseTutorial reads the title, introduction, chapters and files', () => {

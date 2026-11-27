@@ -12,6 +12,8 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
+func pt(x, y float32) core.Point { return core.Point{X: core.Points(x), Y: core.Points(y)} }
+
 func ptDist(a, b core.Point) float64 {
 	return math.Hypot(float64(a.X-b.X), float64(a.Y-b.Y))
 }

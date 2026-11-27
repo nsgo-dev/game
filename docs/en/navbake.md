@@ -1,12 +1,12 @@
 # navbake
 
-`game/ai/navbake` bakes the 2D navigation meshes that `ai.NavMesh` searches: from a level's outline with concave obstacles and holes, or from a tilemap's solid cells, shrunk by each agent type's radius and divided into convex polygons. A baked mesh saves to a versioned YAML file beside the level, and `Draw` shows it as a debug overlay.
+`game/pathfind/navbake` bakes the 2D navigation meshes that `pathfind.NavMesh` searches: from a level's outline with concave obstacles and holes, or from a tilemap's solid cells, shrunk by each agent type's radius and divided into convex polygons. A baked mesh saves to a versioned YAML file beside the level, and `Draw` shows it as a debug overlay.
 
 ```go
-import "github.com/nsgo-dev/game/pkg/ai/navbake"
+import "github.com/nsgo-dev/game/pkg/pathfind/navbake"
 ```
 
-`ai.BuildNavMesh` takes convex polygons that a game has already cut its level into, and its paths run along the polygons' corners. `navbake` does the cutting, and keeps the paths an agent's radius away from every wall, as Godot does when it bakes a navigation polygon and Recast does for 3D meshes.
+`pathfind.BuildNavMesh` takes convex polygons that a game has already cut its level into, and its paths run along the polygons' corners. `navbake` does the cutting, and keeps the paths an agent's radius away from every wall, as Godot does when it bakes a navigation polygon and Recast does for 3D meshes.
 
 ## Baking from polygons
 
@@ -24,7 +24,7 @@ mesh, err := navbake.Bake(src, navbake.Agent{Name: "guard", Radius: 6}, navbake.
 if err != nil {
 	return err
 }
-nav := mesh.NavMesh() // an *ai.NavMesh
+nav := mesh.NavMesh() // an *pathfind.NavMesh
 path, ok := nav.FindPath(from, to)
 ```
 
@@ -77,7 +77,7 @@ polygons:
   - [[2.0078125, 2.0078125], [17.992188, 19.601562], [17.992188, 37.992188], [2.0078125, 37.992188]]
 ```
 
-`Mesh.Encode` writes it with the fields in a fixed order and one polygon per line, each coordinate in the shortest form that reads back as the same `float32`; `Parse` reads it, refusing unknown fields, another version, invalid off-mesh links, and polygons that are not convex, are wound clockwise, have fewer than three vertices or a coordinate that is not finite. Optional point-to-point off-mesh connections (jumps, drops, ladders, teleports) can be carried in `Source.Links` and stored under `links:` (`id`, `start: [x, y]`, `end: [x, y]`, `radius`, `bidirectional`, `cost`, `area`, `flags`, `userData`). Baking the same input twice gives byte-identical files, and loading a file and saving it again changes nothing, so a game can bake its meshes in a build step, commit them beside its levels and review each change as a diff. `Mesh.NavMesh` builds the `ai.NavMesh` to search at run time, registering all stored `Links` automatically without baking again. For runtime dynamic obstacles and per-tile rebuilding, call `Mesh.TiledNavMesh(tileSize)` to build an `*ai.TiledNavMesh`, which likewise registers all stored `Links` and re-attaches them across tile rebuilds and obstacle carving.
+`Mesh.Encode` writes it with the fields in a fixed order and one polygon per line, each coordinate in the shortest form that reads back as the same `float32`; `Parse` reads it, refusing unknown fields, another version, invalid off-mesh links, and polygons that are not convex, are wound clockwise, have fewer than three vertices or a coordinate that is not finite. Optional point-to-point off-mesh connections (jumps, drops, ladders, teleports) can be carried in `Source.Links` and stored under `links:` (`id`, `start: [x, y]`, `end: [x, y]`, `radius`, `bidirectional`, `cost`, `area`, `flags`, `userData`). Baking the same input twice gives byte-identical files, and loading a file and saving it again changes nothing, so a game can bake its meshes in a build step, commit them beside its levels and review each change as a diff. `Mesh.NavMesh` builds the `pathfind.NavMesh` to search at run time, registering all stored `Links` automatically without baking again. For runtime dynamic obstacles and per-tile rebuilding, call `Mesh.TiledNavMesh(tileSize)` to build an `*pathfind.TiledNavMesh`, which likewise registers all stored `Links` and re-attaches them across tile rebuilds and obstacle carving.
 
 ## Debug drawing
 
@@ -91,4 +91,4 @@ The CryptQuest sample game bakes its crypt's mesh with `FromTilemap` and draws i
 
 ## Authoring navigation regions in scenes
 
-You can also author walkable and obstacle `navregion2d` polygon components directly in `*.scene.yaml` files (with optional tilemap collision subtraction) and edit them with polygon vertex handles, a live viewport overlay, and the **Test Path** tool in [`game/editor`](editor.md#built-in-2d-navigation-region-components-888). `sceneformat.Build` runs `navbake.Bake` automatically into `BuiltScene.NavBake2D` and `BuiltScene.NavMesh2D` so the editor's path preview and the game share the same `ai.NavMesh`.
+You can also author walkable and obstacle `navregion2d` polygon components directly in `*.scene.yaml` files (with optional tilemap collision subtraction) and edit them with polygon vertex handles, a live viewport overlay, and the **Test Path** tool in [`game/editor`](editor.md#built-in-2d-navigation-region-components-888). `sceneformat.Build` runs `navbake.Bake` automatically into `BuiltScene.NavBake2D` and `BuiltScene.NavMesh2D` so the editor's path preview and the game share the same `pathfind.NavMesh`.

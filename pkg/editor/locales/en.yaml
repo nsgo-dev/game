@@ -1391,7 +1391,7 @@ strings:
   cmd.toolLineTile.label: 'Tool: Line Tile'
   cmd.toolMove.desc: Switch to the Move viewport tool
   cmd.toolMove.label: 'Tool: Move'
-  cmd.toolNavTestPath.desc: Press start and end points in the 2D viewport to preview the path ai.NavMesh finds
+  cmd.toolNavTestPath.desc: Press start and end points in the 2D viewport to preview the path pathfind.NavMesh finds
   cmd.toolNavTestPath.label: 'Tool: Test Nav Path'
   cmd.toolPaintTile.desc: Switch to the Paint Tile brush
   cmd.toolPaintTile.label: 'Tool: Paint Tile'

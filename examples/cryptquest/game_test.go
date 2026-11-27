@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/gametest"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
@@ -38,7 +38,7 @@ func TestEnemyPathfindsAroundWallsWithAStar(t *testing.T) {
 	// Distance is 3 tiles (within senseRadius), so Bone Warden must alert,
 	// switch to EnemyChase, and compute a wall-avoiding A* path down through
 	// the doorway at (7, 4) and back up to (6, 2).
-	targetCell := ai.Cell{Col: 6, Row: 2}
+	targetCell := pathfind.Cell{Col: 6, Row: 2}
 	targetPos := g.World.CellCenter(targetCell)
 	app.Post(func() {
 		g.SetPlayerPos(float32(targetPos.X), float32(targetPos.Y))
@@ -67,7 +67,7 @@ func TestEnemyPathfindsAroundWallsWithAStar(t *testing.T) {
 		t.Fatalf("expected SmoothGridPathInto to drop intermediate cells: smooth=%d raw=%d (%v)", len(warden.SmoothPath), len(warden.Path), warden.SmoothPath)
 	}
 	for i := 0; i+1 < len(warden.SmoothPath); i++ {
-		if !ai.GridLineOfSight(g.World.Nav, warden.SmoothPath[i], warden.SmoothPath[i+1], enemyPathOptions) {
+		if !pathfind.GridLineOfSight(g.World.Nav, warden.SmoothPath[i], warden.SmoothPath[i+1], enemyPathOptions) {
 			t.Fatalf("smoothed segment %d (%v -> %v) violated clearance radius %.2f", i, warden.SmoothPath[i], warden.SmoothPath[i+1], enemyPathRadius)
 		}
 	}
@@ -110,7 +110,7 @@ func TestElderNPCDialogueMultiPageTypewriterAndClose(t *testing.T) {
 	app, g := startTestGame(t)
 
 	// Move player directly adjacent to Elder Aldric at (3, 3).
-	nearElder := g.World.CellCenter(ai.Cell{Col: 3, Row: 3})
+	nearElder := g.World.CellCenter(pathfind.Cell{Col: 3, Row: 3})
 	app.Post(func() {
 		g.SetPlayerPos(float32(nearElder.X), float32(nearElder.Y))
 	})
@@ -352,7 +352,7 @@ func TestTouchStickMovesCardinallyAndDiagonallyWithOneThumb(t *testing.T) {
 	app.Advance(50 * time.Millisecond)
 
 	// Start in an open area of Entry Hall (col 3, row 4) with room to move in every direction.
-	open := g.World.CellCenter(ai.Cell{Col: 3, Row: 4})
+	open := g.World.CellCenter(pathfind.Cell{Col: 3, Row: 4})
 	app.Post(func() {
 		g.SetPlayerPos(float32(open.X), float32(open.Y))
 	})
@@ -463,7 +463,7 @@ func TestTouchButtonsAttackInteractAndHideDuringDialogue(t *testing.T) {
 	}
 
 	// Move beside Elder Aldric and tap the touch USE button to open dialogue; touch controls must hide while dialogue is open.
-	nearElder := g.World.CellCenter(ai.Cell{Col: 3, Row: 3})
+	nearElder := g.World.CellCenter(pathfind.Cell{Col: 3, Row: 3})
 	app.Post(func() {
 		g.SetPlayerPos(float32(nearElder.X), float32(nearElder.Y))
 	})
@@ -637,7 +637,7 @@ func TestNavMeshOverlayFollowsTheDoor(t *testing.T) {
 		for row := range MapRows {
 			for col := range MapCols {
 				want := w.Map.FlagsAt(col, row)&tilemap.TileSolid == 0
-				if got := nav.Contains(cellCenter(ai.Cell{Col: col, Row: row})); got != want {
+				if got := nav.Contains(cellCenter(pathfind.Cell{Col: col, Row: row})); got != want {
 					t.Fatalf("door open %v: cell (%d, %d) on the mesh = %v, want %v", doorOpen, col, row, got, want)
 				}
 			}

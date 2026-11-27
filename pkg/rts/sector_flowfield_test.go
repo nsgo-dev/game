@@ -4,13 +4,13 @@ import (
 	"math"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/rts"
 )
 
 func TestSectorFlowFieldAlongHPADescendsToGoal(t *testing.T) {
-	g := ai.NewCostMap(128, 128)
+	g := pathfind.NewCostMap(128, 128)
 	for r := 0; r < 110; r++ {
 		g.SetWalkable(40, r, false)
 	}
@@ -22,9 +22,9 @@ func TestSectorFlowFieldAlongHPADescendsToGoal(t *testing.T) {
 		g.SetCost(40, r, 3)
 	}
 
-	hpa := ai.NewHPA(g, ai.HPAOptions{ClusterSize: 16, Diagonal: true})
-	start := ai.Cell{Col: 4, Row: 10}
-	goal := ai.Cell{Col: 120, Row: 120}
+	hpa := pathfind.NewHPA(g, pathfind.HPAOptions{ClusterSize: 16, Diagonal: true})
+	start := pathfind.Cell{Col: 4, Row: 10}
+	goal := pathfind.Cell{Col: 120, Row: 120}
 
 	sf := rts.NewSectorFlowField(math2d.Vec2{X: 10, Y: 20}, 8)
 	if !sf.BuildAlongHPA(hpa, start, goal, 0) {
@@ -67,16 +67,16 @@ func TestSectorFlowFieldAlongHPADescendsToGoal(t *testing.T) {
 	if dir, ok := sf.Sample(sf.CellCenter(goal)); !ok || dir != (math2d.Vec2{}) {
 		t.Fatalf("Sample at goal = (%v, %v), want zero vector", dir, ok)
 	}
-	if _, ok := sf.Sample(sf.CellCenter(ai.Cell{Col: 120, Row: 4})); ok {
+	if _, ok := sf.Sample(sf.CellCenter(pathfind.Cell{Col: 120, Row: 4})); ok {
 		t.Fatal("Sample outside active sectors reported ok")
 	}
 }
 
 func TestSectorFlowFieldPaddingAndZeroAllocRebuild(t *testing.T) {
-	g := ai.NewBoolGrid(128, 128)
-	hpa := ai.NewHPA(g, ai.HPAOptions{ClusterSize: 16, Diagonal: true})
-	start := ai.Cell{Col: 8, Row: 8}
-	goal := ai.Cell{Col: 120, Row: 8}
+	g := pathfind.NewBoolGrid(128, 128)
+	hpa := pathfind.NewHPA(g, pathfind.HPAOptions{ClusterSize: 16, Diagonal: true})
+	start := pathfind.Cell{Col: 8, Row: 8}
+	goal := pathfind.Cell{Col: 120, Row: 8}
 
 	sf := rts.NewSectorFlowField(math2d.Vec2{}, 1)
 	if !sf.BuildAlongHPA(hpa, start, goal, 0) {
@@ -104,15 +104,15 @@ func TestSectorFlowFieldPaddingAndZeroAllocRebuild(t *testing.T) {
 
 func TestSectorFlowFieldEdgeCases(t *testing.T) {
 	sf := rts.NewSectorFlowField(math2d.Vec2{}, 1)
-	if sf.BuildAlongHPA(nil, ai.Cell{}, ai.Cell{}, 0) {
+	if sf.BuildAlongHPA(nil, pathfind.Cell{}, pathfind.Cell{}, 0) {
 		t.Fatal("nil HPA should fail")
 	}
-	g := ai.NewBoolGrid(32, 32)
+	g := pathfind.NewBoolGrid(32, 32)
 	for r := range 32 {
 		g.SetWalkable(16, r, false)
 	}
-	hpa := ai.NewHPA(g, ai.HPAOptions{ClusterSize: 8, Diagonal: true})
-	if sf.BuildAlongHPA(hpa, ai.Cell{Col: 1, Row: 1}, ai.Cell{Col: 30, Row: 30}, 0) {
+	hpa := pathfind.NewHPA(g, pathfind.HPAOptions{ClusterSize: 8, Diagonal: true})
+	if sf.BuildAlongHPA(hpa, pathfind.Cell{Col: 1, Row: 1}, pathfind.Cell{Col: 30, Row: 30}, 0) {
 		t.Fatal("unreachable goal should fail")
 	}
 	if sf.ActiveSectors() != 0 {
@@ -120,8 +120,8 @@ func TestSectorFlowFieldEdgeCases(t *testing.T) {
 	}
 }
 
-func openObstaclesGrid(cols, rows int) *ai.BoolGrid {
-	g := ai.NewBoolGrid(cols, rows)
+func openObstaclesGrid(cols, rows int) *pathfind.BoolGrid {
+	g := pathfind.NewBoolGrid(cols, rows)
 	// Room walls every 128 cols/rows with generous doorways so long corridors span a narrow subset of sectors.
 	for c := 128; c < cols; c += 128 {
 		for r := range rows {
@@ -144,10 +144,10 @@ func openObstaclesGrid(cols, rows int) *ai.BoolGrid {
 
 func BenchmarkSectorFlowField1024(b *testing.B) {
 	g := openObstaclesGrid(1024, 1024)
-	hpa := ai.NewHPA(g, ai.HPAOptions{ClusterSize: 32, Diagonal: true})
+	hpa := pathfind.NewHPA(g, pathfind.HPAOptions{ClusterSize: 32, Diagonal: true})
 	sf := rts.NewSectorFlowField(math2d.Vec2{}, 1)
-	start := ai.Cell{Col: 4, Row: 4}
-	goal := ai.Cell{Col: 1018, Row: 1018}
+	start := pathfind.Cell{Col: 4, Row: 4}
+	goal := pathfind.Cell{Col: 1018, Row: 1018}
 	if !sf.BuildAlongHPA(hpa, start, goal, 0) {
 		b.Fatal("BuildAlongHPA failed")
 	}
@@ -161,7 +161,7 @@ func BenchmarkSectorFlowField1024(b *testing.B) {
 func BenchmarkWholeFlowField1024(b *testing.B) {
 	g := openObstaclesGrid(1024, 1024)
 	f := rts.NewFlowField(math2d.Vec2{}, 1)
-	goal := ai.Cell{Col: 1018, Row: 1018}
+	goal := pathfind.Cell{Col: 1018, Row: 1018}
 	if !f.Build(g, goal) {
 		b.Fatal("Build failed")
 	}

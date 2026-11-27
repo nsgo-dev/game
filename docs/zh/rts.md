@@ -1,6 +1,6 @@
 # rts
 
-`game/rts` 是即时战略游戏的单位操控层：在 `ai.Grid` 上把大量单位引向目标的流场（flow field）、带推开分离或 ORCA 局部避障与贴墙滑动的单位群 `Crowd`、以带版本号的 YAML 定义的阵型、框选与点选，以及数字编队。
+`game/rts` 是即时战略游戏的单位操控层：在 `pathfind.Grid` 上把大量单位引向目标的流场（flow field）、带推开分离或 ORCA 局部避障与贴墙滑动的单位群 `Crowd`、以带版本号的 YAML 定义的阵型、框选与点选，以及数字编队。
 
 ```go
 import "github.com/nsgo-dev/game/pkg/rts"
@@ -13,14 +13,14 @@ import "github.com/nsgo-dev/game/pkg/rts"
 `FlowField` 为网格的每个格子保存两样东西：到最近目标格的最便宜路径代价（积分场），以及站在该格的单位沿路径前进的方向（方向场）。构建一次就是在网格上做一次 Dijkstra 搜索；之后任意数量的单位都以常数时间读取方向，所以一千个前往同一处的单位只花一次搜索，而不是一千次。
 
 ```go
-grid := ai.NewCostMap(160, 128) // 或任意 ai.Grid / ai.CostGrid，例如包装 tilemap 的 ai.GridFunc
+grid := pathfind.NewCostMap(160, 128) // 或任意 pathfind.Grid / pathfind.CostGrid，例如包装 tilemap 的 pathfind.GridFunc
 field := rts.NewFlowField(math2d.Vec2{}, 16) // 每格 16 个世界单位宽，格 (0, 0) 位于原点
-field.Build(grid, ai.Cell{Col: 140, Row: 64})
+field.Build(grid, pathfind.Cell{Col: 140, Row: 64})
 
 dir, ok := field.Sample(unitPos) // 单位向量，由 unitPos 周围四格混合而来
 ```
 
-- 默认 8 方向移动（`Diagonal`），斜向一步代价为 sqrt(2)，且不会切过阻挡格的角。走进一个格子的代价是它的 `ai.CostGrid` `MoveCost`，因此格子的 `Cost` 等于 `ai.AStar` 从该格到最近目标找到的代价。
+- 默认 8 方向移动（`Diagonal`），斜向一步代价为 sqrt(2)，且不会切过阻挡格的角。走进一个格子的代价是它的 `pathfind.CostGrid` `MoveCost`，因此格子的 `Cost` 等于 `pathfind.AStar` 从该格到最近目标找到的代价。
 - `Build` 可一次接受多个目标，每个格子都通向其中最近的一个。被阻挡或越界的目标会被忽略，`Build` 返回是否存在有效目标。
 - `Sample` 混合某点周围可到达格子的方向，单位因而平滑转向，而不是按 45 度一档地转，也不会被拉进墙里。`Cost`、`Reachable`、`Direction`、`CellAt` 与 `CellCenter` 按格读取流场。
 - 重建同尺寸的流场不分配内存。
@@ -29,17 +29,17 @@ dir, ok := field.Sample(unitPos) // 单位向量，由 unitPos 周围四格混�
 
 ### 分区域流场（`SectorFlowField`）
 
-在 1024×1024 等超大型地图上，即便部队只穿过一条狭长走廊，整图 `FlowField` 仍需扫描全部格子。`SectorFlowField` 将 Dijkstra 积分与方向场计算限制在选定的方形分区域（簇）集合内，通常直接使用 `ai.HPA.FindClusters` 返回的簇走廊：
+在 1024×1024 等超大型地图上，即便部队只穿过一条狭长走廊，整图 `FlowField` 仍需扫描全部格子。`SectorFlowField` 将 Dijkstra 积分与方向场计算限制在选定的方形分区域（簇）集合内，通常直接使用 `pathfind.HPA.FindClusters` 返回的簇走廊：
 
 ```go
-hpa := ai.NewHPA(grid, ai.HPAOptions{ClusterSize: 32, Diagonal: true})
+hpa := pathfind.NewHPA(grid, pathfind.HPAOptions{ClusterSize: 32, Diagonal: true})
 sf := rts.NewSectorFlowField(math2d.Vec2{}, 16)
 sf.BuildAlongHPA(hpa, startCell, goalCell, 1) // padding=1 在走廊外扩一圈邻簇
 
 dir, ok := sf.Sample(unitPos) // 与 FlowField 相同的 Cost、Reachable、Direction、Sample 接口
 ```
 
-- 可使用 `BuildSectors(grid, sectorSize, sectors, goals...)` 手动传入 `ai.ClusterID` 分区域集合与多个目标格。
+- 可使用 `BuildSectors(grid, sectorSize, sectors, goals...)` 手动传入 `pathfind.ClusterID` 分区域集合与多个目标格。
 - 非活动分区域外的格子返回 `Unreachable`，`Sample` 会自动忽略非活动分区域，不会把单位拉出走廊。
 - 内部缓冲区在多次重建间复用，扩容完成后零堆分配。
 
@@ -60,7 +60,7 @@ crowd.Move(selection.IDs(), rts.MoveOrder{
 loop.Update = func(dt time.Duration) { crowd.Step(dt) }
 ```
 
-`Move` 在目标周围排开阵型；除非设置了 `Facing`，阵型朝向从队伍指向目标的方向。落在阻挡格、或队伍无法到达的格子上的阵位，会移到最近的可到达空格。若单位根本到不了目标（例如目标在孤岛上），阵型改以它们能到达的最近格子为中心。单位与阵位的匹配保证路径不交叉，整队共用一个以各阵位所在格为目标的流场。每个单位沿该流场前进，直到在 `DirectRange` 内能看到自己的阵位，再径直走过去；到达阵型区域却与自己的阵位隔着墙的单位，会在这道命令余下的时间里沿自己的 `ai.AStar` 路径走过去，被人群挤离路径时就重新规划。每个单位只在每八步中的一步（按 ID 错开）搜索路径，因此即使很多单位都需要绕路，开销也有上限。
+`Move` 在目标周围排开阵型；除非设置了 `Facing`，阵型朝向从队伍指向目标的方向。落在阻挡格、或队伍无法到达的格子上的阵位，会移到最近的可到达空格。若单位根本到不了目标（例如目标在孤岛上），阵型改以它们能到达的最近格子为中心。单位与阵位的匹配保证路径不交叉，整队共用一个以各阵位所在格为目标的流场。每个单位沿该流场前进，直到在 `DirectRange` 内能看到自己的阵位，再径直走过去；到达阵型区域却与自己的阵位隔着墙的单位，会在这道命令余下的时间里沿自己的 `pathfind.AStar` 路径走过去，被人群挤离路径时就重新规划。每个单位只在每八步中的一步（按 ID 错开）搜索路径，因此即使很多单位都需要绕路，开销也有上限。
 
 `Step` 的耗时与单位数加上覆盖单位包围盒的邻居分桶数成线性关系，因此开销取决于单位而不是地图大小：邻居来自这张每步重建、缓冲区长到位后不再分配内存的分桶网格，身体重叠的单位相互推开（`Separation`、`Gap`），身体会沿阻挡格和网格边缘滑动。每个单位的受力都根据本步开始时的位置计算，所有单位算完才移动，因此结果与一步之内单位的移动顺序无关。但结果与单位的添加顺序有关，添加顺序决定了单位的 ID 和推力的累加顺序，所以回放时要按同样的顺序添加同样的单位。
 

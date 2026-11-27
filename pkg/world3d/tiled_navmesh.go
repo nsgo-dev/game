@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 const (
@@ -65,12 +65,12 @@ type NavTileVersion struct {
 }
 
 // NavTileChangeKind classifies why a tile in a 3D TiledNavMesh changed.
-type NavTileChangeKind = ai.NavTileChangeKind
+type NavTileChangeKind = pathfind.NavTileChangeKind
 
 const (
-	NavTileAdded   = ai.NavTileAdded
-	NavTileUpdated = ai.NavTileUpdated
-	NavTileRemoved = ai.NavTileRemoved
+	NavTileAdded   = pathfind.NavTileAdded
+	NavTileUpdated = pathfind.NavTileUpdated
+	NavTileRemoved = pathfind.NavTileRemoved
 )
 
 // NavTileChange describes a single 3D tile mutation event delivered to tile listeners and path watchers.
@@ -104,11 +104,11 @@ const (
 )
 
 // NavObstacleMode selects how a dynamic obstacle modifies walkable polygons in touched tiles.
-type NavObstacleMode = ai.NavObstacleMode
+type NavObstacleMode = pathfind.NavObstacleMode
 
 const (
-	NavObstacleCarve = ai.NavObstacleCarve
-	NavObstacleMark  = ai.NavObstacleMark
+	NavObstacleCarve = pathfind.NavObstacleCarve
+	NavObstacleMark  = pathfind.NavObstacleMark
 )
 
 // NavObstacle describes a temporary runtime 3D obstacle applied to a TiledNavMesh.
@@ -2612,7 +2612,7 @@ func (tm *TiledNavMesh) FindPath(start, goal math3d.Vec3) ([]math3d.Vec3, bool) 
 
 // FindPathWithFilter computes the minimum-cost 3D path across tm restricted to filter.
 func (tm *TiledNavMesh) FindPathWithFilter(start, goal math3d.Vec3, filter NavFilter) ([]math3d.Vec3, bool) {
-	res := tm.FindPathWithFilterAndOptions(start, goal, filter, ai.PathOptions{})
+	res := tm.FindPathWithFilterAndOptions(start, goal, filter, pathfind.PathOptions{})
 	if !res.Found || res.Partial {
 		return nil, false
 	}
@@ -2621,7 +2621,7 @@ func (tm *TiledNavMesh) FindPathWithFilter(start, goal math3d.Vec3, filter NavFi
 
 // FindPathWithOptions computes a 3D path under DefaultNavFilter and opts, returning the full
 // TiledNavPathResult with crossed tile versions for invalidation checking.
-func (tm *TiledNavMesh) FindPathWithOptions(start, goal math3d.Vec3, opts ai.PathOptions) TiledNavPathResult {
+func (tm *TiledNavMesh) FindPathWithOptions(start, goal math3d.Vec3, opts pathfind.PathOptions) TiledNavPathResult {
 	return tm.FindPathWithFilterAndOptions(start, goal, DefaultNavFilter(), opts)
 }
 
@@ -2632,7 +2632,7 @@ func (tm *TiledNavMesh) FindCorridor(start, goal math3d.Vec3) ([]NavPolyRef, boo
 
 // FindCorridorWithFilter computes the sequence of 3D NavPolyRefs from start to goal restricted to filter.
 func (tm *TiledNavMesh) FindCorridorWithFilter(start, goal math3d.Vec3, filter NavFilter) ([]NavPolyRef, bool) {
-	res := tm.FindPathWithFilterAndOptions(start, goal, filter, ai.PathOptions{})
+	res := tm.FindPathWithFilterAndOptions(start, goal, filter, pathfind.PathOptions{})
 	if !res.Found || res.Partial {
 		return nil, false
 	}
@@ -2729,7 +2729,7 @@ func tiledSiftDown3D(s []tiledAStarNode3D, heapPos []int, i int) {
 // FindPathWithFilterAndOptions finds a minimum-cost 3D path across tm restricted to filter and opts.
 // Sparse portal-graph A* touches only visited portals and runs 3D XZ-funnel smoothing with exact
 // plane-transition crossings so paths across tile borders match an untiled world3d.NavMesh.
-func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) TiledNavPathResult {
+func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal math3d.Vec3, filter NavFilter, opts pathfind.PathOptions) TiledNavPathResult {
 	var res TiledNavPathResult
 	if tm == nil || len(tm.tiles) == 0 || !isFiniteVec3(start) || !isFiniteVec3(goal) {
 		return res

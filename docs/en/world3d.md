@@ -108,7 +108,7 @@ nav.AddOffMeshLink(world3d.NavOffMeshLink{
 	UserData:      "drop",
 })
 
-res := nav.FindPathWithOptions(startPos, goalPos, ai.PathOptions{})
+res := nav.FindPathWithOptions(startPos, goalPos, pathfind.PathOptions{})
 if res.Found {
 	for i := 0; i+1 < len(res.Path); i++ {
 		if link, ok := res.LinkAt(i); ok {
@@ -125,7 +125,7 @@ if res.Found {
 
 ### Polygon areas, runtime flags, and query filters
 
-Tag 3D polygons at build time with `BuildNavMeshWithAreas` using `NavPolygonInput{Vertices, Area, Flags}`. `world3d.NavArea`, `world3d.NavFlags`, and `world3d.NavFilter` alias the types in [ai](ai.md), so the same filter and area/flag constants work seamlessly across 2D and 3D navigation meshes:
+Tag 3D polygons at build time with `BuildNavMeshWithAreas` using `NavPolygonInput{Vertices, Area, Flags}`. `world3d.NavArea`, `world3d.NavFlags`, and `world3d.NavFilter` alias the types in [pathfind](pathfind.md), so the same filter and area/flag constants work seamlessly across 2D and 3D navigation meshes:
 
 ```go
 nav := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
@@ -184,15 +184,15 @@ _, _, _, _, _, _, _ = poly, hit, obstructed, moved, onMesh, patrolPt, ok
 - **Deterministic 3D surface-area random points**: `RandomPoint` / `RandomPointWithFilter` weight polygons by true 3D surface area (not just XZ projection); `RandomPointAround` / `RandomPointAroundWithFilter` sample only reachable polygons within 3D Euclidean `radius` of the snapped center (never jumping to unconnected floors overhead). Results are bit-identical across runs and architectures for the same `*random.Stream` seed.
 - **Zero-allocation path reuse & concurrent queries**: `nav.FindPathInto`, `nav.FindPathWithFilterInto`, `nav.FindPathWithFilterAndOptionsInto`, and `nav.FindCorridorInto` reuse generation-stamped scratch buffers with `0` heap allocations after warm-up; allocate one `NewNavMeshQuery(nav)` per worker goroutine for concurrent read-only queries over a shared `NavMesh`.
 
-For unreachable targets or frame-budgeted multi-agent queries, pass `ai.PathOptions{MaxExpansions, AllowPartial}` to `nav.FindPathWithOptions(startPos, goalPos, opts)` (returning a `NavPathResult` with `Partial`, `Exhausted`, and `Expansions`), or create a deterministic multi-frame `*world3d.NavMeshSearch` via `nav.StartSearch(startPos, goalPos, opts)`:
+For unreachable targets or frame-budgeted multi-agent queries, pass `pathfind.PathOptions{MaxExpansions, AllowPartial}` to `nav.FindPathWithOptions(startPos, goalPos, opts)` (returning a `NavPathResult` with `Partial`, `Exhausted`, and `Expansions`), or create a deterministic multi-frame `*world3d.NavMeshSearch` via `nav.StartSearch(startPos, goalPos, opts)`:
 
 ```go
-search := nav.StartSearch(startPos, goalPos, ai.PathOptions{
+search := nav.StartSearch(startPos, goalPos, pathfind.PathOptions{
 	MaxExpansions: 128,
 	AllowPartial:  true,
 })
-// Step directly, or schedule alongside 2D searches in an ai.PathQueue:
-queue.Submit(search, 0, func(_ ai.PathRequestID, _ ai.SearchStatus) {
+// Step directly, or schedule alongside 2D searches in a pathfind.PathQueue:
+queue.Submit(search, 0, func(_ pathfind.PathRequestID, _ pathfind.SearchStatus) {
 	res := search.Result()
 	if res.Found {
 		follow3DWaypoints(res.Path) // res.Partial is true if goal was unreachable or budgeted out

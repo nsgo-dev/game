@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/world3d"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -16,7 +16,7 @@ import (
 const NavLinkComponentName = "nav_link"
 
 // NavLinkComponent returns the ComponentType schema for authoring off-mesh navigation links
-// in scene YAML files (for both 2D ai.NavMesh and 3D world3d.NavMesh / navbake3d).
+// in scene YAML files (for both 2D pathfind.NavMesh and 3D world3d.NavMesh / navbake3d).
 //
 // The link's Start and End are expressed in the object's local space (start defaults to the object
 // origin (0, 0, 0), end to (endX, endY, endZ)) and transformed by the object's composed world
@@ -101,7 +101,7 @@ func NavLinkComponent() ComponentType {
 				Min:     Float64(0),
 				Max:     Float64(255),
 				Step:    1,
-				Doc:     "Navigation area ID (ai.NavArea, 0..255).",
+				Doc:     "Navigation area ID (pathfind.NavArea, 0..255).",
 			},
 			{
 				Name:    "flags",
@@ -146,7 +146,7 @@ type decodedNavLink struct {
 	radius                 float32
 	bidirectional          bool
 	cost                   float32
-	area                   ai.NavArea
+	area                   pathfind.NavArea
 	flags                  uint32
 	id                     int
 	userData               any
@@ -182,7 +182,7 @@ func decodeNavLink(objectID string, raw any) (decodedNavLink, error) {
 		radius:        float32(resolved["radius"].(float64)),
 		bidirectional: resolved["bidirectional"].(bool),
 		cost:          float32(resolved["cost"].(float64)),
-		area:          ai.NavArea(resolved["area"].(int)),
+		area:          pathfind.NavArea(resolved["area"].(int)),
 		flags:         uint32(resolved["flags"].(int)),
 		id:            resolved["linkID"].(int),
 		userData:      ud,
@@ -191,12 +191,12 @@ func decodeNavLink(objectID string, raw any) (decodedNavLink, error) {
 
 // ExtractNavLinks2D extracts all authored "nav_link" components from doc in deterministic
 // document order (including nested child objects, composing parent 2D transforms) as 2D
-// ai.NavOffMeshLink values ready for ai.NavMesh.AddOffMeshLink.
-func ExtractNavLinks2D(doc *SceneDoc) ([]ai.NavOffMeshLink, error) {
+// pathfind.NavOffMeshLink values ready for pathfind.NavMesh.AddOffMeshLink.
+func ExtractNavLinks2D(doc *SceneDoc) ([]pathfind.NavOffMeshLink, error) {
 	if doc == nil {
 		return nil, nil
 	}
-	var out []ai.NavOffMeshLink
+	var out []pathfind.NavOffMeshLink
 
 	var visit func(objs []ObjectDoc, parentAffine math2d.Affine) error
 	visit = func(objs []ObjectDoc, parentAffine math2d.Affine) error {
@@ -210,7 +210,7 @@ func ExtractNavLinks2D(doc *SceneDoc) ([]ai.NavOffMeshLink, error) {
 				}
 				start := world.TransformPoint(math2d.V2(d.startX, d.startY))
 				end := world.TransformPoint(math2d.V2(d.endX, d.endY))
-				out = append(out, ai.NavOffMeshLink{
+				out = append(out, pathfind.NavOffMeshLink{
 					Start:         core.Point{X: core.Points(start.X), Y: core.Points(start.Y)},
 					End:           core.Point{X: core.Points(end.X), Y: core.Points(end.Y)},
 					Radius:        d.radius,
@@ -240,7 +240,7 @@ func ExtractNavLinks2D(doc *SceneDoc) ([]ai.NavOffMeshLink, error) {
 }
 
 // ExtractBuiltNavLinks2D extracts all authored "nav_link" components from a resolved BuiltScene as 2D links.
-func ExtractBuiltNavLinks2D(scene *BuiltScene) ([]ai.NavOffMeshLink, error) {
+func ExtractBuiltNavLinks2D(scene *BuiltScene) ([]pathfind.NavOffMeshLink, error) {
 	if scene == nil || scene.Doc == nil {
 		return nil, nil
 	}

@@ -5,9 +5,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/bullets"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/stats"
 	"github.com/nsgo-dev/game/pkg/tilemap"
@@ -85,7 +85,7 @@ type Tower struct {
 	// Def is the tower's kind.
 	Def *TowerDef
 	// Cell is where it stands.
-	Cell ai.Cell
+	Cell pathfind.Cell
 	// X and Y are its center in game points.
 	X, Y float32
 	// Stats holds its damage, range, cooldown and other stats, with its upgrades applied.
@@ -226,27 +226,27 @@ func (w *World) Size() (width, height float32) {
 func (w *World) gridSize() (cols, rows int) { return w.Map.Width, w.Map.Height }
 
 // InMap reports whether c is a cell of the map.
-func (w *World) InMap(c ai.Cell) bool {
+func (w *World) InMap(c pathfind.Cell) bool {
 	cols, rows := w.gridSize()
 	return c.Col >= 0 && c.Row >= 0 && c.Col < cols && c.Row < rows
 }
 
 // CellAt returns the cell under the game point (x, y), and false outside the map.
-func (w *World) CellAt(x, y float32) (ai.Cell, bool) {
+func (w *World) CellAt(x, y float32) (pathfind.Cell, bool) {
 	if x < 0 || y < 0 {
-		return ai.Cell{}, false
+		return pathfind.Cell{}, false
 	}
-	c := ai.Cell{Col: int(x / w.Map.TileWidth), Row: int(y / w.Map.TileHeight)}
+	c := pathfind.Cell{Col: int(x / w.Map.TileWidth), Row: int(y / w.Map.TileHeight)}
 	return c, w.InMap(c)
 }
 
 // cellCenter returns the center of c in game points.
-func (w *World) cellCenter(c ai.Cell) math2d.Vec2 {
+func (w *World) cellCenter(c pathfind.Cell) math2d.Vec2 {
 	return math2d.Vec2{X: (float32(c.Col) + 0.5) * w.Map.TileWidth, Y: (float32(c.Row) + 0.5) * w.Map.TileHeight}
 }
 
 // TowerAt returns the tower standing on c.
-func (w *World) TowerAt(c ai.Cell) (*Tower, bool) {
+func (w *World) TowerAt(c pathfind.Cell) (*Tower, bool) {
 	for _, t := range w.Towers {
 		if t.Cell == c {
 			return t, true
@@ -256,7 +256,7 @@ func (w *World) TowerAt(c ai.Cell) (*Tower, bool) {
 }
 
 // Buildable reports whether a tower may stand on c: open ground with no tower on it.
-func (w *World) Buildable(c ai.Cell) bool {
+func (w *World) Buildable(c pathfind.Cell) bool {
 	if !w.InMap(c) || w.Map.FlagsAt(c.Col, c.Row)&flagBuildable == 0 {
 		return false
 	}
@@ -265,7 +265,7 @@ func (w *World) Buildable(c ai.Cell) bool {
 }
 
 // Build builds a tower of def on c, paying its cost. It fails, changing nothing, once the game is over, where Buildable refuses c, and when the money is short.
-func (w *World) Build(def *TowerDef, c ai.Cell) (*Tower, error) {
+func (w *World) Build(def *TowerDef, c pathfind.Cell) (*Tower, error) {
 	switch {
 	case w.Outcome != Playing:
 		return nil, fmt.Errorf("the game is over")

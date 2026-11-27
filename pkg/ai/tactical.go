@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 // QueryOrigin selects a reference point from a TacticalContext.
@@ -385,7 +387,7 @@ func (g *RingGenerator) Generate(ctx TacticalContext, dst []TacticalCandidate) [
 	return dst
 }
 
-// GridGenerator emits candidates on a regular 2D grid around Center or across an ai.Grid's walkable cells.
+// GridGenerator emits candidates on a regular 2D grid around Center or across a pathfind.Grid's walkable cells.
 type GridGenerator struct {
 	// Center selects the grid sampling center (defaults to OriginQuerier).
 	Center QueryOrigin
@@ -397,7 +399,7 @@ type GridGenerator struct {
 	// Spacing is the world distance between samples (defaults to CellSize when Grid != nil, else 16).
 	Spacing float32
 	// Grid optionally restricts candidates to walkable cells using GridOrigin and CellSize.
-	Grid Grid
+	Grid pathfind.Grid
 	// GridOrigin is the world origin of cell (0, 0) in Grid.
 	GridOrigin math2d.Vec2
 	// CellSize is the world size of one cell in Grid (defaults to 1 when <= 0).
@@ -488,7 +490,7 @@ func (g *GridGenerator) Generate(ctx TacticalContext, dst []TacticalCandidate) [
 // keeping every point contained in the mesh. When Spacing <= 0, it emits each polygon's centroid.
 type NavMeshGenerator struct {
 	// Mesh is the 2D navigation mesh to sample.
-	Mesh *NavMesh
+	Mesh *pathfind.NavMesh
 	// Center selects the origin for MaxRadius filtering (defaults to OriginQuerier).
 	Center QueryOrigin
 	// CustomCenter is used when Center is OriginCustom.
@@ -497,106 +499,22 @@ type NavMeshGenerator struct {
 	MaxRadius float32
 	// Spacing sets the world spacing between grid samples inside the mesh (<= 0 emits polygon centroids).
 	Spacing float32
+
+	samples []core.Point
 }
 
-// Generate appends NavMesh sample candidates in deterministic order with zero heap allocations.
+// Generate appends NavMesh sample candidates in deterministic order with zero heap allocations after warm-up.
 func (g *NavMeshGenerator) Generate(ctx TacticalContext, dst []TacticalCandidate) []TacticalCandidate {
-	if g == nil || g.Mesh == nil || len(g.Mesh.polys) == 0 {
+	if g == nil || g.Mesh == nil {
 		return dst
 	}
 	center := resolveOrigin(g.Center, OriginQuerier, g.CustomCenter, ctx)
-	useRad := g.MaxRadius > 0 && !math.IsInf(float64(g.MaxRadius), 0)
-	maxRadSq := float64(g.MaxRadius) * float64(g.MaxRadius)
-
-	if !(g.Spacing > 0) || math.IsInf(float64(g.Spacing), 0) {
-		for i := range g.Mesh.polys {
-			vs := g.Mesh.polys[i].verts
-			if len(vs) == 0 {
-				continue
-			}
-			var sx, sy float64
-			for _, v := range vs {
-				sx += v.x
-				sy += v.y
-			}
-			inv := 1 / float64(len(vs))
-			px, py := sx*inv, sy*inv
-			if useRad {
-				dx := px - float64(center.X)
-				dy := py - float64(center.Y)
-				if dx*dx+dy*dy > maxRadSq {
-					continue
-				}
-			}
-			dst = append(dst, TacticalCandidate{
-				Pos:        math2d.Vec2{X: float32(px), Y: float32(py)},
-				CoverIndex: -1,
-			})
-		}
-		return dst
-	}
-
-	minX, minY := g.Mesh.polys[0].minX, g.Mesh.polys[0].minY
-	maxX, maxY := g.Mesh.polys[0].maxX, g.Mesh.polys[0].maxY
-	for i := 1; i < len(g.Mesh.polys); i++ {
-		p := &g.Mesh.polys[i]
-		if p.minX < minX {
-			minX = p.minX
-		}
-		if p.minY < minY {
-			minY = p.minY
-		}
-		if p.maxX > maxX {
-			maxX = p.maxX
-		}
-		if p.maxY > maxY {
-			maxY = p.maxY
-		}
-	}
-	if useRad {
-		r := float64(g.MaxRadius)
-		minX = max(minX, float64(center.X)-r)
-		maxX = min(maxX, float64(center.X)+r)
-		minY = max(minY, float64(center.Y)-r)
-		maxY = min(maxY, float64(center.Y)+r)
-	}
-	if minX > maxX || minY > maxY {
-		return dst
-	}
-
-	sp := float64(g.Spacing)
-	ix0 := int(math.Ceil(minX/sp - 1e-9))
-	ix1 := int(math.Floor(maxX/sp + 1e-9))
-	iy0 := int(math.Ceil(minY/sp - 1e-9))
-	iy1 := int(math.Floor(maxY/sp + 1e-9))
-
-	for iy := iy0; iy <= iy1; iy++ {
-		py := float64(iy) * sp
-		dy := py - float64(center.Y)
-		dy2 := dy * dy
-		for ix := ix0; ix <= ix1; ix++ {
-			px := float64(ix) * sp
-			if useRad {
-				dx := px - float64(center.X)
-				if dx*dx+dy2 > maxRadSq {
-					continue
-				}
-			}
-			v := vec2{x: px, y: py}
-			inside := false
-			for pi := range g.Mesh.polys {
-				if polyContains(&g.Mesh.polys[pi], v) {
-					inside = true
-					break
-				}
-			}
-			if inside {
-				dst = append(dst, TacticalCandidate{
-					Pos:        math2d.Vec2{X: float32(px), Y: float32(py)},
-					CoverIndex: -1,
-				})
-			}
-		}
+	g.samples = g.Mesh.AppendSamples(g.samples[:0], core.Point{X: core.Points(center.X), Y: core.Points(center.Y)}, g.MaxRadius, g.Spacing)
+	for _, p := range g.samples {
+		dst = append(dst, TacticalCandidate{
+			Pos:        math2d.Vec2{X: float32(p.X), Y: float32(p.Y)},
+			CoverIndex: -1,
+		})
 	}
 	return dst
 }
@@ -778,7 +696,7 @@ func (t *AngleTest) runTest(q *TacticalQuery, ctx TacticalContext) {
 }
 
 // PathDistanceTest measures path travel cost from a starting position to each candidate using
-// a custom callback, an ai.Grid with AStar, or a 2D NavMesh.
+// a custom callback, a pathfind.Grid with AStar, or a 2D NavMesh.
 //
 // Each path lookup consumes one path query from ctx.Budget (when non-nil). When the budget is
 // exhausted, remaining candidates are skipped (dropped if filtering, or scored 0 if TestScoreOnly).
@@ -792,12 +710,12 @@ type PathDistanceTest struct {
 	PathCost func(from, to math2d.Vec2) (cost float64, ok bool)
 	// Grid and AStar run zero-allocation grid A* pathfinding when PathCost is nil and Grid is non-nil.
 	// If AStar is nil, TacticalQuery uses its internal reusable AStar searcher.
-	Grid       Grid
+	Grid       pathfind.Grid
 	GridOrigin math2d.Vec2
 	CellSize   float32
-	AStar      *AStar
+	AStar      *pathfind.AStar
 	// NavMesh computes zero-allocation funnel-smoothed path length when PathCost and Grid are nil.
-	NavMesh *NavMesh
+	NavMesh *pathfind.NavMesh
 	// Purpose selects filtering, scoring, or both (defaults to TestFilterAndScore).
 	Purpose TestPurpose
 	// Filter optionally restricts acceptable path lengths.
@@ -823,19 +741,19 @@ func (t *PathDistanceTest) runTest(q *TacticalQuery, ctx TacticalContext) {
 		cellSize = 1
 	}
 
-	var startCell Cell
+	var startCell pathfind.Cell
 	var gridCols, gridRows int
-	var searcher *AStar
+	var searcher *pathfind.AStar
 	if t.PathCost == nil && t.Grid != nil {
 		gridCols, gridRows = t.Grid.GridSize()
-		startCell = Cell{
+		startCell = pathfind.Cell{
 			Col: int(math.Floor((float64(from.X) - float64(t.GridOrigin.X)) / cellSize)),
 			Row: int(math.Floor((float64(from.Y) - float64(t.GridOrigin.Y)) / cellSize)),
 		}
 		searcher = t.AStar
 		if searcher == nil {
 			if q.astar == nil {
-				q.astar = NewAStar()
+				q.astar = pathfind.NewAStar()
 			}
 			searcher = q.astar
 		}
@@ -881,12 +799,12 @@ func (t *PathDistanceTest) runTest(q *TacticalQuery, ctx TacticalContext) {
 			cost, ok = t.PathCost(from, c.Pos)
 		case t.Grid != nil:
 			if startCell.Col >= 0 && startCell.Col < gridCols && startCell.Row >= 0 && startCell.Row < gridRows {
-				goalCell := Cell{
+				goalCell := pathfind.Cell{
 					Col: int(math.Floor((float64(c.Pos.X) - float64(t.GridOrigin.X)) / cellSize)),
 					Row: int(math.Floor((float64(c.Pos.Y) - float64(t.GridOrigin.Y)) / cellSize)),
 				}
 				if goalCell.Col >= 0 && goalCell.Col < gridCols && goalCell.Row >= 0 && goalCell.Row < gridRows {
-					var path []Cell
+					var path []pathfind.Cell
 					path, cost, ok = searcher.FindInto(q.pathBuf[:0], t.Grid, startCell, goalCell)
 					q.pathBuf = path
 					if ok {
@@ -895,7 +813,8 @@ func (t *PathDistanceTest) runTest(q *TacticalQuery, ctx TacticalContext) {
 				}
 			}
 		case t.NavMesh != nil:
-			cost, ok = t.NavMesh.findPathLength(&q.navScratch, vec2{float64(from.X), float64(from.Y)}, vec2{float64(c.Pos.X), float64(c.Pos.Y)})
+			q.navQuery.SetMesh(t.NavMesh)
+			cost, ok = q.navQuery.PathLength(core.Point{X: core.Points(from.X), Y: core.Points(from.Y)}, core.Point{X: core.Points(c.Pos.X), Y: core.Points(c.Pos.Y)})
 		default:
 			dx := float64(c.Pos.X) - float64(from.X)
 			dy := float64(c.Pos.Y) - float64(from.Y)
@@ -1059,9 +978,9 @@ type TacticalQuery struct {
 	rawVals    []float64
 	validMask  []bool
 	scoredMask []bool
-	astar      *AStar
-	pathBuf    []Cell
-	navScratch navMeshScratch
+	astar      *pathfind.AStar
+	pathBuf    []pathfind.Cell
+	navQuery   pathfind.NavMeshQuery
 	lastStats  QueryStats
 }
 

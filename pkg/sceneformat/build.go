@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
-	"github.com/nsgo-dev/game/pkg/ai/navbake"
 	"github.com/nsgo-dev/game/pkg/lights2d"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/particles"
+	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/game/pkg/pathfind/navbake"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/game/pkg/skeletal"
 	"github.com/nsgo-dev/game/pkg/sprite"
@@ -89,8 +89,8 @@ type BuiltScene struct {
 	Lights2DBounds *core.Bounds
 	// NavBake2D is the baked 2D navigation mesh produced from built-in navregion2d components (and optional tilemap collision subtraction), or nil when the scene defines none.
 	NavBake2D *navbake.Mesh
-	// NavMesh2D is the runtime 2D ai.NavMesh constructed from NavBake2D (including any authored 2D nav_link components), or nil when the scene defines no navregion2d components.
-	NavMesh2D *ai.NavMesh
+	// NavMesh2D is the runtime 2D pathfind.NavMesh constructed from NavBake2D (including any authored 2D nav_link components), or nil when the scene defines no navregion2d components.
+	NavMesh2D *pathfind.NavMesh
 	// Camera is the active camera transform for world-space layers; nil leaves world space untransformed.
 	Camera *CameraDoc
 	// Layers are the scene's layers in draw order (lowest Order first, ties in document order).

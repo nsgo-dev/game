@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 )
@@ -118,7 +119,7 @@ type TileCoverOptions struct {
 	StartID uint64
 }
 
-// GridCoverOptions configures cover-point generation from any ai.Grid (blocked cells are solid walls).
+// GridCoverOptions configures cover-point generation from any pathfind.Grid (blocked cells are solid walls).
 type GridCoverOptions struct {
 	// Spacing is the distance between cover points along a contiguous wall run in world units.
 	// When <= 0, one cover point is placed at the midpoint of each exposed cell edge.
@@ -232,7 +233,7 @@ func GenerateCoverFromTilemap(m *tilemap.Tilemap, opts TileCoverOptions) []Cover
 
 // GenerateCoverFromGrid generates deterministic cover points along exposed edges of blocked cells
 // (!g.Walkable) on g, offset into adjacent walkable cells.
-func GenerateCoverFromGrid(g Grid, origin math2d.Vec2, cellWidth, cellHeight float32, opts GridCoverOptions) []CoverPoint {
+func GenerateCoverFromGrid(g pathfind.Grid, origin math2d.Vec2, cellWidth, cellHeight float32, opts GridCoverOptions) []CoverPoint {
 	if g == nil || cellWidth <= 0 || cellHeight <= 0 {
 		return nil
 	}

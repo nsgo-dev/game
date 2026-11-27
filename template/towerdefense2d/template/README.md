@@ -5,7 +5,7 @@ A small, complete 2D tower defense game built with [NSGo](https://github.com/nsg
 It shows:
 
 - A level, its waves and its enemies in `data/level.yaml`, the towers and their upgrades in `data/towers.yaml`, and the projectiles in `data/projectiles.yaml`, all loaded through `game.yaml`'s autoloads and checked against each other at startup.
-- The road found with `ai.AStar` over the map's road tiles, and the map drawn by `tilemap` from tiles painted in code.
+- The road found with `pathfind.AStar` over the map's road tiles, and the map drawn by `tilemap` from tiles painted in code.
 - Tower and enemy stats on `stats.Sheet`s: upgrades are permanent stat effects, and a frost tower's slow is a timed modifier on the enemy's speed.
 - Towers firing `bullets` patterns that lead their target, with splash damage and slows read from the tower's stats.
 - A fixed-step `game.Loop`, a `screen.Viewport` that fits the map to any window, and a native HUD of NSGo text and buttons.

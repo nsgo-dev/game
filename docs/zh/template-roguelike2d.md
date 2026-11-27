@@ -110,7 +110,7 @@ items:
 - **平衡**：怪物的数值、玩家的成长和掉落权重。`TestBotsWinAndLose` 在四十个种子上分别用一个清空每层的机器人和一个直奔出口的机器人游玩，前者不再获胜或后者不再死亡时失败，并在日志里记下两者的次数。
 - **新的怪物或物品**：在 `data/dungeon.yaml` 加一条，装备和药剂在 `data/stats.yaml` 加它的属性效果，物品还要在掉落表里加一行。新的物品种类需要在 `run.take` 里加一个分支。
 - **新的技能**：在 `data/abilities.yaml` 加一条带 `action` 的技能，在 `game.yaml` 为这个动作加绑定，并在 `run.abilityEvent` 里加它的效果。`roguelikeGame.update` 按每条技能写明的 `action` 激活它，`run.act` 使用动作携带的那个技能。新的条件或资源还需要在 `run.condition` 或 `draughtPool` 里加一个分支，并把名称加进数据检查。
-- **更聪明的怪物**：`actors.go` 里的追猎系统沿一张距离图行走。新的行为就是一个新组件，再在 `run.newMonsterTurn` 构建的调度器上加一个系统，用 `entities.Before` 和 `entities.After` 排定顺序；[`ai`](ai.md) 提供行为树和寻路，可以做会逃跑、保持距离或巡逻的怪物。
+- **更聪明的怪物**：`actors.go` 里的追猎系统沿一张距离图行走。新的行为就是一个新组件，再在 `run.newMonsterTurn` 构建的调度器上加一个系统，用 `entities.Before` 和 `entities.After` 排定顺序；[`ai`](ai.md) 提供行为树、[`pathfind`](pathfind.md) 提供寻路，可以做会逃跑、保持距离或巡逻的怪物。
 - **操作**：`game.yaml` 的 `input` 部分；触屏区域以虚拟屏幕的点为单位。`game.go` 里的 `repeatDelay` 和 `repeatEvery` 决定按住方向时走多快。
 - **美术**：`draw.go` 绘制字母和图形；可以改用 `sprite.LoadAtlas` 加载图集，并绘制用 `procgen.Grid.Paint` 填好的 `tilemap.Tilemap`。
 - **存档**：`records.go` 里的 `runSave` 就是对局存档，其中组件的名称由 `newActors` 注册的编解码器给出。两者任一结构改变时，提高 `saveVersion` 并给 `newSaveStore` 加上 `save.WithMigration`。

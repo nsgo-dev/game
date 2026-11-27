@@ -160,7 +160,7 @@ var formatVersions = map[string]string{
 	"modding.ManifestVersion":                       "modding",
 	"modding.MinManifestVersion":                    "modding",
 	"modding.WorkshopMetadataVersion":               "modding#workshop",
-	"ai/navbake.FormatVersion":                      "ai/navbake",
+	"pathfind/navbake.FormatVersion":                "pathfind/navbake",
 	"ai/navbake3d.FormatVersion":                    "ai/navbake3d",
 	"online/netplay.CaptureVersion":                 "online/netplay",
 	"online/netplay.ReplicationVersion":             "",

@@ -92,9 +92,10 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 
 | Package | Status | Purpose |
 | --- | --- | --- |
-| `game/pkg/ai` | Stable | Grid `AStar`, 2D `NavMesh`, steering behaviors, behavior trees and perception (sight, hearing, memory) |
+| `game/pkg/ai` | Stable | Steering behaviors, ORCA avoidance, behavior trees, utility AI, GOAP, tactical queries and perception (sight, hearing, memory) |
 | `game/pkg/ai/perception3d` | Experimental | `ai` perception for 3D agents on `math3d.Vec3`, with `physics3d` line of sight |
-| `game/pkg/ai/navbake` | Experimental | Bakes 2D navmeshes from obstacles or tilemaps with an agent radius, versioned YAML meshes, debug drawing |
+| `game/pkg/pathfind` | Stable | Grid `AStar`, HPA*, JPS, graph and waypoint search, 2D `NavMesh` with `NavAgent`, tiled meshes and budgeted path queues |
+| `game/pkg/pathfind/navbake` | Experimental | Bakes 2D navmeshes from obstacles or tilemaps with an agent radius, versioned YAML meshes, debug drawing |
 | `game/pkg/platformer` | Experimental | Platformer `Controller` (coyote time, jump buffer, variable jump, wall slide/jump) from YAML |
 | `game/pkg/bullets` | Experimental | Pooled shooter bullet patterns (rings, spirals, aimed bursts) from YAML |
 | `game/pkg/cards` | Experimental | Board slot drag-and-drop, fanned hands, decks, piles, grids and YAML boards |

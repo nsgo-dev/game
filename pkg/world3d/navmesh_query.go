@@ -4,8 +4,8 @@ import (
 	"math"
 	"slices"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/random"
 )
 
@@ -1627,7 +1627,7 @@ func (q *NavMeshQuery) FindPathInto(dst []math3d.Vec3, start, goal math3d.Vec3) 
 // FindPathWithFilterInto finds the minimum-cost 3D path from start to goal restricted to filter,
 // writing waypoints into dst[:0] with zero heap allocations after warm-up.
 func (q *NavMeshQuery) FindPathWithFilterInto(dst []math3d.Vec3, start, goal math3d.Vec3, filter NavFilter) ([]math3d.Vec3, bool) {
-	res := q.FindPathWithFilterAndOptionsInto(dst, start, goal, filter, ai.PathOptions{})
+	res := q.FindPathWithFilterAndOptionsInto(dst, start, goal, filter, pathfind.PathOptions{})
 	if !res.Found || res.Partial {
 		return nil, false
 	}
@@ -1681,7 +1681,7 @@ func (q *NavMeshQuery) ensurePortalIndex(nm *NavMesh) int {
 	return total
 }
 
-func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) navAStarResult3D {
+func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter, opts pathfind.PathOptions) navAStarResult3D {
 	nm := q.mesh
 	n := len(nm.Polys)
 	totalPortals := q.ensurePortalIndex(nm)
@@ -1962,7 +1962,7 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 // FindPathWithFilterAndOptionsInto runs a bounded or partial 3D NavMesh search restricted to filter under opts,
 // writing the resulting waypoints into dst[:0] and reusing q's internal buffers with zero heap allocations after warm-up.
 // The returned res.Links slice reuses q's internal buffer (like dst) and is overwritten on subsequent queries on q.
-func (q *NavMeshQuery) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) NavPathResult {
+func (q *NavMeshQuery) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start, goal math3d.Vec3, filter NavFilter, opts pathfind.PathOptions) NavPathResult {
 	if q == nil || q.mesh == nil || len(q.mesh.Polys) == 0 || !isFiniteVec3(start) || !isFiniteVec3(goal) {
 		return NavPathResult{}
 	}
@@ -2019,7 +2019,7 @@ func (q *NavMeshQuery) FindCorridorWithFilterInto(dst []int, start, goal math3d.
 	if q == nil || q.mesh == nil || len(q.mesh.Polys) == 0 || !isFiniteVec3(start) || !isFiniteVec3(goal) {
 		return nil, false
 	}
-	sr := q.runPortalAStar(start, goal, filter, ai.PathOptions{})
+	sr := q.runPortalAStar(start, goal, filter, pathfind.PathOptions{})
 	if !sr.foundComplete {
 		return nil, false
 	}
@@ -2321,7 +2321,7 @@ func (nm *NavMesh) FindPathWithFilterInto(dst []math3d.Vec3, start, goal math3d.
 // FindPathWithFilterAndOptionsInto behaves like FindPathWithFilterAndOptions but writes waypoints into dst[:0]
 // and reuses the mesh's internal search buffers with zero heap allocations after warm-up.
 // The returned res.Links slice reuses the mesh's internal query buffer (like dst) and is overwritten on subsequent queries.
-func (nm *NavMesh) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) NavPathResult {
+func (nm *NavMesh) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start, goal math3d.Vec3, filter NavFilter, opts pathfind.PathOptions) NavPathResult {
 	if nm == nil {
 		return NavPathResult{}
 	}

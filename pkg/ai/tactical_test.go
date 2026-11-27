@@ -8,6 +8,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math2d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
@@ -24,7 +25,7 @@ import (
 // The best cover against the threat is the left face of the bunker at col=3, row=4 (center (56, 72)),
 // which is full cover, directly facing (+1, 0) toward the threat, blocks LOS to the threat,
 // and has the shortest walkable path from the agent.
-func buildReferenceCoverLevel() (*tilemap.Tilemap, ai.Grid, []ai.CoverPoint, ai.LOSFunc) {
+func buildReferenceCoverLevel() (*tilemap.Tilemap, pathfind.Grid, []ai.CoverPoint, ai.LOSFunc) {
 	const (
 		cols     = 12
 		rows     = 9
@@ -61,7 +62,7 @@ func buildReferenceCoverLevel() (*tilemap.Tilemap, ai.Grid, []ai.CoverPoint, ai.
 	m.SetFlags(1, tilemap.TileSolid)
 	m.SetFlags(2, tilemap.TileSolid|halfFlag)
 
-	grid := ai.GridFunc{
+	grid := pathfind.GridFunc{
 		Cols: cols,
 		Rows: rows,
 		Walk: func(col, row int) bool {
@@ -105,7 +106,7 @@ func TestReferenceLevelBestCoverDeterministic(t *testing.T) {
 	// Build a threat influence layer centered at the threat's cell (10, 4).
 	threat := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
 	threat.AddSource(ai.InfluenceSource{
-		Cell:     ai.Cell{Col: 10, Row: 4},
+		Cell:     pathfind.Cell{Col: 10, Row: 4},
 		Strength: 10,
 		Radius:   6,
 		Falloff:  ai.FalloffLinear,
@@ -317,11 +318,11 @@ func TestPerStepBudgetStrictlyBounded(t *testing.T) {
 		raycastCalls++
 		return rawLOS(from, to)
 	}
-	astar := ai.NewAStar()
+	astar := pathfind.NewAStar()
 	countedPath := func(from, to math2d.Vec2) (float64, bool) {
 		pathCalls++
-		sc := ai.Cell{Col: int(from.X / 16), Row: int(from.Y / 16)}
-		gc := ai.Cell{Col: int(to.X / 16), Row: int(to.Y / 16)}
+		sc := pathfind.Cell{Col: int(from.X / 16), Row: int(from.Y / 16)}
+		gc := pathfind.Cell{Col: int(to.X / 16), Row: int(to.Y / 16)}
 		_, cost, ok := astar.Find(grid, sc, gc)
 		return cost * 16, ok
 	}
@@ -458,13 +459,13 @@ func TestGeneratorsAndTests(t *testing.T) {
 	})
 
 	t.Run("GridGenerator with InfluenceLayer", func(t *testing.T) {
-		grid := ai.NewBoolGrid(6, 6)
+		grid := pathfind.NewBoolGrid(6, 6)
 		grid.SetWalkable(2, 2, false)
 		grid.SetWalkable(3, 2, false)
 
 		danger := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 10)
 		danger.AddSource(ai.InfluenceSource{
-			Cell:     ai.Cell{Col: 0, Row: 0},
+			Cell:     pathfind.Cell{Col: 0, Row: 0},
 			Strength: 10,
 			Radius:   5,
 			Falloff:  ai.FalloffLinear,
@@ -507,7 +508,7 @@ func TestGeneratorsAndTests(t *testing.T) {
 		// U-shaped corridor: left room -> top bridge -> right room.
 		// Point (210, 80) is geometrically close to (30, 80) across the gap,
 		// but has a long NavMesh path around the top bridge, whereas (30, 20) is short!
-		mesh := ai.BuildNavMesh([][]core.Point{
+		mesh := pathfind.BuildNavMesh([][]core.Point{
 			{{X: 0, Y: 0}, {X: 60, Y: 0}, {X: 60, Y: 100}, {X: 0, Y: 100}},
 			{{X: 60, Y: 0}, {X: 180, Y: 0}, {X: 180, Y: 30}, {X: 60, Y: 30}},
 			{{X: 180, Y: 0}, {X: 240, Y: 0}, {X: 240, Y: 100}, {X: 180, Y: 100}},
@@ -647,7 +648,7 @@ func TestCoverGenerationFromPhysics2DAndGrid(t *testing.T) {
 	}
 
 	// Direct GenerateCoverFromGrid.
-	g := ai.NewBoolGrid(5, 5)
+	g := pathfind.NewBoolGrid(5, 5)
 	g.SetWalkable(2, 2, false)
 	gPts := ai.GenerateCoverFromGrid(g, math2d.V2(10, 20), 16, 16, ai.GridCoverOptions{DefaultHeight: ai.CoverHalf})
 	if len(gPts) != 4 {
@@ -664,7 +665,7 @@ func TestZeroAllocAfterWarmup(t *testing.T) {
 	_, grid, covers, los := buildReferenceCoverLevel()
 	threat := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
 	threat.AddSource(ai.InfluenceSource{
-		Cell:     ai.Cell{Col: 10, Row: 4},
+		Cell:     pathfind.Cell{Col: 10, Row: 4},
 		Strength: 10,
 		Radius:   5,
 	})
@@ -749,7 +750,7 @@ func TestZeroAllocAfterWarmup(t *testing.T) {
 	}
 
 	// NavMesh generator + NavMesh PathDistanceTest must also be zero-alloc after warm-up.
-	mesh := ai.BuildNavMesh([][]core.Point{
+	mesh := pathfind.BuildNavMesh([][]core.Point{
 		{{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 100}, {X: 0, Y: 100}},
 		{{X: 100, Y: 20}, {X: 200, Y: 20}, {X: 200, Y: 80}, {X: 100, Y: 80}},
 	})
@@ -780,7 +781,7 @@ func TestZeroAllocAfterWarmup(t *testing.T) {
 func BenchmarkTacticalQueryCover(b *testing.B) {
 	_, grid, covers, los := buildReferenceCoverLevel()
 	threat := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
-	threat.AddSource(ai.InfluenceSource{Cell: ai.Cell{Col: 10, Row: 4}, Strength: 10, Radius: 5})
+	threat.AddSource(ai.InfluenceSource{Cell: pathfind.Cell{Col: 10, Row: 4}, Strength: 10, Radius: 5})
 	threat.Update(grid)
 	budget := ai.NewQueryBudget(16, 8)
 	res := ai.NewPointReservations(ai.ReservationConfig{DefaultTimeout: 2 * time.Second})

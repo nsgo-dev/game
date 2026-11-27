@@ -53,9 +53,10 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `skeletal` | `github.com/nsgo-dev/game/pkg/skeletal` | [skeletal](skeletal.md) | 带版本 YAML 格式的 2D 骨骼绑定，可加载、保存、播放动画并通过 `sprite.Batch` 绘制 |
 | `cards` | `github.com/nsgo-dev/game/pkg/cards` | [cards](cards.md) | 在牌桌槽位间拖放并吸附或弹回，扇形手牌、牌堆、叠放牌列与网格布局，以及 YAML 牌桌文件 |
 | `rooms` | `github.com/nsgo-dev/game/pkg/rooms` | [rooms](rooms.md) | 房间地图：每个房间独立的相机边界，以及房间之间的切换、滑动或淡入淡出过渡 |
-| `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为、行为树与感知 |
+| `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | 转向行为、ORCA 避障、行为树、效用 AI、GOAP、战术查询与感知 |
 | `ai/perception3d` | `github.com/nsgo-dev/game/pkg/ai/perception3d` | [ai](ai.md#3d) | 面向 3D 智能体的 `ai` 感知，基于 `math3d.Vec3`，用 `physics3d` 判定视线 |
-| `ai/navbake` | `github.com/nsgo-dev/game/pkg/ai/navbake` | [navbake](navbake.md) | 按代理半径从凹障碍物或 tilemap 的实心格烘焙 `ai.NavMesh` 多边形，保存为带版本的 YAML，并提供调试叠加绘制 |
+| `pathfind` | `github.com/nsgo-dev/game/pkg/pathfind` | [pathfind](pathfind.md) | 网格 `AStar`、HPA*、JPS、图与航点搜索、带 `NavAgent` 的 2D `NavMesh`、分块网格与限额寻路队列 |
+| `pathfind/navbake` | `github.com/nsgo-dev/game/pkg/pathfind/navbake` | [navbake](navbake.md) | 按代理半径从凹障碍物或 tilemap 的实心格烘焙 `pathfind.NavMesh` 多边形，保存为带版本的 YAML，并提供调试叠加绘制 |
 | `rts` | `github.com/nsgo-dev/game/pkg/rts` | [rts](rts.md) | 流场、带分离的大规模单位群 `Crowd`、YAML 阵型、框选/点选与编队 |
 | `procgen` | `github.com/nsgo-dev/game/pkg/procgen` | [procgen](procgen.md) | 带种子的 BSP 房间、元胞自动机洞穴与基于 YAML 规则的波函数坍缩，附连通性检查与 tilemap 绘制 |
 | `replay` | `github.com/nsgo-dev/game/pkg/replay` | [replay](replay.md) | 输入录制/回放（`Recorder`/`Player`）、可编辑的 YAML 录像与确定性测试断言 |

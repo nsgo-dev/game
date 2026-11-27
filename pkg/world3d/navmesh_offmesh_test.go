@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/ai"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
@@ -33,7 +33,7 @@ func TestNavMesh3DOffMeshOneWayLedgeDropNeverReversed(t *testing.T) {
 	start := math3d.Vec3{X: 2, Y: 4, Z: 5}
 	goal := math3d.Vec3{X: 22, Y: 0, Z: 5}
 
-	res := nm.FindPathWithOptions(start, goal, ai.PathOptions{})
+	res := nm.FindPathWithOptions(start, goal, pathfind.PathOptions{})
 	if !res.Found || res.Partial {
 		t.Fatalf("expected complete path down ledge, got %+v", res)
 	}
@@ -70,12 +70,12 @@ func TestNavMesh3DOffMeshOneWayLedgeDropNeverReversed(t *testing.T) {
 	}
 
 	// Reverse (floor -> ledge) must NEVER use the one-way drop link.
-	if rev := nm.FindPathWithOptions(goal, start, ai.PathOptions{}); rev.Found {
+	if rev := nm.FindPathWithOptions(goal, start, pathfind.PathOptions{}); rev.Found {
 		t.Fatalf("reverse path unexpectedly succeeded over one-way drop link: %+v", rev)
 	}
 
 	// Incremental search and NavMeshQuery must match identically.
-	search := nm.StartSearch(start, goal, ai.PathOptions{})
+	search := nm.StartSearch(start, goal, pathfind.PathOptions{})
 	for !search.Status().Done() {
 		search.Step(1)
 	}
@@ -85,11 +85,11 @@ func TestNavMesh3DOffMeshOneWayLedgeDropNeverReversed(t *testing.T) {
 	}
 
 	q := world3d.NewNavMeshQuery(nm)
-	qRes := q.FindPathWithFilterAndOptionsInto(nil, start, goal, world3d.DefaultNavFilter(), ai.PathOptions{})
+	qRes := q.FindPathWithFilterAndOptionsInto(nil, start, goal, world3d.DefaultNavFilter(), pathfind.PathOptions{})
 	if !qRes.Found || len(qRes.Links) != 1 || qRes.Links[0] != link {
 		t.Fatalf("query result mismatch: got %+v, want %+v", qRes, res)
 	}
-	if qRev := q.FindPathWithFilterAndOptionsInto(nil, goal, start, world3d.DefaultNavFilter(), ai.PathOptions{}); qRev.Found {
+	if qRev := q.FindPathWithFilterAndOptionsInto(nil, goal, start, world3d.DefaultNavFilter(), pathfind.PathOptions{}); qRev.Found {
 		t.Fatalf("query reverse unexpectedly succeeded: %+v", qRev)
 	}
 }
@@ -111,7 +111,7 @@ func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 	}) {
 		t.Fatal("AddOffMeshLink failed")
 	}
-	discRes := disc.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 108, Y: 5, Z: 5}, ai.PathOptions{})
+	discRes := disc.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 108, Y: 5, Z: 5}, pathfind.PathOptions{})
 	if !discRes.Found || len(discRes.Links) != 1 || discRes.Links[0].UserData != "teleport" {
 		t.Fatalf("expected teleport across disconnected 3D islands, got %+v", discRes)
 	}
@@ -140,12 +140,12 @@ func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 
 	// Cheaper teleport (6 + 5 + 4 = 15 < 108): must use teleport.
 	cheap := makeConnected(5)
-	cheapRes := cheap.FindPathWithOptions(math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, ai.PathOptions{})
+	cheapRes := cheap.FindPathWithOptions(math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, pathfind.PathOptions{})
 	if !cheapRes.Found || len(cheapRes.Links) != 1 || cheapRes.Links[0].LinkID != 55 {
 		t.Fatalf("expected cheap 3D teleport to beat walking route, got %+v", cheapRes)
 	}
 	qCheap := world3d.NewNavMeshQuery(cheap).FindPathWithFilterAndOptionsInto(
-		nil, math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, world3d.DefaultNavFilter(), ai.PathOptions{},
+		nil, math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, world3d.DefaultNavFilter(), pathfind.PathOptions{},
 	)
 	if !qCheap.Found || len(qCheap.Links) != 1 || qCheap.Links[0].LinkID != 55 {
 		t.Fatalf("query expected cheap 3D teleport, got %+v", qCheap)
@@ -153,7 +153,7 @@ func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 
 	// More expensive teleport (6 + 200 + 4 = 210 > 108): must walk instead!
 	expensive := makeConnected(200)
-	expRes := expensive.FindPathWithOptions(math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, ai.PathOptions{})
+	expRes := expensive.FindPathWithOptions(math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, pathfind.PathOptions{})
 	if !expRes.Found || expRes.HasLinks() {
 		t.Fatalf("expected 3D walking route when teleport is more expensive, got %+v", expRes)
 	}
@@ -162,7 +162,7 @@ func TestNavMesh3DOffMeshTeleportCostVsWalking(t *testing.T) {
 	costlyTeleport := world3d.DefaultNavFilter()
 	costlyTeleport.SetAreaCost(world3d.NavAreaTeleport, 40) // 5 * 40 = 200 > 108
 	scaledRes := cheap.FindPathWithFilterAndOptions(
-		math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, costlyTeleport, ai.PathOptions{},
+		math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 109, Y: 0, Z: 5}, costlyTeleport, pathfind.PathOptions{},
 	)
 	if !scaledRes.Found || scaledRes.HasLinks() {
 		t.Fatalf("expected area-cost-scaled teleport to fall back to walking, got %+v", scaledRes)
@@ -215,12 +215,12 @@ func TestNavMesh3DOffMeshRadiusSnapVerticalLadderFilterAndAgent(t *testing.T) {
 	}
 
 	// Climb up: ground -> balcony.
-	up := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 2, Y: 5, Z: 5}, ai.PathOptions{})
+	up := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 2, Y: 5, Z: 5}, pathfind.PathOptions{})
 	if !up.Found || len(up.Links) != 1 || up.Links[0].FromPoly != 0 || up.Links[0].ToPoly != 1 {
 		t.Fatalf("climb up mismatch: %+v", up)
 	}
 	// Climb down: balcony -> ground.
-	down := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 5, Z: 5}, math3d.Vec3{X: 2, Y: 0, Z: 5}, ai.PathOptions{})
+	down := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 5, Z: 5}, math3d.Vec3{X: 2, Y: 0, Z: 5}, pathfind.PathOptions{})
 	if !down.Found || len(down.Links) != 1 || down.Links[0].FromPoly != 1 || down.Links[0].ToPoly != 0 {
 		t.Fatalf("climb down mismatch: %+v", down)
 	}
@@ -228,7 +228,7 @@ func TestNavMesh3DOffMeshRadiusSnapVerticalLadderFilterAndAgent(t *testing.T) {
 	// Filter excludes ladder by area or flag.
 	noClimb := world3d.DefaultNavFilter()
 	noClimb.ExcludeArea(world3d.NavAreaClimb)
-	if r := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 2, Y: 5, Z: 5}, noClimb, ai.PathOptions{}); r.Found {
+	if r := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 2, Y: 5, Z: 5}, noClimb, pathfind.PathOptions{}); r.Found {
 		t.Fatalf("expected ExcludeArea to block ladder, got %+v", r)
 	}
 
@@ -267,7 +267,7 @@ func TestNavMesh3DOffMeshRadiusSnapVerticalLadderFilterAndAgent(t *testing.T) {
 	if nm.Revision() <= revBefore || len(nm.OffMeshLinks()) != 0 {
 		t.Fatalf("ClearOffMeshLinks failed: rev %d->%d, links=%d", revBefore, nm.Revision(), len(nm.OffMeshLinks()))
 	}
-	if r := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 2, Y: 5, Z: 5}, ai.PathOptions{}); r.Found {
+	if r := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 2, Y: 5, Z: 5}, pathfind.PathOptions{}); r.Found {
 		t.Fatalf("expected unreachable after ClearOffMeshLinks, got %+v", r)
 	}
 }
@@ -303,16 +303,16 @@ func TestNavMesh3DOffMeshFlagFilteringNoWalkCollision(t *testing.T) {
 			}
 
 			// Walk-only agents must NOT traverse explicit jump/climb/teleport links.
-			if r := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, walkOnly, ai.PathOptions{}); r.Found {
+			if r := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, walkOnly, pathfind.PathOptions{}); r.Found {
 				t.Fatalf("walk-only filter traversed 3D %s link: %+v", tc.name, r)
 			}
 			q := world3d.NewNavMeshQuery(nm)
-			if r := q.FindPathWithFilterAndOptionsInto(nil, math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, walkOnly, ai.PathOptions{}); r.Found {
+			if r := q.FindPathWithFilterAndOptionsInto(nil, math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, walkOnly, pathfind.PathOptions{}); r.Found {
 				t.Fatalf("walk-only 3D NavMeshQuery traversed %s link: %+v", tc.name, r)
 			}
 
 			// Default filter traverses the link and preserves NavLinkOffMesh on NavPathLink.Flags.
-			def := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, ai.PathOptions{})
+			def := nm.FindPathWithOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, pathfind.PathOptions{})
 			if !def.Found || len(def.Links) != 1 || def.Links[0].Flags&world3d.NavLinkOffMesh == 0 {
 				t.Fatalf("default filter failed 3D %s link: %+v", tc.name, def)
 			}
@@ -339,12 +339,12 @@ func TestNavMesh3DOffMeshFlagFilteringNoWalkCollision(t *testing.T) {
 			IncludeFlags: world3d.NavFlagTeleport,
 			ExcludeFlags: world3d.NavFlagWalk,
 		}
-		res := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, tpOnly, ai.PathOptions{})
+		res := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, tpOnly, pathfind.PathOptions{})
 		if !res.Found || len(res.Links) != 1 || res.Links[0].LinkID != 200 || res.Links[0].Flags&world3d.NavLinkOffMesh == 0 {
 			t.Fatalf("3D teleport-only filter blocked by NavLinkOffMesh bit collision: %+v", res)
 		}
 		q := world3d.NewNavMeshQuery(nm)
-		qres := q.FindPathWithFilterAndOptionsInto(nil, math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, tpOnly, ai.PathOptions{})
+		qres := q.FindPathWithFilterAndOptionsInto(nil, math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, tpOnly, pathfind.PathOptions{})
 		if !qres.Found || len(qres.Links) != 1 || qres.Links[0].LinkID != 200 {
 			t.Fatalf("3D teleport-only NavMeshQuery failed: %+v", qres)
 		}
@@ -362,7 +362,7 @@ func TestNavMesh3DOffMeshFlagFilteringNoWalkCollision(t *testing.T) {
 		}) {
 			t.Fatal("AddOffMeshLink(untagged) failed")
 		}
-		if r := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, walkOnly, ai.PathOptions{}); !r.Found || len(r.Links) != 1 {
+		if r := nm.FindPathWithFilterAndOptions(math3d.Vec3{X: 2, Y: 0, Z: 5}, math3d.Vec3{X: 28, Y: 0, Z: 5}, walkOnly, pathfind.PathOptions{}); !r.Found || len(r.Links) != 1 {
 			t.Fatalf("3D walk-only filter failed on untagged link: %+v", r)
 		}
 	})
