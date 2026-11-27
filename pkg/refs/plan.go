@@ -399,7 +399,7 @@ func sortedValues(m map[string]IndexEntry) []IndexEntry {
 	return out
 }
 
-// PlanMove plans moving the file or directory from to to, both slash-separated paths in fsys such as os.DirFS of a game's directory, and rewriting every reference Scan finds to what it moves: references from other files, and the references a moved Tiled or LDtk file makes relative to itself. It also brings the project index at the root up to date. It refuses a move that would leave a reference it cannot rewrite: one out of the project root, one written in a way it cannot rewrite in place, or one in a file that should name from but does not parse. It refuses to move game.yaml, an index, or a directory holding a project root of its own.
+// PlanMove plans moving the file or directory from to to, both slash-separated paths in fsys such as os.DirFS of a game's directory, and rewriting every reference Scan finds to what it moves: references from other files, installed pack folders in game.yaml, and the references a moved Tiled or LDtk file makes relative to itself. It also brings the project index at the root up to date. It refuses a move that would leave a reference it cannot rewrite: one out of the project root, one written in a way it cannot rewrite in place, one in a file that should name from but does not parse, or moving a tracked file or subfolder inside an installed pack without moving the pack's folder. It refuses to move game.yaml, an index, or a directory holding a project root of its own.
 func PlanMove(fsys fs.FS, from, to string) (*Plan, error) {
 	for _, s := range []string{from, to} {
 		if !validPath(s) {
@@ -447,6 +447,19 @@ func PlanMove(fsys fs.FS, from, to string) (*Plan, error) {
 			}
 		}
 	}
+	for _, pk := range p.packs {
+		if !strings.HasPrefix(from, pk.dir+"/") {
+			continue
+		}
+		for _, tf := range pk.files {
+			if tf == from {
+				return nil, fmt.Errorf("refs: cannot move %s: it belongs to installed pack %q in %s; move the pack folder %s instead", from, pk.name, pk.file, pk.dir)
+			}
+			if strings.HasPrefix(tf, from+"/") {
+				return nil, fmt.Errorf("refs: cannot move %s: it holds %s, which belongs to installed pack %q in %s; move the pack folder %s instead", from, tf, pk.name, pk.file, pk.dir)
+			}
+		}
+	}
 	mapPath := func(s string) string {
 		if s == from {
 			return to
@@ -478,7 +491,18 @@ func PlanMove(fsys fs.FS, from, to string) (*Plan, error) {
 		}
 	}
 	slices.SortFunc(pl.plan.Updated, compareRefs)
-	return pl.finish()
+	plan, err := pl.finish()
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range plan.Writes {
+		if path.Base(w.Path) == project.FileName {
+			if _, err := project.Parse(w.Data); err != nil {
+				return nil, fmt.Errorf("refs: moving %s to %s would make %s invalid: %w", from, to, w.Path, err)
+			}
+		}
+	}
+	return plan, nil
 }
 
 // IndexOptions configures PlanIndex.

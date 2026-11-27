@@ -24,6 +24,7 @@ const (
 	FieldModelOut         = "assets model out"
 	FieldManifestIn       = "assets manifest in"
 	FieldManifestOut      = "assets manifest out"
+	FieldPackDir          = "pack dir"
 )
 
 // PathRef is one path a project file holds to a file or folder of the project, slash-separated and relative to the project root.
@@ -46,7 +47,7 @@ type pathField struct {
 	value       *string
 }
 
-// pathFields returns every non-empty path f holds to a file or folder of the project, in the order Encode writes them: the autoloaded scenes and resources, then the assets section's cache and each target's in and out. export.output is the directory builds are written to, which nothing in the project reads, and is not one of them. It is the one list of game.yaml's path fields, which PathRefs and EachPath both follow.
+// pathFields returns every non-empty path f holds to a file or folder of the project, in the order Encode writes them: the autoloaded scenes and resources, then the assets section's cache and each target's in and out, then each installed pack's dir. export.output is the directory builds are written to, which nothing in the project reads, and is not one of them. It is the one list of game.yaml's path fields, which PathRefs and EachPath both follow.
 func pathFields(f *File) []pathField {
 	var out []pathField
 	add := func(field string, dir, output bool, value *string, keys ...string) {
@@ -88,6 +89,9 @@ func pathFields(f *File) []pathField {
 			add(FieldManifestIn, true, true, &m.In, "assets", "manifest", "in")
 			add(FieldManifestOut, false, true, &m.Out, "assets", "manifest", "out")
 		}
+	}
+	for i := range f.Packs {
+		add(FieldPackDir, true, false, &f.Packs[i].Dir, "packs", strconv.Itoa(i), "dir")
 	}
 	return out
 }

@@ -293,7 +293,7 @@ func skippedProjectDir(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata"
 }
 
-// moveProjectPaths applies move to every path f holds to a file or folder of the project: the autoload entries and the assets section's targets, as refs rewrites them on disk.
+// moveProjectPaths applies move to every path f holds to a file or folder of the project: the autoload entries, the assets section's targets, and installed packs' folders, as refs rewrites them on disk.
 func moveProjectPaths(f *project.File, move func(*string)) {
 	if f == nil {
 		return

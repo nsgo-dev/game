@@ -40,6 +40,19 @@ assets:
     out: gen/manifest_gen.go
 export:
   output: dist
+packs:
+  - name: dungeon-tiles
+    kind: asset
+    packVersion: 1.0.0
+    sha256: 0000000000000000000000000000000000000000000000000000000000000000
+    dir: packs/dungeon-tiles
+    files:
+      - pack.yaml
+  - name: ui-kit
+    kind: plugin
+    packVersion: 2.1.0
+    sha256: 1111111111111111111111111111111111111111111111111111111111111111
+    dir: "packs/ui-kit"
 `
 
 func TestPathRefs(t *testing.T) {
@@ -67,6 +80,8 @@ func TestPathRefs(t *testing.T) {
 		"30:12 assets model out gen/ship.glb dir=false output=true",
 		"32:9 assets manifest in gen dir=true output=true",
 		"33:10 assets manifest out gen/manifest_gen.go dir=false output=true",
+		"41:10 pack dir packs/dungeon-tiles dir=true output=false",
+		"48:10 pack dir packs/ui-kit dir=true output=false",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("PathRefs:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -84,8 +99,8 @@ func TestPathRefs(t *testing.T) {
 			t.Fatalf("EachPath field %d = %q, want %q", i, fields[i], r.Field)
 		}
 	}
-	if len(fields) != len(refs) || f.Assets.Atlases[0].In != "moved/art/ui" || f.Autoload.Resources[0].Path != "moved/materials/stone.material.yaml" || f.Export.Output != "dist" {
-		t.Fatalf("EachPath visited %d fields; atlas in %q, resource %q, export output %q", len(fields), f.Assets.Atlases[0].In, f.Autoload.Resources[0].Path, f.Export.Output)
+	if len(fields) != len(refs) || f.Assets.Atlases[0].In != "moved/art/ui" || f.Autoload.Resources[0].Path != "moved/materials/stone.material.yaml" || f.Packs[0].Dir != "moved/packs/dungeon-tiles" || f.Packs[1].Dir != "moved/packs/ui-kit" || f.Export.Output != "dist" {
+		t.Fatalf("EachPath visited %d fields; atlas in %q, resource %q, pack0 %q, pack1 %q, export output %q", len(fields), f.Assets.Atlases[0].In, f.Autoload.Resources[0].Path, f.Packs[0].Dir, f.Packs[1].Dir, f.Export.Output)
 	}
 
 	// A file Parse refuses is refused.

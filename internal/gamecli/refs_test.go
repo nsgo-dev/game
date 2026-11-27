@@ -151,3 +151,66 @@ func TestMvScreenSpriteAndTextKey(t *testing.T) {
 		t.Fatalf("locale string key not rewritten:\n%s", got)
 	}
 }
+
+func TestMvPackFolderAndRefusal(t *testing.T) {
+	dir := t.TempDir()
+	const initialGameYAML = `version: 1
+name: PackDemo
+id: dev.nsgo.packdemo
+appVersion: 0.1.0
+window:
+  width: 640
+  height: 360
+packs:
+  - name: tiles
+    kind: asset
+    packVersion: 1.0.0
+    sha256: 0000000000000000000000000000000000000000000000000000000000000000
+    dir: packs/tiles
+    files:
+      - pack.yaml
+      - tiles.png
+`
+	writeFiles(t, dir, map[string]string{
+		"game.yaml":             initialGameYAML,
+		"packs/tiles/pack.yaml": "version: 1\n",
+		"packs/tiles/tiles.png": "png",
+	})
+
+	// Moving a single tracked pack file out is refused before anything changes.
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"mv", "-in", dir, filepath.Join(dir, "packs", "tiles", "tiles.png"), filepath.Join(dir, "art", "tiles.png")}, a); code != 1 {
+		t.Fatalf("mv tracked pack file exit %d, want 1 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stderr.String(), `belongs to installed pack "tiles"`) {
+		t.Fatalf("stderr = %q", stderr)
+	}
+
+	// Dry-run reports the folder move and game.yaml pack dir update without changing disk.
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"mv", "-in", dir, "-dry-run", filepath.Join(dir, "packs", "tiles"), filepath.Join(dir, "art", "tiles")}, a); code != 0 {
+		t.Fatalf("mv -dry-run pack folder exit %d (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout.String(), `update pack dir "packs/tiles"`) || !strings.Contains(stdout.String(), "write ") {
+		t.Fatalf("mv -dry-run stdout = %q", stdout)
+	}
+	if got := readPath(t, filepath.Join(dir, "game.yaml")); got != initialGameYAML {
+		t.Fatalf("dry-run modified game.yaml:\n%s", got)
+	}
+
+	// Moving the pack folder rewrites packs[].dir in place and passes game check.
+	a, stdout, stderr = newTestApp(t)
+	if code := run([]string{"mv", "-in", dir, filepath.Join(dir, "packs", "tiles"), filepath.Join(dir, "art", "tiles")}, a); code != 0 {
+		t.Fatalf("mv pack folder exit %d (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout.String(), `update pack dir "packs/tiles"`) {
+		t.Fatalf("mv stdout = %q", stdout)
+	}
+	if got, want := readPath(t, filepath.Join(dir, "game.yaml")), strings.Replace(initialGameYAML, "dir: packs/tiles", "dir: art/tiles", 1); got != want {
+		t.Fatalf("game.yaml:\n%s\nwant:\n%s", got, want)
+	}
+	a, _, stderr = newTestApp(t)
+	if code := run([]string{"check", dir}, a); code != 0 {
+		t.Fatalf("check after pack move exit %d (stderr: %s)", code, stderr)
+	}
+}
