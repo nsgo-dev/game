@@ -16,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/editor/editormcp"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/game/pkg/tooling/library"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
@@ -38,7 +39,7 @@ type Options struct {
 	WindowWidth, WindowHeight core.Points
 	// RequirePlugins makes Run refuse a project whose game.yaml lists an editor plugin that Plugins lacks (editor.Editor.MissingPlugins), for a command that should not edit the project's scenes without them.
 	RequirePlugins bool
-	// Stdout is where -schema writes the project's scene JSON Schema; nil uses os.Stdout.
+	// Stdout is where -schema and -check write their standard output; nil uses os.Stdout.
 	Stdout io.Writer
 }
 
@@ -260,20 +261,59 @@ func Serve(cx *core.Scope, ed *editor.Editor, stderr io.Writer) *editormcp.Serve
 	return s
 }
 
+// checkDir checks dir with assetcheck.CheckWith using reg plus built-in physics and skeletal components, writing problems to stderr in file:line form and the summary to stdout when clean.
+func checkDir(dir string, reg *sceneformat.ComponentRegistry, stdout, stderr io.Writer) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	components, err := withPhysicsComponents(reg)
+	if err != nil {
+		return err
+	}
+	report, err := assetcheck.CheckWith(os.DirFS(dir), assetcheck.Options{Components: components})
+	if err != nil {
+		return err
+	}
+	for _, p := range report.Problems {
+		p.File = filepath.Join(dir, filepath.FromSlash(p.File))
+		fmt.Fprintln(stderr, p)
+	}
+	switch n := len(report.Problems); n {
+	case 0:
+	case 1:
+		return errors.New("1 problem")
+	default:
+		return fmt.Errorf("%d problems", n)
+	}
+	fmt.Fprintln(stdout, report.Summary())
+	return nil
+}
+
 // errUsage marks an error in an editor command's command line.
 var errUsage = errors.New("usage")
 
-// Run is an editor command run with args, its command line after the program's name: it parses the -library and -schema flags and the arguments Usage gives. With -schema it writes the project's scene JSON Schema (using opts.Components after adding built-in physics and skeletal components) to opts.Stdout (or os.Stdout) and returns without opening a window. Otherwise it builds the editor with New, opens the arguments with Open, or the project in the working directory without any, refuses a project listing plugins the editor lacks when opts.RequirePlugins is set, and shows the editor with launch, or when launch is nil as Show does, in a window of opts.WindowWidth by opts.WindowHeight. Usage and flag errors are reported on stderr and wrap a usage error that Main exits 2 for.
+// Run is an editor command run with args, its command line after the program's name: it parses the -library, -schema and -check flags and the arguments Usage gives. With -schema it writes the project's scene JSON Schema (using opts.Components after adding built-in physics and skeletal components) to opts.Stdout (or os.Stdout) and returns without opening a window. With -check dir it checks the scenes and assets under dir with assetcheck.CheckWith using opts.Components (after adding built-in physics and skeletal components), printing problems to stderr and the summary to opts.Stdout (or os.Stdout) without opening a window. Otherwise it builds the editor with New, opens the arguments with Open, or the project in the working directory without any, refuses a project listing plugins the editor lacks when opts.RequirePlugins is set, and shows the editor with launch, or when launch is nil as Show does, in a window of opts.WindowWidth by opts.WindowHeight. Usage and flag errors are reported on stderr and wrap a usage error that Main exits 2 for.
 func Run(args []string, opts Options, stderr io.Writer, launch func(*editor.Editor)) error {
 	fs := flag.NewFlagSet("editor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "usage: editor [-library index] [-schema] %s\n", Usage)
+		fmt.Fprintf(stderr, "usage: editor [-library index] [-schema] [-check dir] %s\n", Usage)
 		fs.PrintDefaults()
 	}
 	lib := fs.String("library", opts.Library, "show the library panel, which installs packs into the open project, for this library index: an https URL such as "+library.DefaultIndex+", an index file, or a directory holding index.yaml")
 	schemaFlag := fs.Bool("schema", false, "write the project's scene JSON Schema to stdout and exit without opening a window")
+	checkPath := fs.String("check", "", "check the scenes, maps, tilesets and atlases under `dir` with the project's component registry and exit without opening a window")
 	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("%w: %w", errUsage, err)
+	}
+	if *schemaFlag && *checkPath != "" {
+		err := errors.New("-schema and -check cannot be used together")
+		fmt.Fprintf(stderr, "editor: %v\n", err)
+		fs.Usage()
 		return fmt.Errorf("%w: %w", errUsage, err)
 	}
 	if *schemaFlag {
@@ -288,6 +328,19 @@ func Run(args []string, opts Options, stderr io.Writer, launch func(*editor.Edit
 			out = os.Stdout
 		}
 		return writeSchema(out, opts.Components)
+	}
+	if *checkPath != "" {
+		if fs.NArg() > 0 {
+			err := fmt.Errorf("-check takes no extra arguments, got %d", fs.NArg())
+			fmt.Fprintf(stderr, "editor: %v\n", err)
+			fs.Usage()
+			return fmt.Errorf("%w: %w", errUsage, err)
+		}
+		out := opts.Stdout
+		if out == nil {
+			out = os.Stdout
+		}
+		return checkDir(*checkPath, opts.Components, out, stderr)
 	}
 	if fs.NArg() > 3 {
 		err := fmt.Errorf("expected at most a project or scene file, a clip file and an object ID, got %d arguments", fs.NArg())

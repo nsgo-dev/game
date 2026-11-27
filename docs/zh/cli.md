@@ -235,7 +235,7 @@ game check: 1 problem
 
 | 文件 | 检查内容 |
 | --- | --- |
-| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在的 Tiled 地图（`.tmj` 或 `.tmx`，须检查通过）或 LDtk 项目（`.ldtk`，须检查通过且含有 `level` 指定的关卡）；分层瓦片地图的 `tilesetFile` 是存在且检查通过的 YAML 图块集，并含有单元格放置的每个瓦片；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在；`model` 是存在的 `.gltf` 或 `.glb` 文件，能用 `gltf.LoadFS` 加载，并含有 `modelNode` 指定的节点或 `modelMesh` 指定的网格，`mesh` 是内置基本形体（[scenemodel](scenemodel.md)）；在实例化或继承其他场景的场景中，每个连接的 `from` 和 `to` 都指向解析后场景中的对象（[检查连接](editor.md#检查连接)） |
+| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在的 Tiled 地图（`.tmj` 或 `.tmx`，须检查通过）或 LDtk 项目（`.ldtk`，须检查通过且含有 `level` 指定的关卡）；分层瓦片地图的 `tilesetFile` 是存在且检查通过的 YAML 图块集，并含有单元格放置的每个瓦片；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在；`model` 是存在的 `.gltf` 或 `.glb` 文件，能用 `gltf.LoadFS` 加载，并含有 `modelNode` 指定的节点或 `modelMesh` 指定的网格，`mesh` 是内置基本形体（[scenemodel](scenemodel.md)）；在实例化或继承其他场景的场景中，每个连接的 `from` 和 `to` 都指向解析后场景中的对象；项目拥有自己的编辑器命令时，还会按项目的组件注册表一并检查组件字段以及每条连接的事件、处理函数和参数（[检查连接](editor.md#检查连接)） |
 | Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，或旧版 Tiled 使用的 `.json`；不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载。场景引用的 Tiled XML 地图（`.tmx`）连同其外部图块集（`.tsx` 或 `.tsj`）能用 `tilemap.LoadTiled` 加载，且它绘制的每张图块集图片和图像图层图片都存在 |
 | YAML 图块集（`*.tileset.yaml`、`*.tileset.yml`） | 按[图块集格式](tilemap.md#yaml-图块集)解析并校验通过；网格图块集的 `image` 存在，且大小足以容纳它的 `columns`、`tileCount`、`spacing` 和 `margin`；图集图块集的 `atlas` 存在，且含有它的每个 `frames` |
 | LDtk 项目（`.ldtk`） | 图块集图片和关卡背景存在；没有关卡保存在单独的 `.ldtkl` 文件中，因为 `tilemap.LoadLDtkAll` 不读取这些文件（在 LDtk 中关闭“Save levels to separate files”）；项目能用 `tilemap.LoadLDtkAll` 加载 |
@@ -253,7 +253,9 @@ game check: 1 problem
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/pkg/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题；它的 `CheckWith` 还接受游戏的组件注册表，用来检查连接所指的事件和处理函数。
+当被检查的目录是拥有自己编辑器命令的项目时（`cmd/editor` 中导入 `pkg/editor/editorcmd` 的 `main` 包，或由 `game generate editor` 写出、用 `-tags gameeditor` 构建的 `main`），`game check` 会以 `-check <dir>` 运行该命令，使用项目的 `editorcmd.Options.Components` 加上内置物理和骨骼组件调用 `assetcheck.CheckWith`，一并检查组件字段以及连接的事件、处理函数与参数（包括由实例化或继承场景带来的连接）。没有编辑器命令时，`game check` 只检查连接的对象；只要场景里存在连接，就会在标准错误打印一条提示，说明事件和处理函数未被检查，以及如何用 `game generate editor` 开启。
+
+Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/pkg/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题；它的 `CheckWith` 还接受游戏的组件注册表，便于在测试中直接检查事件和处理函数（例如 `action3d` 模板中的 `TestScenesCheck`），无需编辑器命令。
 
 ### assets
 
