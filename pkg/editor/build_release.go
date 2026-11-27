@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image/png"
 	"io"
 	"io/fs"
 	"math"
@@ -21,6 +20,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
@@ -1297,142 +1297,29 @@ func (e *Editor) evaluateReadinessFor(platform, dir string, f *project.File) []B
 	if e.ReleaseReadinessInspector != nil {
 		return slices.Clone(e.ReleaseReadinessInspector(platform, dir, f))
 	}
-	if platform != "ios" {
+	raw := releaseplan.EvaluateReadiness(platform, dir, f)
+	if len(raw) == 0 {
 		return nil
 	}
-
-	var items []BuildReadinessItem
-	// 1. Bundle id
-	if f != nil && strings.TrimSpace(f.ID) != "" {
-		items = append(items, BuildReadinessItem{
-			ID:     "bundle_id",
-			Label:  "Bundle id " + f.ID,
-			Detail: "from game.yaml",
-			Status: BuildReadinessOK,
-		})
-	} else {
-		items = append(items, BuildReadinessItem{
-			ID:             "bundle_id",
-			Label:          "Bundle id",
-			Detail:         "id is empty in game.yaml",
-			Status:         BuildReadinessFail,
-			ActionLabel:    "Set bundle id",
-			AgentCanHandle: true,
-		})
-	}
-
-	// 2. App icon
-	iconPath, iconDetail, iconOK := inspectAppIcon(dir)
-	if iconOK {
-		items = append(items, BuildReadinessItem{
-			ID:     "app_icon",
-			Label:  "App icon",
-			Detail: iconDetail,
-			Status: BuildReadinessOK,
-		})
-	} else {
-		detail := "art/icon.png (1024 × 1024, no transparency) not found"
-		if iconPath != "" {
-			detail = iconDetail
+	items := make([]BuildReadinessItem, len(raw))
+	for i, it := range raw {
+		items[i] = BuildReadinessItem{
+			ID:             it.ID,
+			Label:          it.Label,
+			Detail:         it.Detail,
+			Status:         BuildReadinessStatus(it.Status),
+			ActionLabel:    it.ActionLabel,
+			AgentCanHandle: it.AgentCanHandle,
+			RequiresPerson: it.RequiresPerson,
 		}
-		items = append(items, BuildReadinessItem{
-			ID:             "app_icon",
-			Label:          "App icon",
-			Detail:         detail,
-			Status:         BuildReadinessWarn,
-			ActionLabel:    "Check icon…",
-			AgentCanHandle: false,
-			RequiresPerson: true,
-		})
-	}
-
-	// 3. Apple Distribution certificate
-	certFound := dir != "" && fileExistsAny(dir, "export/ios.cert", "ios/distribution.cer")
-	if certFound {
-		items = append(items, BuildReadinessItem{
-			ID:     "distribution_cert",
-			Label:  "Apple Distribution certificate",
-			Detail: "configured in project",
-			Status: BuildReadinessOK,
-		})
-	} else {
-		items = append(items, BuildReadinessItem{
-			ID:             "distribution_cert",
-			Label:          "Apple Distribution certificate",
-			Detail:         "using login keychain if configured; sign in to Xcode to install one",
-			Status:         BuildReadinessOK,
-			RequiresPerson: true,
-		})
-	}
-
-	// 4. Provisioning profile
-	profileFound := dir != "" && fileExistsAny(dir, "export/ios.mobileprovision", "ios/profile.mobileprovision")
-	if profileFound {
-		items = append(items, BuildReadinessItem{
-			ID:     "provisioning_profile",
-			Label:  "Provisioning profile",
-			Detail: fmt.Sprintf("installed for %s", f.ID),
-			Status: BuildReadinessOK,
-		})
-	} else {
-		items = append(items, BuildReadinessItem{
-			ID:             "provisioning_profile",
-			Label:          "Provisioning profile",
-			Detail:         fmt.Sprintf("none for %s on this machine", f.ID),
-			Status:         BuildReadinessFail,
-			ActionLabel:    "Sign in to Apple…",
-			AgentCanHandle: false,
-			RequiresPerson: true,
-		})
-	}
-
-	// 5. Privacy manifest
-	privacyPath := findPrivacyManifest(dir)
-	if privacyPath != "" {
-		items = append(items, BuildReadinessItem{
-			ID:     "privacy_manifest",
-			Label:  "Privacy manifest",
-			Detail: privacyPath + " present (no tracked data declared)",
-			Status: BuildReadinessOK,
-		})
-	} else {
-		items = append(items, BuildReadinessItem{
-			ID:             "privacy_manifest",
-			Label:          "Privacy manifest",
-			Detail:         "PrivacyInfo.xcprivacy is missing; the game reads no tracked data",
-			Status:         BuildReadinessWarn,
-			ActionLabel:    "Let the agent write it",
-			AgentCanHandle: true,
-			RequiresPerson: false,
-		})
-	}
-
-	// 6. Touch controls
-	touchOK, touchDetail := inspectTouchControls(dir, f)
-	if touchOK {
-		items = append(items, BuildReadinessItem{
-			ID:     "touch_controls",
-			Label:  "Touch controls",
-			Detail: touchDetail,
-			Status: BuildReadinessOK,
-		})
-	} else {
-		items = append(items, BuildReadinessItem{
-			ID:             "touch_controls",
-			Label:          "Touch controls",
-			Detail:         "no touchRegion bindings in game.yaml or input/touch.input.yaml",
-			Status:         BuildReadinessWarn,
-			ActionLabel:    "Add touch controls",
-			AgentCanHandle: true,
-			RequiresPerson: false,
-		})
 	}
 	return items
 }
 
 // RunBuildReadinessAction executes the fix/action for one readiness item on platform.
-// Agent-capable items (such as writing PrivacyInfo.xcprivacy or adding touch controls) are
-// performed directly on disk/project; person-required items invoke OnReleaseReadinessPersonAction.
+// Agent-capable items (such as syncing nsgo.yaml, writing resources/PrivacyInfo.xcprivacy, or
+// generating controls.touch.yaml from game.yaml actions) are performed directly on disk;
+// person-required items invoke OnReleaseReadinessPersonAction.
 func (e *Editor) RunBuildReadinessAction(platform, itemID string) error {
 	if e == nil || e.Project == nil {
 		return ErrNoProject
@@ -1470,37 +1357,64 @@ func (e *Editor) RunBuildReadinessAction(platform, itemID string) error {
 
 	if targetItem.AgentCanHandle {
 		switch itemID {
+		case "bundle_id":
+			if dir == "" {
+				return ErrNoProject
+			}
+			target, err := resolveBuildReleasePath(dir, project.NSGoFileName, true)
+			if err != nil {
+				return err
+			}
+			existing, err := os.ReadFile(target)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			synced, err := e.Project.SyncNSGo(existing)
+			if err != nil {
+				return err
+			}
+			if err := writeFileAtomic(target, synced); err != nil {
+				return err
+			}
+			e.filesRev++
+			e.Status = "Synced " + project.NSGoFileName + " with " + project.FileName
 		case "privacy_manifest":
 			if dir == "" {
 				return ErrNoProject
 			}
-			target, err := resolveBuildReleasePath(dir, "PrivacyInfo.xcprivacy", true)
+			target, err := resolveBuildReleasePath(dir, releaseplan.PrivacyManifestRelPath, true)
 			if err != nil {
 				return err
 			}
-			if err := writeFileAtomic(target, []byte(defaultPrivacyManifestXML)); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			if err := writeFileAtomic(target, releaseplan.DefaultPrivacyManifestXML()); err != nil {
 				return err
 			}
 			e.filesRev++
-			e.Status = "Wrote PrivacyInfo.xcprivacy"
+			e.Status = "Wrote " + releaseplan.PrivacyManifestRelPath
 		case "touch_controls":
-			if err := e.EditProject("Add touch controls", func(f *project.File) {
-				if f.Input == nil {
-					f.Input = &project.Input{}
-				}
-				f.Input.Actions = append(f.Input.Actions, project.Action{
-					Name: "touch_action",
-					Bindings: []project.Binding{{
-						Kind: project.KindTouchRegion,
-						Region: &project.Rect{
-							X: 0, Y: 0, Width: 320, Height: 360,
-						},
-					}},
-				})
-			}); err != nil {
+			if dir == "" {
+				return ErrNoProject
+			}
+			layout, ok := releaseplan.GenerateTouchLayout(e.Project)
+			if !ok {
+				return fmt.Errorf("editor: %s declares no input actions or axes to generate %s", project.FileName, releaseplan.DefaultTouchLayoutRelPath)
+			}
+			data, err := input.EncodeTouchLayout(layout)
+			if err != nil {
 				return err
 			}
-			e.Status = "Added default touch control binding"
+			target, err := resolveBuildReleasePath(dir, releaseplan.DefaultTouchLayoutRelPath, true)
+			if err != nil {
+				return err
+			}
+			if err := writeFileAtomic(target, data); err != nil {
+				return err
+			}
+			e.filesRev++
+			e.Status = "Wrote " + releaseplan.DefaultTouchLayoutRelPath
 		}
 		_ = e.RefreshBuildPreflight()
 		return nil
@@ -3312,72 +3226,6 @@ func loadLastReleaseBaseline(dir string, proj *project.File) (LastReleaseBaselin
 	return LastReleaseBaseline{}, false
 }
 
-func inspectAppIcon(dir string) (relPath, detail string, ok bool) {
-	if dir == "" {
-		return "", "", false
-	}
-	for _, rel := range []string{"art/icon.png", "assets/icon.png", "icon.png"} {
-		abs := filepath.Join(dir, filepath.FromSlash(rel))
-		f, err := os.Open(abs)
-		if err != nil {
-			continue
-		}
-		cfg, err := png.DecodeConfig(f)
-		_ = f.Close()
-		if err != nil {
-			return rel, rel + " is not a valid PNG", false
-		}
-		return rel, fmt.Sprintf("%s, %d × %d", rel, cfg.Width, cfg.Height), true
-	}
-	return "", "", false
-}
-
-func findPrivacyManifest(dir string) string {
-	if dir == "" {
-		return ""
-	}
-	for _, rel := range []string{"PrivacyInfo.xcprivacy", "ios/PrivacyInfo.xcprivacy", "export/PrivacyInfo.xcprivacy"} {
-		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
-			return rel
-		}
-	}
-	return ""
-}
-
-func inspectTouchControls(dir string, f *project.File) (bool, string) {
-	if f != nil && f.Input != nil {
-		var names []string
-		for _, a := range f.Input.Actions {
-			for _, b := range a.Bindings {
-				if b.Kind == project.KindTouchRegion {
-					names = append(names, a.Name)
-					break
-				}
-			}
-		}
-		if len(names) > 0 {
-			return true, fmt.Sprintf("game.yaml covers %s", strings.Join(names, ", "))
-		}
-	}
-	if dir != "" {
-		for _, rel := range []string{"input/touch.input.yaml", "touch.input.yaml"} {
-			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
-				return true, rel + " configured"
-			}
-		}
-	}
-	return false, ""
-}
-
-func fileExistsAny(dir string, rels ...string) bool {
-	for _, rel := range rels {
-		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
 func countReadinessIssues(items []BuildReadinessItem) (blockers, total int) {
 	for _, it := range items {
 		switch it.Status {
@@ -3535,19 +3383,3 @@ func cloneLastReleaseBaseline(b LastReleaseBaseline) LastReleaseBaseline {
 	}
 	return c
 }
-
-const defaultPrivacyManifestXML = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>NSPrivacyTracking</key>
-	<false/>
-	<key>NSPrivacyTrackingDomains</key>
-	<array/>
-	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
-	<key>NSPrivacyAccessedAPITypes</key>
-	<array/>
-</dict>
-</plist>
-`

@@ -31,6 +31,24 @@ appVersion: 0.4.0
 window:
   width: 640
   height: 360
+input:
+  actions:
+    - name: left
+      bindings:
+        - kind: key
+          key: a
+    - name: right
+      bindings:
+        - kind: key
+          key: d
+    - name: jump
+      bindings:
+        - kind: key
+          key: space
+  axes:
+    - name: move_x
+      negative: left
+      positive: right
 export:
   output: dist
   budgets:
@@ -62,8 +80,10 @@ func TestBuildReleaseScreenMacOSScreenshots(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte("name: dungeon-run\nid: dev.dungeonrun.game\nversion: 0.4.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Provide icon + touch controls so iOS shows exact 2 readiness items (provisioning profile + privacy manifest).
-	if err := os.MkdirAll(filepath.Join(dir, "art"), 0o755); err != nil {
+	// Provide NSGo's default assets/Icon.png so the iOS READINESS panel reflects real nsgo.yaml checks:
+	// bundle ID, icon, and NSGo's built-in privacy manifest pass; sign.profile / sign.identity need person setup;
+	// touch controls offers generating controls.touch.yaml from game.yaml's actions.
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
@@ -72,18 +92,12 @@ func TestBuildReleaseScreenMacOSScreenshots(t *testing.T) {
 			img.SetRGBA(x, y, color.RGBA{R: 59, G: 123, B: 255, A: 255})
 		}
 	}
-	f, err := os.Create(filepath.Join(dir, "art", "icon.png"))
+	f, err := os.Create(filepath.Join(dir, "assets", "Icon.png"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = png.Encode(f, img)
 	_ = f.Close()
-	if err := os.MkdirAll(filepath.Join(dir, "input"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "input", "touch.input.yaml"), []byte("version: 1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	ed, err := editor.New(nil, nil)
 	if err != nil {

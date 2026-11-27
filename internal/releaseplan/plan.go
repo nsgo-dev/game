@@ -153,10 +153,45 @@ func (e *ExperimentalTargetsError) Unwrap() error {
 	return ErrExperimentalTarget
 }
 
-// NSGoSettings are the parts of nsgo.yaml that game release and the editor's publish flow read.
+// NSGoIconConfig holds the icon settings in nsgo.yaml read by release readiness checks.
+type NSGoIconConfig struct {
+	// Apple is icon.apple, an Icon Composer .icon (macOS/iOS) or .icns (macOS only).
+	Apple string `yaml:"apple"`
+	// PNG is icon.png, the square PNG icon fallback used across targets including iOS.
+	PNG string `yaml:"png"`
+}
+
+// NSGoSignConfig holds the signing settings in nsgo.yaml read by release readiness checks.
+type NSGoSignConfig struct {
+	Identity     string `yaml:"identity"`
+	Profile      string `yaml:"profile"`
+	MacOSProfile string `yaml:"macos_profile"`
+	Keystore     string `yaml:"keystore"`
+	KeyAlias     string `yaml:"key_alias"`
+	Certificate  string `yaml:"certificate"`
+	SignCommand  string `yaml:"sign_command"`
+	Notarize     string `yaml:"notarize"`
+}
+
+// NSGoPrivacyConfig holds apple.privacy in nsgo.yaml, which nsgo build merges into PrivacyInfo.xcprivacy.
+type NSGoPrivacyConfig struct {
+	AccessedAPIs    map[string][]string `yaml:"accessed_apis"`
+	CollectedData   []map[string]any    `yaml:"collected_data"`
+	Tracking        *bool               `yaml:"tracking"`
+	TrackingDomains []string            `yaml:"tracking_domains"`
+}
+
+// NSGoAppleConfig holds the Apple-specific settings in nsgo.yaml read by release readiness checks.
+type NSGoAppleConfig struct {
+	Privacy NSGoPrivacyConfig `yaml:"privacy"`
+}
+
+// NSGoSettings are the parts of nsgo.yaml that game release, readiness checks, and the editor's publish flow read.
 type NSGoSettings struct {
 	// Name is nsgo.yaml's name, used by nsgo build to name package directories and desktop executables.
 	Name string
+	// ID is nsgo.yaml's id, the reverse-DNS bundle identifier / application ID.
+	ID string
 	// Version is nsgo.yaml's version, used by nsgo build to name package directories.
 	Version string
 	// Channel is updates.channel, the channel nsgo build hands the packages out through when -channel does not say.
@@ -167,6 +202,12 @@ type NSGoSettings struct {
 	ItchProject string
 	// ItchChannels is itch.channels, mapping NSGo build target names to custom itch.io channel names.
 	ItchChannels map[string]string
+	// Icon is nsgo.yaml's icon section.
+	Icon NSGoIconConfig
+	// Sign is nsgo.yaml's sign section.
+	Sign NSGoSignConfig
+	// Apple is nsgo.yaml's apple section.
+	Apple NSGoAppleConfig
 }
 
 // ReadNSGoSettings reads dir's nsgo.yaml. The file is nsgo's, which validates it when it builds, so fields game release does not read are left alone rather than refused.
@@ -179,8 +220,13 @@ func ReadNSGoSettings(dir string) (NSGoSettings, error) {
 	if err != nil {
 		return NSGoSettings{}, err
 	}
+	return parseNSGoSettings(path, data)
+}
+
+func parseNSGoSettings(path string, data []byte) (NSGoSettings, error) {
 	var file struct {
 		Name    string `yaml:"name"`
+		ID      string `yaml:"id"`
 		Version string `yaml:"version"`
 		Updates struct {
 			Channel string `yaml:"channel"`
@@ -192,6 +238,9 @@ func ReadNSGoSettings(dir string) (NSGoSettings, error) {
 			Project  string            `yaml:"project"`
 			Channels map[string]string `yaml:"channels"`
 		} `yaml:"itch"`
+		Icon  NSGoIconConfig  `yaml:"icon"`
+		Sign  NSGoSignConfig  `yaml:"sign"`
+		Apple NSGoAppleConfig `yaml:"apple"`
 	}
 	if err := yaml.Unmarshal(data, &file); err != nil {
 		return NSGoSettings{}, fmt.Errorf("%s: %w", path, err)
@@ -212,11 +261,15 @@ func ReadNSGoSettings(dir string) (NSGoSettings, error) {
 	}
 	return NSGoSettings{
 		Name:         file.Name,
+		ID:           file.ID,
 		Version:      file.Version,
 		Channel:      strings.TrimSpace(file.Updates.Channel),
 		Output:       strings.TrimSpace(file.Build.Output),
 		ItchProject:  strings.TrimSpace(file.Itch.Project),
 		ItchChannels: itchChannels,
+		Icon:         file.Icon,
+		Sign:         file.Sign,
+		Apple:        file.Apple,
 	}, nil
 }
 
