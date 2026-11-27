@@ -367,6 +367,461 @@ func TestBlackboardConditionObserverAborts(t *testing.T) {
 	})
 }
 
+func TestSelectorMixedBlackboardAndPlainPreemption(t *testing.T) {
+	const dt = 50 * time.Millisecond
+
+	modes := []ai.AbortMode{ai.AbortNone, ai.AbortSelf, ai.AbortLower, ai.AbortBoth}
+
+	t.Run("Sequence Condition before BlackboardCondition preempts across all abort modes", func(t *testing.T) {
+		for _, mode := range modes {
+			t.Run(string(mode), func(t *testing.T) {
+				bb := ai.NewBlackboard()
+				bb.SetInt("ammo", 3)
+				seen := false
+				attacks := 0
+				patrolResets := 0
+
+				var log []string
+				patrol := &trackedAction{name: "patrol", ticksNeeded: 100, finalStatus: ai.StatusSuccess, log: &log}
+				tree := ai.Selector(
+					ai.Sequence(
+						ai.Condition(func() bool { return seen }),
+						ai.BlackboardCondition(bb, "ammo", ai.BBOpGt, ai.BBInt(0), mode,
+							ai.Action(func(time.Duration) ai.Status {
+								attacks++
+								return ai.StatusSuccess
+							}),
+						),
+					),
+					patrol,
+				)
+
+				// Tick 1: seen=false -> patrol starts running.
+				if st := tree.Tick(dt); st != ai.StatusRunning {
+					t.Fatalf("tick 1 = %v, want Running", st)
+				}
+				if attacks != 0 || patrol.resets != 0 {
+					t.Fatalf("tick 1: attacks=%d patrol.resets=%d, want 0, 0", attacks, patrol.resets)
+				}
+
+				// Flip seen=true (ammo unchanged) and tick 5 times: patrol must be preempted on first tick and attack runs 5 times.
+				seen = true
+				for i := range 5 {
+					if st := tree.Tick(dt); st != ai.StatusSuccess {
+						t.Fatalf("tick %d = %v, want Success", i+2, st)
+					}
+				}
+				patrolResets = patrol.resets
+				if attacks != 5 || patrolResets != 1 {
+					t.Fatalf("after 5 ticks: attacks=%d patrolResets=%d, want 5, 1", attacks, patrolResets)
+				}
+			})
+		}
+	})
+
+	t.Run("Sequence Condition before running BlackboardCondition preserves AbortSelf and AbortBoth", func(t *testing.T) {
+		for _, mode := range modes {
+			t.Run(string(mode), func(t *testing.T) {
+				bb := ai.NewBlackboard()
+				bb.SetInt("ammo", 3)
+				seen := false
+				var log []string
+				attack := &trackedAction{name: "attack", ticksNeeded: 3, finalStatus: ai.StatusSuccess, log: &log}
+				patrol := &trackedAction{name: "patrol", ticksNeeded: 10, finalStatus: ai.StatusSuccess, log: &log}
+
+				tree := ai.Selector(
+					ai.Sequence(
+						ai.Condition(func() bool { return seen }),
+						ai.BlackboardCondition(bb, "ammo", ai.BBOpGt, ai.BBInt(0), mode, attack),
+					),
+					patrol,
+				)
+
+				tree.Tick(dt) // patrol 1/10
+				seen = true
+				if st := tree.Tick(dt); st != ai.StatusRunning {
+					t.Fatalf("preempt tick = %v, want Running (attack 1/3)", st)
+				}
+				if patrol.resets != 1 {
+					t.Fatalf("patrol.resets = %d, want 1", patrol.resets)
+				}
+
+				// Drop ammo to 0 while attack is running.
+				bb.SetInt("ammo", 0)
+				tree.Tick(dt)
+				wantSelfAbort := mode == ai.AbortSelf || mode == ai.AbortBoth
+				if wantSelfAbort {
+					if attack.resets != 1 {
+						t.Fatalf("mode %s: attack.resets = %d, want 1 (self-abort)", mode, attack.resets)
+					}
+				} else {
+					if attack.resets != 0 {
+						t.Fatalf("mode %s: attack.resets = %d, want 0 (must not self-abort)", mode, attack.resets)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("Sequence BlackboardCondition leaf before Condition preempts and preserves self-abort", func(t *testing.T) {
+		for _, mode := range modes {
+			t.Run(string(mode), func(t *testing.T) {
+				bb := ai.NewBlackboard()
+				bb.SetInt("ammo", 3)
+				seen := false
+				var log []string
+				attack := &trackedAction{name: "attack", ticksNeeded: 3, finalStatus: ai.StatusSuccess, log: &log}
+				patrol := &trackedAction{name: "patrol", ticksNeeded: 10, finalStatus: ai.StatusSuccess, log: &log}
+
+				tree := ai.Selector(
+					ai.Sequence(
+						ai.BlackboardCondition(bb, "ammo", ai.BBOpGt, ai.BBInt(0), mode, nil),
+						ai.Condition(func() bool { return seen }),
+						attack,
+					),
+					patrol,
+				)
+
+				// Tick 1: ammo>0 passes, seen=false fails -> patrol runs.
+				if st := tree.Tick(dt); st != ai.StatusRunning {
+					t.Fatalf("tick 1 = %v, want Running", st)
+				}
+				// Tick 2: seen flips true with ammo unchanged -> must preempt patrol and enter attack!
+				seen = true
+				if st := tree.Tick(dt); st != ai.StatusRunning {
+					t.Fatalf("tick 2 = %v, want Running (attack)", st)
+				}
+				if patrol.resets != 1 || attack.ticks != 1 {
+					t.Fatalf("tick 2: patrol.resets=%d attack.ticks=%d, want 1, 1", patrol.resets, attack.ticks)
+				}
+				// Tick 3: ammo drops to 0 while attack runs -> AbortSelf/AbortBoth must self-abort attack via Sequence.
+				bb.SetInt("ammo", 0)
+				tree.Tick(dt)
+				wantSelfAbort := mode == ai.AbortSelf || mode == ai.AbortBoth
+				if wantSelfAbort && attack.resets != 1 {
+					t.Fatalf("mode %s: attack.resets = %d, want 1", mode, attack.resets)
+				}
+				if !wantSelfAbort && attack.resets != 0 {
+					t.Fatalf("mode %s: attack.resets = %d, want 0", mode, attack.resets)
+				}
+			})
+		}
+	})
+
+	t.Run("Guard wrapping BlackboardCondition and BlackboardCondition wrapping Guard preempt", func(t *testing.T) {
+		for _, mode := range modes {
+			t.Run("GuardOuter/"+string(mode), func(t *testing.T) {
+				bb := ai.NewBlackboard()
+				bb.SetInt("ammo", 3)
+				seen := true
+				attacks := 0
+				var log []string
+				patrol := &trackedAction{name: "patrol", ticksNeeded: 10, finalStatus: ai.StatusSuccess, log: &log}
+
+				tree := ai.Selector(
+					ai.Guard(func() bool { return seen },
+						ai.BlackboardCondition(bb, "ammo", ai.BBOpGt, ai.BBInt(0), mode,
+							ai.Action(func(time.Duration) ai.Status {
+								attacks++
+								return ai.StatusSuccess
+							}),
+						),
+					),
+					patrol,
+				)
+
+				// First tick primes BlackboardCondition's seenRev while seen=true.
+				if st := tree.Tick(dt); st != ai.StatusSuccess || attacks != 1 {
+					t.Fatalf("tick 1: st=%v attacks=%d, want Success, 1", st, attacks)
+				}
+				// Drop seen -> patrol starts running.
+				seen = false
+				if st := tree.Tick(dt); st != ai.StatusRunning {
+					t.Fatalf("tick 2 = %v, want Running (patrol)", st)
+				}
+				// Restore seen with ammo unchanged -> Guard must preempt patrol!
+				seen = true
+				if st := tree.Tick(dt); st != ai.StatusSuccess || attacks != 2 || patrol.resets != 1 {
+					t.Fatalf("tick 3: st=%v attacks=%d patrol.resets=%d, want Success, 2, 1", st, attacks, patrol.resets)
+				}
+			})
+
+			t.Run("GuardInner/"+string(mode), func(t *testing.T) {
+				bb := ai.NewBlackboard()
+				bb.SetInt("ammo", 3)
+				seen := false
+				attacks := 0
+				var log []string
+				patrol := &trackedAction{name: "patrol", ticksNeeded: 10, finalStatus: ai.StatusSuccess, log: &log}
+
+				tree := ai.Selector(
+					ai.BlackboardCondition(bb, "ammo", ai.BBOpGt, ai.BBInt(0), mode,
+						ai.Guard(func() bool { return seen },
+							ai.Action(func(time.Duration) ai.Status {
+								attacks++
+								return ai.StatusSuccess
+							}),
+						),
+					),
+					patrol,
+				)
+
+				if st := tree.Tick(dt); st != ai.StatusRunning {
+					t.Fatalf("tick 1 = %v, want Running (patrol)", st)
+				}
+				seen = true
+				if st := tree.Tick(dt); st != ai.StatusSuccess || attacks != 1 || patrol.resets != 1 {
+					t.Fatalf("tick 2: st=%v attacks=%d patrol.resets=%d, want Success, 1, 1", st, attacks, patrol.resets)
+				}
+			})
+		}
+	})
+
+	t.Run("Nested Selector and WithAttackToken mixed with BlackboardCondition preempt", func(t *testing.T) {
+		bb := ai.NewBlackboard()
+		bb.SetBool("alert", false)
+		bb.SetInt("ammo", 3)
+		seen := false
+		attacks := 0
+		var log []string
+		patrol := &trackedAction{name: "patrol", ticksNeeded: 10, finalStatus: ai.StatusSuccess, log: &log}
+
+		nestedTree := ai.Selector(
+			ai.Selector(
+				ai.Guard(func() bool { return seen }, ai.Action(func(time.Duration) ai.Status {
+					attacks++
+					return ai.StatusSuccess
+				})),
+				ai.BlackboardCondition(bb, "alert", ai.BBOpEq, ai.BBBool(true), ai.AbortLower,
+					ai.Action(func(time.Duration) ai.Status { return ai.StatusSuccess }),
+				),
+			),
+			patrol,
+		)
+
+		if st := nestedTree.Tick(dt); st != ai.StatusRunning {
+			t.Fatalf("nested tick 1 = %v, want Running", st)
+		}
+		seen = true
+		if st := nestedTree.Tick(dt); st != ai.StatusSuccess || attacks != 1 || patrol.resets != 1 {
+			t.Fatalf("nested tick 2: st=%v attacks=%d patrol.resets=%d, want Success, 1, 1", st, attacks, patrol.resets)
+		}
+
+		// WithAttackToken after BlackboardCondition in a Sequence.
+		pool := ai.NewTokenPool(ai.TokenPoolConfig{Capacity: 1})
+		pool.Request(2, 10)
+		pool.Step(0)
+		tokenHits := 0
+		patrol2 := &trackedAction{name: "patrol2", ticksNeeded: 10, finalStatus: ai.StatusSuccess, log: &log}
+		tokenTree := ai.Selector(
+			ai.Sequence(
+				ai.BlackboardCondition(bb, "ammo", ai.BBOpGt, ai.BBInt(0), ai.AbortLower, nil),
+				ai.WithAttackToken(pool, 1, nil, ai.Action(func(time.Duration) ai.Status {
+					tokenHits++
+					return ai.StatusSuccess
+				})),
+			),
+			patrol2,
+		)
+		if st := tokenTree.Tick(dt); st != ai.StatusRunning || tokenHits != 0 {
+			t.Fatalf("token tick 1: st=%v hits=%d, want Running, 0", st, tokenHits)
+		}
+		pool.Release(2)
+		pool.Step(0)
+		if st := tokenTree.Tick(dt); st != ai.StatusSuccess || tokenHits != 1 || patrol2.resets != 1 {
+			t.Fatalf("token tick 2: st=%v hits=%d patrol2.resets=%d, want Success, 1, 1", st, tokenHits, patrol2.resets)
+		}
+	})
+
+	t.Run("Pure blackboard-only branches keep key-driven behavior", func(t *testing.T) {
+		for _, mode := range []ai.AbortMode{ai.AbortNone, ai.AbortSelf} {
+			t.Run("SequenceOnlyBB/"+string(mode), func(t *testing.T) {
+				bb := ai.NewBlackboard()
+				bb.SetBool("ready", false)
+				var log []string
+				shoot := &trackedAction{name: "shoot", ticksNeeded: 1, finalStatus: ai.StatusSuccess, log: &log}
+				patrol := &trackedAction{name: "patrol", ticksNeeded: 2, finalStatus: ai.StatusSuccess, log: &log}
+
+				tree := ai.Selector(
+					ai.Sequence(
+						ai.BlackboardCondition(bb, "ready", ai.BBOpEq, ai.BBBool(true), mode, nil),
+						shoot,
+					),
+					patrol,
+				)
+
+				tree.Tick(dt) // patrol 1/2
+				bb.SetBool("ready", true)
+				if st := tree.Tick(dt); st != ai.StatusSuccess {
+					t.Fatalf("tick 2 = %v, want patrol to finish with Success", st)
+				}
+				if patrol.resets != 0 {
+					t.Fatalf("patrol.resets = %d, want 0 for pure-BB %s", patrol.resets, mode)
+				}
+				tree.Tick(dt) // fresh pass enters shoot
+				want := []string{"patrol", "patrol", "shoot"}
+				if !slices.Equal(log, want) {
+					t.Fatalf("log = %v, want %v", log, want)
+				}
+			})
+		}
+
+		// Sibling isolation: a pure-BB AbortNone sibling stays key-driven while a mixed sibling still preempts.
+		bb := ai.NewBlackboard()
+		bb.SetBool("alarm", false)
+		bb.SetInt("ammo", 3)
+		seen := false
+		alarmHits := 0
+		attackHits := 0
+		var log []string
+		patrol := &trackedAction{name: "patrol", ticksNeeded: 10, finalStatus: ai.StatusSuccess, log: &log}
+
+		tree := ai.Selector(
+			ai.BlackboardCondition(bb, "alarm", ai.BBOpEq, ai.BBBool(true), ai.AbortNone,
+				ai.Action(func(time.Duration) ai.Status {
+					alarmHits++
+					return ai.StatusSuccess
+				}),
+			),
+			ai.Sequence(
+				ai.Condition(func() bool { return seen }),
+				ai.BlackboardCondition(bb, "ammo", ai.BBOpGt, ai.BBInt(0), ai.AbortNone,
+					ai.Action(func(time.Duration) ai.Status {
+						attackHits++
+						return ai.StatusSuccess
+					}),
+				),
+			),
+			patrol,
+		)
+
+		tree.Tick(dt) // patrol 1/10
+		bb.SetBool("alarm", true)
+		if st := tree.Tick(dt); st != ai.StatusRunning || alarmHits != 0 || patrol.resets != 0 {
+			t.Fatalf("tick 2 (alarm AbortNone): st=%v alarmHits=%d patrol.resets=%d, want Running, 0, 0", st, alarmHits, patrol.resets)
+		}
+		seen = true
+		if st := tree.Tick(dt); st != ai.StatusSuccess || attackHits != 1 || patrol.resets != 1 {
+			t.Fatalf("tick 3 (mixed sibling): st=%v attackHits=%d patrol.resets=%d, want Success, 1, 1", st, attackHits, patrol.resets)
+		}
+	})
+
+	t.Run("YAML-built trees match Go preemption behavior", func(t *testing.T) {
+		for _, mode := range modes {
+			t.Run(string(mode), func(t *testing.T) {
+				src := fmt.Sprintf(`version: 1
+blackboard:
+  - key: ammo
+    type: int
+    default: 3
+root:
+  type: selector
+  children:
+    - type: sequence
+      name: attack_branch
+      children:
+        - type: condition
+          condition: seen
+        - type: blackboard_condition
+          key: ammo
+          op: gt
+          value: 0
+          abort: %s
+          child:
+            type: action
+            action: attack
+    - type: action
+      action: patrol
+`, mode)
+				doc, err := ai.ParseBehaviorTree([]byte(src))
+				if err != nil {
+					t.Fatalf("ParseBehaviorTree: %v", err)
+				}
+				bb := ai.NewBlackboard()
+				seen := false
+				attacks := 0
+				var log []string
+				patrol := &trackedAction{name: "patrol", ticksNeeded: 100, finalStatus: ai.StatusSuccess, log: &log}
+
+				tree, err := ai.BuildBehaviorTree(doc, ai.BTBindings{
+					Blackboard: bb,
+					Conditions: map[string]func(ai.BTNodeContext) (func() bool, error){
+						"seen": func(ai.BTNodeContext) (func() bool, error) {
+							return func() bool { return seen }, nil
+						},
+					},
+					Actions: map[string]func(ai.BTNodeContext) (ai.Node, error){
+						"attack": func(ai.BTNodeContext) (ai.Node, error) {
+							return ai.Action(func(time.Duration) ai.Status {
+								attacks++
+								return ai.StatusSuccess
+							}), nil
+						},
+						"patrol": func(ai.BTNodeContext) (ai.Node, error) {
+							return patrol, nil
+						},
+					},
+				})
+				if err != nil {
+					t.Fatalf("BuildBehaviorTree: %v", err)
+				}
+
+				if st := tree.Tick(dt); st != ai.StatusRunning {
+					t.Fatalf("tick 1 = %v, want Running", st)
+				}
+				seen = true
+				for i := range 5 {
+					if st := tree.Tick(dt); st != ai.StatusSuccess {
+						t.Fatalf("tick %d = %v, want Success", i+2, st)
+					}
+				}
+				if attacks != 5 || patrol.resets != 1 {
+					t.Fatalf("YAML mode %s: attacks=%d patrol.resets=%d, want 5, 1", mode, attacks, patrol.resets)
+				}
+			})
+		}
+	})
+
+	t.Run("Zero allocations per Tick on mixed selector", func(t *testing.T) {
+		bb := ai.NewBlackboard()
+		bb.SetInt("ammo", 3)
+		bb.SetBool("alarm", false)
+		seen := false
+
+		tree := ai.Selector(
+			ai.BlackboardCondition(bb, "alarm", ai.BBOpEq, ai.BBBool(true), ai.AbortLower,
+				ai.Action(func(time.Duration) ai.Status { return ai.StatusSuccess }),
+			),
+			ai.Sequence(
+				ai.Condition(func() bool { return seen }),
+				ai.BlackboardCondition(bb, "ammo", ai.BBOpGt, ai.BBInt(0), ai.AbortBoth,
+					ai.Action(func(time.Duration) ai.Status { return ai.StatusRunning }),
+				),
+			),
+			ai.Action(func(time.Duration) ai.Status { return ai.StatusRunning }),
+		)
+
+		// Warm up while patrol runs.
+		tree.Tick(dt)
+		allocsPatrol := testing.AllocsPerRun(100, func() {
+			tree.Tick(dt)
+		})
+		if allocsPatrol != 0 {
+			t.Fatalf("Tick (patrol with mixed sibling) allocated %v times, want 0", allocsPatrol)
+		}
+
+		// Warm up after preempting into the mixed branch.
+		seen = true
+		tree.Tick(dt)
+		allocsAttack := testing.AllocsPerRun(100, func() {
+			tree.Tick(dt)
+		})
+		if allocsAttack != 0 {
+			t.Fatalf("Tick (running mixed branch) allocated %v times, want 0", allocsAttack)
+		}
+	})
+}
+
 func TestBehaviorTreeYAMLMatchesGoPatrolChaseAttack(t *testing.T) {
 	// Run the exact same patrol/chase/attack scenario across 12 fixed 50ms game.Loop steps:
 	//   1) Built from testdata/bt/guard.bt.yaml + patrol.bt.yaml

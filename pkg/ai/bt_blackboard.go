@@ -100,6 +100,212 @@ func nodeWantsPreempt(n Node) bool {
 	return false
 }
 
+func nodeHasBBSelfAbort(n Node) bool {
+	if bc, ok := unwrapNamed(n).(*blackboardConditionNode); ok {
+		return bc.abort.abortsSelf()
+	}
+	return false
+}
+
+// nodeHasNonBBGate reports whether n contains a non-blackboard gating node
+// (such as Condition, Guard, or WithAttackToken) whose changes cannot be
+// observed through blackboard key revisions alone.
+//
+// Called only at tree construction time, never during Tick.
+func nodeHasNonBBGate(n Node) bool {
+	return nodeHasNonBBGateVisited(n, nil)
+}
+
+func nodeHasNonBBGateVisited(n Node, visited map[uintptr]bool) bool {
+	if isNilNode(n) {
+		return false
+	}
+	switch v := n.(type) {
+	case *conditionNode, *guardNode, *attackTokenNode:
+		return true
+	case *blackboardConditionNode:
+		return v.childHasNonBBGate
+	case *sequenceNode:
+		return v.hasNonBBGate
+	case *selectorNode:
+		return v.hasNonBBGate
+	case *namedNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *BehaviorTree:
+		return nodeHasNonBBGateVisited(v.root, visited)
+	case *inverterNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *succeederNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *failerNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *repeaterNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *untilFailNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *cooldownNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *timeLimitNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *retryNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *serviceNode:
+		return nodeHasNonBBGateVisited(v.child, visited)
+	case *parallelNode:
+		for _, ch := range v.children {
+			if nodeHasNonBBGateVisited(ch, visited) {
+				return true
+			}
+		}
+		return false
+	case *randomSelectorNode:
+		for _, ch := range v.children {
+			if nodeHasNonBBGateVisited(ch, visited) {
+				return true
+			}
+		}
+		return false
+	case *randomSequenceNode:
+		for _, ch := range v.children {
+			if nodeHasNonBBGateVisited(ch, visited) {
+				return true
+			}
+		}
+		return false
+	case *weightedSelectorNode:
+		for _, opt := range v.options {
+			if nodeHasNonBBGateVisited(opt.Node, visited) {
+				return true
+			}
+		}
+		return false
+	case btUtilityNode:
+		for _, ch := range v.btUtilityChildren() {
+			if nodeHasNonBBGateVisited(ch, visited) {
+				return true
+			}
+		}
+		return false
+	default:
+		if cn, ok := n.(ChildNodes); ok {
+			if ptr, ok := nodePtrKey(n); ok {
+				if visited == nil {
+					visited = make(map[uintptr]bool)
+				}
+				if visited[ptr] {
+					return false
+				}
+				visited[ptr] = true
+			}
+			for _, ch := range cn.Children() {
+				if nodeHasNonBBGateVisited(ch, visited) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
+// nodeContainsBBObserver reports whether n is or contains any BlackboardCondition.
+// Called only at tree construction time, never during Tick.
+func nodeContainsBBObserver(n Node) bool {
+	return nodeContainsBBObserverVisited(n, nil)
+}
+
+func nodeContainsBBObserverVisited(n Node, visited map[uintptr]bool) bool {
+	if isNilNode(n) {
+		return false
+	}
+	switch v := n.(type) {
+	case *blackboardConditionNode:
+		return true
+	case *sequenceNode:
+		return v.hasAnyBB
+	case *selectorNode:
+		return v.hasAnyBB
+	case *namedNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *BehaviorTree:
+		return nodeContainsBBObserverVisited(v.root, visited)
+	case *guardNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *attackTokenNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *inverterNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *succeederNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *failerNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *repeaterNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *untilFailNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *cooldownNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *timeLimitNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *retryNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *serviceNode:
+		return nodeContainsBBObserverVisited(v.child, visited)
+	case *parallelNode:
+		for _, ch := range v.children {
+			if nodeContainsBBObserverVisited(ch, visited) {
+				return true
+			}
+		}
+		return false
+	case *randomSelectorNode:
+		for _, ch := range v.children {
+			if nodeContainsBBObserverVisited(ch, visited) {
+				return true
+			}
+		}
+		return false
+	case *randomSequenceNode:
+		for _, ch := range v.children {
+			if nodeContainsBBObserverVisited(ch, visited) {
+				return true
+			}
+		}
+		return false
+	case *weightedSelectorNode:
+		for _, opt := range v.options {
+			if nodeContainsBBObserverVisited(opt.Node, visited) {
+				return true
+			}
+		}
+		return false
+	case btUtilityNode:
+		for _, ch := range v.btUtilityChildren() {
+			if nodeContainsBBObserverVisited(ch, visited) {
+				return true
+			}
+		}
+		return false
+	default:
+		if cn, ok := n.(ChildNodes); ok {
+			if ptr, ok := nodePtrKey(n); ok {
+				if visited == nil {
+					visited = make(map[uintptr]bool)
+				}
+				if visited[ptr] {
+					return false
+				}
+				visited[ptr] = true
+			}
+			for _, ch := range cn.Children() {
+				if nodeContainsBBObserverVisited(ch, visited) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
 // BlackboardCondition evaluates key on bb using op and value, optionally wrapping
 // child as a decorator (when child is nil, it acts as a condition leaf returning
 // StatusSuccess when the condition holds and StatusFailure otherwise).
@@ -114,26 +320,28 @@ func BlackboardCondition(bb *Blackboard, key string, op BlackboardOp, value Blac
 		abort = AbortNone
 	}
 	n := &blackboardConditionNode{
-		bb:            bb,
-		key:           key,
-		op:            op,
-		value:         value,
-		abort:         abort,
-		child:         child,
-		childObserver: nodeHasBBObserver(child),
+		bb:                bb,
+		key:               key,
+		op:                op,
+		value:             value,
+		abort:             abort,
+		child:             child,
+		childObserver:     nodeHasBBObserver(child),
+		childHasNonBBGate: nodeHasNonBBGate(child),
 	}
 	n.clockState.adopt(child)
 	return n
 }
 
 type blackboardConditionNode struct {
-	bb            *Blackboard
-	key           string
-	op            BlackboardOp
-	value         BlackboardValue
-	abort         AbortMode
-	child         Node
-	childObserver bool
+	bb                *Blackboard
+	key               string
+	op                BlackboardOp
+	value             BlackboardValue
+	abort             AbortMode
+	child             Node
+	childObserver     bool
+	childHasNonBBGate bool
 
 	running    bool
 	seenRev    bool
@@ -222,10 +430,16 @@ func (n *blackboardConditionNode) btChildActive(i int) bool {
 	return i == 0 && n.running && n.trace.ticked && n.trace.lastStatus == StatusRunning
 }
 
-func (n *blackboardConditionNode) hasBBObserver() bool { return true }
+func (n *blackboardConditionNode) hasBBObserver() bool { return !n.childHasNonBBGate }
 
 func (n *blackboardConditionNode) bbWantsPreempt() bool {
+	if n.childHasNonBBGate {
+		return false
+	}
 	if !n.abort.abortsLower() {
+		if n.seenRev && n.lastResult && n.childObserver && n.eval() {
+			return nodeWantsPreempt(n.child)
+		}
 		return false
 	}
 	rev := n.keyRev()
@@ -412,32 +626,34 @@ func unwrapNamed(n Node) Node {
 	}
 }
 
-func (s *sequenceNode) hasBBObserver() bool { return s.hasObserver }
+func (s *sequenceNode) hasBBObserver() bool { return s.observerOnly }
 
 func (s *sequenceNode) bbWantsPreempt() bool {
-	if !s.hasObserver {
+	if !s.observerOnly {
 		return false
 	}
 	for _, ch := range s.children {
 		if ch == nil {
 			return false
 		}
-		if obs, ok := ch.(btObserver); ok && obs.hasBBObserver() {
-			if obs.bbWantsPreempt() {
-				return true
-			}
-			if bc, ok := unwrapNamed(ch).(*blackboardConditionNode); ok && !bc.eval() {
-				return false
-			}
+		obs, ok := ch.(btObserver)
+		if !ok || !obs.hasBBObserver() {
+			break
+		}
+		if obs.bbWantsPreempt() {
+			return true
+		}
+		if bc, ok := unwrapNamed(ch).(*blackboardConditionNode); ok && !bc.eval() {
+			return false
 		}
 	}
 	return false
 }
 
-func (s *selectorNode) hasBBObserver() bool { return s.hasObserver }
+func (s *selectorNode) hasBBObserver() bool { return s.allObserver }
 
 func (s *selectorNode) bbWantsPreempt() bool {
-	if !s.hasObserver {
+	if !s.allObserver {
 		return false
 	}
 	for _, ch := range s.children {
@@ -469,14 +685,6 @@ func (c *cooldownNode) bbWantsPreempt() bool {
 		return false
 	}
 	return nodeWantsPreempt(c.child)
-}
-
-func (g *guardNode) hasBBObserver() bool { return nodeHasBBObserver(g.child) }
-func (g *guardNode) bbWantsPreempt() bool {
-	if g.cond == nil || !g.cond() {
-		return false
-	}
-	return nodeWantsPreempt(g.child)
 }
 
 func (t *timeLimitNode) hasBBObserver() bool  { return nodeHasBBObserver(t.child) }

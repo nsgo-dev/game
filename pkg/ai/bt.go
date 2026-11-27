@@ -297,31 +297,60 @@ const (
 // When a child returns StatusRunning, Sequence remembers its position and resumes at that child on the next tick.
 func Sequence(children ...Node) Node {
 	cloned := slices.Clone(children)
-	hasObs := false
+	hasSelfAbort := false
+	hasNonBBGate := false
+	hasAnyBB := false
+	prefixObs := 0
+	inPrefix := true
+	hasTrailingObs := false
 	for _, ch := range cloned {
-		if nodeHasBBObserver(ch) {
-			hasObs = true
-			break
+		if nodeHasBBSelfAbort(ch) {
+			hasSelfAbort = true
+		}
+		if nodeHasNonBBGate(ch) {
+			hasNonBBGate = true
+		}
+		if nodeContainsBBObserver(ch) {
+			hasAnyBB = true
+		}
+		if inPrefix {
+			if nodeHasBBObserver(ch) {
+				prefixObs++
+			} else {
+				inPrefix = false
+			}
+		}
+		if !inPrefix && nodeContainsBBObserver(ch) {
+			hasTrailingObs = true
 		}
 	}
-	n := &sequenceNode{children: cloned, hasObserver: hasObs}
+	n := &sequenceNode{
+		children:     cloned,
+		observerOnly: prefixObs > 0 && !hasNonBBGate && !hasTrailingObs,
+		hasSelfAbort: hasSelfAbort,
+		hasNonBBGate: hasNonBBGate,
+		hasAnyBB:     hasAnyBB,
+	}
 	n.clockState.adopt(cloned...)
 	return n
 }
 
 type sequenceNode struct {
-	children    []Node
-	cur         int
-	hasObserver bool
-	clockState  btClockState
-	trace       btTraceState
+	children     []Node
+	cur          int
+	observerOnly bool
+	hasSelfAbort bool
+	hasNonBBGate bool
+	hasAnyBB     bool
+	clockState   btClockState
+	trace        btTraceState
 }
 
 func (s *sequenceNode) btClockRef() *btClockState { return &s.clockState }
 
 func (s *sequenceNode) Tick(dt time.Duration) Status {
 	s.clockState.advanceIfRoot(dt)
-	if s.hasObserver && s.cur > 0 {
+	if s.hasSelfAbort && s.cur > 0 {
 		for i := 0; i < s.cur; i++ {
 			if sa, ok := s.children[i].(btSelfAbortable); ok && sa.bbSelfAborted() {
 				if running := s.children[s.cur]; running != nil {
@@ -373,27 +402,52 @@ func (s *sequenceNode) btChildActive(i int) bool {
 // Selector tries children in priority order, returning on the first child that succeeds or runs.
 //
 // If a higher-priority child preempts a lower-priority child that was previously running, Selector resets the interrupted child.
-// Higher-priority children guarded by a [BlackboardCondition] only preempt a running lower-priority branch when their abort mode includes [AbortLower] or [AbortBoth] and their watched key changes.
+// Higher-priority children whose gating is governed solely by [BlackboardCondition] observers only preempt a running lower-priority branch when an observer's abort mode includes [AbortLower] or [AbortBoth] and its watched key changes; branches that mix non-blackboard conditions or guards (such as [Condition], [Guard], or [WithAttackToken]) are re-evaluated on every tick.
 func Selector(children ...Node) Node {
 	cloned := slices.Clone(children)
 	hasObs := false
+	hasNonNil := false
+	allObs := true
+	hasNonBBGate := false
+	hasAnyBB := false
 	for _, ch := range cloned {
+		if ch == nil {
+			continue
+		}
+		hasNonNil = true
 		if nodeHasBBObserver(ch) {
 			hasObs = true
-			break
+		} else {
+			allObs = false
+		}
+		if nodeHasNonBBGate(ch) {
+			hasNonBBGate = true
+		}
+		if nodeContainsBBObserver(ch) {
+			hasAnyBB = true
 		}
 	}
-	n := &selectorNode{children: cloned, running: -1, hasObserver: hasObs}
+	n := &selectorNode{
+		children:     cloned,
+		running:      -1,
+		hasObserver:  hasObs,
+		allObserver:  hasNonNil && allObs,
+		hasNonBBGate: hasNonBBGate,
+		hasAnyBB:     hasAnyBB,
+	}
 	n.clockState.adopt(cloned...)
 	return n
 }
 
 type selectorNode struct {
-	children    []Node
-	running     int
-	hasObserver bool
-	clockState  btClockState
-	trace       btTraceState
+	children     []Node
+	running      int
+	hasObserver  bool
+	allObserver  bool
+	hasNonBBGate bool
+	hasAnyBB     bool
+	clockState   btClockState
+	trace        btTraceState
 }
 
 func (s *selectorNode) btClockRef() *btClockState { return &s.clockState }
