@@ -2,6 +2,27 @@
 
 `github.com/nsgo-dev/game/pkg/tooling/library` finds shared asset packs, editor plugin packs and templates in a library and installs them into a game project. A library is a text index anyone can add a pack to with a pull request; installing a pack writes its files into the project and records them, and the references they add, in `game.yaml`. `nsgo game library` runs it from the command line and the scene editor's library panel runs it from the editor.
 
+## Mods, plugins and packs
+
+The engine has three ways to extend a game, with different trust, platform and build rules: [Editor plugins](editor.md#editor-plugins-492-898) (`editor.Plugin`), [Script mods](modding.md) (`modding.Manager`) and [Library packs](#what-installing-does) (`library.Install`).
+
+| | Editor/Go plugin | Script mod | Library pack |
+| --- | --- | --- | --- |
+| Written in | Go | TSX | YAML + media |
+| Who writes it | the game's developers, third-party tool authors | players | anyone |
+| When it loads | compiled into the binary | at run time, hot reload | installed into the project |
+| Trust | full | sandboxed, capability-gated | no code |
+| Platforms | all, including iOS and web | native; web only with `WebUnisolated` | all |
+| Extends the editor | yes | no (today) | turns on built-in plugins only |
+
+**Which one do I need?**
+
+- **Add a new component, gameplay system or editor tool**: write Go. Put runtime component types and systems in packages your game imports, and register editor panels, inspectors, viewport tools, 3D gizmos, overlays and commands as an `editor.Plugin` (`pkg/editor/plugin.go`) with `Editor.RegisterPlugin`, enabled by name under `editor.plugins` in `game.yaml` (`project.Editor`). Keep editor plugin code in a separate package that only your editor command imports (as `examples/fieldmedic` splits `health/` from `healthplugin/`) so the shipped game never links `pkg/editor`.
+- **Let players change the shipped game**: use a script mod (`pkg/modding`). Each mod pairs a `mod.yaml` manifest (`modding.ModManifest`) with a TSX/JS entry script that `modding.Manager` discovers, loads, hot-reloads (`Manager.Reload`) and isolates in an NSGo `tsx` sandbox limited to the `modding.Capability` flags the manifest requests and `ManagerOptions.Grant` allows. On web targets, loading fails with `modding.ErrWebUnisolated` unless `ManagerOptions.WebUnisolated` is set.
+- **Share sprites, scenes, prefabs or a template**: ship a library pack (`pkg/tooling/library`). A pack directory (`pack.yaml`, `library.Manifest`) is listed in a library's `index.yaml` and installed into a project with `library.Install` (`nsgo game library install` or `Editor.InstallPack`), recorded under `packs` in `game.yaml` (`project.Pack`). `library.ValidateManifest` (`pkg/tooling/library/pack.go`) refuses Go source and toolchain files (`.go`, `.s`, `.c`, `.h`, `.cc`, `.cpp`, `.m`, `.syso` and the like) as well as `go.mod`, `go.sum`, `go.work` and `go.work.sum`, so a pack never delivers code; a `kind: plugin` pack only adds names to `editor.plugins` to turn on plugins already built into the editor binary.
+
+Go plugins are compiled into the binary because Go has no portable way to load code at run time on every platform, including iOS and the web (see `pkg/editor/plugin.go`).
+
 ## Finding and installing packs
 
 ```sh
@@ -43,7 +64,7 @@ packs:
     resources: [dungeon-tiles]
 ```
 
-The `packs` entry is the [project file](project.md)'s record of the install: the pack's version and digest, the directory and files it wrote, and the autoload `scenes` and `resources` and editor `plugins` it added. A plugin pack adds the editor plugins it names to `editor.plugins`, which turns them on in an editor built with them (see [Editor plugins](editor.md#editor-plugins-492)); a plugin the project already turned on stays the project's and is not recorded as the pack's.
+The `packs` entry is the [project file](project.md)'s record of the install: the pack's version and digest, the directory and files it wrote, and the autoload `scenes` and `resources` and editor `plugins` it added. A plugin pack adds the editor plugins it names to `editor.plugins`, which turns them on in an editor built with them (see [Editor plugins](editor.md#editor-plugins-492-898)); a plugin the project already turned on stays the project's and is not recorded as the pack's.
 
 An install never overwrites a file the project already has, unless the pack wrote it or it holds what the pack would write, and never a file another pack wrote; it refuses an autoload scene or resource whose name the project already uses. It checks everything before it writes anything, and when a write fails it restores the files it had changed.
 

@@ -21,6 +21,7 @@
 | Input System 动作映射 | `input.Actions` | [input](input.md) |
 | `Rigidbody2D`、`Collider2D`、关节 | `physics` 物体、`RigidWorld`、关节 | [physics](physics.md)、[2D 刚体](physics2d-rigid.md) |
 | `Rigidbody`、`CharacterController` | `physics3d.World`、`physics3d.CharacterController` | [physics3d](physics3d.md) |
+| 编辑器脚本、自定义 Inspector（`EditorWindow`、`CustomEditor`） | 编译进编辑器程序的 Go `editor.Plugin`（`Editor.RegisterPlugin`、`game.yaml` 中的 `editor.plugins`） | [编辑器插件](editor.md#编辑器插件492898)、[模组、插件与包](editor.md#模组插件与包) |
 | Build Settings、Player Settings | `nsgo.yaml` 与 `go tool nsgo build` | [构建与发布](shipping.md) |
 | `PlayerPrefs` | `core.Storage`、`save` 存档槽 | [save](save.md) |
 

@@ -895,6 +895,27 @@ Opening a `*.states.yaml` file (from the file browser, command palette, or `Open
 - **Drive with keys**: toggling **Drive with keys** binds the preview to the project's input actions (such as `move_left`, `move_right`, `jump`, `attack`, `hurt`) through the same `animclip.InputDriver` and `animclip.StateMachine` the game uses, advancing on fixed steps on `game.Loop` so interactive preview and runtime playback match frame for frame.
 - **Outgoing transitions (`LEAVING <STATE>`)**: selecting any state displays its outgoing transitions (including `Any state` interrupts) and their conditions, and graph edits (`AddStatesState`, `RemoveStatesState`, `AddStatesTransition`, `RemoveStatesTransition`, `SetStatesEntry`, `SetStatesNodePos`, `SetStatesDoc`) go through the editor's undo/redo history and save back to deterministic canonical YAML (`SaveStatesYAML` / `SaveStatesFile`).
 
+## Mods, plugins and packs
+
+The engine has three ways to extend a game, with different trust, platform and build rules: [Editor plugins](#editor-plugins-492-898) (`editor.Plugin`), [Script mods](modding.md) (`modding.Manager`) and [Library packs](library.md) (`library.Install`).
+
+| | Editor/Go plugin | Script mod | Library pack |
+| --- | --- | --- | --- |
+| Written in | Go | TSX | YAML + media |
+| Who writes it | the game's developers, third-party tool authors | players | anyone |
+| When it loads | compiled into the binary | at run time, hot reload | installed into the project |
+| Trust | full | sandboxed, capability-gated | no code |
+| Platforms | all, including iOS and web | native; web only with `WebUnisolated` | all |
+| Extends the editor | yes | no (today) | turns on built-in plugins only |
+
+**Which one do I need?**
+
+- **Add a new component, gameplay system or editor tool**: write Go. Put runtime component types and systems in packages your game imports, and register editor panels, inspectors, viewport tools, 3D gizmos, overlays and commands as an `editor.Plugin` (`pkg/editor/plugin.go`) with `Editor.RegisterPlugin`, enabled by name under `editor.plugins` in `game.yaml` (`project.Editor`). Keep editor plugin code in a separate package that only your editor command imports (as `examples/fieldmedic` splits `health/` from `healthplugin/`) so the shipped game never links `pkg/editor`.
+- **Let players change the shipped game**: use a script mod (`pkg/modding`). Each mod pairs a `mod.yaml` manifest (`modding.ModManifest`) with a TSX/JS entry script that `modding.Manager` discovers, loads, hot-reloads (`Manager.Reload`) and isolates in an NSGo `tsx` sandbox limited to the `modding.Capability` flags the manifest requests and `ManagerOptions.Grant` allows. On web targets, loading fails with `modding.ErrWebUnisolated` unless `ManagerOptions.WebUnisolated` is set.
+- **Share sprites, scenes, prefabs or a template**: ship a library pack (`pkg/tooling/library`). A pack directory (`pack.yaml`, `library.Manifest`) is listed in a library's `index.yaml` and installed into a project with `library.Install` (`nsgo game library install` or `Editor.InstallPack`), recorded under `packs` in `game.yaml` (`project.Pack`). `library.ValidateManifest` (`pkg/tooling/library/pack.go`) refuses Go source and toolchain files (`.go`, `.s`, `.c`, `.h`, `.cc`, `.cpp`, `.m`, `.syso` and the like) as well as `go.mod`, `go.sum`, `go.work` and `go.work.sum`, so a pack never delivers code; a `kind: plugin` pack only adds names to `editor.plugins` to turn on plugins already built into the editor binary.
+
+Go plugins are compiled into the binary because Go has no portable way to load code at run time on every platform, including iOS and the web (see `pkg/editor/plugin.go`).
+
 ## Editor plugins (#492, #898)
 
 A plugin extends the scene editor with its own panels, an inspector for its own component types, 2D and 3D viewport tools, and per-component 3D gizmos, as Godot's `EditorPlugin` does. Go cannot load code at run time on every platform, so a plugin is Go code built into the editor binary: the binary registers it with `Editor.RegisterPlugin`, and a project turns it on by naming it in its [project file](project.md):

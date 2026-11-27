@@ -21,6 +21,7 @@ A game here is Go code inside an NSGo component rather than C# scripts attached 
 | Input System action maps | `input.Actions` | [input](input.md) |
 | `Rigidbody2D`, `Collider2D`, joints | `physics` bodies, `RigidWorld`, joints | [physics](physics.md), [2D Rigid Bodies](physics2d-rigid.md) |
 | `Rigidbody`, `CharacterController` | `physics3d.World`, `physics3d.CharacterController` | [physics3d](physics3d.md) |
+| Editor scripts, custom Inspectors (`EditorWindow`, `CustomEditor`) | Go `editor.Plugin` compiled into the editor binary (`Editor.RegisterPlugin`, `editor.plugins` in `game.yaml`) | [Editor plugins](editor.md#editor-plugins-492-898), [Mods, plugins and packs](editor.md#mods-plugins-and-packs) |
 | Build Settings, Player Settings | `nsgo.yaml` and `go tool nsgo build` | [Building and Shipping](shipping.md) |
 | `PlayerPrefs` | `core.Storage`, `save` slots | [save](save.md) |
 

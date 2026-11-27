@@ -24,6 +24,7 @@
 | `CharacterBody2D.move_and_slide()` | 针对物体、形状、瓦片与静态刚体的 `World.MoveAndSlide` / `MoveAndSlideWith`（纯瓦片可用 `physics.MoveAndSlide`，平台跳跃可用 `platformer.Controller.StepWorld`） | [physics](physics.md)、[platformer](platformer.md) |
 | `RigidBody2D`、关节 | `physics.RigidWorld`、`RigidBody`、关节 | [2D 刚体](physics2d-rigid.md) |
 | `CharacterBody3D`、`RigidBody3D` | `physics3d.CharacterController`、`physics3d.World` | [physics3d](physics3d.md) |
+| `EditorPlugin` | 编译进编辑器程序的 Go `editor.Plugin`（`Editor.RegisterPlugin`、`game.yaml` 中的 `editor.plugins`） | [编辑器插件](editor.md#编辑器插件492898)、[模组、插件与包](editor.md#模组插件与包) |
 | 导出预设、导出模板 | `nsgo.yaml` 与 `go tool nsgo build` | [构建与发布](shipping.md) |
 
 ## 场景

@@ -6,6 +6,27 @@
 import "github.com/nsgo-dev/game/pkg/modding"
 ```
 
+## Mods, plugins and packs
+
+The engine has three ways to extend a game, with different trust, platform and build rules: [Editor plugins](editor.md#editor-plugins-492-898) (`editor.Plugin`), [Script mods](#mod-manifest-modyaml-and-capabilities) (`modding.Manager`) and [Library packs](library.md) (`library.Install`).
+
+| | Editor/Go plugin | Script mod | Library pack |
+| --- | --- | --- | --- |
+| Written in | Go | TSX | YAML + media |
+| Who writes it | the game's developers, third-party tool authors | players | anyone |
+| When it loads | compiled into the binary | at run time, hot reload | installed into the project |
+| Trust | full | sandboxed, capability-gated | no code |
+| Platforms | all, including iOS and web | native; web only with `WebUnisolated` | all |
+| Extends the editor | yes | no (today) | turns on built-in plugins only |
+
+**Which one do I need?**
+
+- **Add a new component, gameplay system or editor tool**: write Go. Put runtime component types and systems in packages your game imports, and register editor panels, inspectors, viewport tools, 3D gizmos, overlays and commands as an `editor.Plugin` (`pkg/editor/plugin.go`) with `Editor.RegisterPlugin`, enabled by name under `editor.plugins` in `game.yaml` (`project.Editor`). Keep editor plugin code in a separate package that only your editor command imports (as `examples/fieldmedic` splits `health/` from `healthplugin/`) so the shipped game never links `pkg/editor`.
+- **Let players change the shipped game**: use a script mod (`pkg/modding`). Each mod pairs a `mod.yaml` manifest (`modding.ModManifest`) with a TSX/JS entry script that `modding.Manager` discovers, loads, hot-reloads (`Manager.Reload`) and isolates in an NSGo `tsx` sandbox limited to the `modding.Capability` flags the manifest requests and `ManagerOptions.Grant` allows. On web targets, loading fails with `modding.ErrWebUnisolated` unless `ManagerOptions.WebUnisolated` is set.
+- **Share sprites, scenes, prefabs or a template**: ship a library pack (`pkg/tooling/library`). A pack directory (`pack.yaml`, `library.Manifest`) is listed in a library's `index.yaml` and installed into a project with `library.Install` (`nsgo game library install` or `Editor.InstallPack`), recorded under `packs` in `game.yaml` (`project.Pack`). `library.ValidateManifest` (`pkg/tooling/library/pack.go`) refuses Go source and toolchain files (`.go`, `.s`, `.c`, `.h`, `.cc`, `.cpp`, `.m`, `.syso` and the like) as well as `go.mod`, `go.sum`, `go.work` and `go.work.sum`, so a pack never delivers code; a `kind: plugin` pack only adds names to `editor.plugins` to turn on plugins already built into the editor binary.
+
+Go plugins are compiled into the binary because Go has no portable way to load code at run time on every platform, including iOS and the web (see `pkg/editor/plugin.go`).
+
 ## Mod manifest (`mod.yaml`) and capabilities
 
 Each mod lives in its own directory with a `mod.yaml` (`ModManifest`) and an entry script (`mod.tsx` or `mod.js`). The sample mod in [`pkg/modding/testdata/mods/boss-rush/`](../../pkg/modding/testdata/mods/boss-rush/) is the manifest and script shown on this page, and the package's tests load it:
