@@ -68,11 +68,6 @@ pkg/editor:
           - pkg/editor/**
           - design/**
 
-pkg/effects:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/effects/**
-
 pkg/entities:
   - changed-files:
       - any-glob-to-any-file:
@@ -236,6 +231,11 @@ pkg/plugin:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/plugin/**
+
+pkg/postfx:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/postfx/**
 
 pkg/procgen:
   - changed-files:

@@ -76,7 +76,7 @@ export function firstSentence(markdown: string): string {
 }
 
 const CORE = new Set('game sprite sound input tilemap scene physics screen project assets resource text placeholder math2d save random entities sceneformat loaderr datatable'.split(' '))
-const UI = new Set('gameui lights2d effects worldmap fog quality a11y l10n pixelfx'.split(' '))
+const UI = new Set('gameui lights2d postfx worldmap fog quality a11y l10n pixelfx'.split(' '))
 const TOOLS = new Set('cmd tooling mcp replay statedump perf modding editor gametest importsettings jsonschema'.split(' '))
 const ONLINE_CMDS = new Set(['accountsd', 'cloudsaved', 'leaderboardd'])
 const THREE_D = new Set('math3d scene3d anim3d world3d voxel render3d physics3d gltf scenemodel ktx2'.split(' '))

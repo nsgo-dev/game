@@ -86,7 +86,6 @@
 | `game/pkg/editor` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editormcp` | 实验性 | [mcp](mcp.md) |
-| `game/pkg/effects` | 实验性 | [effects](effects.md) |
 | `game/pkg/entities` | 实验性 | [entities](entities.md) |
 | `game/pkg/fighting` | 实验性 | [fighting](fighting.md) |
 | `game/pkg/flow` | 稳定 | [flow](flow.md) |
@@ -160,6 +159,7 @@
 | `game/pkg/plugin` | 实验性 | [插件](plugins.md) |
 | `game/pkg/plugin/devtools` | 实验性 | [插件](plugins.md) |
 | `game/pkg/plugin/manifest` | 实验性 | [插件](plugins.md) |
+| `game/pkg/postfx` | 实验性 | [postfx](postfx.md) |
 | `game/pkg/procgen` | 实验性 | [procgen](procgen.md) |
 | `game/pkg/project` | 实验性 | [项目文件](project.md) |
 | `game/pkg/quality` | 实验性 | [quality](quality.md) |

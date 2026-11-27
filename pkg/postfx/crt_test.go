@@ -1,4 +1,4 @@
-package effects_test
+package postfx_test
 
 import (
 	"image"
@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/effects"
 	"github.com/nsgo-dev/game/pkg/gametest"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -20,7 +20,7 @@ import (
 var crtUniforms = []core.Uniforms{{"Curvature": 0.25, "Scanlines": 0.35}}
 
 func TestCRTCurvesTheFrameAndDrawsScanlinesAsTheReferencePictureDoes(t *testing.T) {
-	chain := effects.MustCompile(effects.CRT())
+	chain := postfx.MustCompile(postfx.CRT())
 	got, err := chain.Reference(sceneFrame(), 64, 36, crtUniforms)
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestCRTCurvesTheFrameAndDrawsScanlinesAsTheReferencePictureDoes(t *testing.
 }
 
 func TestCRTWithZeroUniformsDrawsTheFrameAsItIs(t *testing.T) {
-	chain := effects.MustCompile(effects.CRT())
+	chain := postfx.MustCompile(postfx.CRT())
 	frame := sceneFrame()
 	for name, u := range map[string][]core.Uniforms{
 		"no uniforms":   nil,
@@ -71,7 +71,7 @@ func TestCRTWithZeroUniformsDrawsTheFrameAsItIs(t *testing.T) {
 
 func TestCRTWithZeroUniformsPassesItsInputThroughInAChain(t *testing.T) {
 	frame := sceneFrame()
-	without, err := effects.MustCompile(scale, scale).Reference(frame, 32, 18, []core.Uniforms{{"Gain": 3}, {"Gain": 1.0 / 3}})
+	without, err := postfx.MustCompile(scale, scale).Reference(frame, 32, 18, []core.Uniforms{{"Gain": 3}, {"Gain": 1.0 / 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCRTWithZeroUniformsPassesItsInputThroughInAChain(t *testing.T) {
 		{"Curvature": -1, "Scanlines": -1},
 		{"Curvature": math.NaN(), "Scanlines": math.NaN()},
 	} {
-		got, err := effects.MustCompile(scale, effects.CRT(), scale).Reference(frame, 32, 18, []core.Uniforms{{"Gain": 3}, u, {"Gain": 1.0 / 3}})
+		got, err := postfx.MustCompile(scale, postfx.CRT(), scale).Reference(frame, 32, 18, []core.Uniforms{{"Gain": 3}, u, {"Gain": 1.0 / 3}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,7 +92,7 @@ func TestCRTWithZeroUniformsPassesItsInputThroughInAChain(t *testing.T) {
 }
 
 func TestCRTScanlinesWorkWithoutCurvatureAndWithCustomLines(t *testing.T) {
-	chain := effects.MustCompile(effects.CRT())
+	chain := postfx.MustCompile(postfx.CRT())
 	white := image.NewRGBA(image.Rect(0, 0, 16, 12))
 	draw.Draw(white, white.Rect, image.NewUniform(color.RGBA{255, 255, 255, 255}), image.Point{}, draw.Src)
 
@@ -142,7 +142,7 @@ func TestCRTScanlinesWorkWithoutCurvatureAndWithCustomLines(t *testing.T) {
 }
 
 func TestCRTCurvatureWorksWithoutScanlines(t *testing.T) {
-	chain := effects.MustCompile(effects.CRT())
+	chain := postfx.MustCompile(postfx.CRT())
 	// A symmetric 16 by 16 frame of vertical stripes.
 	sym := image.NewRGBA(image.Rect(0, 0, 16, 16))
 	for y := range 16 {
@@ -190,7 +190,7 @@ func TestCRTCurvatureWorksWithoutScanlines(t *testing.T) {
 }
 
 func TestCRTChainsAfterOtherEffectsWithOneTap(t *testing.T) {
-	chain := effects.MustCompile(effects.ShakeEffect(), effects.Bloom(), effects.VignetteEffect(), effects.CRT(), effects.FlashEffect())
+	chain := postfx.MustCompile(postfx.ShakeEffect(), postfx.Bloom(), postfx.VignetteEffect(), postfx.CRT(), postfx.FlashEffect())
 	for _, name := range []string{"P3_Curvature", "P3_Scanlines", "P3_Lines"} {
 		if !chain.Program().HasUniform(name) {
 			t.Errorf("the program has no uniform %s", name)
@@ -202,7 +202,7 @@ func TestCRTChainsAfterOtherEffectsWithOneTap(t *testing.T) {
 	}
 
 	// Chained after invert, the screen shows inverted colors while the curved bezel stays opaque black.
-	invCRT := effects.MustCompile(invert, effects.CRT())
+	invCRT := postfx.MustCompile(invert, postfx.CRT())
 	got, err := invCRT.Reference(sceneFrame(), 64, 36, []core.Uniforms{{"Amount": 1}, crtUniforms[0]})
 	if err != nil {
 		t.Fatal(err)
@@ -210,17 +210,17 @@ func TestCRTChainsAfterOtherEffectsWithOneTap(t *testing.T) {
 	if px := got.RGBAAt(0, 0); px != (color.RGBA{0, 0, 0, 255}) {
 		t.Errorf("corner bezel after invert = %v, want opaque black", px)
 	}
-	if p := effects.CRT(); p.Name != "crt" || p.Reference == nil || !strings.Contains(p.Source, "var Curvature float") {
+	if p := postfx.CRT(); p.Name != "crt" || p.Reference == nil || !strings.Contains(p.Source, "var Curvature float") {
 		t.Errorf("CRT() = %q, source %d bytes", p.Name, len(p.Source))
 	}
 }
 
 func TestCRTViewMountsWithAnimatedUniform(t *testing.T) {
-	chain := effects.MustCompile(effects.CRT())
+	chain := postfx.MustCompile(postfx.CRT())
 	var clock *core.AnimatedValue
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		clock = effects.Clock(cx, time.Second)
-		return effects.View{
+		clock = postfx.Clock(cx, time.Second)
+		return postfx.View{
 			Chain:    chain,
 			Frame:    core.ImageSource{Pixels: sceneFrame(), Version: 1},
 			Uniforms: []core.Uniforms{{"Curvature": 0.25, "Scanlines": clock, "Lines": 18}},
@@ -255,7 +255,7 @@ func FuzzCRTReference(f *testing.F) {
 	f.Add(0.25, 0.5, math.NaN())
 	f.Add(math.Inf(1), math.Inf(1), math.Inf(1))
 	f.Add(math.Inf(-1), math.Inf(-1), math.Inf(-1))
-	chain := effects.MustCompile(effects.CRT())
+	chain := postfx.MustCompile(postfx.CRT())
 	opaque := bloomFrame()
 	mixed := sceneFrame()
 	f.Fuzz(func(t *testing.T, curvature, scanlines, lines float64) {
@@ -283,7 +283,7 @@ func FuzzCRTReference(f *testing.F) {
 }
 
 func BenchmarkCRTReference(b *testing.B) {
-	chain := effects.MustCompile(effects.CRT())
+	chain := postfx.MustCompile(postfx.CRT())
 	frame := image.NewRGBA(image.Rect(0, 0, 320, 180))
 	b.ReportAllocs()
 	for b.Loop() {

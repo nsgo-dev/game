@@ -1,4 +1,4 @@
-package effects_test
+package postfx_test
 
 import (
 	"image"
@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/effects"
 	"github.com/nsgo-dev/game/pkg/gametest"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -36,7 +36,7 @@ func luma(c color.RGBA) float64 {
 }
 
 func TestBloomBrightensHighlightsAsTheReferencePictureDoes(t *testing.T) {
-	chain := effects.MustCompile(effects.Bloom())
+	chain := postfx.MustCompile(postfx.Bloom())
 	frame := bloomFrame()
 	got, err := chain.Reference(frame, 32, 20, bloomUniforms)
 	if err != nil {
@@ -80,7 +80,7 @@ func TestBloomBrightensHighlightsAsTheReferencePictureDoes(t *testing.T) {
 }
 
 func TestBloomWithNoIntensityDrawsTheFrameAsItIs(t *testing.T) {
-	chain := effects.MustCompile(effects.Bloom())
+	chain := postfx.MustCompile(postfx.Bloom())
 	frame := bloomFrame()
 	for name, u := range map[string][]core.Uniforms{
 		"no uniforms":                 nil,
@@ -100,7 +100,7 @@ func TestBloomWithNoIntensityDrawsTheFrameAsItIs(t *testing.T) {
 }
 
 // scale multiplies every channel by Gain, which can push a color above 1 or above its alpha between effects.
-var scale = effects.Effect{Name: "scale", Source: `package main
+var scale = postfx.Effect{Name: "scale", Source: `package main
 
 // Gain multiplies every channel.
 var Gain float
@@ -108,8 +108,8 @@ var Gain float
 func Effect(pos vec2) vec4 {
 	return Input(pos) * Gain
 }
-`, Reference: func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
-	c, gain := in.At(x, y), effects.Float(u, "Gain")
+`, Reference: func(in postfx.Input, u core.Uniforms, x, y float64) [4]float64 {
+	c, gain := in.At(x, y), postfx.Float(u, "Gain")
 	for k := range c {
 		c[k] *= gain
 	}
@@ -120,12 +120,12 @@ func TestBloomWithNoIntensityPassesItsInputThroughInAChain(t *testing.T) {
 	// Between a gain of 3 and one of 1/3, out-of-range values must reach the second scale untouched, so the frame comes back as it was.
 	frame := bloomFrame()
 	draw.Draw(frame, image.Rect(0, 0, 4, 4), image.NewUniform(color.RGBA{60, 30, 10, 128}), image.Point{}, draw.Src)
-	without, err := effects.MustCompile(scale, scale).Reference(frame, 32, 20, []core.Uniforms{{"Gain": 3}, {"Gain": 1.0 / 3}})
+	without, err := postfx.MustCompile(scale, scale).Reference(frame, 32, 20, []core.Uniforms{{"Gain": 3}, {"Gain": 1.0 / 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, intensity := range []float64{0, -1, math.NaN()} {
-		got, err := effects.MustCompile(scale, effects.Bloom(), scale).Reference(frame, 32, 20, []core.Uniforms{{"Gain": 3}, {"Threshold": 0.2, "Intensity": intensity, "Radius": 4}, {"Gain": 1.0 / 3}})
+		got, err := postfx.MustCompile(scale, postfx.Bloom(), scale).Reference(frame, 32, 20, []core.Uniforms{{"Gain": 3}, {"Threshold": 0.2, "Intensity": intensity, "Radius": 4}, {"Gain": 1.0 / 3}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -139,7 +139,7 @@ func TestBloomWithNoIntensityPassesItsInputThroughInAChain(t *testing.T) {
 }
 
 func TestBloomsRadiusIsHowFarTheGlowReaches(t *testing.T) {
-	chain := effects.MustCompile(effects.Bloom())
+	chain := postfx.MustCompile(postfx.Bloom())
 	frame := bloomFrame()
 	at := func(radius float64) color.RGBA {
 		t.Helper()
@@ -159,7 +159,7 @@ func TestBloomsRadiusIsHowFarTheGlowReaches(t *testing.T) {
 }
 
 func TestBloomKeepsColorsPremultiplied(t *testing.T) {
-	chain := effects.MustCompile(effects.Bloom())
+	chain := postfx.MustCompile(postfx.Bloom())
 	frame := image.NewRGBA(image.Rect(0, 0, 12, 12))
 	// A translucent white spot over transparency glows into it.
 	draw.Draw(frame, image.Rect(5, 5, 7, 7), image.NewUniform(color.RGBA{200, 200, 200, 200}), image.Point{}, draw.Src)
@@ -183,7 +183,7 @@ func TestBloomKeepsColorsPremultiplied(t *testing.T) {
 }
 
 func TestBloomChainsAfterAnotherEffect(t *testing.T) {
-	chain := effects.MustCompile(invert, effects.Bloom())
+	chain := postfx.MustCompile(invert, postfx.Bloom())
 	for _, name := range []string{"P1_Threshold", "P1_Intensity", "P1_Radius"} {
 		if !chain.Program().HasUniform(name) {
 			t.Errorf("the program has no uniform %s", name)
@@ -203,7 +203,7 @@ func TestBloomChainsAfterAnotherEffect(t *testing.T) {
 	if px := got.RGBAAt(7, 5); px == (color.RGBA{0, 0, 0, 255}) {
 		t.Errorf("the inverted lamp's inside drew black, want it lit")
 	}
-	if p := effects.Bloom(); p.Name != "bloom" || p.Reference == nil || !strings.Contains(p.Source, "var Threshold float") {
+	if p := postfx.Bloom(); p.Name != "bloom" || p.Reference == nil || !strings.Contains(p.Source, "var Threshold float") {
 		t.Errorf("Bloom() = %q, source %d bytes", p.Name, len(p.Source))
 	}
 }
@@ -223,7 +223,7 @@ func FuzzBloomReference(f *testing.F) {
 	f.Add(0.0, math.Inf(1), 4.0)
 	f.Add(0.6, 1.5, math.NaN())
 	f.Add(0.6, 1.5, math.Inf(1))
-	chain := effects.MustCompile(effects.Bloom())
+	chain := postfx.MustCompile(postfx.Bloom())
 	frame := bloomFrame()
 	f.Fuzz(func(t *testing.T, threshold, intensity, radius float64) {
 		got, err := chain.Reference(frame, 16, 10, []core.Uniforms{{"Threshold": threshold, "Intensity": intensity, "Radius": radius}})
@@ -240,7 +240,7 @@ func FuzzBloomReference(f *testing.F) {
 }
 
 func BenchmarkBloomReference(b *testing.B) {
-	chain := effects.MustCompile(effects.Bloom())
+	chain := postfx.MustCompile(postfx.Bloom())
 	frame := image.NewRGBA(image.Rect(0, 0, 320, 180))
 	b.ReportAllocs()
 	for b.Loop() {

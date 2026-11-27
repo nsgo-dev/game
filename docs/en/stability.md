@@ -86,7 +86,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/editor` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editormcp` | Experimental | [mcp](mcp.md) |
-| `game/pkg/effects` | Experimental | [effects](effects.md) |
 | `game/pkg/entities` | Experimental | [entities](entities.md) |
 | `game/pkg/fighting` | Experimental | [fighting](fighting.md) |
 | `game/pkg/flow` | Stable | [flow](flow.md) |
@@ -160,6 +159,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/plugin` | Experimental | [Plugins](plugins.md) |
 | `game/pkg/plugin/devtools` | Experimental | [Plugins](plugins.md) |
 | `game/pkg/plugin/manifest` | Experimental | [Plugins](plugins.md) |
+| `game/pkg/postfx` | Experimental | [postfx](postfx.md) |
 | `game/pkg/procgen` | Experimental | [procgen](procgen.md) |
 | `game/pkg/project` | Experimental | [Project File](project.md) |
 | `game/pkg/quality` | Experimental | [quality](quality.md) |

@@ -6,7 +6,7 @@
 
 ## 端到端串联：`save`、`SettingsMenu`、`a11y`、`sound` 与 `effects`
 
-所有无障碍、音频、显示与按键偏好都保存在同一份类型化的 [`save.Settings`](save.md#玩家设置settingsstore-与-accessibilitysettings) 存储中（`save.DefaultSettingsStore`），并与存档槽完全分离。通过 `a11y.NewAssistFromSettings` 将 [`a11y.Assist`](a11y.md#持久化辅助选项assist) 绑定到同一份存储，即可让 `gameui.SettingsMenu`、`a11y.CaptionsView`、`a11y.AccessibleMenu`、`sound.Mixer` 与 `effects.Flash` / `effects.Shake` 自动保持同步：
+所有无障碍、音频、显示与按键偏好都保存在同一份类型化的 [`save.Settings`](save.md#玩家设置settingsstore-与-accessibilitysettings) 存储中（`save.DefaultSettingsStore`），并与存档槽完全分离。通过 `a11y.NewAssistFromSettings` 将 [`a11y.Assist`](a11y.md#持久化辅助选项assist) 绑定到同一份存储，即可让 `gameui.SettingsMenu`、`a11y.CaptionsView`、`a11y.AccessibleMenu`、`sound.Mixer` 与 `postfx.Flash` / `postfx.Shake` 自动保持同步：
 
 ```go
 store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
@@ -39,13 +39,13 @@ settingsMenu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
 })
 
 // 全屏闪烁同时受 ReduceMotion 与 ReduceFlashes 控制；震屏幅度按 ScreenShake 缩放。
-flash := effects.NewFlash(cx, effects.FlashConfig{
+flash := postfx.NewFlash(cx, postfx.FlashConfig{
 	Color: core.RGB(0xffffff),
 	ReduceMotion: func() bool {
 		return assist.ReduceMotion() || assist.ReduceFlashes()
 	},
 })
-shake := effects.NewShake(cx, effects.ShakeConfig{
+shake := postfx.NewShake(cx, postfx.ShakeConfig{
 	Seed:         42,
 	ReduceMotion: assist.ReduceMotion,
 })
@@ -69,7 +69,7 @@ NSGo 在 `cx.Env()` 上以响应式 signal 形式暴露操作系统的无障碍�
 
 | 系统信号（`core.Env`） | 引擎集成方式 |
 | --- | --- |
-| `Env().ReduceMotion()` | 在玩家显式覆盖前，作为 `save.AccessibilitySettings.EffectiveReduceMotion`（`assist.ReduceMotion()`）、`SettingsMenu`、`effects.Flash` 与 `effects.Shake` 的默认值。 |
+| `Env().ReduceMotion()` | 在玩家显式覆盖前，作为 `save.AccessibilitySettings.EffectiveReduceMotion`（`assist.ReduceMotion()`）、`SettingsMenu`、`postfx.Flash` 与 `postfx.Shake` 的默认值。 |
 | `Env().IncreaseContrast()` | 在玩家显式覆盖前，作为 `save.AccessibilitySettings.EffectiveHighContrast`（`assist.HighContrast()`）、`assist.Palette()`（`VisionHighContrast`）、`CaptionsView` 与 `SettingsMenu` 自动 `HighContrastTheme()` 的默认值。 |
 | `Env().FontScale()` | 在玩家显式覆盖前，作为 `save.AccessibilitySettings.EffectiveCaptionScale`（`assist.TextScale()`，裁剪到 `0.5`–`3.0`）的默认值，由 `CaptionsView` 与 `AccessibleMenu` 读取。 |
 | `Env().ScreenReader()` | 可在任意位置读取，用于调整播报行为或将焦点引导到原生视图（`a11y.AccessibleMenu`、`cx.Announce`）。 |
@@ -127,7 +127,7 @@ if assist.HoldToToggle() {
 | --- | --- | --- | --- |
 | **清晰可读且可缩放至 200% 的文本**（GAG / XAG 101） | 基础 / 进阶 | `cx.Env().FontScale()` 与 `Assist.TextScale()`（`0.5`–`3.0`，`SettingsMenu` **无障碍 → 文本缩放**）自动缩放 `CaptionsView` 与 `AccessibleMenu`。[`text.SDFFont`](text.md#有向距离场字体) 与 [`text.DrawPlatform`](text.md#使用-drawplatform-绘制平台文本) 在任意尺寸下保持清晰。`gameui.CheckScreen`（`go tool game check`）会在手机、平板、桌面与超宽屏四个参考尺寸下检查多语言文本溢出。 | **引擎缺口**：让 `gameui` 控件与 `*.screen.yaml` 屏幕文件跟随系统字号自动缩放至 200% 并由 `CheckScreen` 检查，跟踪于 [#1772](https://github.com/nsgo-dev/game/issues/1772)。**游戏职责**：选择清晰易读的字体，关键界面避免使用极小像素字。 |
 | **充足对比度与高对比度模式**（GAG / XAG 102） | 基础 | `cx.Env().IncreaseContrast()`、`Assist.HighContrast()`（`SettingsMenu` **无障碍 → 高对比度**）、`a11y.PaletteFor(VisionHighContrast)`（`21:1` 前景/背景对比度）、`gameui.HighContrastTheme()`（未自定义 `Theme` 时 `SettingsMenu` 自动启用）、`a11y.ContrastRatio`、`a11y.EnsureContrast`，以及 `gameui.CheckScreen`（`go tool game check`）对 `*.screen.yaml` 文本强制检查 ≥ `4.5:1` WCAG 对比度。 | **游戏职责**：在复杂玩法画面上方绘制 HUD 文本时加半透明深色底衬，并用 `a11y.ContrastRatio(fg, bg) >= 4.5` 检查自定义画布文本。 |
-| **色盲友好调色板与 CVD 模拟测试**（GAG / XAG 103） | 基础 | `a11y.PaletteFor(mode)`（基于 Okabe-Ito / Wong 方案，覆盖 `VisionNormal`、`VisionProtanopia`、`VisionDeuteranopia`、`VisionTritanopia`、`VisionHighContrast`）、`Assist.ColorVision()` / `Assist.Palette()`（`SettingsMenu` **无障碍 → 色盲模式**）、`a11y.Simulate(c, mode)` 以及 [`effects.PaletteSwap`](effects.md#调色板替换)。 | **引擎缺口**：按色盲模式作用于整帧画面的后处理滤镜以及编辑器/测试中的色觉预览，跟踪于 [#1776](https://github.com/nsgo-dev/game/issues/1776)。**游戏职责**：**绝不单靠颜色传递信息**——始终用不同轮廓、图标、花纹、描边或文字标签配合颜色。 |
+| **色盲友好调色板与 CVD 模拟测试**（GAG / XAG 103） | 基础 | `a11y.PaletteFor(mode)`（基于 Okabe-Ito / Wong 方案，覆盖 `VisionNormal`、`VisionProtanopia`、`VisionDeuteranopia`、`VisionTritanopia`、`VisionHighContrast`）、`Assist.ColorVision()` / `Assist.Palette()`（`SettingsMenu` **无障碍 → 色盲模式**）、`a11y.Simulate(c, mode)` 以及 [`postfx.PaletteSwap`](postfx.md#调色板替换)。 | **引擎缺口**：按色盲模式作用于整帧画面的后处理滤镜以及编辑器/测试中的色觉预览，跟踪于 [#1776](https://github.com/nsgo-dev/game/issues/1776)。**游戏职责**：**绝不单靠颜色传递信息**——始终用不同轮廓、图标、花纹、描边或文字标签配合颜色。 |
 | **屏幕阅读器与界面朗读**（GAG / XAG 105） | 进阶 | `cx.Env().ScreenReader()`、`cx.Announce(text)`、`cx.Speak(text, voice, done)`（`cx.Env().CanSpeak()`）、原生 NSGo 无障碍属性（`Role`、`Label`、`Hint`、`AccessibilityDescription`、`AccessibilityValue`、`LiveRegion`）、[`a11y.AccessibleMenu`](a11y.md#屏幕阅读器菜单accessiblemenu)（支持 `MenuText` / `l10n` 本地化）、[`a11y.CaptionsView`](a11y.md#实时字幕captiontrack-与-captionsview) 以及 `input.TouchControls.Draw`（输出带标签与角色的 `core.CanvasNode`）。 | **引擎缺口**：将画布绘制的 `gameui` 控件、`SettingsMenu` 与 `*.screen.yaml` 暴露给屏幕阅读器并播报焦点与数值，跟踪于 [#1425](https://github.com/nsgo-dev/game/issues/1425)。在 `#1425` 落地前，需要完整 VoiceOver/TalkBack 支持的菜单请使用 `a11y.AccessibleMenu` 或原生 NSGo 视图。 |
 | **安全区、深色界面与 RTL 布局**（GAG / XAG 102、104） | 进阶 | `cx.Env().Dark()` / `Env().Appearance()`、[`screen.Viewport.SafeGameRectForEnv`](screen.md#移动端-hud-安全区)、`*.screen.yaml` 中的 `safeArea`、[`l10n.MirrorX`](l10n.md#rtl-视觉排序与布局镜像) / `LayoutAlignment` 以及 [`screen.Video`](screen.md#视频设置) 窗口/全屏模式。 | **游戏职责**：确保 HUD 不被刘海、底部指示条或曲面屏遮挡，并让前景玩法元素与背景有清晰分层。 |
 | **3D 相机视野（FOV）与镜头晃动**（GAG / XAG 104） | 进阶 | `scene3d.Camera` 支持在游戏代码中调整视野角（FOV）。 | **引擎缺口**：将 FOV 与镜头晃动作为标准玩家设置自动应用到 3D 相机，跟踪于 [#1780](https://github.com/nsgo-dev/game/issues/1780)。 |
@@ -170,11 +170,11 @@ for _, mode := range []a11y.ColorVision{a11y.VisionProtanopia, a11y.VisionDeuter
 
 | 准则（GAG / XAG） | 等级 | 引擎支持与 SettingsMenu 设置行 | 缺口与游戏自身职责 |
 | --- | --- | --- | --- |
-| **减少动态效果与屏幕震动控制**（GAG / XAG 104） | 基础 | `cx.Env().ReduceMotion()`、`Assist.ReduceMotion()` 与 `Assist.ScreenShake()`（`0.0`–`1.0`）、`SettingsMenu` **无障碍 → 减少动态效果** 与 **屏幕震动**、[`effects.Shake`](effects.md#暗角闪屏与震屏)（`ShakeConfig.ReduceMotion`）。 | **游戏职责**：根据 `assist.ReduceMotion()` 与 `assist.ScreenShake()` 门控或缩放 [`tilemap.Camera.Shake`](tilemap.md#跟随边界限制与震动)、视差滚动、界面待机弹跳与镜头过渡。 |
-| **全屏闪烁与光敏癫痫安全**（GAG / XAG 120） | 基础 | `Assist.ReduceFlashes()`、`SettingsMenu` **无障碍 → 减弱闪烁**、[`effects.Flash`](effects.md#暗角闪屏与震屏)（`FlashConfig.ReduceMotion`）。请将 `func() bool { return assist.ReduceMotion() || assist.ReduceFlashes() }` 传入 `FlashConfig.ReduceMotion`。 | **引擎缺口**：全屏闪烁频率限制、`effects` 自动遵循 `ReduceFlashes` 以及在测试中检查录制帧的闪烁与高对比图案违规，跟踪于 [#1775](https://github.com/nsgo-dev/game/issues/1775)。**游戏职责**：保持闪烁低于每秒 3 次，避免大面积高亮或高饱和红色频闪；在开启 `ReduceFlashes()` 时用柔和染色或图标替代闪白/闪电效果。 |
-| **高对比重复图案与画面畸变**（GAG / XAG 104、120） | 进阶 | [`effects.CRT`](effects.md#crt-与扫描线) 扫描线与曲面畸变为可选着色器通道，可在开启 `ReduceMotion()` 或 `ReduceFlashes()` 时关闭。 | **引擎缺口**：3D FOV 与镜头晃动的标准玩家设置跟踪于 [#1780](https://github.com/nsgo-dev/game/issues/1780)。**游戏职责**：避免在大面积区域使用高对比静止或滚动条纹/棋盘格图案，并为后处理畸变或泛光提供开关。 |
+| **减少动态效果与屏幕震动控制**（GAG / XAG 104） | 基础 | `cx.Env().ReduceMotion()`、`Assist.ReduceMotion()` 与 `Assist.ScreenShake()`（`0.0`–`1.0`）、`SettingsMenu` **无障碍 → 减少动态效果** 与 **屏幕震动**、[`postfx.Shake`](postfx.md#暗角闪屏与震屏)（`ShakeConfig.ReduceMotion`）。 | **游戏职责**：根据 `assist.ReduceMotion()` 与 `assist.ScreenShake()` 门控或缩放 [`tilemap.Camera.Shake`](tilemap.md#跟随边界限制与震动)、视差滚动、界面待机弹跳与镜头过渡。 |
+| **全屏闪烁与光敏癫痫安全**（GAG / XAG 120） | 基础 | `Assist.ReduceFlashes()`、`SettingsMenu` **无障碍 → 减弱闪烁**、[`postfx.Flash`](postfx.md#暗角闪屏与震屏)（`FlashConfig.ReduceMotion`）。请将 `func() bool { return assist.ReduceMotion() || assist.ReduceFlashes() }` 传入 `FlashConfig.ReduceMotion`。 | **引擎缺口**：全屏闪烁频率限制、`effects` 自动遵循 `ReduceFlashes` 以及在测试中检查录制帧的闪烁与高对比图案违规，跟踪于 [#1775](https://github.com/nsgo-dev/game/issues/1775)。**游戏职责**：保持闪烁低于每秒 3 次，避免大面积高亮或高饱和红色频闪；在开启 `ReduceFlashes()` 时用柔和染色或图标替代闪白/闪电效果。 |
+| **高对比重复图案与画面畸变**（GAG / XAG 104、120） | 进阶 | [`postfx.CRT`](postfx.md#crt-与扫描线) 扫描线与曲面畸变为可选着色器通道，可在开启 `ReduceMotion()` 或 `ReduceFlashes()` 时关闭。 | **引擎缺口**：3D FOV 与镜头晃动的标准玩家设置跟踪于 [#1780](https://github.com/nsgo-dev/game/issues/1780)。**游戏职责**：避免在大面积区域使用高对比静止或滚动条纹/棋盘格图案，并为后处理畸变或泛光提供开关。 |
 
-将 `tilemap.Camera.Shake` 与 `effects.Shake` 一同受无障碍偏好控制：
+将 `tilemap.Camera.Shake` 与 `postfx.Shake` 一同受无障碍偏好控制：
 
 ```go
 if !assist.ReduceMotion() {
@@ -208,6 +208,6 @@ Apple App Store 允许开发者在 App Store Connect 中声明九项[无障碍�
 | **深色界面（Dark Interface）** | `cx.Env().Dark()` 与 `cx.Env().Appearance()`、默认深色的 `a11y.PaletteFor` 预设、`gameui.DefaultTheme()` / `HighContrastTheme()`。 | 游戏美术与自定义主题需自行适配深色外观。 | 在 iOS 浅色与深色模式之间切换，验证所有界面、弹窗、设置页与叠加层在深色模式下可读舒适且无刺眼白屏闪烁。 |
 | **不单靠颜色区分（Differentiate Without Color Alone）** | `a11y.PaletteFor(...)`（Okabe-Ito / Wong 调色板）、`a11y.Simulate(...)`、`SettingsMenu` 色盲模式。 | 整帧色盲后处理滤镜跟踪于 [#1776](https://github.com/nsgo-dev/game/issues/1776)；若玩法状态仅靠颜色表达，单有调色板并不满足此标签。 | 开启 iOS **色彩滤镜 → 灰度**并游玩全部核心机制（敌人、拾取物、危险区域、解谜块、状态条），确认形状、图标、花纹或文字始终能独立传达状态。 |
 | **足够对比度（Sufficient Contrast）** | `gameui.CheckScreen` / `go tool game check`（检查 `*.screen.yaml` ≥ `4.5:1`）、`a11y.ContrastRatio`、`a11y.EnsureContrast`、`CaptionsView`（强制 `7.0:1`）、跟随 `cx.Env().IncreaseContrast()` 的 `Assist.HighContrast()`、`gameui.HighContrastTheme()`。 | 在 `*.screen.yaml` 之外自绘的 `Canvas` / 3D HUD 文本与图标不会由 `game check` 自动核查。 | 运行 `go tool game check`，开启 iOS **增强对比度**，并核查所有自定义 HUD/菜单前景色与背景色，确保常规文本 ≥ `4.5:1`、大号文本与关键控件 ≥ `3:1`。 |
-| **减弱动态效果（Reduced Motion）** | `cx.Env().ReduceMotion()`、默认跟随系统的 `Assist.ReduceMotion()`、`Assist.ScreenShake()`、`Assist.ReduceFlashes()`、`SettingsMenu` 无障碍标签页、`effects.ShakeConfig.ReduceMotion`、`effects.FlashConfig.ReduceMotion`。 | `effects.Flash` 需显式接入 `ReduceFlashes` 且尚无内置闪烁限频（[#1775](https://github.com/nsgo-dev/game/issues/1775)）；`tilemap.Camera.Shake`、补间动画、视差与粒子需在游戏代码中检查 `assist.ReduceMotion()`。 | 在启动游戏前开启 iOS **减弱动态效果**（不改动游戏内设置），验证震屏、全屏闪烁、页面过渡动画、视差与界面待机动画立即减弱或关闭。 |
+| **减弱动态效果（Reduced Motion）** | `cx.Env().ReduceMotion()`、默认跟随系统的 `Assist.ReduceMotion()`、`Assist.ScreenShake()`、`Assist.ReduceFlashes()`、`SettingsMenu` 无障碍标签页、`postfx.ShakeConfig.ReduceMotion`、`postfx.FlashConfig.ReduceMotion`。 | `postfx.Flash` 需显式接入 `ReduceFlashes` 且尚无内置闪烁限频（[#1775](https://github.com/nsgo-dev/game/issues/1775)）；`tilemap.Camera.Shake`、补间动画、视差与粒子需在游戏代码中检查 `assist.ReduceMotion()`。 | 在启动游戏前开启 iOS **减弱动态效果**（不改动游戏内设置），验证震屏、全屏闪烁、页面过渡动画、视差与界面待机动画立即减弱或关闭。 |
 | **字幕（Captions）** | `a11y.CaptionTrack`、`a11y.CaptionsView`、`Assist.CaptionsEnabled()`、`Assist.SFXCaptionsEnabled()`、`Caption.Format()`（说话人名称与 `[<]`/`[>]` 方向标记）、`SettingsMenu` 无障碍标签页。 | 游戏目前需自行将对话、音效与过场提示推送到 `CaptionTrack`（[#1774](https://github.com/nsgo-dev/game/issues/1774)）；玩家可调字幕底衬、透明度与说话人颜色跟踪于 [#1773](https://github.com/nsgo-dev/game/issues/1773)。 | 在 iOS 上全程静音游玩整款游戏（含片头、过场、对话与实机音效），验证所有语音台词与关键音效均准确同步显示字幕。 |
 | **音频描述（Audio Descriptions）** | `pkg/cutscene` 与 `pkg/sound` 暂未内置音频描述轨播放器；游戏可通过 `sound.Mixer` 叠加同步旁白总线，或用 `cx.Speak`（`Env.CanSpeak()`）为纯画面过场朗读描述。 | 纯视觉过场与媒体的音频描述完全由游戏自行制作与接入。 | 仅当所有纯视觉视频或剧情段落都提供可选且同步的音频描述轨（解释关键视觉动作且不与台词冲突）时方可声明。 |

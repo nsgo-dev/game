@@ -52,7 +52,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/pixelfx/weather` | Experimental | pixelfx weather loops (aurora, blizzard, cherry blossoms, clouds, falling leaves, fireflies, fog, god rays, rain, shooting stars, snow, storm) |
 | `game/pkg/lights2d` | Experimental | 2D ambient darkness, point/cone lights, visibility-polygon shadows, normal-mapped sprites |
 | `game/pkg/tilemap/tileshape` | Experimental | Tilemap collision geometry: a physics `TileGrid` view, slopes from Tiled per-tile shapes, merged outlines, static boxes and `lights2d` occluders |
-| `game/pkg/effects` | Experimental | Chained Kage shader post-processing passes over the game frame |
+| `game/pkg/postfx` | Experimental | Chained Kage shader post-processing passes over the game frame |
 | `game/pkg/skeletal` | Experimental | 2D bone rigs, IK, skins and YAML rig definitions |
 | `game/pkg/cutscene` | Experimental | Skippable video and YAML timeline cutscenes (camera, actor, dialogue, sound and music tracks) |
 | `game/pkg/placeholder` | Experimental | CC0 prototyping pack (sprites, tiles, pixel font, sounds, glTF models) with import sidecars |

@@ -102,7 +102,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'gameui',
       'lights2d',
       'quality',
-      'effects',
+      'postfx',
       'pixelfx',
       'worldmap',
       'rooms',

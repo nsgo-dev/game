@@ -1,4 +1,4 @@
-package effects_test
+package postfx_test
 
 import (
 	"math"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/effects"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -25,10 +25,10 @@ func FuzzCompile(f *testing.F) {
 		f.Add(src)
 	}
 	f.Fuzz(func(t *testing.T, src string) {
-		e := effects.Effect{Name: "fuzz", Source: src}
-		c, err := effects.Compile(effects.Effect{Source: blurSource}, e)
+		e := postfx.Effect{Name: "fuzz", Source: src}
+		c, err := postfx.Compile(postfx.Effect{Source: blurSource}, e)
 		if err != nil {
-			if !strings.HasPrefix(err.Error(), "effects: ") {
+			if !strings.HasPrefix(err.Error(), "postfx: ") {
 				t.Fatalf("an error without the package's prefix: %v", err)
 			}
 			return
@@ -36,7 +36,7 @@ func FuzzCompile(f *testing.F) {
 		if c.Len() != 2 || !strings.Contains(c.Source(), "p1_Effect") {
 			t.Fatalf("a chain of %d effects:\n%s", c.Len(), c.Source())
 		}
-		if _, err := effects.Compile(e); err != nil {
+		if _, err := postfx.Compile(e); err != nil {
 			t.Fatalf("it compiled chained but not alone: %v", err)
 		}
 	})
@@ -48,8 +48,8 @@ func FuzzScreenEffects(f *testing.F) {
 	f.Add(1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
 	f.Add(-1.0, 2.0, -3.0, -0.5, 1e9, 1e6, -5.0, 100.0)
 	f.Add(math.NaN(), math.Inf(1), math.Inf(-1), math.NaN(), math.Inf(1), math.NaN(), 1.0, math.NaN())
-	chain := effects.MustCompile(effects.ShakeEffect(), effects.VignetteEffect(), effects.FlashEffect())
-	shake := effects.MustCompile(effects.ShakeEffect())
+	chain := postfx.MustCompile(postfx.ShakeEffect(), postfx.VignetteEffect(), postfx.FlashEffect())
+	shake := postfx.MustCompile(postfx.ShakeEffect())
 	f.Fuzz(func(t *testing.T, strength, radius, softness, amount, amplitude, seconds, frequency, phase float64) {
 		u := []core.Uniforms{
 			{"Amplitude": amplitude, "Time": seconds, "Frequency": frequency, "Phase": []float64{phase, -phase, 2 * phase, 0}},
@@ -66,7 +66,7 @@ func FuzzScreenEffects(f *testing.F) {
 				t.Fatalf("pixel %d is not premultiplied: %v", i/4, p)
 			}
 		}
-		x, y := effects.ShakeOffset(amplitude, seconds, frequency, [4]float64{phase, -phase, 2 * phase, 0})
+		x, y := postfx.ShakeOffset(amplitude, seconds, frequency, [4]float64{phase, -phase, 2 * phase, 0})
 		if limit := math.Abs(amplitude) * (1 + 1e-9); math.Abs(x) > limit || math.Abs(y) > limit {
 			t.Fatalf("offset (%g, %g) past amplitude %g", x, y, amplitude)
 		}

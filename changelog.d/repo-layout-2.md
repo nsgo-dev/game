@@ -14,6 +14,7 @@
 - Package size checks exit with 1, not 2, when the budget file, the package or its ZIP archive cannot be read, as every `game` command does for a failure; 2 is left for a wrong call. Their errors start with `game size:` instead of `sizecheck:`, and the File Formats entries of the size budgets are now `tooling/sizecheck` and `tooling/sizecheck#mobile`.
 - Project file checks exit with 2, not 1, when they are called wrongly, such as with an unknown verb, more than one directory or `-check` where it does not apply, and print the usage of `game project`; their errors start with `game project:` instead of `gameproject:`.
 - `vehicle` is renamed `vehicle3d` so its name says it is the 3D raycast car on `physics3d`, as `physics3d` and `world3d` do: import `github.com/nsgo-dev/game/pkg/vehicle3d` and write `vehicle3d.New`, `vehicle3d.Config`, `vehicle3d.Race` and so on. Its errors start with `vehicle3d:` instead of `vehicle:`, and its File Formats entries are now `vehicle3d` and `vehicle3d#ghost`. Car files, ghost laps and snapshot checksums are unchanged. The guide moves to `vehicle3d.md`.
+- `effects` is renamed `postfx` so its name says it is the full-frame shader passes drawn over the game's frame, apart from the per-sprite `Sprite.Effect` and the sound mixer's DSP effects: import `github.com/nsgo-dev/game/pkg/postfx` and write `postfx.Compile`, `postfx.View`, `postfx.Bloom` and so on. Its errors and panics start with `postfx:` instead of `effects:`. The guide moves to `postfx.md`.
 
 ### Removed
 

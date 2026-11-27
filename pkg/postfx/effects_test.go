@@ -1,4 +1,4 @@
-package effects_test
+package postfx_test
 
 import (
 	"image"
@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/effects"
 	"github.com/nsgo-dev/game/pkg/gametest"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -55,8 +55,8 @@ func Effect(pos vec2) vec4 {
 }
 `
 
-var invert = effects.Effect{Name: "invert", Source: invertSource, Reference: func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
-	amount := effects.Float(u, "Amount")
+var invert = postfx.Effect{Name: "invert", Source: invertSource, Reference: func(in postfx.Input, u core.Uniforms, x, y float64) [4]float64 {
+	amount := postfx.Float(u, "Amount")
 	c := in.At(x, y)
 	t := [4]float64{c[3] - c[0], c[3] - c[1], c[3] - c[2], c[3]}
 	for k := range c {
@@ -65,9 +65,9 @@ var invert = effects.Effect{Name: "invert", Source: invertSource, Reference: fun
 	return c
 }}
 
-var blur = effects.Effect{Name: "blur", Source: blurSource, Reference: func(in effects.Input, u core.Uniforms, x, y float64) [4]float64 {
+var blur = postfx.Effect{Name: "blur", Source: blurSource, Reference: func(in postfx.Input, u core.Uniforms, x, y float64) [4]float64 {
 	w, _ := in.Size()
-	a, b := in.At(x, y), in.At(math.Min(x+effects.Float(u, "Offset"), w-0.5), y)
+	a, b := in.At(x, y), in.At(math.Min(x+postfx.Float(u, "Offset"), w-0.5), y)
 	for k := range a {
 		a[k] = (a[k] + b[k]) * 0.5
 	}
@@ -93,7 +93,7 @@ func testFrame() *image.RGBA {
 }
 
 func TestTwoEffectsChainAndDrawTheirReferencePicture(t *testing.T) {
-	chain := effects.MustCompile(invert, blur)
+	chain := postfx.MustCompile(invert, blur)
 	if chain.Len() != 2 {
 		t.Fatalf("Len %d, want 2", chain.Len())
 	}
@@ -120,13 +120,13 @@ func TestTwoEffectsChainAndDrawTheirReferencePicture(t *testing.T) {
 }
 
 // square multiplies each color by itself, which the blur's average does not commute with.
-var square = effects.Effect{Name: "square", Source: `package main
+var square = postfx.Effect{Name: "square", Source: `package main
 
 func Effect(pos vec2) vec4 {
 	c := Input(pos)
 	return c * c
 }
-`, Reference: func(in effects.Input, _ core.Uniforms, x, y float64) [4]float64 {
+`, Reference: func(in postfx.Input, _ core.Uniforms, x, y float64) [4]float64 {
 	c := in.At(x, y)
 	for k := range c {
 		c[k] *= c[k]
@@ -135,8 +135,8 @@ func Effect(pos vec2) vec4 {
 }}
 
 func TestTheChainsOrderIsTheDrawingOrder(t *testing.T) {
-	ab := effects.MustCompile(square, blur)
-	ba := effects.MustCompile(blur, square)
+	ab := postfx.MustCompile(square, blur)
+	ba := postfx.MustCompile(blur, square)
 	if ab.Source() == ba.Source() {
 		t.Fatal("chains in two orders compiled into the same source")
 	}
@@ -149,8 +149,8 @@ func TestTheChainsOrderIsTheDrawingOrder(t *testing.T) {
 }
 
 func TestTheFusedSourceIsDeterministicAndRenamesEachEffect(t *testing.T) {
-	a := effects.MustCompile(invert, blur).Source()
-	b := effects.MustCompile(invert, blur).Source()
+	a := postfx.MustCompile(invert, blur).Source()
+	b := postfx.MustCompile(invert, blur).Source()
 	if a != b {
 		t.Fatal("the same effects compiled into two sources")
 	}
@@ -175,7 +175,7 @@ func TestTheFusedSourceIsDeterministicAndRenamesEachEffect(t *testing.T) {
 }
 
 func TestNoEffectsDrawTheFrameAsItIs(t *testing.T) {
-	chain := effects.MustCompile()
+	chain := postfx.MustCompile()
 	frame := testFrame()
 	got, err := chain.Reference(frame, 16, 12, nil)
 	if err != nil {
@@ -198,7 +198,7 @@ func TestReferenceReadsAFrameOffItsOrigin(t *testing.T) {
 	frame := big.SubImage(image.Rect(1, 4, 3, 6)).(*image.RGBA)
 	frame.SetRGBA(1, 4, color.RGBA{10, 20, 30, 255})
 	frame.SetRGBA(2, 5, color.RGBA{40, 50, 60, 255})
-	got, err := effects.MustCompile().Reference(frame, 2, 2, nil)
+	got, err := postfx.MustCompile().Reference(frame, 2, 2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestReferenceReadsAFrameOffItsOrigin(t *testing.T) {
 }
 
 func TestReferenceDrawsAtTheUniformsItIsGiven(t *testing.T) {
-	chain := effects.MustCompile(invert, blur)
+	chain := postfx.MustCompile(invert, blur)
 	at := func(u []core.Uniforms) *image.RGBA {
 		t.Helper()
 		got, err := chain.Reference(testFrame(), 8, 6, u)
@@ -251,7 +251,7 @@ type animatedNode struct{ core.AnimatedNode }
 func TestFloatReadsANumberUniform(t *testing.T) {
 	u := core.Uniforms{"f": float32(1.5), "i": 2, "u": uint64(3), "b": true, "c": core.Constant(4), "v": []float64{1, 2}}
 	for name, want := range map[string]float64{"f": 1.5, "i": 2, "u": 3, "b": 1, "c": 4, "v": 0, "missing": 0} {
-		if got := effects.Float(u, name); got != want {
+		if got := postfx.Float(u, name); got != want {
 			t.Errorf("Float(%s) = %g, want %g", name, got, want)
 		}
 	}
@@ -260,15 +260,15 @@ func TestFloatReadsANumberUniform(t *testing.T) {
 func TestReferenceNeedsEveryEffectsReference(t *testing.T) {
 	gpuOnly := invert
 	gpuOnly.Reference = nil
-	_, err := effects.MustCompile(blur, gpuOnly).Reference(testFrame(), 4, 4, nil)
+	_, err := postfx.MustCompile(blur, gpuOnly).Reference(testFrame(), 4, 4, nil)
 	if err == nil || !strings.Contains(err.Error(), "effect 1 (invert) has no Reference") {
 		t.Fatalf("err = %v", err)
 	}
-	empty, err := effects.MustCompile(invert).Reference(nil, 0, 3, full[:1])
+	empty, err := postfx.MustCompile(invert).Reference(nil, 0, 3, full[:1])
 	if err != nil || empty.Rect.Dx() != 0 {
 		t.Fatalf("an empty picture: %v, %v", empty.Rect, err)
 	}
-	blank, err := effects.MustCompile(invert).Reference(nil, 2, 2, full[:1])
+	blank, err := postfx.MustCompile(invert).Reference(nil, 2, 2, full[:1])
 	if err != nil || slices.ContainsFunc(blank.Pix, func(b uint8) bool { return b != 0 }) {
 		t.Fatalf("no frame drew %v, %v", blank.Pix, err)
 	}
@@ -291,16 +291,16 @@ func TestCompileRefusesWhatTheChainCannotFuse(t *testing.T) {
 		{"type", "package main\n\nfunc Effect(pos vec2) vec4 {\n\treturn Input(pos).xy\n}\n", "4:"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := effects.Compile(invert, effects.Effect{Name: "bad", Source: tc.src})
+			_, err := postfx.Compile(invert, postfx.Effect{Name: "bad", Source: tc.src})
 			if err == nil {
 				t.Fatal("it compiled")
 			}
-			if !strings.HasPrefix(err.Error(), "effects: effect 1 (bad): ") || !strings.Contains(err.Error(), tc.want) {
+			if !strings.HasPrefix(err.Error(), "postfx: effect 1 (bad): ") || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want effect 1 (bad) and %q", err, tc.want)
 			}
 		})
 	}
-	if _, err := effects.Compile(effects.Effect{Source: "package main\n"}); err == nil || !strings.HasPrefix(err.Error(), "effects: effect 0: ") {
+	if _, err := postfx.Compile(postfx.Effect{Source: "package main\n"}); err == nil || !strings.HasPrefix(err.Error(), "postfx: effect 0: ") {
 		t.Fatalf("an unnamed effect: %v", err)
 	}
 	defer func() {
@@ -308,11 +308,11 @@ func TestCompileRefusesWhatTheChainCannotFuse(t *testing.T) {
 			t.Fatal("MustCompile of a bad effect did not panic")
 		}
 	}()
-	effects.MustCompile(effects.Effect{Source: "package main\n"})
+	postfx.MustCompile(postfx.Effect{Source: "package main\n"})
 }
 
 func TestUniformsTakeEachEffectsNames(t *testing.T) {
-	chain := effects.MustCompile(invert, blur)
+	chain := postfx.MustCompile(invert, blur)
 	if !chain.HasUniform(0, "Amount") || !chain.HasUniform(1, "Offset") || chain.HasUniform(0, "Offset") || chain.HasUniform(2, "Amount") || chain.HasUniform(-1, "Amount") {
 		t.Fatal("HasUniform names the wrong effects' uniforms")
 	}
@@ -344,12 +344,12 @@ func TestUniformsTakeEachEffectsNames(t *testing.T) {
 }
 
 func TestTheViewDrawsTheFrameThroughTheChainWithUniformsOnTheFrameClock(t *testing.T) {
-	chain := effects.MustCompile(invert, blur)
+	chain := postfx.MustCompile(invert, blur)
 	frame := testFrame()
 	var clock *core.AnimatedValue
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		clock = effects.Clock(cx, 2*time.Second)
-		return effects.View{
+		clock = postfx.Clock(cx, 2*time.Second)
+		return postfx.View{
 			Chain:    chain,
 			Frame:    core.ImageSource{Pixels: frame, Version: 1},
 			Uniforms: []core.Uniforms{{"Amount": clock}, {"Offset": 0.25}},
@@ -378,13 +378,13 @@ func TestTheViewDrawsTheFrameThroughTheChainWithUniformsOnTheFrameClock(t *testi
 }
 
 func TestTheViewFollowsItsFrameAndUniformsFuncs(t *testing.T) {
-	chain := effects.MustCompile(invert)
+	chain := postfx.MustCompile(invert)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		amount := core.NewSignal(cx, 0.25)
 		version := core.NewSignal(cx, uint64(1))
 		frame := testFrame()
 		return core.View{Children: []core.Node{
-			effects.View{
+			postfx.View{
 				Chain:        chain,
 				FrameFunc:    func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version.Get()} },
 				UniformsFunc: func() []core.Uniforms { return []core.Uniforms{{"Amount": amount.Get()}} },
@@ -396,7 +396,7 @@ func TestTheViewFollowsItsFrameAndUniformsFuncs(t *testing.T) {
 				version.Set(version.GetUntracked() + 1)
 			}},
 			// A nil chain draws the frame as it is.
-			effects.View{Frame: core.ImageSource{Pixels: frame}, TestID: "plain"},
+			postfx.View{Frame: core.ImageSource{Pixels: frame}, TestID: "plain"},
 		}}
 	})
 	if !slices.Contains(app.FindMounted("id:game").Shader.Lanes, 0.25) {
@@ -414,9 +414,9 @@ func TestTheViewFollowsItsFrameAndUniformsFuncs(t *testing.T) {
 
 // nsgotest's mounted shader does not list the images it reads (nsgotest.Shader has no Images, nsgo-dev/nsgo#2251), so the view's own shader shows that the frame is its image0.
 func TestTheViewsFrameIsItsShadersImage(t *testing.T) {
-	chain := effects.MustCompile(invert)
+	chain := postfx.MustCompile(invert)
 	frame := testFrame()
-	sh, ok := effects.View{Chain: chain, Frame: core.ImageSource{Pixels: frame, Version: 1}}.Render(nil).(core.Shader)
+	sh, ok := postfx.View{Chain: chain, Frame: core.ImageSource{Pixels: frame, Version: 1}}.Render(nil).(core.Shader)
 	if !ok {
 		t.Fatal("the view is not a core.Shader")
 	}
@@ -424,7 +424,7 @@ func TestTheViewsFrameIsItsShadersImage(t *testing.T) {
 		t.Fatalf("images %v, func %v: want the frame at version 1 as image0 of the chain's program", sh.Images, sh.ImagesFunc != nil)
 	}
 	version := uint64(1)
-	sh = effects.View{Chain: chain, FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version} }}.Render(nil).(core.Shader)
+	sh = postfx.View{Chain: chain, FrameFunc: func() core.ImageSource { return core.ImageSource{Pixels: frame, Version: version} }}.Render(nil).(core.Shader)
 	if sh.Images != nil || sh.ImagesFunc == nil {
 		t.Fatalf("a FrameFunc gave images %v and no ImagesFunc", sh.Images)
 	}
@@ -434,19 +434,19 @@ func TestTheViewsFrameIsItsShadersImage(t *testing.T) {
 			t.Fatalf("ImagesFunc() = %v, want the frame at version %d", got, want)
 		}
 	}
-	if plain := (effects.View{Frame: core.ImageSource{Pixels: frame}}).Render(nil).(core.Shader); plain.Program == nil || len(plain.Images) != 1 || plain.Images[0].Pixels != frame {
+	if plain := (postfx.View{Frame: core.ImageSource{Pixels: frame}}).Render(nil).(core.Shader); plain.Program == nil || len(plain.Images) != 1 || plain.Images[0].Pixels != frame {
 		t.Fatalf("a nil chain gave program %v and images %v", plain.Program, plain.Images)
 	}
 }
 
 func BenchmarkCompile(b *testing.B) {
 	for b.Loop() {
-		effects.MustCompile(invert, blur)
+		postfx.MustCompile(invert, blur)
 	}
 }
 
 func BenchmarkReference(b *testing.B) {
-	chain := effects.MustCompile(invert, blur)
+	chain := postfx.MustCompile(invert, blur)
 	frame := image.NewRGBA(image.Rect(0, 0, 320, 180))
 	b.ReportAllocs()
 	for b.Loop() {
