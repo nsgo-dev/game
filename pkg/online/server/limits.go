@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/netplay"
@@ -63,7 +64,8 @@ type PeerStats struct {
 }
 
 // Guard enforces per-peer limits and validates inputs before a simulation sees
-// them. It is safe on the server's packet loop and independent per peer.
+// them. It is safe for concurrent use, so a metrics collector may read Totals
+// while the packet loop checks packets.
 type Guard struct {
 	Limits Limits
 	Policy LimitPolicy
@@ -73,7 +75,9 @@ type Guard struct {
 	// Now is the token-bucket clock; nil uses time.Now.
 	Now func() time.Time
 
-	peers map[netplay.PeerID]*peerGuard
+	mu     sync.Mutex
+	peers  map[netplay.PeerID]*peerGuard
+	totals PeerStats // counters of the peers Reset forgot
 }
 
 type peerGuard struct {
@@ -97,6 +101,8 @@ func (g *Guard) Check(peer netplay.PeerID, packet netplay.Packet) (GuardAction, 
 	if g == nil {
 		return GuardAllow, nil
 	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	pg := g.peer(peer)
 	if !pg.connected {
 		return GuardDisconnect, ErrPeerDisconnected
@@ -167,6 +173,8 @@ func (g *Guard) ReserveReliable(peer netplay.PeerID, n int) error {
 	if g == nil || n <= 0 {
 		return nil
 	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	pg := g.peer(peer)
 	if g.Limits.MaxPendingReliable > 0 && pg.stats.PendingBytes+n > g.Limits.MaxPendingReliable {
 		return ErrPendingLimit
@@ -180,6 +188,8 @@ func (g *Guard) ReleaseReliable(peer netplay.PeerID, n int) {
 	if g == nil || n <= 0 {
 		return
 	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	pg := g.peer(peer)
 	pg.stats.PendingBytes -= n
 	if pg.stats.PendingBytes < 0 {
@@ -192,15 +202,47 @@ func (g *Guard) Stats(peer netplay.PeerID) PeerStats {
 	if g == nil {
 		return PeerStats{}
 	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if pg, ok := g.peers[peer]; ok {
 		return pg.stats
 	}
 	return PeerStats{}
 }
 
-// Reset forgets a peer's buckets and counters, for a reconnecting peer.
+// Totals returns the guard's counters summed across every peer it has seen,
+// including the peers Reset forgot; PendingBytes covers only the peers still
+// tracked.
+func (g *Guard) Totals() PeerStats {
+	if g == nil {
+		return PeerStats{}
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	t := g.totals
+	for _, pg := range g.peers {
+		t.Packets += pg.stats.Packets
+		t.Bytes += pg.stats.Bytes
+		t.Dropped += pg.stats.Dropped
+		t.Violations += pg.stats.Violations
+		t.PendingBytes += pg.stats.PendingBytes
+	}
+	return t
+}
+
+// Reset forgets a peer's buckets and counters, for a reconnecting peer. The
+// peer's counters stay in Totals.
 func (g *Guard) Reset(peer netplay.PeerID) {
-	if g != nil {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if pg, ok := g.peers[peer]; ok {
+		g.totals.Packets += pg.stats.Packets
+		g.totals.Bytes += pg.stats.Bytes
+		g.totals.Dropped += pg.stats.Dropped
+		g.totals.Violations += pg.stats.Violations
 		delete(g.peers, peer)
 	}
 }

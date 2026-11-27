@@ -227,9 +227,21 @@ http.ListenAndServe(":8080", health)
 
 - `GET /healthz` — process liveness;
 - `GET /readyz` — 200 while `Ready` returns true, else 503;
-- `GET /metrics` — Prometheus gauges/counters for peers, rooms, last tick duration and bytes.
+- `GET /metrics` — Prometheus text metrics (see the table below).
 
-Observe each server tick with `health.ObserveTick(time.Since(start))`.
+Observe each server tick with `health.ObserveTick(time.Since(start))`. For per-match detail, set the runner's `Health` field and it records every match's tick durations itself, and wrap its overrun callback with `health.OnOverrun` to count overruns and missed ticks per match; an unnamed match is reported as `match_<index>`. `health.AddCollector` appends more series on every scrape: `server.GuardCollector(guard)` exports a guard's totals across every peer it has seen (`Guard.Totals` keeps a peer's counters after `Reset`), `server.InboxCollector(name, transport)` exports a transport's inbox drops and refusals, and any `func(io.Writer)` adds the game's own series.
+
+| Series | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `nsgo_server_peers` | gauge | | Peers connected to this server |
+| `nsgo_server_rooms` | gauge | | Open rooms |
+| `nsgo_server_tick_duration_seconds` | gauge | | Last fixed-step duration |
+| `nsgo_server_bytes_in_total`, `nsgo_server_bytes_out_total` | counter | | Bytes received and sent |
+| `nsgo_server_match_tick_seconds` | histogram | `match` | Per-match tick durations, 0.5 ms to 100 ms buckets |
+| `nsgo_server_match_overruns_total` | counter | `match` | Ticks that finished past the next tick's deadline |
+| `nsgo_server_match_missed_ticks_total` | counter | `match` | Whole tick intervals those overruns covered |
+| `nsgo_server_guard_packets_total`, `nsgo_server_guard_bytes_total`, `nsgo_server_guard_dropped_total`, `nsgo_server_guard_violations_total` | counter | | Guard totals across all peers, including forgotten ones |
+| `nsgo_net_inbox_unreliable_dropped_total`, `nsgo_net_inbox_reliable_refused_total`, `nsgo_net_inbox_reliable_warnings_total` | counter | `transport` | Transport inbox drops, refusals and backlog warnings |
 
 ### Container and draining
 

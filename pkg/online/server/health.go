@@ -2,7 +2,9 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -23,12 +25,19 @@ type Metrics struct {
 //	GET /metrics  Prometheus text metrics from Metrics
 //
 // Ready and Metrics are optional; a nil Ready is always ready and a nil
-// Metrics reports zeros.
+// Metrics reports zeros. Alongside the Metrics series, /metrics exports a
+// per-match tick histogram and overrun counters (ObserveMatchTick, OnOverrun
+// and Runner.Health) and whatever AddCollector appends, such as
+// GuardCollector and InboxCollector.
 type Health struct {
 	Ready   func() bool
 	Metrics func() Metrics
 
 	tickNanos atomic.Int64
+
+	mu         sync.Mutex
+	matches    map[string]*matchMetrics
+	collectors []func(io.Writer)
 }
 
 // NewHealth returns deployment endpoints.
@@ -84,6 +93,8 @@ func (h *Health) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "# TYPE nsgo_server_bytes_in_total counter\nnsgo_server_bytes_in_total %d\n", m.BytesIn)
 		fmt.Fprintf(w, "# HELP nsgo_server_bytes_out_total Bytes sent.\n")
 		fmt.Fprintf(w, "# TYPE nsgo_server_bytes_out_total counter\nnsgo_server_bytes_out_total %d\n", m.BytesOut)
+		h.writeMatchMetrics(w)
+		h.writeCollectors(w)
 	default:
 		http.NotFound(w, r)
 	}

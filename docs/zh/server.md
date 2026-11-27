@@ -227,9 +227,21 @@ http.ListenAndServe(":8080", health)
 
 - `GET /healthz`：进程存活；
 - `GET /readyz`：`Ready` 为 true 时 200，否则 503；
-- `GET /metrics`：Prometheus 的 peers、rooms、上一 tick 耗时与字节计数。
+- `GET /metrics`：Prometheus 文本格式指标（见下表）。
 
-每次服务器 tick 用 `health.ObserveTick(time.Since(start))` 记录耗时。
+每次服务器 tick 用 `health.ObserveTick(time.Since(start))` 记录耗时。需要按对局（match）统计时，给 runner 设置 `Health` 字段，它就会自动记录每个对局的 tick 耗时；再用 `health.OnOverrun` 包装 runner 的 overrun 回调，即可按对局统计超时与错过的 tick 数；未命名的对局以 `match_<index>` 上报。`health.AddCollector` 在每次抓取时追加更多序列：`server.GuardCollector(guard)` 导出 guard 在所有见过的 peer 上的合计（`Guard.Totals` 在 `Reset` 后仍保留该 peer 的计数），`server.InboxCollector(name, transport)` 导出传输层收件箱的丢弃与拒绝计数，任意 `func(io.Writer)` 都可以追加游戏自己的序列。
+
+| 序列 | 类型 | 标签 | 含义 |
+| --- | --- | --- | --- |
+| `nsgo_server_peers` | gauge | | 连接到本服务器的 peer 数 |
+| `nsgo_server_rooms` | gauge | | 开放的房间数 |
+| `nsgo_server_tick_duration_seconds` | gauge | | 上一次定步 tick 的耗时 |
+| `nsgo_server_bytes_in_total`、`nsgo_server_bytes_out_total` | counter | | 收到与发送的字节数 |
+| `nsgo_server_match_tick_seconds` | histogram | `match` | 每个对局的 tick 耗时，桶从 0.5 ms 到 100 ms |
+| `nsgo_server_match_overruns_total` | counter | `match` | 超过下一个 tick 截止时间才完成的 tick 数 |
+| `nsgo_server_match_missed_ticks_total` | counter | `match` | 这些超时总共覆盖的完整 tick 间隔数 |
+| `nsgo_server_guard_packets_total`、`nsgo_server_guard_bytes_total`、`nsgo_server_guard_dropped_total`、`nsgo_server_guard_violations_total` | counter | | guard 在所有 peer（含已遗忘）上的合计 |
+| `nsgo_net_inbox_unreliable_dropped_total`、`nsgo_net_inbox_reliable_refused_total`、`nsgo_net_inbox_reliable_warnings_total` | counter | `transport` | 传输层收件箱的丢弃、拒绝与积压告警计数 |
 
 ### 容器与优雅退出
 
