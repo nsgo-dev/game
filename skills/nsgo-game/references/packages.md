@@ -171,7 +171,6 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |
 | `game/cmd/gamewire` | Experimental | Generates and checks deterministic zero-allocation Go codecs from `*.wire.yaml` wire message schemas |
 | `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for NSGo's generic extension mechanism (requires an NSGo release newer than v0.3.4) |
-| `game/cmd/sizecheck` | Experimental | Verifies WebAssembly and mobile package size budgets |
 | `game/pkg/datatable` | Experimental | Typed YAML/CSV/JSON data tables with cell-level errors and hot reload |
 | `game/pkg/datatable/datatablewatch` | Experimental | Hot reload of `datatable.Table` through a `tooling/hotreload` watcher |
 | `game/pkg/importsettings` | Experimental | `<asset>.import.yaml` sidecar parser and encoder |
@@ -187,3 +186,4 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/tooling/hotreload` | Experimental | Asset, 3D shader (`ShaderReloader`) and material (`MaterialReloader`) hot reload |
 | `game/pkg/tooling/library` | Experimental | Digest-verified asset, plugin and template pack registry |
 | `game/pkg/tooling/manifest` | Experimental | Typed Go asset manifest generator (`asset:` URIs or `//go:embed`) |
+| `game/pkg/tooling/sizecheck` | Experimental | WebAssembly and mobile package size measurement and budget checks behind `game size` |

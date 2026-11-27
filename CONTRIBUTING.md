@@ -7,7 +7,7 @@ Contributions are welcome: bug fixes, new packages, examples, documentation, and
 ```
 game/
 ├─ go.mod / go.work  Go module github.com/nsgo-dev/game (root package game: loop.go and its tests)
-├─ cmd/              binaries shipped to users: game, nsgo-game, gameproject, sizecheck, and the service daemons accountsd, cloudsaved, leaderboardd
+├─ cmd/              binaries shipped to users: game, nsgo-game, gameproject, and the service daemons accountsd, cloudsaved, leaderboardd
 ├─ internal/         shared helpers and the CLI implementation, repocheck/ (repo-wide checks) and sizeprobe/ (the CI size fixture)
 ├─ pkg/              every other library package (github.com/nsgo-dev/game/pkg/<name>)
 │  ├─ online/        service and netcode packages (accounts, cloudsave, leaderboard, liveops, netplay, server, ...)

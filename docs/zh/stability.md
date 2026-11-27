@@ -70,7 +70,6 @@
 | `game/cmd/gamewire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |
-| `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/pkg/a11y` | 实验性 | [a11y](a11y.md) |
 | `game/pkg/ability` | 实验性 | [ability](ability.md) |
 | `game/pkg/ai` | 稳定 | [ai](ai.md) |
@@ -200,6 +199,7 @@
 | `game/pkg/tooling/manifest` | 实验性 | |
 | `game/pkg/tooling/playtest` | 实验性 | [playtest](playtest.md) |
 | `game/pkg/tooling/refs` | 实验性 | [项目文件](project.md) |
+| `game/pkg/tooling/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/pkg/tween` | 稳定 | [tween](tween.md) |
 | `game/pkg/undo` | 实验性 | [undo](undo.md) |
 | `game/pkg/vehicle` | 实验性 | [vehicle](vehicle.md) |

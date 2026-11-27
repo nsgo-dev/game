@@ -1,6 +1,6 @@
 # 包体积预算
 
-`sizecheck` 基于 Go 标准库（`archive/zip`）测量并强制检查 WebAssembly（`.wasm`）、Android App Bundle（`.aab`）、Android APK（`.apk`）和 iOS App Store Package（`.ipa`）的包体积预算，无需任何外部工具或 SDK 依赖。
+`game size` 以 `tooling/sizecheck` 包为基础，基于 Go 标准库（`archive/zip`）测量并强制检查 WebAssembly（`.wasm`）、Android App Bundle（`.aab`）、Android APK（`.apk`）和 iOS App Store Package（`.ipa`）的包体积预算，无需任何外部工具或 SDK 依赖。
 
 ## 为什么需要包体积预算
 
@@ -10,11 +10,11 @@
 - **Apple App Store（IPA）**：蜂窝网络下载阈值为 200 MiB（应用瘦身前）；保持主程序、框架和资源目录精简能让玩家在移动网络下更快完成安装。
 - **Web（Wasm）**：gzip 后的 `.wasm` 每增加 1 MiB，都会直接拖慢首屏加载和可玩时间。
 
-`sizecheck` 会统计归档中每个条目的压缩与未压缩体积，按内容类别归类，将 Android 原生库按 ABI 拆分，并列出体积最大的文件，帮助开发者在体积回归时立刻定位原因。
+`game size` 会统计归档中每个条目的压缩与未压缩体积，按内容类别归类，将 Android 原生库按 ABI 拆分，并列出体积最大的文件，帮助开发者在体积回归时立刻定位原因。
 
 ## 默认移动端预算
 
-`cmd/sizecheck` 内置了面向典型 2D NSGo 游戏的默认预算，也可通过 `-budget`、`-budget-mb` 或 `-abi-budget-mb` 覆盖：
+`tooling/sizecheck` 内置了面向典型 2D NSGo 游戏的默认预算，也可通过 `-budget`、`-budget-mb` 或 `-abi-budget-mb` 覆盖：
 
 | 目标格式 | 默认函数 | 总归档上限 | 单 ABI 原生库上限 | 默认分类上限（压缩后） |
 | --- | --- | ---: | ---: | --- |
@@ -55,20 +55,20 @@
 
 ## CLI 用法
 
-在仓库根目录运行 `sizecheck`：
+在仓库根目录运行 `go tool game size`：
 
 ```sh
 # 使用内置默认预算检查 Android App Bundle
-go run ./cmd/sizecheck -kind aab path/to/app.aab
+go tool game size -kind aab path/to/app.aab
 
 # 为多 ABI APK 指定更严格的总预算和单 ABI 预算，并输出 Markdown
-go run ./cmd/sizecheck -kind apk -budget-mb 35 -abi-budget-mb 15 -markdown path/to/app.apk
+go tool game size -kind apk -budget-mb 35 -abi-budget-mb 15 -markdown path/to/app.apk
 
 # 检查 iOS IPA 并输出结构化 JSON
-go run ./cmd/sizecheck -kind ipa -json path/to/app.ipa
+go tool game size -kind ipa -json path/to/app.ipa
 
 # 对照 benchmarks/web-budget.json 检查 WebAssembly 探针
-go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -markdown
+go tool game size -kind wasm -budget benchmarks/web-budget.json -markdown
 ```
 
 ### 参数说明
@@ -77,7 +77,7 @@ go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -mark
 | --- | --- |
 | `-kind` | 包类型：`aab`、`apk`、`ipa` 或 `wasm`。省略时根据文件后缀推断，未提供文件时默认为 `wasm`。 |
 | `-file` | 包文件路径（`.aab`、`.apk`、`.ipa` 或 `.wasm`），也可作为位置参数传入。 |
-| `-budget` | JSON 预算文件路径。`wasm` 模式默认读取 `../../benchmarks/web-budget.json`，移动端模式默认使用内置平台预算。 |
+| `-budget` | JSON 预算文件路径。`wasm` 模式默认读取相对于工作目录的 `benchmarks/web-budget.json`，移动端模式默认使用内置平台预算。 |
 | `-budget-mb` | 以 MiB 为单位覆盖总包体积上限（需 `> 0`）。 |
 | `-abi-budget-mb` | 以 MiB 为单位覆盖 Android 单 ABI 原生库压缩体积上限（需 `> 0`）。 |
 | `-wasm` | 在 `wasm` 模式下指定已构建的 `.wasm` 文件（跳过构建 `target`）。 |
@@ -87,8 +87,8 @@ go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -mark
 ### 退出码
 
 - `0`：检查完成且所有预算均通过。
-- `1`：超出总体积、单 ABI 或任一分类预算（标准输出仍会输出完整空间分解报告）。
-- `2`：参数无效、预算文件无法读取、目标文件不存在或 ZIP 归档损坏。
+- `1`：超出总体积、单 ABI 或任一分类预算（标准输出仍会输出完整空间分解报告），或者预算文件、包或其 ZIP 归档无法读取。
+- `2`：参数无效，例如未知的包类型、互相冲突的参数、负数上限或缺少包路径。
 
 ### 自定义移动端预算 JSON
 
@@ -113,11 +113,11 @@ go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -mark
 
 [`.github/workflows/quality.yml`](../../.github/workflows/quality.yml) 在每次推送到 `main` 和每次 Pull Request 上运行三个独立的包体积预算任务：
 
-1. **`web-size-budget`**（`ubuntu-24.04`）：构建 `GOOS=js GOARCH=wasm` 的 `./internal/sizeprobe`，对照 `benchmarks/web-budget.json` 检查体积。
-2. **`android-size-budget`**（`ubuntu-24.04`）：执行 `go tool nsgo build -target android -channel store ./internal/sizeprobe`，对照 `benchmarks/android-aab-budget.json` 检查生成的 `.aab`，并将 Markdown 报告写入 `$GITHUB_STEP_SUMMARY`。
-3. **`ios-size-budget`**（`macos-15`）：执行 `go tool nsgo build -target ios ./internal/sizeprobe`，对照 `benchmarks/ios-ipa-budget.json` 检查生成的 `.ipa`，并将 Markdown 报告写入 `$GITHUB_STEP_SUMMARY`。
+1. **`web-size-budget`**（`depot-ubuntu-24.04-4`）：构建 `GOOS=js GOARCH=wasm` 的 `./internal/sizeprobe`，对照 `benchmarks/web-budget.json` 检查体积。
+2. **`android-size-budget`**（`depot-ubuntu-24.04-4`）：执行 `go tool nsgo build -target android -channel store ./internal/sizeprobe`，对照 `benchmarks/android-aab-budget.json` 检查生成的 `.aab`，并将 Markdown 报告写入 `$GITHUB_STEP_SUMMARY`。
+3. **`ios-size-budget`**（`depot-macos-15`）：执行 `go tool nsgo build -target ios ./internal/sizeprobe`，对照 `benchmarks/ios-ipa-budget.json` 检查生成的 `.ipa`，并将 Markdown 报告写入 `$GITHUB_STEP_SUMMARY`。
 
-当预算超限时，`sizecheck` 依然会把完整的违规列表、分类表、单 ABI 表和 Top 10 最大文件写入 CI 摘要，然后以退出码 `1` 终止任务。
+当预算超限时，`game size` 依然会把完整的违规列表、分类表、单 ABI 表和 Top 10 最大文件写入 CI 摘要，然后以退出码 `1` 终止任务。
 
 ## 瘦身建议
 

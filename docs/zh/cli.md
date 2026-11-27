@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，移动文件并保持指向它们的引用有效，维护记录稳定文件 ID 的项目索引，把 pixelfx 特效渲染为精灵表，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、对照体积预算检查构建好的包、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，移动文件并保持指向它们的引用有效，维护记录稳定文件 ID 的项目索引，把 pixelfx 特效渲染为精灵表，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -34,6 +34,7 @@ go tool game help
 | `release` | 通过一次 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android，或为 `game.yaml` 的导出预设，构建游戏的发布包，并附上列出各资源许可证的署名文件 |
 | `replay` | 检查各目录下的输入录像，并通过它们的回放测试无界面回放，结果不一致时失败 |
 | `bench` | 无界面运行基准测试，有一项退化超过存储的基线时失败，或者更新基线 |
+| `size` | 测量 WebAssembly 二进制、Android AAB 或 APK 包或 iOS IPA 包的体积，超出体积预算时失败 |
 | `new` | 从模板在一个目录中创建游戏项目，其 `go.mod` 依赖游戏层，并包含 `game` 和 `nsgo` 工具 |
 | `dev` | 用 `nsgo dev` 运行游戏，资源保存后在运行中的游戏里重新加载 |
 | `check` | 检查一个目录下的场景、Tiled 和 LDtk 地图、精灵图集以及它们引用的文件，每个问题都报告所在的文件和行 |
@@ -52,7 +53,7 @@ go tool game help
 
 `go tool game help` 列出所有命令，`go tool game help <command>` 或 `go tool game <command> -h` 显示一个命令的用法行、作用和参数。[命令参考](cli-reference.md)在一页中列出每个命令的参数及其默认值，由命令定义生成。
 
-命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单或资源已过期、构建失败、回放的结束状态不一致、基准测试退化、`check` 发现了失效的引用、`generate` 要写的文件已存在、有资源缺少署名）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
+命令成功或显示帮助时退出码为 0；执行失败（读不到文件、找不到编码器、清单或资源已过期、构建失败、回放的结束状态不一致、基准测试退化、包超出体积预算、`check` 发现了失效的引用、`generate` 要写的文件已存在、有资源缺少署名）时为 1；调用方式有误（未知参数、缺少必需参数、互相冲突的参数、多余的位置参数）时为 2，并同时打印该命令的用法。错误信息以命令名开头，例如 `game pack: -in directory is required`；未知或格式错误的参数例外，由 Go 的 flag 包用它自己的措辞报告，例如 `flag provided but not defined: -nope`。未知命令同样以 2 退出，但不打印用法，而是提示运行 `game help`。
 
 ### pack
 
@@ -191,6 +192,15 @@ benchmarks:
 ```
 
 基准测试的名字不带 `-GOMAXPROCS` 后缀，因此在一台机器上记录的基线可以在另一台机器上读取，但每次操作的耗时取决于机器：请在 CI 检查基线所用的同类机器上记录它。这个格式由 `tooling/bench` 包读写。
+
+### size
+
+```sh
+go tool game size -kind aab path/to/app.aab
+go tool game size -kind wasm -budget benchmarks/web-budget.json -markdown
+```
+
+测量一个包的体积并对照体积预算检查：Android App Bundle（`.aab`）、Android APK（`.apk`）、iOS App Store Package（`.ipa`）或 WebAssembly 二进制（`.wasm`）。包类型取自 `-kind`，否则根据包的后缀推断，再否则为 `wasm`。移动端包对照 `-budget` 指定的预算文件检查，未指定时使用平台内置预算；WebAssembly 二进制对照 `-budget` 检查，默认为 `benchmarks/web-budget.json`，`-wasm` 未指定二进制时先以 `GOOS=js GOARCH=wasm` 构建预算的 target。`-budget-mb` 和 `-abi-budget-mb` 覆盖总体积上限和单 ABI 上限。报告默认为文本，加 `-markdown` 为 Markdown，加 `-json` 为 JSON；包超出预算时报告仍会完整写出，命令随后失败。[包体积预算](package-size-budgets.md)列出了分类、默认预算和预算文件，预算文件由 `tooling/sizecheck` 包读取。
 
 ### new
 

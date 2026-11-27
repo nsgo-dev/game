@@ -1,4 +1,4 @@
-package main
+package sizecheck
 
 import (
 	"bytes"
@@ -47,7 +47,7 @@ func TestMeasureWasmAndBudgetEvaluation(t *testing.T) {
 }
 
 func TestLoadBudget(t *testing.T) {
-	p := filepath.Join("..", "..", "benchmarks", "web-budget.json")
+	p := filepath.Join("..", "..", "..", "benchmarks", "web-budget.json")
 	b, err := LoadBudget(p)
 	if err != nil {
 		t.Fatalf("LoadBudget(%s): %v", p, err)

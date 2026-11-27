@@ -1,3 +1,7 @@
+### Added
+
+- `game size` checks a built package, a WebAssembly binary or an Android AAB or APK or iOS IPA, against its size budget, with the flags, reports and default budgets of the former `cmd/sizecheck`; run it as `go tool game size`. The measurements and budget checks behind it are the library package `github.com/nsgo-dev/game/pkg/tooling/sizecheck` (`sizecheck.LoadBudget`, `sizecheck.CheckMobilePackage`, `sizecheck.MeasureWasm` and so on).
+
 ### Changed
 
 - `tooling/apiref`, the Go doc parser behind `tools/gameapi`, moves to `internal/apiref` and is no longer a public package: `github.com/nsgo-dev/game/pkg/tooling/apiref` can no longer be imported from outside this repository, and the package leaves the stability table and the API reference. The File Formats page's entry for `api.json` is now `internal/apiref`.
@@ -6,3 +10,8 @@
 - `online/accounts/token` is renamed `authtoken` and moves to `github.com/nsgo-dev/game/pkg/online/accounts/authtoken`, so it no longer shadows the standard library's `go/token`: write `authtoken.NewVerifier`, `authtoken.ParseKeySet` and so on where code wrote `token.NewVerifier`. Its errors start with `authtoken:` instead of `token:`, and its File Formats entry is now `online/accounts/authtoken`.
 - `refs` moves from `pkg/refs` to `pkg/tooling/refs` and `playtest` from `pkg/playtest` to `pkg/tooling/playtest`, beside the other packages no release build links; their names are unchanged, so only the imports change: `github.com/nsgo-dev/game/pkg/tooling/refs` and `github.com/nsgo-dev/game/pkg/tooling/playtest`. Their File Formats entries are now `tooling/refs`, `tooling/playtest` and `tooling/playtest#report`.
 - `tooling/pack`, the atlas packer behind `game pack` and `game assets`, is renamed `atlaspack` so it no longer reads as the asset packs of `tooling/library` and `placeholder`: import `github.com/nsgo-dev/game/pkg/tooling/atlaspack` and write `atlaspack.PackImages`, `atlaspack.PackDir` and so on. Its errors start with `atlaspack:` instead of `pack:`. The `game pack` command keeps its name.
+- Package size checks exit with 1, not 2, when the budget file, the package or its ZIP archive cannot be read, as every `game` command does for a failure; 2 is left for a wrong call. Their errors start with `game size:` instead of `sizecheck:`, and the File Formats entries of the size budgets are now `tooling/sizecheck` and `tooling/sizecheck#mobile`.
+
+### Removed
+
+- `cmd/sizecheck` is gone: run `go tool game size` with the same flags instead of `go run github.com/nsgo-dev/game/cmd/sizecheck`.

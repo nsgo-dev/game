@@ -1,6 +1,6 @@
 # Package Size Budgets
 
-`sizecheck` measures and enforces package size budgets for WebAssembly (`.wasm`), Android App Bundles (`.aab`), Android APKs (`.apk`), and iOS App Store Packages (`.ipa`) using Go's standard library (`archive/zip`), with no external tools or SDK dependencies.
+`game size`, built on the `tooling/sizecheck` package, measures and enforces package size budgets for WebAssembly (`.wasm`), Android App Bundles (`.aab`), Android APKs (`.apk`), and iOS App Store Packages (`.ipa`) using Go's standard library (`archive/zip`), with no external tools or SDK dependencies.
 
 ## Why size budgets matter
 
@@ -10,11 +10,11 @@ Mobile store download ceilings and cellular install thresholds directly affect w
 - **Apple App Store (IPA)**: applies a 200 MiB cellular download threshold before App Thinning; keeping binaries, frameworks, and asset catalogs lean keeps installs fast on mobile networks.
 - **Web (Wasm)**: every megabyte of gzipped `.wasm` delays first paint and first playable frame.
 
-`sizecheck` inspects each archive's exact compressed and uncompressed sizes, categorizes every entry, splits Android native libraries by ABI, and surfaces the largest files so regressions are immediately actionable.
+`game size` inspects each archive's exact compressed and uncompressed sizes, categorizes every entry, splits Android native libraries by ABI, and surfaces the largest files so regressions are immediately actionable.
 
 ## Default mobile budgets
 
-Built-in defaults in `cmd/sizecheck` target typical 2D NSGo games and can be overridden with `-budget`, `-budget-mb`, or `-abi-budget-mb`:
+Built-in defaults in `tooling/sizecheck` target typical 2D NSGo games and can be overridden with `-budget`, `-budget-mb`, or `-abi-budget-mb`:
 
 | Target | Function | Total archive | Per-ABI native libs | Category defaults (compressed) |
 | --- | --- | ---: | ---: | --- |
@@ -55,20 +55,20 @@ For this repository's minimal `./internal/sizeprobe` CI probe, tighter baseline 
 
 ## CLI usage
 
-Run `sizecheck` from the repository root:
+Run `go tool game size` from the repository root:
 
 ```sh
 # Inspect an Android App Bundle using built-in defaults
-go run ./cmd/sizecheck -kind aab path/to/app.aab
+go tool game size -kind aab path/to/app.aab
 
 # Enforce a tighter total and per-ABI budget on a multi-ABI APK and emit Markdown
-go run ./cmd/sizecheck -kind apk -budget-mb 35 -abi-budget-mb 15 -markdown path/to/app.apk
+go tool game size -kind apk -budget-mb 35 -abi-budget-mb 15 -markdown path/to/app.apk
 
 # Inspect an iOS IPA and emit structured JSON
-go run ./cmd/sizecheck -kind ipa -json path/to/app.ipa
+go tool game size -kind ipa -json path/to/app.ipa
 
 # Check the WebAssembly probe against benchmarks/web-budget.json
-go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -markdown
+go tool game size -kind wasm -budget benchmarks/web-budget.json -markdown
 ```
 
 ### Flags
@@ -77,7 +77,7 @@ go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -mark
 | --- | --- |
 | `-kind` | Package format: `aab`, `apk`, `ipa`, or `wasm`. Inferred from the file extension when omitted; defaults to `wasm`. |
 | `-file` | Path to the package file (`.aab`, `.apk`, `.ipa`, or `.wasm`). May also be passed as a positional argument. |
-| `-budget` | Path to a JSON budget file. Defaults to `../../benchmarks/web-budget.json` for `wasm` and built-in platform defaults for mobile. |
+| `-budget` | Path to a JSON budget file. Defaults to `benchmarks/web-budget.json`, relative to the working directory, for `wasm` and built-in platform defaults for mobile. |
 | `-budget-mb` | Override the total package size limit in MiB (`> 0`). |
 | `-abi-budget-mb` | Override the per-ABI native library compressed size limit in MiB (`> 0`, Android only). |
 | `-wasm` | Existing `.wasm` path in `wasm` mode (skips building `target`). |
@@ -87,8 +87,8 @@ go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -mark
 ### Exit codes
 
 - `0`: package inspected and all budgets passed.
-- `1`: one or more total, per-ABI, or per-category limits were exceeded (the full breakdown is still written to stdout).
-- `2`: invalid arguments, unreadable budget file, missing package, or corrupt ZIP archive.
+- `1`: one or more total, per-ABI, or per-category limits were exceeded (the full breakdown is still written to stdout), or the budget file, the package or its ZIP archive could not be read.
+- `2`: invalid arguments, such as an unknown kind, conflicting flags, a negative limit or a missing package path.
 
 ### Custom mobile budget JSON
 
@@ -113,11 +113,11 @@ Any omitted or `<= 0` field is left unbounded.
 
 [`.github/workflows/quality.yml`](../../.github/workflows/quality.yml) runs three dedicated size budget jobs on every push to `main` and every pull request:
 
-1. **`web-size-budget`** (`ubuntu-24.04`): builds `./internal/sizeprobe` for `GOOS=js GOARCH=wasm` and checks `benchmarks/web-budget.json`.
-2. **`android-size-budget`** (`ubuntu-24.04`): runs `go tool nsgo build -target android -channel store ./internal/sizeprobe`, inspects the generated `.aab` against `benchmarks/android-aab-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
-3. **`ios-size-budget`** (`macos-15`): runs `go tool nsgo build -target ios ./internal/sizeprobe`, inspects the generated `.ipa` against `benchmarks/ios-ipa-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
+1. **`web-size-budget`** (`depot-ubuntu-24.04-4`): builds `./internal/sizeprobe` for `GOOS=js GOARCH=wasm` and checks `benchmarks/web-budget.json`.
+2. **`android-size-budget`** (`depot-ubuntu-24.04-4`): runs `go tool nsgo build -target android -channel store ./internal/sizeprobe`, inspects the generated `.aab` against `benchmarks/android-aab-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
+3. **`ios-size-budget`** (`depot-macos-15`): runs `go tool nsgo build -target ios ./internal/sizeprobe`, inspects the generated `.ipa` against `benchmarks/ios-ipa-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
 
-When a budget fails, `sizecheck` still renders the full violation list, category table, per-ABI table, and top-10 largest files into the job summary before exiting with code `1`.
+When a budget fails, `game size` still renders the full violation list, category table, per-ABI table, and top-10 largest files into the job summary before exiting with code `1`.
 
 ## Keeping packages lean
 

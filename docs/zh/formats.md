@@ -2944,12 +2944,12 @@ runs:
 {"packs": [{"id": "forest", "url": "https://cdn.example.com/forest.zip", "version": "1.0.0", "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"}]}
 ```
 
-<!-- format: cmd/sizecheck -->
+<!-- format: tooling/sizecheck -->
 ### WebAssembly 体积预算
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 检查 `.wasm` 时传给 `sizecheck -budget` 的 `.json` 文件，如 `benchmarks/web-budget.json` | 无 | `sizecheck` 命令（`cmd/sizecheck`） | [包体积预算](package-size-budgets.md) |
+| 检查 `.wasm` 时传给 `game size -budget` 的 `.json` 文件，如 `benchmarks/web-budget.json` | 无 | `sizecheck.LoadBudget` | [包体积预算](package-size-budgets.md) |
 
 ```json
 {
@@ -2961,12 +2961,12 @@ runs:
 }
 ```
 
-<!-- format: cmd/sizecheck#mobile -->
+<!-- format: tooling/sizecheck#mobile -->
 ### 移动端包体积预算
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 检查 `.aab`、`.apk` 或 `.ipa` 时传给 `sizecheck -budget` 的 `.json` 文件，如 `benchmarks/android-aab-budget.json` | 无 | `sizecheck` 命令（`cmd/sizecheck`） | [包体积预算](package-size-budgets.md) |
+| 检查 `.aab`、`.apk` 或 `.ipa` 时传给 `game size -budget` 的 `.json` 文件，如 `benchmarks/android-aab-budget.json` | 无 | `sizecheck.LoadMobileBudget` | [包体积预算](package-size-budgets.md) |
 
 ```json
 {

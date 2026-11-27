@@ -2944,12 +2944,12 @@ Each line records one plaintext transport packet (`t` elapsed nanoseconds since 
 {"packs": [{"id": "forest", "url": "https://cdn.example.com/forest.zip", "version": "1.0.0", "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"}]}
 ```
 
-<!-- format: cmd/sizecheck -->
+<!-- format: tooling/sizecheck -->
 ### WebAssembly size budget
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| A `.json` file passed to `sizecheck -budget` when it checks a `.wasm`, such as `benchmarks/web-budget.json` | none | the `sizecheck` command (`cmd/sizecheck`) | [Package Size Budgets](package-size-budgets.md) |
+| A `.json` file passed to `game size -budget` when it checks a `.wasm`, such as `benchmarks/web-budget.json` | none | `sizecheck.LoadBudget` | [Package Size Budgets](package-size-budgets.md) |
 
 ```json
 {
@@ -2961,12 +2961,12 @@ Each line records one plaintext transport packet (`t` elapsed nanoseconds since 
 }
 ```
 
-<!-- format: cmd/sizecheck#mobile -->
+<!-- format: tooling/sizecheck#mobile -->
 ### Mobile package size budget
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| A `.json` file passed to `sizecheck -budget` when it checks an `.aab`, `.apk` or `.ipa`, such as `benchmarks/android-aab-budget.json` | none | the `sizecheck` command (`cmd/sizecheck`) | [Package Size Budgets](package-size-budgets.md) |
+| A `.json` file passed to `game size -budget` when it checks an `.aab`, `.apk` or `.ipa`, such as `benchmarks/android-aab-budget.json` | none | `sizecheck.LoadMobileBudget` | [Package Size Budgets](package-size-budgets.md) |
 
 ```json
 {

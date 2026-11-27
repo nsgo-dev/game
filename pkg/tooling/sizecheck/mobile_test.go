@@ -1,9 +1,8 @@
-package main
+package sizecheck
 
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -420,137 +419,13 @@ func TestDefaultBudgetsIsolationAndLoadMobileBudget(t *testing.T) {
 
 	// Verify checked-in CI mobile budget files load cleanly.
 	for _, name := range []string{"android-aab-budget.json", "ios-ipa-budget.json"} {
-		p := filepath.Join("..", "..", "benchmarks", name)
+		p := filepath.Join("..", "..", "..", "benchmarks", name)
 		b, err := LoadMobileBudget(p)
 		if err != nil {
 			t.Fatalf("LoadMobileBudget(%s): %v", p, err)
 		}
 		if b.MaxTotalBytes <= 0 {
 			t.Fatalf("%s: expected positive max_total_bytes, got %+v", name, b)
-		}
-	}
-}
-
-func TestCLIExitCodesAndOutputModes(t *testing.T) {
-	dir := t.TempDir()
-	aabPath := buildSampleAAB(t, dir)
-	apkPath := buildSampleAPK(t, dir)
-	ipaPath := buildSampleIPA(t, dir)
-
-	// 1. AAB pass with -markdown -> exit 0.
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"-kind", "aab", "-markdown", aabPath}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("aab markdown exit = %d, want 0; stderr=%s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "## Android AAB Size Budget — PASS") || !strings.Contains(stdout.String(), "`arm64-v8a`") {
-		t.Fatalf("unexpected aab markdown output:\n%s", stdout.String())
-	}
-
-	// 2. APK pass with -json -> exit 0 and valid JSON.
-	stdout.Reset()
-	stderr.Reset()
-	code = run([]string{"-kind", "apk", "-json", "-file", apkPath}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("apk json exit = %d, want 0; stderr=%s", code, stderr.String())
-	}
-	var apkRep MobilePackageReport
-	if err := json.Unmarshal(stdout.Bytes(), &apkRep); err != nil {
-		t.Fatalf("unmarshal apk json: %v\n%s", err, stdout.String())
-	}
-	if !apkRep.Passed || apkRep.ABIs["arm64-v8a"].CompressedBytes != 25000 {
-		t.Fatalf("unexpected apk json report: %+v", apkRep)
-	}
-
-	// 3. IPA pass with inferred kind from extension -> exit 0.
-	stdout.Reset()
-	stderr.Reset()
-	code = run([]string{ipaPath}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("ipa auto-detect exit = %d, want 0; stderr=%s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "## iOS IPA Size Budget — PASS") {
-		t.Fatalf("unexpected ipa output:\n%s", stdout.String())
-	}
-
-	// 4. Over total budget via -budget-mb -> exit 1.
-	stdout.Reset()
-	stderr.Reset()
-	code = run([]string{"-kind", "aab", "-budget-mb", "0.01", "-markdown", aabPath}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("over-budget aab exit = %d, want 1; stderr=%s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "## Android AAB Size Budget — FAIL") || !strings.Contains(stdout.String(), "### Budget Violations") {
-		t.Fatalf("expected failure breakdown in markdown:\n%s", stdout.String())
-	}
-
-	// 5. Over per-ABI budget via -abi-budget-mb -> exit 1, valid JSON when -json is set.
-	stdout.Reset()
-	stderr.Reset()
-	code = run([]string{"-kind", "apk", "-abi-budget-mb", "0.02", "-json", apkPath}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("over-abi-budget apk exit = %d, want 1; stderr=%s", code, stderr.String())
-	}
-	var failRep MobilePackageReport
-	if err := json.Unmarshal(stdout.Bytes(), &failRep); err != nil {
-		t.Fatalf("over-budget -json output must remain valid JSON: %v\n%s", err, stdout.String())
-	}
-	if failRep.Passed || len(failRep.Violations) == 0 {
-		t.Fatalf("expected failed json report with violations, got %+v", failRep)
-	}
-
-	// 6. Wasm CLI pass and fail with -kind wasm -markdown and -json.
-	wasmPath := filepath.Join(dir, "app.wasm")
-	if err := os.WriteFile(wasmPath, syntheticBytes(99, 8192), 0o644); err != nil {
-		t.Fatalf("write wasm: %v", err)
-	}
-	wasmBudgetPath := filepath.Join(dir, "web-budget.json")
-	if err := os.WriteFile(wasmBudgetPath, []byte(`{"target":"./internal/sizeprobe","max_raw_bytes":16384,"max_gzip_bytes":16384}`), 0o644); err != nil {
-		t.Fatalf("write wasm budget: %v", err)
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	code = run([]string{"-kind", "wasm", "-budget", wasmBudgetPath, "-wasm", wasmPath, "-markdown"}, &stdout, &stderr)
-	if code != 0 || !strings.Contains(stdout.String(), "## WebAssembly Size Budget — PASS") {
-		t.Fatalf("wasm markdown pass: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	code = run([]string{"-kind", "wasm", "-budget", wasmBudgetPath, "-wasm", wasmPath, "-budget-mb", "0.001", "-json"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("wasm over-budget exit = %d, want 1", code)
-	}
-	var wasmJSON struct {
-		Kind   PackageKind `json:"kind"`
-		Passed bool        `json:"passed"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &wasmJSON); err != nil || wasmJSON.Kind != PackageKindWasm || wasmJSON.Passed {
-		t.Fatalf("unexpected wasm json fail output: err=%v parsed=%+v raw=%s", err, wasmJSON, stdout.String())
-	}
-
-	// 7. Usage and I/O errors -> exit 2.
-	corruptPath := filepath.Join(dir, "corrupt.aab")
-	if err := os.WriteFile(corruptPath, []byte("not-a-zip"), 0o644); err != nil {
-		t.Fatalf("write corrupt aab: %v", err)
-	}
-	errorCases := []struct {
-		name string
-		args []string
-	}{
-		{name: "invalid kind", args: []string{"-kind", "dmg", aabPath}},
-		{name: "missing path", args: []string{"-kind", "aab"}},
-		{name: "missing file", args: []string{"-kind", "ipa", filepath.Join(dir, "missing.ipa")}},
-		{name: "corrupt archive", args: []string{"-kind", "aab", corruptPath}},
-		{name: "json and markdown conflict", args: []string{"-kind", "aab", "-json", "-markdown", aabPath}},
-		{name: "negative budget-mb", args: []string{"-kind", "aab", "-budget-mb", "-1", aabPath}},
-	}
-	for _, tc := range errorCases {
-		stdout.Reset()
-		stderr.Reset()
-		if got := run(tc.args, &stdout, &stderr); got != 2 {
-			t.Errorf("%s: exit = %d, want 2 (stderr=%q)", tc.name, got, stderr.String())
 		}
 	}
 }
