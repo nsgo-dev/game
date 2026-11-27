@@ -86,6 +86,7 @@
 | `game/pkg/editor` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editormcp` | 实验性 | [mcp](mcp.md) |
+| `game/pkg/editor/keychain` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/theme` | 实验性 | [editor](editor.md) |
 | `game/pkg/entities` | 实验性 | [entities](entities.md) |
 | `game/pkg/fighting` | 实验性 | [fighting](fighting.md) |

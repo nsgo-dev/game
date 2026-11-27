@@ -12,6 +12,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/editor/editormcp"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 )
 
@@ -42,7 +43,7 @@ export:
 	if err != nil {
 		t.Fatal(err)
 	}
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}

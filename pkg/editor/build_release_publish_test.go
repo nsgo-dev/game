@@ -19,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
@@ -342,7 +343,7 @@ func TestBuildReleaseUploadsAlwaysAskFirstEvenWithAutonomousAgent(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	kc := editor.NewMemoryKeychain()
+	kc := keychain.NewMemory()
 	ed.Keychain = kc
 	ed.ReleaseCheckRunner = func(ctx context.Context, d string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
@@ -589,7 +590,7 @@ func TestBuildReleaseCredentialsStayInKeychainNeverInProjectFiles(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	kc := editor.NewMemoryKeychain()
+	kc := keychain.NewMemory()
 	ed.Keychain = kc
 	ed.ReleaseCheckRunner = func(ctx context.Context, d string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
@@ -635,18 +636,18 @@ func TestBuildReleaseCredentialsStayInKeychainNeverInProjectFiles(t *testing.T) 
 		}
 	}
 
-	// Verify KeychainCredential redacts secrets in String/GoString and JSON.
-	cred := editor.KeychainCredential{
+	// Verify PublishCredential redacts secrets in String/GoString and JSON.
+	cred := editor.PublishCredential{
 		Destination: editor.PublishDestItchIO,
 		Account:     "publisher@example.com",
 		Secret:      secrets[editor.PublishDestItchIO],
 	}
 	if strings.Contains(cred.String(), cred.Secret) || strings.Contains(cred.GoString(), cred.Secret) {
-		t.Fatalf("KeychainCredential did not redact Secret: %q", cred.String())
+		t.Fatalf("PublishCredential did not redact Secret: %q", cred.String())
 	}
 	credJSON, _ := json.Marshal(cred)
 	if strings.Contains(string(credJSON), cred.Secret) {
-		t.Fatalf("KeychainCredential serialized Secret into JSON: %s", credJSON)
+		t.Fatalf("PublishCredential serialized Secret into JSON: %s", credJSON)
 	}
 
 	// Walk the ENTIRE project directory and assert ZERO files contain any secret!
@@ -686,11 +687,11 @@ func TestBuildReleasePublishSecurityLifecycleFocusAndSpecLight(t *testing.T) {
 `)
 
 	// 1. Keychain rejects flag/control characters; release notes reject NUL and >256 KiB; unsafe -tag ignored.
-	kc := editor.NewMemoryKeychain()
+	kc := keychain.NewMemory()
 	if err := kc.Set("-bad-service", "acc", "secret"); err == nil {
 		t.Fatal("expected keychain to reject leading '-' service")
 	}
-	if err := kc.Set(editor.KeychainServiceName, "acc\nnewline", "secret"); err == nil {
+	if err := kc.Set(editor.PublishKeychainService, "acc\nnewline", "secret"); err == nil {
 		t.Fatal("expected keychain to reject newline in account")
 	}
 	if err := editor.ValidateReleaseNotes("hello\x00world"); err == nil {
@@ -860,7 +861,7 @@ func TestBuildReleasePublishSecurityLifecycleFocusAndSpecLight(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = edUI.Close() })
-	edUI.Keychain = editor.NewMemoryKeychain()
+	edUI.Keychain = keychain.NewMemory()
 	edUI.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}
@@ -1141,7 +1142,7 @@ itch:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ed.Close() })
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}
@@ -1361,7 +1362,7 @@ func TestBuildReleaseDefaultUploaderSurfacesFailureAndRedactsSecrets(t *testing.
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ed.Close() })
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}
@@ -1444,7 +1445,7 @@ tool (
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ed.Close() })
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}
@@ -1533,7 +1534,7 @@ itch:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ed.Close() })
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}
@@ -1620,7 +1621,7 @@ itch:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = edSteam.Close() })
-	edSteam.Keychain = editor.NewMemoryKeychain()
+	edSteam.Keychain = keychain.NewMemory()
 	edSteam.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}
@@ -1658,7 +1659,7 @@ itch:
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = edBuiltSteam.Close() })
-	edBuiltSteam.Keychain = editor.NewMemoryKeychain()
+	edBuiltSteam.Keychain = keychain.NewMemory()
 	edBuiltSteam.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}
@@ -1718,7 +1719,7 @@ func TestBuildReleaseDefaultUploaderTestFlightAccountMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ed.Close() })
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
 		return nil, time.Millisecond, nil
 	}

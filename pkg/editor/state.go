@@ -24,6 +24,7 @@ import (
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/datatable"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
@@ -454,8 +455,8 @@ type Editor struct {
 	// When nil, the editor invokes `go tool nsgo publish` in the project directory (or `nsgo publish` on PATH when the project has no go.mod nsgo tool),
 	// passing the keychain credential solely via NSGo's environment variables. It is never invoked until the person confirms in Review uploads, whatever the permission profile.
 	ReleaseUploader ReleaseUploader
-	// Keychain stores and retrieves store upload credentials and built-in agent API keys outside project files; when nil, DefaultKeychain() is used.
-	Keychain Keychain
+	// Keychain stores and retrieves store upload credentials and built-in agent API keys outside project files; when nil, keychain.Default() is used.
+	Keychain keychain.Store
 	// SyncMCPConfig, when set (automatically wired by editormcp.New), writes configured external MCP servers into the open project's agent MCP configuration (.mcp.json and .codex/config.toml).
 	SyncMCPConfig func(root string, servers []AgentMCPServer, removed []string) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.

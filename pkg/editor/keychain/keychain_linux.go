@@ -1,6 +1,6 @@
 //go:build linux && !android
 
-package editor
+package keychain
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 
 type linuxSecretServiceKeychain struct{}
 
-func platformKeychain() Keychain {
+func platformKeychain() Store {
 	return linuxSecretServiceKeychain{}
 }
 
@@ -27,7 +27,7 @@ func (linuxSecretServiceKeychain) Set(service, account, secret string) error {
 		return err
 	}
 	if _, err := exec.LookPath("secret-tool"); err != nil {
-		return ErrKeychainUnavailable
+		return ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), keychainCommandTimeout)
 	defer cancel()
@@ -38,9 +38,9 @@ func (linuxSecretServiceKeychain) Set(service, account, secret string) error {
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return fmt.Errorf("editor: secret-tool store failed: %s", msg)
+			return fmt.Errorf("keychain: secret-tool store failed: %s", msg)
 		}
-		return fmt.Errorf("editor: secret-tool store failed: %w", err)
+		return fmt.Errorf("keychain: secret-tool store failed: %w", err)
 	}
 	return nil
 }
@@ -50,10 +50,10 @@ func (linuxSecretServiceKeychain) Get(service, account string) (string, error) {
 	var err error
 	service, account, err = validateKeychainKey(service, account)
 	if err != nil {
-		return "", ErrCredentialNotFound
+		return "", ErrNotFound
 	}
 	if _, err := exec.LookPath("secret-tool"); err != nil {
-		return "", ErrKeychainUnavailable
+		return "", ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), keychainCommandTimeout)
 	defer cancel()
@@ -64,17 +64,17 @@ func (linuxSecretServiceKeychain) Get(service, account string) (string, error) {
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if stdout.Len() == 0 && ctx.Err() == nil {
-			return "", ErrCredentialNotFound
+			return "", ErrNotFound
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return "", fmt.Errorf("editor: secret-tool lookup failed: %s", msg)
+			return "", fmt.Errorf("keychain: secret-tool lookup failed: %s", msg)
 		}
-		return "", fmt.Errorf("editor: secret-tool lookup failed: %w", err)
+		return "", fmt.Errorf("keychain: secret-tool lookup failed: %w", err)
 	}
 	val := strings.TrimSuffix(stdout.String(), "\n")
 	if val == "" {
-		return "", ErrCredentialNotFound
+		return "", ErrNotFound
 	}
 	return val, nil
 }
@@ -87,7 +87,7 @@ func (linuxSecretServiceKeychain) Delete(service, account string) error {
 		return err
 	}
 	if _, err := exec.LookPath("secret-tool"); err != nil {
-		return ErrKeychainUnavailable
+		return ErrUnavailable
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), keychainCommandTimeout)
 	defer cancel()
@@ -98,9 +98,9 @@ func (linuxSecretServiceKeychain) Delete(service, account string) error {
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return fmt.Errorf("editor: secret-tool clear failed: %s", msg)
+			return fmt.Errorf("keychain: secret-tool clear failed: %s", msg)
 		}
-		return fmt.Errorf("editor: secret-tool clear failed: %w", err)
+		return fmt.Errorf("keychain: secret-tool clear failed: %w", err)
 	}
 	return nil
 }

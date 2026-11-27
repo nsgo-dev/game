@@ -18,6 +18,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/core"
@@ -245,7 +246,7 @@ func TestBuildReleaseNotesAndReviewUploadsMacOSScreenshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ed.Keychain = editor.NewMemoryKeychain()
+	ed.Keychain = keychain.NewMemory()
 	ed.GitRunner = func(d string, args ...string) (string, error) {
 		switch strings.Join(args, " ") {
 		case "rev-parse --short HEAD":

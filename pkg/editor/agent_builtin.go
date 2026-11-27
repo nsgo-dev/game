@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/nsgo-dev/game/pkg/editor/keychain"
 )
 
 const (
@@ -910,7 +912,7 @@ func (e *Editor) newBuiltInAgentRunner() (*builtInAgentRunner, error) {
 		readKey = func() (string, error) {
 			val, gerr := kc.Get(AgentKeychainServiceName, DefaultAgentAPIKeyAccount)
 			if gerr != nil {
-				if errors.Is(gerr, ErrCredentialNotFound) {
+				if errors.Is(gerr, keychain.ErrNotFound) {
 					if mem := strings.TrimSpace(e.FirstRunAPIKey()); mem != "" {
 						return mem, nil
 					}
