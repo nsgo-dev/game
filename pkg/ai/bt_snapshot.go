@@ -47,13 +47,18 @@ type ChildNodes interface {
 // BehaviorTree wraps a root [Node] and provides [BehaviorTree.Snapshot] and
 // [BehaviorTree.Restore] methods alongside [Node.Tick] and [Node.Reset].
 type BehaviorTree struct {
-	root Node
+	root       Node
+	clockState btClockState
 }
 
 // NewBehaviorTree wraps root in a [BehaviorTree].
 func NewBehaviorTree(root Node) *BehaviorTree {
-	return &BehaviorTree{root: root}
+	bt := &BehaviorTree{root: root}
+	bt.clockState.adopt(root)
+	return bt
 }
+
+func (bt *BehaviorTree) btClockRef() *btClockState { return &bt.clockState }
 
 // Root returns the tree's root [Node], or nil if bt is nil.
 func (bt *BehaviorTree) Root() Node {
@@ -68,13 +73,23 @@ func (bt *BehaviorTree) Tick(dt time.Duration) Status {
 	if bt == nil || bt.root == nil {
 		return StatusFailure
 	}
+	bt.clockState.advanceIfRoot(dt)
 	return bt.root.Tick(dt)
 }
 
 // Reset clears any in-progress state on the root node and its descendants.
+// Active [Cooldown] timers are preserved; call [BehaviorTree.ResetCooldowns] to clear them.
 func (bt *BehaviorTree) Reset() {
 	if bt != nil && bt.root != nil {
 		bt.root.Reset()
+	}
+}
+
+// ResetCooldowns clears every active [Cooldown] timer in bt without interrupting
+// running branches.
+func (bt *BehaviorTree) ResetCooldowns() {
+	if bt != nil {
+		ResetCooldowns(bt.root)
 	}
 }
 
@@ -567,7 +582,7 @@ func captureBTNode(e btTreeEntry) (BTNodeSnapshot, error) {
 	case *repeaterNode:
 		rec.Done = v.done
 	case *cooldownNode:
-		rec.Remaining = v.remaining
+		rec.Remaining = v.remainingDuration()
 		rec.Running = v.running
 	case *guardNode:
 		rec.Running = v.running
@@ -745,7 +760,16 @@ func validateBTNodeRestore(e btTreeEntry, rec *BTNodeSnapshot) (func(), Snapshot
 		}
 		rem, running := rec.Remaining, rec.Running
 		return func() {
-			v.remaining = rem
+			if rem > 0 {
+				if v.clockState.clock == nil {
+					v.clockState.clock = &btClock{}
+				}
+				v.cooling = true
+				v.readyAt = addDurationClamped(v.clockState.clock.now, rem)
+			} else {
+				v.cooling = false
+				v.readyAt = 0
+			}
 			v.running = running
 		}, nil, nil
 

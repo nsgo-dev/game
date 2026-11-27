@@ -38,6 +38,7 @@ Add plain, versioned, YAML- and JSON-serializable snapshot structs and transacti
 - **Costs and known limits**:
   - Trees using `RandomSelector`, `RandomSequence`, or `WeightedSelector` preserve their active mid-run selection state in `BehaviorTreeSnapshot`, but callers that want identical *subsequent* random draws after the current run finishes must also snapshot and restore the caller-owned `*random.Stream`.
   - Custom `SnapshotNode.RestoreState` implementations decoding `any` after JSON unmarshaling must handle JSON numeric decoding (`float64`) as well as YAML numeric decoding (`int`), since snapshots are format-agnostic plain Go data.
+  - `Cooldown` nodes serialize their relative remaining duration (`max(0, readyAt - clock.now)`) into `BTNodeSnapshot.Remaining` and re-anchor `readyAt` to the target tree's monotonic clock on restore; see [Behavior tree Cooldown runs on a monotonic tree clock and survives Reset](../bug-fix/2026-11-28-ai-bt-cooldown-tree-clock.md).
 
 ## Verification
 

@@ -251,7 +251,7 @@ func TestBehaviorTreeSnapshotRestoreFullMidRunParity(t *testing.T) {
 	// - Guard running=true
 	// - Service active with phase=30ms, sinceLast=30ms
 	// - Sequence at index 1 (Parallel)
-	// - Cooldown at child 0 cooling down (remaining=120ms)
+	// - Cooldown at child 0 cooling down (remaining=90ms after 30ms off-tick)
 	// - Parallel active with Wait(60ms/90ms), Repeater(done=1, charge=0), TimeLimit(60ms/250ms)+Retry(failures=2)
 	// - BlackboardCondition observed alert=false at rev 1
 	for range 2 {
@@ -846,4 +846,157 @@ func TestBehaviorTreeSnapshotMidRandomSelectorAndWeightedFallback(t *testing.T) 
 	if !slices.Equal(*wsCloneLog, *wsOrigLog) {
 		t.Fatalf("WeightedSelector log mismatch: got %v, want %v", *wsCloneLog, *wsOrigLog)
 	}
+}
+
+func TestBehaviorTreeSnapshotPendingCooldownOffTickAndReset(t *testing.T) {
+	type rig struct {
+		bt      *ai.BehaviorTree
+		inRange bool
+		attacks int
+	}
+
+	build := func() *rig {
+		r := &rig{}
+		r.bt = ai.NewBehaviorTree(ai.Selector(
+			ai.Guard(func() bool { return r.inRange }, ai.Sequence(
+				ai.Cooldown(1500*time.Millisecond, ai.Action(func(time.Duration) ai.Status {
+					r.attacks++
+					return ai.StatusSuccess
+				})),
+				ai.Wait(300*time.Millisecond),
+			)),
+			ai.Action(func(time.Duration) ai.Status { return ai.StatusSuccess }),
+		))
+		return r
+	}
+
+	const dt = 20 * time.Millisecond
+	orig := build()
+	orig.inRange = true
+
+	// Tick 1 (20ms): fires attack (1500ms cooldown starts) and enters Wait(300ms).
+	if st := orig.bt.Tick(dt); st != ai.StatusRunning || orig.attacks != 1 {
+		t.Fatalf("tick 1: st=%v attacks=%d, want Running, 1", st, orig.attacks)
+	}
+	// Ticks 2..11 (200ms total): out of range -> Guard resets Sequence on tick 2,
+	// Cooldown is never ticked for 200ms, leaving 1300ms remaining.
+	orig.inRange = false
+	for range 10 {
+		if st := orig.bt.Tick(dt); st != ai.StatusSuccess {
+			t.Fatalf("off-tick fallback = %v, want Success", st)
+		}
+	}
+
+	snap, err := orig.bt.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+	foundCooldown := false
+	for _, n := range snap.Nodes {
+		if n.Kind == string(ai.BTNodeCooldown) {
+			foundCooldown = true
+			if n.Remaining != 1300*time.Millisecond {
+				t.Fatalf("snapshot cooldown remaining = %v, want 1.3s", n.Remaining)
+			}
+		}
+	}
+	if !foundCooldown {
+		t.Fatal("snapshot did not contain cooldown node")
+	}
+
+	yamlSnap := roundTripBTYAML(t, snap)
+	jsonSnap := roundTripBTJSON(t, snap)
+
+	// Restore into both a fresh tree (clock=0) and a warm tree (clock=5s) and verify
+	// identical off-tick countdown and exact expiry step.
+	fresh := build()
+	if err := fresh.bt.Restore(yamlSnap); err != nil {
+		t.Fatalf("fresh.Restore(yaml) failed: %v", err)
+	}
+	warm := build()
+	warm.inRange = false
+	for range 250 { // advance warm tree clock by 5s beforehand
+		warm.bt.Tick(dt)
+	}
+	if err := warm.bt.Restore(jsonSnap); err != nil {
+		t.Fatalf("warm.Restore(json) failed: %v", err)
+	}
+
+	// Re-snapshotting immediately after restore into fresh and warm trees must report 1300ms.
+	for name, r := range map[string]*rig{"fresh": fresh, "warm": warm} {
+		reSnap, err := r.bt.Snapshot()
+		if err != nil {
+			t.Fatalf("%s re-snapshot failed: %v", name, err)
+		}
+		if !bytes.Equal(mustYAML(t, snap), mustYAML(t, reSnap)) {
+			t.Fatalf("%s re-snapshot YAML differs:\ngot:\n%s\nwant:\n%s", name, mustYAML(t, reSnap), mustYAML(t, snap))
+		}
+	}
+
+	// Advance 64 ticks (1280ms) out of range: cooldown still has 20ms left on all three trees.
+	for range 64 {
+		orig.bt.Tick(dt)
+		fresh.bt.Tick(dt)
+		warm.bt.Tick(dt)
+	}
+	// On the 65th tick (1300ms elapsed since snapshot), bring player in range: all three attack together!
+	orig.inRange, fresh.inRange, warm.inRange = true, true, true
+	if st := orig.bt.Tick(dt); st != ai.StatusRunning || orig.attacks != 2 {
+		t.Fatalf("orig at expiry: st=%v attacks=%d, want Running, 2", st, orig.attacks)
+	}
+	if st := fresh.bt.Tick(dt); st != ai.StatusRunning || fresh.attacks != 1 {
+		t.Fatalf("fresh at expiry: st=%v attacks=%d, want Running, 1", st, fresh.attacks)
+	}
+	if st := warm.bt.Tick(dt); st != ai.StatusRunning || warm.attacks != 1 {
+		t.Fatalf("warm at expiry: st=%v attacks=%d, want Running, 1", st, warm.attacks)
+	}
+
+	// Restoring an idle snapshot clears an active cooldown on the target tree.
+	idleTree := build()
+	idleSnap, err := idleTree.bt.Snapshot()
+	if err != nil {
+		t.Fatalf("idle snapshot failed: %v", err)
+	}
+	if err := fresh.bt.Restore(idleSnap); err != nil {
+		t.Fatalf("restore idle snapshot failed: %v", err)
+	}
+	if st := fresh.bt.Tick(dt); st != ai.StatusRunning || fresh.attacks != 2 {
+		t.Fatalf("after restoring idle snapshot: st=%v attacks=%d, want Running, 2", st, fresh.attacks)
+	}
+}
+
+func TestBehaviorTreeCooldownThroughCustomChildNodes(t *testing.T) {
+	inRange := true
+	hits := 0
+	wrapped := &customWrapperNode{
+		child: ai.Cooldown(200*time.Millisecond, ai.Action(func(time.Duration) ai.Status {
+			hits++
+			return ai.StatusSuccess
+		})),
+	}
+	tree := ai.Selector(
+		ai.Guard(func() bool { return inRange }, wrapped),
+		ai.Action(func(time.Duration) ai.Status { return ai.StatusSuccess }),
+	)
+	const dt = 50 * time.Millisecond
+	tree.Tick(dt) // hits=1, cooldown 200ms
+	inRange = false
+	tree.Tick(dt) // 50ms off-tick
+	tree.Tick(dt) // 100ms off-tick
+	tree.Tick(dt) // 150ms off-tick
+	inRange = true
+	tree.Tick(dt) // 200ms -> cooldown expires, hits=2
+	if hits != 2 {
+		t.Fatalf("hits = %d, want 2", hits)
+	}
+
+	// ResetCooldowns also traverses custom ChildNodes and handles cyclic nodes safely.
+	ai.ResetCooldowns(tree)
+	tree.Tick(dt)
+	if hits != 3 {
+		t.Fatalf("hits after ResetCooldowns = %d, want 3", hits)
+	}
+	cyc := &cyclicNode{}
+	cyc.child = cyc
+	ai.ResetCooldowns(cyc)
 }

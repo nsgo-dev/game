@@ -540,7 +540,7 @@ tree.Tick(dt)
 可用节点类型：
 
 - **组合节点**：`Sequence`、`Selector`（当高优先级分支成功或运行时会自动重置被抢占的低优先级运行中分支）、`Parallel(policy, ...)`（`RequireAll` 或 `RequireOne`）、`RandomSelector(stream, ...)`、`RandomSequence(stream, ...)`、`WeightedSelector(stream, options...)`（配合 `WeightedNode{Node, Weight}`）、`UtilitySelector(reasoner, ctx, rng, subtrees)`。
-- **修饰节点**：`Guard(cond, child)`、`BlackboardCondition(bb, key, op, value, abort, child)`、`Cooldown(d, child)`、`TimeLimit(d, child)`、`Retry(n, child)`、`Service(interval, fn, child)`、`WithAttackToken(pool, agentID, priority, child)`、`Inverter`、`Succeeder`、`Failer`、`Repeater(count, child)`、`UntilFail`。
+- **修饰节点**：`Guard(cond, child)`、`BlackboardCondition(bb, key, op, value, abort, child)`、`Cooldown(d, child)`（按整棵树的单调时间推进冷却，即使分支未被 tick 也会继续倒计时，且在 `Guard`、抢占或 `TimeLimit` 触发的 `Reset()` 中保持生效；重生角色等需要强制清零冷却时调用 `ResetCooldowns(root)` 或 `bt.ResetCooldowns()`）、`TimeLimit(d, child)`、`Retry(n, child)`、`Service(interval, fn, child)`、`WithAttackToken(pool, agentID, priority, child)`、`Inverter`、`Succeeder`、`Failer`、`Repeater(count, child)`、`UntilFail`。
 - **叶节点**：`Action(fn)`、`Condition(fn)`、`Wait(d)`、`HasAttackToken(pool, agentID)`、`SquadHasOrder(squad, kind)`、`SquadHasRole(squad, agentID, role)`、`SquadStateBool(squad, key)`、`SquadOrderAction(squad, fn)`。
 
 ### 黑板与观察者中断（Observer Aborts）

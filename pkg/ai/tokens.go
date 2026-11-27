@@ -469,24 +469,30 @@ func HasAttackToken(pool *TokenPool, agentID uint64) Node {
 // releases the token back to pool. Calling Reset cancels any pending request or releases the
 // held token.
 func WithAttackToken(pool *TokenPool, agentID uint64, priority func() float64, child Node) Node {
-	return &attackTokenNode{
+	n := &attackTokenNode{
 		pool:     pool,
 		agentID:  agentID,
 		priority: priority,
 		child:    child,
 	}
+	n.clockState.adopt(child)
+	return n
 }
 
 type attackTokenNode struct {
-	pool     *TokenPool
-	agentID  uint64
-	priority func() float64
-	child    Node
-	running  bool
-	trace    btTraceState
+	pool       *TokenPool
+	agentID    uint64
+	priority   func() float64
+	child      Node
+	running    bool
+	clockState btClockState
+	trace      btTraceState
 }
 
+func (n *attackTokenNode) btClockRef() *btClockState { return &n.clockState }
+
 func (n *attackTokenNode) Tick(dt time.Duration) Status {
+	n.clockState.advanceIfRoot(dt)
 	if n.pool == nil || n.child == nil {
 		return n.trace.record(StatusFailure)
 	}
