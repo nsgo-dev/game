@@ -2834,6 +2834,19 @@ runs:
 
 每行记录一个明文传输层数据包（自开始抓包起经过的纳秒数 `t`、方向 `dir` 为 `"send"` 或 `"recv"`、对端 `peer`、通道 `ch`、序号 `seq` 以及 Base64 编码的 `payload`），供 `game net decode` 与 `game net stats` 离线解析。抓包文件包含玩家输入与游戏状态。
 
+<!-- format: online/audit -->
+### 审计日志
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `audit.Options.Dir` 目录下的 `<yyyy-mm-dd>.jsonl`，每个 UTC 日一个文件，只追加 | 每行的 `v: 1` | `audit.Open`、`audit.Writer.Log` | [server](server.md#审计日志) |
+
+```json
+{"v":1,"time":"2026-11-28T09:15:02.500Z","actor":"admin:ada","action":"peer.kick","subject":"peer:42","data":{"reason":"cheating"}}
+```
+
+`time` 为 UTC、带毫秒的 RFC 3339；`actor` 为账号 ID、`"system"` 或管理员令牌主体；`subject` 指出 `action` 作用的 peer、账号或排行榜/槽位；`data` 保存该动作的细节，为空时省略。
+
 <!-- format: l10n#catalog -->
 ### 字符串表
 

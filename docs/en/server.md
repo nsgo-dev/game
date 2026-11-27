@@ -113,6 +113,22 @@ if action == server.GuardDisconnect {
 
 The guard is transport-agnostic: call `Check` at the packet loop and act on the returned `GuardAction`.
 
+## Audit log
+
+`audit` keeps an append-only record of the server's administrative and security-relevant events — kicks, replaced sessions, operator commands, destructive routes — as JSON Lines, one file per UTC day:
+
+```go
+log, err := audit.Open(audit.Options{Dir: "audit", Retain: 30})
+log.Log(audit.Record{Actor: "admin:ada", Action: "peer.kick", Subject: "peer:42", Data: map[string]any{"reason": "cheating"}})
+// on shutdown, after the runner drains:
+log.Close()
+```
+
+- Each line is one record: `{"v":1,"time":"2026-11-28T09:15:02.500Z","actor":"admin:ada","action":"peer.kick","subject":"peer:42","data":{"reason":"cheating"}}`; the schema, versioned by each line's `v`, is on [File Formats](formats.md). `Log` fills in `v`, the current `time` and an empty `actor` as `"system"`, and a record lands in the file of its own UTC day, so a replayed batch lands in the files of the days it happened.
+- Files are `<Dir>/<yyyy-mm-dd>.jsonl`, opened append-only and never rewritten, rolled at UTC midnight: greppable, diffable and shippable to a log store, with no database.
+- `Log` never blocks the tick: records buffer in a queue of `Queue` (4096 by default), and a full queue drops and counts. `Dropped()` reports the total, worth exporting on `/metrics`. One background goroutine appends and fsyncs in batches; `Close` flushes what remains and returns the first write failure.
+- `Retain` keeps that many days of files, counting back from the day being written, and deletes older ones as the log rolls; 0 keeps everything.
+
 ## Peer-to-peer relay
 
 Lockstep and rollback sessions are peer-to-peer, but players behind NAT or in a browser cannot reach each other. `netplay.Relay` forwards their packets: each player connects to the relay with a `netplay.RelayTransport`, and the relay passes each frame to the member of the player's session it is addressed to.

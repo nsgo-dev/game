@@ -2834,6 +2834,19 @@ It records the cloud revision and content hash both sides held after the last sy
 
 Each line records one plaintext transport packet (`t` elapsed nanoseconds since capture start, `dir` `"send"` or `"recv"`, `peer`, `ch`, `seq`, and base64 `payload`) for inspection with `game net decode` and `game net stats`. Capture files contain player inputs and game state.
 
+<!-- format: online/audit -->
+### Audit log
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `<yyyy-mm-dd>.jsonl` in the directory `audit.Options.Dir` names, one file per UTC day, appended to only | `v: 1` on each line | `audit.Open`, `audit.Writer.Log` | [server](server.md#audit-log) |
+
+```json
+{"v":1,"time":"2026-11-28T09:15:02.500Z","actor":"admin:ada","action":"peer.kick","subject":"peer:42","data":{"reason":"cheating"}}
+```
+
+`time` is UTC, RFC 3339 with milliseconds; `actor` is an account ID, `"system"` or an admin token subject; `subject` names the peer, account or board/slot the `action` acted on; `data` holds the action's details and is omitted when empty.
+
 <!-- format: l10n#catalog -->
 ### String table
 
