@@ -118,3 +118,97 @@ func TestCheckRefusesBadFragments(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyRelease(t *testing.T) {
+	released := strings.Replace(sample, "## Unreleased\n\n### Added\n\n- one (#1).\n\n### Fixed\n\n- two (#2).\n\n- three (#3).\n\n", "## Unreleased\n\n", 1)
+	for name, c := range map[string]struct {
+		changelog string
+		fragment  string
+		version   string
+		ok        bool
+	}{
+		"released":             {changelog: released, version: "0.1.0", ok: true},
+		"tag name":             {changelog: released, version: "v0.1.0", ok: true},
+		"fragment left":        {changelog: released, fragment: "### Added\n\n- late (#9).\n", version: "0.1.0"},
+		"unreleased not empty": {changelog: sample, version: "0.1.0"},
+		"no section":           {changelog: released, version: "0.2.0"},
+		"empty section":        {changelog: released + "\n## [0.0.1] - 2025-01-01\n", version: "0.0.1"},
+	} {
+		root := t.TempDir()
+		write(t, root, changelogFile, c.changelog)
+		write(t, root, "changelog.d/README.md", "Not a fragment.\n")
+		if c.fragment != "" {
+			write(t, root, "changelog.d/late.md", c.fragment)
+		}
+		err := run(root, []string{"verify-release", c.version}, time.Now())
+		if c.ok && err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if !c.ok && err == nil {
+			t.Errorf("%s: verify-release succeeded", name)
+		}
+	}
+}
+
+func TestNotesPrintsTheWholeSection(t *testing.T) {
+	text := sample + "\n[0.1.0]: https://example.com/0.1.0\n"
+	got, err := notes(text, "v0.1.0", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "### Added\n\n- old.\n"; got != want {
+		t.Fatalf("notes = %q, want %q", got, want)
+	}
+}
+
+// TestNotesShortensToWholeSubsections checks that a section over the limit keeps Changed and Removed whole, drops the long Added list as a whole rather than partway through, and links to the section's anchor.
+func TestNotesShortensToWholeSubsections(t *testing.T) {
+	var added strings.Builder
+	for range 500 {
+		added.WriteString("- an addition long enough to fill the release body (#1).\n")
+	}
+	text := "# Changelog\n\n## Unreleased\n\n## [1.2.0] - 2026-12-01\n\nIntro.\n\n### Added\n\n" + added.String() + "\n### Changed\n\n- a change (#2).\n\n### Removed\n\n- a removal (#3).\n\n### Fixed\n\n- a fix (#4).\n"
+	link := "https://github.com/nsgo-dev/game/blob/v1.2.0/CHANGELOG.md"
+	const limit = 2000
+	got, err := notes(text, "1.2.0", limit, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len([]rune(got)); n > limit {
+		t.Errorf("notes are %d characters, over %d", n, limit)
+	}
+	for _, want := range []string{
+		"Intro.\n\n### Added\n\n_500 entries, listed in the [full notes](" + link + "#120---2026-12-01)._\n",
+		"### Changed\n\n- a change (#2).\n",
+		"### Removed\n\n- a removal (#3).\n",
+		"### Fixed\n\n- a fix (#4).\n",
+		"the full notes are in [CHANGELOG.md](" + link + "#120---2026-12-01).",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("notes lack %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "- an addition") {
+		t.Errorf("notes kept part of Added:\n%s", got)
+	}
+	if _, err := notes(text, "1.2.0", limit, ""); err == nil {
+		t.Error("shortening without -link succeeded")
+	}
+}
+
+// TestRepositoryNotesFitGitHub checks the repository's newest release against the limit release.yml passes.
+func TestRepositoryNotesFitGitHub(t *testing.T) {
+	text := read(t, "../../CHANGELOG.md")
+	got, err := notes(text, "0.1.0", 120000, "https://github.com/nsgo-dev/game/blob/v0.1.0/CHANGELOG.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len([]rune(got)); n > 120000 {
+		t.Fatalf("notes are %d characters", n)
+	}
+	for _, want := range []string{"### Changed\n\n- ", "### Removed\n\n- ", "### Security\n\n- "} {
+		if !strings.Contains(got, want) {
+			t.Errorf("notes lack %q", want)
+		}
+	}
+}

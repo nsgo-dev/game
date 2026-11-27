@@ -96,6 +96,21 @@ jobs:
             echo "ref=$ref"
             echo "sha=$sha"
           } >> "$GITHUB_OUTPUT"
+      - name: Set up Go
+        if: steps.resolve.outputs.mode != 'check'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: tools/go.mod
+          cache: false
+      # A tag must hold the release's whole changelog: a fragment left in changelog.d or a line left in Unreleased would ship in this release without being in its notes, and be announced again by the next one.
+      - name: Verify the changelog is released at the tag
+        if: steps.resolve.outputs.mode == 'release'
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          go run ./tools/changelog check
+          go run ./tools/changelog verify-release "$TAG"
       - name: Extract release notes from CHANGELOG.md
         env:
           MODE: ${{ steps.resolve.outputs.mode }}
@@ -109,80 +124,8 @@ jobs:
             exit 0
           fi
 
-          if [ ! -f CHANGELOG.md ]; then
-            echo "Error: CHANGELOG.md not found." >&2
-            exit 1
-          fi
-
-          version="$TAG"
-          version_no_v="${version#v}"
-
-          status=0
-          awk -v ver="$version" -v ver_no_v="$version_no_v" '
-            /^## / {
-              if (in_section) {
-                in_section = 0
-                next
-              }
-              heading = substr($0, 4)
-              sub(/^[[:space:]]+/, "", heading)
-              token = heading
-              sub(/[[:space:]].*$/, "", token)
-              if (substr(token, 1, 1) == "[" && substr(token, length(token), 1) == "]") {
-                token = substr(token, 2, length(token) - 2)
-              }
-              if (!found && (token == ver || token == ver_no_v)) {
-                in_section = 1
-                found = 1
-              }
-              next
-            }
-            in_section && /^\[[^]]+\]:[[:space:]]+/ {
-              in_section = 0
-              next
-            }
-            in_section {
-              lines[++n] = $0
-            }
-            END {
-              if (!found) exit 2
-              start = 1
-              while (start <= n && lines[start] ~ /^[[:space:]]*$/) start++
-              end = n
-              while (end >= start && lines[end] ~ /^[[:space:]]*$/) end--
-              if (start > end) exit 3
-              for (i = start; i <= end; i++) print lines[i]
-            }
-          ' CHANGELOG.md > release-notes.md || status=$?
-
-          if [ "$status" -eq 2 ]; then
-            echo "Error: no section for '$version' found in CHANGELOG.md (expected a heading such as '## $version - YYYY-MM-DD' or '## [$version_no_v] - YYYY-MM-DD')." >&2
-            exit 1
-          elif [ "$status" -eq 3 ]; then
-            echo "Error: section for '$version' in CHANGELOG.md is empty." >&2
-            exit 1
-          elif [ "$status" -ne 0 ]; then
-            echo "Error: failed to extract release notes for '$version' from CHANGELOG.md." >&2
-            exit 1
-          fi
-
-          # GitHub Releases caps the body at 125,000 characters; truncate cleanly at a line
-          # boundary under 120,000 characters and link to the full CHANGELOG.md on the tag.
-          max_chars=120000
-          if [ "$(wc -m < release-notes.md)" -gt "$max_chars" ]; then
-            footer="$(printf '\n\n---\n\n_Release notes truncated to fit GitHub'\''s 125,000-character limit. See the full section in [CHANGELOG.md](https://github.com/%s/blob/%s/CHANGELOG.md)._\n' "$GITHUB_REPOSITORY" "$TAG")"
-            keep=$((max_chars - ${#footer}))
-            awk -v keep="$keep" '
-              {
-                add = length($0) + 1
-                if (total + add > keep) exit
-                print
-                total += add
-              }
-            ' release-notes.md > release-notes.truncated.md
-            printf '%s' "$footer" >> release-notes.truncated.md
-            mv release-notes.truncated.md release-notes.md
-          fi
+          # GitHub Releases caps the body at 125,000 characters, and the release job prepends the downloads table, so a section over 120,000 characters keeps only the subsections that fit whole and links to the full section in CHANGELOG.md at the tag.
+          go run ./tools/changelog notes -max 120000 -link "https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/CHANGELOG.md" "$VERSION" > release-notes.md
       - name: Upload release notes
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -647,21 +590,11 @@ jobs:
 
           cat "$RUNNER_TEMP/downloads-table.md" "$RUNNER_TEMP/release-notes.md" > "$RUNNER_TEMP/github-release-notes.md"
 
-          # Keep the combined body (table + changelog) under GitHub Releases' 125,000-character limit.
-          max_chars=120000
-          if [ "$(wc -m < "$RUNNER_TEMP/github-release-notes.md")" -gt "$max_chars" ]; then
-            footer="$(printf '\n\n---\n\n_Release notes truncated to fit GitHub'\''s 125,000-character limit. See the full section in [CHANGELOG.md](https://github.com/%s/blob/%s/CHANGELOG.md)._\n' "$GITHUB_REPOSITORY" "$TAG")"
-            keep=$((max_chars - ${#footer}))
-            awk -v keep="$keep" '
-              {
-                add = length($0) + 1
-                if (total + add > keep) exit
-                print
-                total += add
-              }
-            ' "$RUNNER_TEMP/github-release-notes.md" > "$RUNNER_TEMP/github-release-notes.truncated.md"
-            printf '%s' "$footer" >> "$RUNNER_TEMP/github-release-notes.truncated.md"
-            mv "$RUNNER_TEMP/github-release-notes.truncated.md" "$RUNNER_TEMP/github-release-notes.md"
+          # The changelog tool keeps the notes to 120,000 characters, leaving the table room under GitHub Releases' 125,000-character limit; fail rather than publish a body GitHub would refuse or cut.
+          chars=$(wc -m < "$RUNNER_TEMP/github-release-notes.md")
+          if [ "$chars" -gt 125000 ]; then
+            echo "::error::The release body is $chars characters, over GitHub's 125,000-character limit."
+            exit 1
           fi
       - name: Publish GitHub Release
         env:
