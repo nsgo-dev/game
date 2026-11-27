@@ -1,4 +1,4 @@
-# Path labels for pull requests, applied by pr-triage.yml. Each package under pkg/ gets a pkg/<name> label, the root package and the module files get pkg/game, and the rest of the repository is labelled by area. A new package needs its own entry here.
+# Path labels for pull requests, applied by pr-triage.yml. Each flat package under pkg/ gets a pkg/<name> label, and a nested package shares its parent's label (pkg/ai covers pkg/ai/navbake, pkg/tilemap covers pkg/tilemap/tileshape). The grouped directories take one label for everything under them: pkg/online also covers the service daemons in cmd/ and examples/dedicatedserver, and pkg/tooling covers every tooling package. The root package and the module files get pkg/game, cmd/ gets pkg/cmd, internal/ gets pkg/internal, and the rest of the repository is labelled by area (area/examples, area/template, area/website, area/tools, area/agents, area/ci), with documentation and dependencies on top. A new flat package needs its own entry here.
 
 pkg/game:
   - changed-files:

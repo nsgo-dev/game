@@ -1,6 +1,6 @@
 # nsgo-dev/game
 
-A game layer for NSGo apps, written in Go: the root module `github.com/nsgo-dev/game` (`loop.go`, `cmd/`, `internal/`, and library subpackages under `pkg/`), the website under `apps/website`, examples under `examples`, docs under `docs/en` and `docs/zh`. The plan is nsgo-dev/nsgo#1047 and this repository's issues. NSGo's own rules (`AGENTS.md` in nsgo-dev/nsgo) apply here too: Go only, no hand-written C, purego or syscall for system APIs, the nsgo tool for vetting and tests.
+A game layer for NSGo apps, written in Go: the root module `github.com/nsgo-dev/game` (the root package `game` in `loop.go`, the binaries shipped to users in `cmd/`, `internal/`, and every other library package under `pkg/`, with the service and netcode packages grouped in `pkg/online` and the dev-time tooling in `pkg/tooling`), the project templates under `template` (one Go module each), the repo-only tools module under `tools`, the website under `apps/website`, examples under `examples`, docs under `docs/en` and `docs/zh`, and the editor design artboards under `design`. Where new code goes is in `.agents/notes/implemented/architecture/2026-11-27-repository-layout.md`. The plan is nsgo-dev/nsgo#1047 and this repository's issues. NSGo's own rules (`AGENTS.md` in nsgo-dev/nsgo) apply here too: Go only, no hand-written C, purego or syscall for system APIs, the nsgo tool for vetting and tests.
 
 ## Every file a person writes is text
 
