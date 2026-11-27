@@ -156,9 +156,9 @@ func readFileBounded(absPath string, maxBytes int64) (data []byte, truncated boo
 	return raw, false, size, nil
 }
 
-// DetectSceneMergeConflicts checks the open project's Git repository (or dir when given)
-// for an in-progress merge with unmerged scene YAML files, returning their slash-separated paths
-// relative to the Git repository root.
+// DetectSceneMergeConflicts checks the open project's Git repository for unmerged scene YAML
+// files left by merge, rebase, pull --rebase, cherry-pick, revert, or stash pop, returning their
+// slash-separated paths relative to the Git repository root.
 func (e *Editor) DetectSceneMergeConflicts() ([]string, error) {
 	dir := e.gitProjectDir()
 	if dir == "" {
@@ -192,6 +192,56 @@ func (e *Editor) refreshDetectedMergeConflicts() {
 	e.merge.detectedScenes = scenes
 }
 
+func (e *Editor) resolveGitDir(repoRoot string) string {
+	gitDir, err := e.runGit(repoRoot, "rev-parse", "--git-dir")
+	if err != nil || gitDir == "" {
+		return ""
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(repoRoot, gitDir)
+	}
+	return filepath.Clean(gitDir)
+}
+
+func (e *Editor) gitRefExists(repoRoot, ref string) bool {
+	_, err := e.runGit(repoRoot, "rev-parse", "--verify", "--quiet", ref)
+	return err == nil
+}
+
+func gitDirPathExists(gitDir, name string) bool {
+	if gitDir == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(gitDir, name))
+	return err == nil
+}
+
+// detectGitConflictOp identifies an in-progress Git conflict operation in repoRoot from
+// MERGE_HEAD, REBASE_HEAD (or rebase-merge / rebase-apply), CHERRY_PICK_HEAD, REVERT_HEAD,
+// or unmerged index entries without a *_HEAD ref (such as git stash pop).
+func (e *Editor) detectGitConflictOp(repoRoot string) (MergeOperation, bool) {
+	if repoRoot == "" {
+		return "", false
+	}
+	gitDir := e.resolveGitDir(repoRoot)
+	if e.gitRefExists(repoRoot, "MERGE_HEAD") {
+		return MergeOperationMerge, true
+	}
+	if e.gitRefExists(repoRoot, "REBASE_HEAD") || gitDirPathExists(gitDir, "rebase-merge") || gitDirPathExists(gitDir, "rebase-apply") {
+		return MergeOperationRebase, true
+	}
+	if e.gitRefExists(repoRoot, "CHERRY_PICK_HEAD") {
+		return MergeOperationCherryPick, true
+	}
+	if e.gitRefExists(repoRoot, "REVERT_HEAD") {
+		return MergeOperationRevert, true
+	}
+	if out, err := e.runGit(repoRoot, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"); err == nil && strings.TrimSpace(out) != "" {
+		return MergeOperationStash, true
+	}
+	return "", false
+}
+
 func (e *Editor) detectSceneMergeConflictsIn(dir string) ([]string, error) {
 	if dir == "" {
 		return nil, nil
@@ -200,12 +250,12 @@ func (e *Editor) detectSceneMergeConflictsIn(dir string) ([]string, error) {
 	if err != nil || repoRoot == "" {
 		return nil, nil
 	}
-	if _, err := e.runGit(repoRoot, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); err != nil {
-		return nil, nil
-	}
-	out, err := e.runGit(repoRoot, "diff", "--name-only", "--diff-filter=U")
+	out, err := e.runGit(repoRoot, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
 	}
 	projectPrefix := ""
 	if e.ProjectPath != "" {
@@ -334,9 +384,10 @@ func resolveRepoScenePath(repoRoot, projectDir, scenePath string) (string, strin
 }
 
 // OpenMergeConflict opens the object-by-object Scene Merge Conflict screen for an unmerged
-// scene file in a Git repository. scenePath may be empty to open the first conflicted scene
-// detected in the open project, a slash-separated path relative to the repository/project root,
-// or an absolute OS path inside the repository.
+// scene file in a Git repository (from merge, rebase, pull --rebase, cherry-pick, revert,
+// or stash pop). scenePath may be empty to open the first conflicted scene detected in the
+// open project, a slash-separated path relative to the repository/project root, or an
+// absolute OS path inside the repository.
 func (e *Editor) OpenMergeConflict(scenePath string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
@@ -355,8 +406,9 @@ func (e *Editor) OpenMergeConflict(scenePath string) error {
 	if err != nil || repoRoot == "" {
 		return fmt.Errorf("editor: %s is not inside a Git repository", searchDir)
 	}
-	if _, err := e.runGit(repoRoot, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); err != nil {
-		return errors.New("editor: no Git merge is currently in progress")
+	op, active := e.detectGitConflictOp(repoRoot)
+	if !active {
+		return errors.New("editor: no Git merge, rebase, cherry-pick, revert, or stash conflict is currently in progress")
 	}
 
 	projectDir := ""
@@ -370,7 +422,7 @@ func (e *Editor) OpenMergeConflict(scenePath string) error {
 			return err
 		}
 		if len(conflicts) == 0 {
-			return errors.New("editor: no conflicted scene files found in the active Git merge")
+			return errors.New("editor: no conflicted scene files found in the active Git operation")
 		}
 		relPath, _, err = resolveRepoScenePath(repoRoot, "", conflicts[0])
 		if err != nil {
@@ -383,7 +435,16 @@ func (e *Editor) OpenMergeConflict(scenePath string) error {
 		}
 	}
 
-	// Read Git index stages :1: (base), :2: (ours/mine), :3: (theirs).
+	// Read Git index stages:
+	//   :1: is always the common base.
+	//   For merge, cherry-pick, revert, and stash pop: :2: is Mine (HEAD) and :3: is incoming.
+	//   For rebase / pull --rebase: Git replays the person's commit onto upstream, so stages are
+	//   swapped relative to the person: :3: is Mine (commit being replayed) and :2: is Upstream.
+	mineStage, theirsStage := ":2:", ":3:"
+	if op == MergeOperationRebase {
+		mineStage, theirsStage = ":3:", ":2:"
+	}
+
 	var baseDoc *sceneformat.SceneDoc
 	if baseBytes, berr := e.runGitRaw(repoRoot, "show", ":1:"+relPath); berr == nil && len(bytes.TrimSpace(baseBytes)) > 0 {
 		baseDoc, err = sceneformat.ParseWith(baseBytes, sceneformat.ParseOptions{File: relPath + " (base)", Components: e.components})
@@ -391,32 +452,31 @@ func (e *Editor) OpenMergeConflict(scenePath string) error {
 			return fmt.Errorf("editor: parse merge base %s: %w", relPath, err)
 		}
 	}
-	mineBytes, err := e.runGitRaw(repoRoot, "show", ":2:"+relPath)
+	mineBytes, err := e.runGitRaw(repoRoot, "show", mineStage+relPath)
 	if err != nil {
-		return fmt.Errorf("editor: read ours stage for %s: %w", relPath, err)
+		return fmt.Errorf("editor: read mine stage (%s) for %s: %w", mineStage, relPath, err)
 	}
-	mineDoc, err := sceneformat.ParseWith(mineBytes, sceneformat.ParseOptions{File: relPath + " (ours)", Components: e.components})
+	mineDoc, err := sceneformat.ParseWith(mineBytes, sceneformat.ParseOptions{File: relPath + " (mine)", Components: e.components})
 	if err != nil {
-		return fmt.Errorf("editor: parse ours %s: %w", relPath, err)
+		return fmt.Errorf("editor: parse mine %s: %w", relPath, err)
 	}
-	theirsBytes, err := e.runGitRaw(repoRoot, "show", ":3:"+relPath)
+	theirsBytes, err := e.runGitRaw(repoRoot, "show", theirsStage+relPath)
 	if err != nil {
-		return fmt.Errorf("editor: read theirs stage for %s: %w", relPath, err)
+		return fmt.Errorf("editor: read theirs stage (%s) for %s: %w", theirsStage, relPath, err)
 	}
 	theirsDoc, err := sceneformat.ParseWith(theirsBytes, sceneformat.ParseOptions{File: relPath + " (theirs)", Components: e.components})
 	if err != nil {
 		return fmt.Errorf("editor: parse theirs %s: %w", relPath, err)
 	}
 
-	mineMeta := e.readGitSideMeta(repoRoot, "HEAD", "")
-	theirsBranch := e.detectMergeTheirsBranch(repoRoot)
-	theirsMeta := e.readGitSideMeta(repoRoot, "MERGE_HEAD", theirsBranch)
+	mineMeta, theirsMeta := e.readGitConflictSidesMeta(repoRoot, op)
 
 	e.refreshDetectedMergeConflicts()
 
 	return e.OpenMergeConflictSession(MergeConflictSessionConfig{
 		RepoDir:   repoRoot,
 		ScenePath: relPath,
+		Operation: op,
 		Mine:      mineMeta,
 		Theirs:    theirsMeta,
 		BaseDoc:   baseDoc,
@@ -425,14 +485,149 @@ func (e *Editor) OpenMergeConflict(scenePath string) error {
 	})
 }
 
+func (e *Editor) readGitConflictSidesMeta(repoRoot string, op MergeOperation) (mineMeta, theirsMeta MergeSideMeta) {
+	switch op {
+	case MergeOperationRebase:
+		gitDir := e.resolveGitDir(repoRoot)
+		mineBranch := readRebaseHeadBranch(gitDir)
+		mineRef := e.readRebaseHeadRef(repoRoot, gitDir)
+		if mineRef != "" {
+			mineMeta = e.readGitSideMeta(repoRoot, mineRef, mineBranch)
+		} else {
+			mineMeta = MergeSideMeta{Branch: nonEmpty(mineBranch, "HEAD")}
+		}
+		mineMeta.Label = defaultMineSideLabel(op)
+
+		upstreamBranch := e.detectRebaseUpstreamBranch(repoRoot, gitDir)
+		theirsMeta = e.readGitSideMeta(repoRoot, "HEAD", upstreamBranch)
+		theirsMeta.Label = defaultTheirsSideLabel(op, theirsMeta)
+		return mineMeta, theirsMeta
+
+	case MergeOperationCherryPick:
+		mineMeta = e.readGitSideMeta(repoRoot, "HEAD", "")
+		mineMeta.Label = defaultMineSideLabel(op)
+		theirsMeta = e.readGitSideMeta(repoRoot, "CHERRY_PICK_HEAD", "")
+		if theirsMeta.Commit != "" && (theirsMeta.Branch == "" || theirsMeta.Branch == "CHERRY_PICK_HEAD") {
+			theirsMeta.Branch = theirsMeta.Commit
+		}
+		theirsMeta.Label = defaultTheirsSideLabel(op, theirsMeta)
+		return mineMeta, theirsMeta
+
+	case MergeOperationRevert:
+		mineMeta = e.readGitSideMeta(repoRoot, "HEAD", "")
+		mineMeta.Label = defaultMineSideLabel(op)
+		theirsMeta = e.readGitSideMeta(repoRoot, "REVERT_HEAD", "")
+		if theirsMeta.Commit != "" {
+			theirsMeta.Branch = "revert " + theirsMeta.Commit
+		} else {
+			theirsMeta.Branch = "REVERT_HEAD"
+		}
+		theirsMeta.Label = defaultTheirsSideLabel(op, theirsMeta)
+		return mineMeta, theirsMeta
+
+	case MergeOperationStash:
+		mineMeta = e.readGitSideMeta(repoRoot, "HEAD", "")
+		mineMeta.Label = defaultMineSideLabel(op)
+		if e.gitRefExists(repoRoot, "stash@{0}") {
+			theirsMeta = e.readGitSideMeta(repoRoot, "stash@{0}", "stash@{0}")
+		} else {
+			theirsMeta = MergeSideMeta{Branch: "stash"}
+		}
+		theirsMeta.Label = defaultTheirsSideLabel(op, theirsMeta)
+		return mineMeta, theirsMeta
+
+	default:
+		mineMeta = e.readGitSideMeta(repoRoot, "HEAD", "")
+		mineMeta.Label = defaultMineSideLabel(MergeOperationMerge)
+		theirsBranch := e.detectMergeTheirsBranch(repoRoot)
+		theirsMeta = e.readGitSideMeta(repoRoot, "MERGE_HEAD", theirsBranch)
+		theirsMeta.Label = defaultTheirsSideLabel(MergeOperationMerge, theirsMeta)
+		return mineMeta, theirsMeta
+	}
+}
+
+func readTrimmedFile(p string) string {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func readRebaseHeadBranch(gitDir string) string {
+	if gitDir == "" {
+		return ""
+	}
+	for _, sub := range []string{"rebase-merge", "rebase-apply"} {
+		if raw := readTrimmedFile(filepath.Join(gitDir, sub, "head-name")); raw != "" {
+			return strings.TrimPrefix(raw, "refs/heads/")
+		}
+	}
+	return ""
+}
+
+func (e *Editor) readRebaseHeadRef(repoRoot, gitDir string) string {
+	if e.gitRefExists(repoRoot, "REBASE_HEAD") {
+		return "REBASE_HEAD"
+	}
+	if gitDir != "" {
+		if sha := readTrimmedFile(filepath.Join(gitDir, "rebase-merge", "stopped-sha")); sha != "" {
+			return sha
+		}
+		if sha := readTrimmedFile(filepath.Join(gitDir, "rebase-apply", "original-commit")); sha != "" {
+			return sha
+		}
+	}
+	return ""
+}
+
+func (e *Editor) detectRebaseUpstreamBranch(repoRoot, gitDir string) string {
+	if out, err := e.runGit(repoRoot, "for-each-ref", "--points-at", "HEAD", "--format=%(refname)"); err == nil && out != "" {
+		for _, line := range strings.Split(out, "\n") {
+			ref := strings.TrimSpace(line)
+			if ref == "" || ref == "HEAD" || strings.HasSuffix(ref, "/HEAD") {
+				continue
+			}
+			switch {
+			case strings.HasPrefix(ref, "refs/heads/"):
+				return strings.TrimPrefix(ref, "refs/heads/")
+			case strings.HasPrefix(ref, "refs/remotes/"):
+				return strings.TrimPrefix(ref, "refs/remotes/")
+			case strings.HasPrefix(ref, "refs/tags/"):
+				return strings.TrimPrefix(ref, "refs/tags/")
+			default:
+				return ref
+			}
+		}
+	}
+	if b, err := e.runGit(repoRoot, "name-rev", "--name-only", "--no-undefined", "HEAD"); err == nil && b != "" {
+		return strings.TrimPrefix(b, "remotes/")
+	}
+	if gitDir != "" {
+		for _, sub := range []string{"rebase-merge", "rebase-apply"} {
+			if onto := readTrimmedFile(filepath.Join(gitDir, sub, "onto")); onto != "" {
+				if short, err := e.runGit(repoRoot, "rev-parse", "--short", onto); err == nil && short != "" {
+					return short
+				}
+				if len(onto) > 7 {
+					return onto[:7]
+				}
+				return onto
+			}
+		}
+	}
+	return "upstream"
+}
+
 func (e *Editor) readGitSideMeta(repoRoot, ref, branchOverride string) MergeSideMeta {
 	meta := MergeSideMeta{Branch: branchOverride}
 	if meta.Branch == "" {
 		if ref == "HEAD" {
-			if b, err := e.runGit(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"); err == nil && b != "" {
+			if b, err := e.runGit(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"); err == nil && b != "" && b != "HEAD" {
 				meta.Branch = b
 			}
-		} else {
+		}
+		if meta.Branch == "" {
 			if b, err := e.runGit(repoRoot, "name-rev", "--name-only", "--no-undefined", ref); err == nil && b != "" {
 				meta.Branch = strings.TrimPrefix(b, "remotes/")
 			}
@@ -457,11 +652,8 @@ func (e *Editor) readGitSideMeta(repoRoot, ref, branchOverride string) MergeSide
 }
 
 func (e *Editor) detectMergeTheirsBranch(repoRoot string) string {
-	gitDir, err := e.runGit(repoRoot, "rev-parse", "--git-dir")
-	if err == nil && gitDir != "" {
-		if !filepath.IsAbs(gitDir) {
-			gitDir = filepath.Join(repoRoot, gitDir)
-		}
+	gitDir := e.resolveGitDir(repoRoot)
+	if gitDir != "" {
 		if msg, rerr := os.ReadFile(filepath.Join(gitDir, "MERGE_MSG")); rerr == nil {
 			if branch := parseMergeBranchFromMsg(string(msg)); branch != "" {
 				return branch
@@ -489,25 +681,53 @@ func parseMergeBranchFromMsg(msg string) string {
 	return ""
 }
 
-func (e *Editor) stageAndCommitMerge(repoRoot, relPath string) (sha string, staged bool, err error) {
+func (e *Editor) runGitNonInteractiveEditor(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+	defer cancel()
+	fullArgs := make([]string, 0, len(args)+2)
+	fullArgs = append(fullArgs, "-c", "core.editor=true")
+	fullArgs = append(fullArgs, args...)
+	return e.runGitEnvCtx(ctx, dir, []string{"GIT_EDITOR=true"}, nil, fullArgs...)
+}
+
+func (e *Editor) stageAndCommitMerge(repoRoot, relPath string, op MergeOperation) (sha string, staged bool, err error) {
 	if out, err := e.runGit(repoRoot, "add", "--", relPath); err != nil {
 		return "", false, fmt.Errorf("git add %s: %w (%s)", relPath, err, out)
 	}
-	// Check if any other unmerged files remain before creating the merge commit.
-	remOut, err := e.runGit(repoRoot, "diff", "--name-only", "--diff-filter=U")
+	// Check if any other unmerged files remain before completing the Git operation.
+	remOut, err := e.runGit(repoRoot, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return "", true, fmt.Errorf("git diff unmerged: %w", err)
 	}
 	if strings.TrimSpace(remOut) != "" {
 		return "", true, nil
 	}
-	if _, err := e.runGit(repoRoot, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); err != nil {
-		// Not in a merge state anymore; return current HEAD short SHA.
-		sha, _ := e.runGit(repoRoot, "rev-parse", "--short", "HEAD")
-		return sha, true, nil
+
+	// Detect the live repository operation so stash conflicts only stage the resolved file
+	// while merge, rebase, cherry-pick, and revert finish with their matching continue/commit command.
+	liveOp, active := e.detectGitConflictOp(repoRoot)
+	if !active || op == MergeOperationStash || liveOp == MergeOperationStash {
+		return "", true, nil
 	}
-	if out, err := e.runGit(repoRoot, "commit", "--no-edit"); err != nil {
-		return "", true, fmt.Errorf("git commit --no-edit: %w (%s)", err, out)
+	switch liveOp {
+	case MergeOperationMerge:
+		if out, err := e.runGit(repoRoot, "commit", "--no-edit"); err != nil {
+			return "", true, fmt.Errorf("git commit --no-edit: %w (%s)", err, out)
+		}
+	case MergeOperationRebase:
+		if out, err := e.runGitNonInteractiveEditor(repoRoot, "rebase", "--continue"); err != nil {
+			return "", true, fmt.Errorf("git rebase --continue: %w (%s)", err, out)
+		}
+	case MergeOperationCherryPick:
+		if out, err := e.runGitNonInteractiveEditor(repoRoot, "cherry-pick", "--continue"); err != nil {
+			return "", true, fmt.Errorf("git cherry-pick --continue: %w (%s)", err, out)
+		}
+	case MergeOperationRevert:
+		if out, err := e.runGitNonInteractiveEditor(repoRoot, "revert", "--continue"); err != nil {
+			return "", true, fmt.Errorf("git revert --continue: %w (%s)", err, out)
+		}
+	default:
+		return "", true, nil
 	}
 	sha, err = e.runGit(repoRoot, "rev-parse", "--short", "HEAD")
 	if err != nil {
@@ -516,18 +736,60 @@ func (e *Editor) stageAndCommitMerge(repoRoot, relPath string) (sha string, stag
 	return sha, true, nil
 }
 
-func (e *Editor) abortGitMerge(repoRoot string) error {
-	if _, err := e.runGit(repoRoot, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); err != nil {
+func (e *Editor) abortGitMerge(repoRoot string, op MergeOperation) error {
+	liveOp, active := e.detectGitConflictOp(repoRoot)
+	if !active {
 		return nil
 	}
-	if out, err := e.runGit(repoRoot, "merge", "--abort"); err != nil {
-		return fmt.Errorf("git merge --abort: %w (%s)", err, out)
+	switch liveOp {
+	case MergeOperationMerge:
+		if out, err := e.runGit(repoRoot, "merge", "--abort"); err != nil {
+			return fmt.Errorf("git merge --abort: %w (%s)", err, out)
+		}
+	case MergeOperationRebase:
+		if out, err := e.runGit(repoRoot, "rebase", "--abort"); err != nil {
+			return fmt.Errorf("git rebase --abort: %w (%s)", err, out)
+		}
+	case MergeOperationCherryPick:
+		if out, err := e.runGit(repoRoot, "cherry-pick", "--abort"); err != nil {
+			return fmt.Errorf("git cherry-pick --abort: %w (%s)", err, out)
+		}
+	case MergeOperationRevert:
+		if out, err := e.runGit(repoRoot, "revert", "--abort"); err != nil {
+			return fmt.Errorf("git revert --abort: %w (%s)", err, out)
+		}
+	case MergeOperationStash:
+		if out, err := e.runGit(repoRoot, "reset", "--merge"); err != nil {
+			return fmt.Errorf("git reset --merge: %w (%s)", err, out)
+		}
 	}
 	return nil
 }
 
-// isSceneConflictFile reports whether data decodes as a valid sceneformat.ConflictDoc.
+// isSceneConflictFile reports whether data decodes as a valid sceneformat.ConflictDoc
+// or contains standard Git text conflict markers (<<<<<<< / ======= / >>>>>>>).
 func isSceneConflictFile(data []byte) bool {
-	_, err := sceneformat.ParseConflict(data)
-	return err == nil
+	if _, err := sceneformat.ParseConflict(data); err == nil {
+		return true
+	}
+	return hasGitConflictMarkers(data)
+}
+
+func hasGitConflictMarkers(data []byte) bool {
+	var hasStart, hasSep, hasEnd bool
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		trimmed := bytes.TrimSuffix(line, []byte("\r"))
+		switch {
+		case bytes.HasPrefix(trimmed, []byte("<<<<<<< ")), bytes.Equal(trimmed, []byte("<<<<<<<")):
+			hasStart = true
+		case hasStart && bytes.Equal(trimmed, []byte("=======")):
+			hasSep = true
+		case hasSep && (bytes.HasPrefix(trimmed, []byte(">>>>>>> ")) || bytes.Equal(trimmed, []byte(">>>>>>>"))):
+			hasEnd = true
+		}
+		if hasStart && hasSep && hasEnd {
+			return true
+		}
+	}
+	return false
 }

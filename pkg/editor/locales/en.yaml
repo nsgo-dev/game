@@ -278,7 +278,7 @@ strings:
   cmd.localization.label: Localization Strings
   cmd.materialEditor.desc: Toggle the Material Editor panel with live 3D and 2D preview
   cmd.materialEditor.label: Material Editor
-  cmd.mergeConflicts.desc: Open the object-by-object scene merge conflict resolver for an active Git merge
+  cmd.mergeConflicts.desc: Open the object-by-object scene conflict resolver for an active Git merge, rebase, cherry-pick, revert, or stash conflict
   cmd.mergeConflicts.label: Resolve Scene Merge Conflicts
   cmd.navMesh2dOverlay.desc: Show or hide the built 2D navigation mesh polygons, portals, and region outlines in the 2D viewport
   cmd.navMesh2dOverlay.label: Toggle 2D NavMesh Overlay

@@ -1061,3 +1061,684 @@ func TestMergeConflictPathTraversalSymlinkAndMonorepoCheckDir(t *testing.T) {
 		t.Fatalf("newly written scene file was not cleaned up on check failure: err=%v", err)
 	}
 }
+
+func runTestGitExpectFailure(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"LC_ALL=C",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_AUTHOR_NAME=you",
+		"GIT_AUTHOR_EMAIL=you@example.com",
+		"GIT_COMMITTER_NAME=you",
+		"GIT_COMMITTER_EMAIL=you@example.com",
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected git %v to fail with conflict, but it succeeded:\n%s", args, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func initDivergedSceneRepo(t *testing.T) (repoDir, baseSHA, mineSHA, theirsSHA string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not installed")
+	}
+	dir := t.TempDir()
+	runTestGit(t, dir, "init", "-b", "main")
+	runTestGit(t, dir, "config", "user.name", "you")
+	runTestGit(t, dir, "config", "user.email", "you@example.com")
+	runTestGit(t, dir, "config", "commit.gpgsign", "false")
+
+	gameYAML := "version: 1\nname: dungeon-run\nid: dev.example.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"
+	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(gameYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sceneFile := filepath.Join(dir, "scenes", "level_01.scene.yaml")
+	if err := os.WriteFile(sceneFile, []byte(mergeFixtureBaseScene), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, dir, "add", ".")
+	runTestGit(t, dir, "commit", "-m", "Initial level_01")
+	baseSHA = runTestGit(t, dir, "rev-parse", "HEAD")
+
+	runTestGit(t, dir, "checkout", "-b", "feat/slime-patrol")
+	if err := os.WriteFile(sceneFile, []byte(mergeFixtureMineScene), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, dir, "add", "scenes/level_01.scene.yaml")
+	runTestGitAs(t, dir, "you", "commit", "-m", "Add a plank guard and a coin trail to level_01")
+	mineSHA = runTestGit(t, dir, "rev-parse", "HEAD")
+
+	runTestGit(t, dir, "checkout", "main")
+	if err := os.WriteFile(sceneFile, []byte(mergeFixtureTheirsScene), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, dir, "add", "scenes/level_01.scene.yaml")
+	runTestGitAs(t, dir, "mia", "commit", "-m", "Thin out the lower floor for the lever")
+	theirsSHA = runTestGit(t, dir, "rev-parse", "HEAD")
+
+	runTestGit(t, dir, "checkout", "feat/slime-patrol")
+	return dir, baseSHA, mineSHA, theirsSHA
+}
+
+func configureFastMergeVerifiers(ed *editor.Editor) {
+	ed.MergeCheckRunner = func(dir, scenePath string, doc *sceneformat.SceneDoc) ([]assetcheck.Problem, error) {
+		return nil, sceneformat.Validate(doc)
+	}
+	ed.MergePlaytestRunner = func(dir, scenePath string, doc *sceneformat.SceneDoc) (editor.MergePlaytestResult, error) {
+		return editor.MergePlaytestResult{
+			Duration: 10 * time.Second,
+			Steps:    600,
+			Summary:  "Ran game check and a 10 s playtest on the result: no problems.",
+		}, nil
+	}
+}
+
+func assertResolvedFixtureScene(t *testing.T, scenePath string) {
+	t.Helper()
+	raw, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatalf("read resolved scene: %v", err)
+	}
+	resolved, err := sceneformat.Parse(raw)
+	if err != nil {
+		t.Fatalf("resolved scene failed Parse: %v\n%s", err, raw)
+	}
+	objs := make(map[string]sceneformat.ObjectDoc)
+	for _, l := range resolved.Layers {
+		for _, o := range l.Objects {
+			objs[o.ID] = o
+		}
+	}
+	door, ok := objs["door"]
+	if !ok || door.X != 600 || door.Properties["locked_by"] != "lever_01" || door.Properties["open_sfx"] != "audio/door_creak.ogg" {
+		t.Fatalf("resolved door = %+v, want x=600, locked_by=lever_01, open_sfx=audio/door_creak.ogg", door)
+	}
+	if _, exists := objs["slime_02"]; exists {
+		t.Fatal("slime_02 should be deleted in resolved scene")
+	}
+	if k := objs["knight"]; k.Z != 12 {
+		t.Fatalf("resolved knight z = %d, want 12", k.Z)
+	}
+	for _, autoID := range []string{"slime_03", "coin_01", "coin_02", "coin_03", "lever_01", "torch_02"} {
+		if _, exists := objs[autoID]; !exists {
+			t.Fatalf("auto-merged object %q missing from resolved scene", autoID)
+		}
+	}
+}
+
+// #1531 acceptance: git rebase conflict is detected, swaps stages so Mine is the person's commit
+// being replayed (:3:) and Upstream is :2:, resolves end to end via `git rebase --continue`,
+// and aborts cleanly via `git rebase --abort`.
+func TestSceneConflictRebaseEndToEndAndAbort(t *testing.T) {
+	t.Run("resolve-and-continue", func(t *testing.T) {
+		repoDir, _, mineSHA, theirsSHA := initDivergedSceneRepo(t)
+		runTestGitExpectFailure(t, repoDir, "rebase", "main")
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configureFastMergeVerifiers(ed)
+
+		// OpenProject detects standard Git text conflict markers and opens the conflict resolver.
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatalf("OpenProject during rebase conflict: %v", err)
+		}
+		if !ed.MergeConflictOpen() {
+			t.Fatalf("expected MergeConflictOpen() == true during rebase (status=%q)", ed.Status)
+		}
+		detected := ed.DetectedMergeConflicts()
+		if len(detected) != 1 || detected[0] != "scenes/level_01.scene.yaml" {
+			t.Fatalf("DetectedMergeConflicts() = %v, want [scenes/level_01.scene.yaml]", detected)
+		}
+
+		sess := ed.MergeSession()
+		if sess.Operation != editor.MergeOperationRebase {
+			t.Fatalf("Operation = %q, want rebase", sess.Operation)
+		}
+		// Crucial: during rebase, Mine is the person's own commit (stage :3:) and Theirs is Upstream (stage :2:).
+		if sess.Mine.Label != "Mine (commit being replayed)" {
+			t.Fatalf("Mine.Label = %q, want 'Mine (commit being replayed)'", sess.Mine.Label)
+		}
+		if sess.Mine.Branch != "feat/slime-patrol" {
+			t.Fatalf("Mine.Branch = %q, want feat/slime-patrol", sess.Mine.Branch)
+		}
+		if sess.Mine.Author != "you" || !strings.HasPrefix(mineSHA, sess.Mine.Commit) {
+			t.Fatalf("Mine commit meta = %+v, want author=you commit prefix of %s", sess.Mine, mineSHA)
+		}
+		if sess.Theirs.Label != "Upstream" {
+			t.Fatalf("Theirs.Label = %q, want Upstream", sess.Theirs.Label)
+		}
+		if sess.Theirs.Branch != "main" {
+			t.Fatalf("Theirs.Branch = %q, want main", sess.Theirs.Branch)
+		}
+		if sess.Theirs.Author != "mia" || !strings.HasPrefix(theirsSHA, sess.Theirs.Commit) {
+			t.Fatalf("Theirs commit meta = %+v, want author=mia commit prefix of %s", sess.Theirs, theirsSHA)
+		}
+
+		// Verify door's Mine object is the person's own edit (x=560, open_sfx) and Theirs is Upstream (x=600, locked_by).
+		byID := make(map[string]editor.MergeConflictItem)
+		for _, c := range sess.Conflicts {
+			byID[c.ID] = c
+		}
+		door := byID["door"]
+		if door.MineObj == nil || door.MineObj.X != 560 || door.MineObj.Properties["open_sfx"] != "audio/door_creak.ogg" {
+			t.Fatalf("rebase door.MineObj = %+v, want person's edit (x=560, open_sfx)", door.MineObj)
+		}
+		if door.TheirsObj == nil || door.TheirsObj.X != 600 || door.TheirsObj.Properties["locked_by"] != "lever_01" {
+			t.Fatalf("rebase door.TheirsObj = %+v, want upstream edit (x=600, locked_by)", door.TheirsObj)
+		}
+		if door.Mine.Title != "Mine (commit being replayed)" || door.Theirs.Title != "Upstream" {
+			t.Fatalf("door option titles = (%q, %q), want ('Mine (commit being replayed)', 'Upstream')", door.Mine.Title, door.Theirs.Title)
+		}
+
+		// Resolve all 3 conflicts and finish rebase.
+		if err := ed.TakeAllAgentMergeSuggestions(); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.FinishMerge(); err != nil {
+			t.Fatalf("FinishMerge (rebase --continue): %v", err)
+		}
+		if !sess.Finished || sess.CommitSHA == "" {
+			t.Fatalf("expected Finished=true and CommitSHA set after rebase, got finished=%v sha=%q", sess.Finished, sess.CommitSHA)
+		}
+		assertResolvedFixtureScene(t, filepath.Join(repoDir, "scenes", "level_01.scene.yaml"))
+
+		// Verify linear rebased history: HEAD is on feat/slime-patrol, 1 parent == theirsSHA, clean tree.
+		if branch := runTestGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); branch != "feat/slime-patrol" {
+			t.Fatalf("branch after rebase = %q, want feat/slime-patrol", branch)
+		}
+		parents := strings.Fields(runTestGit(t, repoDir, "rev-list", "--parents", "-n", "1", "HEAD"))
+		if len(parents) != 2 || parents[1] != theirsSHA {
+			t.Fatalf("rebased commit parents = %v, want single parent %s", parents, theirsSHA)
+		}
+		if status := runTestGit(t, repoDir, "status", "--porcelain"); status != "" {
+			t.Fatalf("working tree not clean after rebase --continue:\n%s", status)
+		}
+		if _, err := os.Stat(filepath.Join(repoDir, ".git", "rebase-merge")); !os.IsNotExist(err) {
+			t.Fatalf("rebase-merge directory still exists after FinishMerge")
+		}
+	})
+
+	t.Run("abort-rebase", func(t *testing.T) {
+		repoDir, _, mineSHA, _ := initDivergedSceneRepo(t)
+		runTestGitExpectFailure(t, repoDir, "rebase", "main")
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatalf("OpenProject: %v", err)
+		}
+		if err := ed.AbortMerge(); err != nil {
+			t.Fatalf("AbortMerge (rebase --abort): %v", err)
+		}
+		if ed.MergeConflictOpen() {
+			t.Fatal("MergeConflictOpen() still true after AbortMerge")
+		}
+		if head := runTestGit(t, repoDir, "rev-parse", "HEAD"); head != mineSHA {
+			t.Fatalf("HEAD after rebase abort = %s, want %s", head, mineSHA)
+		}
+		if branch := runTestGit(t, repoDir, "rev-parse", "--abbrev-ref", "HEAD"); branch != "feat/slime-patrol" {
+			t.Fatalf("branch after rebase abort = %q, want feat/slime-patrol", branch)
+		}
+		if status := runTestGit(t, repoDir, "status", "--porcelain"); status != "" {
+			t.Fatalf("dirty working tree after rebase abort:\n%s", status)
+		}
+	})
+
+	t.Run("rebase-apply-backend", func(t *testing.T) {
+		repoDir, _, mineSHA, theirsSHA := initDivergedSceneRepo(t)
+		runTestGitExpectFailure(t, repoDir, "rebase", "--apply", "main")
+		if _, err := os.Stat(filepath.Join(repoDir, ".git", "rebase-apply")); err != nil {
+			t.Fatalf("expected .git/rebase-apply directory: %v", err)
+		}
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configureFastMergeVerifiers(ed)
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatalf("OpenProject during rebase --apply: %v", err)
+		}
+		if !ed.MergeConflictOpen() {
+			t.Fatal("expected MergeConflictOpen() == true during rebase --apply")
+		}
+		sess := ed.MergeSession()
+		if sess.Operation != editor.MergeOperationRebase {
+			t.Fatalf("Operation = %q, want rebase", sess.Operation)
+		}
+		if sess.Mine.Label != "Mine (commit being replayed)" || sess.Mine.Author != "you" || !strings.HasPrefix(mineSHA, sess.Mine.Commit) {
+			t.Fatalf("rebase --apply Mine meta = %+v, want author=you prefix of %s", sess.Mine, mineSHA)
+		}
+		if err := ed.TakeAllAgentMergeSuggestions(); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.FinishMerge(); err != nil {
+			t.Fatalf("FinishMerge (rebase --apply --continue): %v", err)
+		}
+		parents := strings.Fields(runTestGit(t, repoDir, "rev-list", "--parents", "-n", "1", "HEAD"))
+		if len(parents) != 2 || parents[1] != theirsSHA {
+			t.Fatalf("rebase --apply parents = %v, want single parent %s", parents, theirsSHA)
+		}
+	})
+}
+
+// #1531 acceptance: git pull --rebase conflict against a real bare remote resolves end to end.
+func TestSceneConflictPullRebaseEndToEnd(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not installed")
+	}
+
+	remoteDir := t.TempDir()
+	runTestGit(t, remoteDir, "init", "--bare", "-b", "main")
+
+	seedDir := t.TempDir()
+	runTestGit(t, seedDir, "init", "-b", "main")
+	runTestGit(t, seedDir, "config", "user.name", "you")
+	runTestGit(t, seedDir, "config", "user.email", "you@example.com")
+	runTestGit(t, seedDir, "config", "commit.gpgsign", "false")
+	gameYAML := "version: 1\nname: dungeon-run\nid: dev.example.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"
+	if err := os.WriteFile(filepath.Join(seedDir, project.FileName), []byte(gameYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(seedDir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seedDir, "scenes", "level_01.scene.yaml"), []byte(mergeFixtureBaseScene), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, seedDir, "add", ".")
+	runTestGit(t, seedDir, "commit", "-m", "Initial level_01")
+	runTestGit(t, seedDir, "remote", "add", "origin", remoteDir)
+	runTestGit(t, seedDir, "push", "-u", "origin", "main")
+
+	// Clone into local developer workspace and commit local edits on main.
+	localDir := filepath.Join(t.TempDir(), "local")
+	runTestGit(t, filepath.Dir(localDir), "clone", remoteDir, localDir)
+	runTestGit(t, localDir, "config", "user.name", "you")
+	runTestGit(t, localDir, "config", "user.email", "you@example.com")
+	runTestGit(t, localDir, "config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(localDir, "scenes", "level_01.scene.yaml"), []byte(mergeFixtureMineScene), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, localDir, "add", "scenes/level_01.scene.yaml")
+	runTestGitAs(t, localDir, "you", "commit", "-m", "Add a plank guard and a coin trail to level_01")
+	localMineSHA := runTestGit(t, localDir, "rev-parse", "HEAD")
+
+	// Mia pushes conflicting commit to origin/main from seedDir.
+	if err := os.WriteFile(filepath.Join(seedDir, "scenes", "level_01.scene.yaml"), []byte(mergeFixtureTheirsScene), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, seedDir, "add", "scenes/level_01.scene.yaml")
+	runTestGitAs(t, seedDir, "mia", "commit", "-m", "Thin out the lower floor for the lever")
+	runTestGit(t, seedDir, "push", "origin", "main")
+	upstreamSHA := runTestGit(t, seedDir, "rev-parse", "HEAD")
+
+	// Developer runs git pull --rebase and hits a conflict.
+	runTestGitExpectFailure(t, localDir, "pull", "--rebase", "origin", "main")
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureFastMergeVerifiers(ed)
+	if err := ed.OpenProject(localDir); err != nil {
+		t.Fatalf("OpenProject after pull --rebase conflict: %v", err)
+	}
+	if !ed.MergeConflictOpen() {
+		t.Fatalf("expected MergeConflictOpen() == true after pull --rebase (status=%q)", ed.Status)
+	}
+	sess := ed.MergeSession()
+	if sess.Operation != editor.MergeOperationRebase {
+		t.Fatalf("Operation = %q, want rebase", sess.Operation)
+	}
+	if sess.Mine.Label != "Mine (commit being replayed)" || sess.Mine.Author != "you" || !strings.HasPrefix(localMineSHA, sess.Mine.Commit) {
+		t.Fatalf("pull --rebase Mine = %+v, want author=you prefix of %s", sess.Mine, localMineSHA)
+	}
+	if sess.Theirs.Label != "Upstream" || sess.Theirs.Author != "mia" || !strings.HasPrefix(upstreamSHA, sess.Theirs.Commit) {
+		t.Fatalf("pull --rebase Theirs = %+v, want Upstream mia prefix of %s", sess.Theirs, upstreamSHA)
+	}
+	if sess.Theirs.Branch != "origin/main" {
+		t.Fatalf("pull --rebase Theirs.Branch = %q, want origin/main", sess.Theirs.Branch)
+	}
+
+	if err := ed.TakeAllAgentMergeSuggestions(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.FinishMerge(); err != nil {
+		t.Fatalf("FinishMerge after pull --rebase: %v", err)
+	}
+	assertResolvedFixtureScene(t, filepath.Join(localDir, "scenes", "level_01.scene.yaml"))
+
+	if branch := runTestGit(t, localDir, "rev-parse", "--abbrev-ref", "HEAD"); branch != "main" {
+		t.Fatalf("branch after pull --rebase = %q, want main", branch)
+	}
+	parents := strings.Fields(runTestGit(t, localDir, "rev-list", "--parents", "-n", "1", "HEAD"))
+	if len(parents) != 2 || parents[1] != upstreamSHA {
+		t.Fatalf("pull --rebase parents = %v, want single parent %s", parents, upstreamSHA)
+	}
+	if status := runTestGit(t, localDir, "status", "--porcelain"); status != "" {
+		t.Fatalf("working tree dirty after pull --rebase finish:\n%s", status)
+	}
+}
+
+// #1531 acceptance: git cherry-pick conflict names the picked commit, finishes with
+// `git cherry-pick --continue`, and aborts with `git cherry-pick --abort`.
+func TestSceneConflictCherryPickEndToEndAndAbort(t *testing.T) {
+	t.Run("resolve-and-continue", func(t *testing.T) {
+		repoDir, _, mineSHA, theirsSHA := initDivergedSceneRepo(t)
+		theirsShort := runTestGit(t, repoDir, "rev-parse", "--short", theirsSHA)
+		runTestGitExpectFailure(t, repoDir, "cherry-pick", theirsSHA)
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configureFastMergeVerifiers(ed)
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatalf("OpenProject during cherry-pick: %v", err)
+		}
+		if !ed.MergeConflictOpen() {
+			t.Fatal("expected MergeConflictOpen() == true during cherry-pick")
+		}
+		sess := ed.MergeSession()
+		if sess.Operation != editor.MergeOperationCherryPick {
+			t.Fatalf("Operation = %q, want cherry-pick", sess.Operation)
+		}
+		if sess.Mine.Label != "Mine" || sess.Mine.Branch != "feat/slime-patrol" {
+			t.Fatalf("cherry-pick Mine = %+v, want Mine / feat/slime-patrol", sess.Mine)
+		}
+		if !strings.Contains(sess.Theirs.Label, theirsShort) || sess.Theirs.Author != "mia" {
+			t.Fatalf("cherry-pick Theirs = %+v, want label naming %s and author mia", sess.Theirs, theirsShort)
+		}
+
+		if err := ed.TakeAllAgentMergeSuggestions(); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.FinishMerge(); err != nil {
+			t.Fatalf("FinishMerge (cherry-pick --continue): %v", err)
+		}
+		assertResolvedFixtureScene(t, filepath.Join(repoDir, "scenes", "level_01.scene.yaml"))
+
+		parents := strings.Fields(runTestGit(t, repoDir, "rev-list", "--parents", "-n", "1", "HEAD"))
+		if len(parents) != 2 || parents[1] != mineSHA {
+			t.Fatalf("cherry-pick commit parents = %v, want single parent %s", parents, mineSHA)
+		}
+		if status := runTestGit(t, repoDir, "status", "--porcelain"); status != "" {
+			t.Fatalf("working tree dirty after cherry-pick --continue:\n%s", status)
+		}
+		if _, err := os.Stat(filepath.Join(repoDir, ".git", "CHERRY_PICK_HEAD")); !os.IsNotExist(err) {
+			t.Fatal("CHERRY_PICK_HEAD still present after cherry-pick --continue")
+		}
+	})
+
+	t.Run("abort-cherry-pick", func(t *testing.T) {
+		repoDir, _, mineSHA, theirsSHA := initDivergedSceneRepo(t)
+		runTestGitExpectFailure(t, repoDir, "cherry-pick", theirsSHA)
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.AbortMerge(); err != nil {
+			t.Fatalf("AbortMerge (cherry-pick --abort): %v", err)
+		}
+		if head := runTestGit(t, repoDir, "rev-parse", "HEAD"); head != mineSHA {
+			t.Fatalf("HEAD after cherry-pick abort = %s, want %s", head, mineSHA)
+		}
+		if status := runTestGit(t, repoDir, "status", "--porcelain"); status != "" {
+			t.Fatalf("dirty working tree after cherry-pick abort:\n%s", status)
+		}
+	})
+}
+
+// #1531 acceptance: git revert conflict names the reverted commit, finishes with
+// `git revert --continue`, and aborts with `git revert --abort`.
+func TestSceneConflictRevertEndToEndAndAbort(t *testing.T) {
+	setupRevertRepo := func(t *testing.T) (repoDir, revertTargetSHA, headBeforeRevertSHA string) {
+		t.Helper()
+		if _, err := exec.LookPath("git"); err != nil {
+			t.Skip("git binary not installed")
+		}
+		dir := t.TempDir()
+		runTestGit(t, dir, "init", "-b", "main")
+		runTestGit(t, dir, "config", "user.name", "you")
+		runTestGit(t, dir, "config", "user.email", "you@example.com")
+		runTestGit(t, dir, "config", "commit.gpgsign", "false")
+
+		gameYAML := "version: 1\nname: dungeon-run\nid: dev.example.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"
+		if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(gameYAML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		sceneFile := filepath.Join(dir, "scenes", "level_01.scene.yaml")
+		// Commit 1 (base): door at x=584.
+		if err := os.WriteFile(sceneFile, []byte(mergeFixtureBaseScene), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, dir, "add", ".")
+		runTestGit(t, dir, "commit", "-m", "Initial level_01")
+
+		// Commit 2 (Mia): moves door to x=600, adds locked_by + lever_01.
+		if err := os.WriteFile(sceneFile, []byte(mergeFixtureTheirsScene), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, dir, "add", "scenes/level_01.scene.yaml")
+		runTestGitAs(t, dir, "mia", "commit", "-m", "Thin out the lower floor for the lever")
+		revertTargetSHA = runTestGit(t, dir, "rev-parse", "HEAD")
+
+		// Commit 3 (You): edits door to x=560 and adds open_sfx on top of Mia's commit.
+		if err := os.WriteFile(sceneFile, []byte(mergeFixtureMineScene), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, dir, "add", "scenes/level_01.scene.yaml")
+		runTestGitAs(t, dir, "you", "commit", "-m", "Add a plank guard and a coin trail to level_01")
+		headBeforeRevertSHA = runTestGit(t, dir, "rev-parse", "HEAD")
+
+		// Reverting Mia's commit conflicts with You's commit on door/knight/slime_02.
+		runTestGitExpectFailure(t, dir, "revert", revertTargetSHA)
+		return dir, revertTargetSHA, headBeforeRevertSHA
+	}
+
+	t.Run("resolve-and-continue", func(t *testing.T) {
+		repoDir, targetSHA, prevHeadSHA := setupRevertRepo(t)
+		targetShort := runTestGit(t, repoDir, "rev-parse", "--short", targetSHA)
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configureFastMergeVerifiers(ed)
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatalf("OpenProject during revert: %v", err)
+		}
+		if !ed.MergeConflictOpen() {
+			t.Fatal("expected MergeConflictOpen() == true during revert")
+		}
+		sess := ed.MergeSession()
+		if sess.Operation != editor.MergeOperationRevert {
+			t.Fatalf("Operation = %q, want revert", sess.Operation)
+		}
+		if !strings.Contains(sess.Theirs.Label, targetShort) || sess.Theirs.Author != "mia" {
+			t.Fatalf("revert Theirs = %+v, want label naming %s and author mia", sess.Theirs, targetShort)
+		}
+		if err := ed.TakeAllAgentMergeSuggestions(); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.FinishMerge(); err != nil {
+			t.Fatalf("FinishMerge (revert --continue): %v", err)
+		}
+		if !sess.Finished || sess.CommitSHA == "" {
+			t.Fatalf("expected Finished=true and CommitSHA after revert, got finished=%v sha=%q", sess.Finished, sess.CommitSHA)
+		}
+		parents := strings.Fields(runTestGit(t, repoDir, "rev-list", "--parents", "-n", "1", "HEAD"))
+		if len(parents) != 2 || parents[1] != prevHeadSHA {
+			t.Fatalf("revert commit parents = %v, want single parent %s", parents, prevHeadSHA)
+		}
+		if status := runTestGit(t, repoDir, "status", "--porcelain"); status != "" {
+			t.Fatalf("working tree dirty after revert --continue:\n%s", status)
+		}
+		if _, err := os.Stat(filepath.Join(repoDir, ".git", "REVERT_HEAD")); !os.IsNotExist(err) {
+			t.Fatal("REVERT_HEAD still present after revert --continue")
+		}
+	})
+
+	t.Run("abort-revert", func(t *testing.T) {
+		repoDir, _, prevHeadSHA := setupRevertRepo(t)
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.AbortMerge(); err != nil {
+			t.Fatalf("AbortMerge (revert --abort): %v", err)
+		}
+		if head := runTestGit(t, repoDir, "rev-parse", "HEAD"); head != prevHeadSHA {
+			t.Fatalf("HEAD after revert abort = %s, want %s", head, prevHeadSHA)
+		}
+		if status := runTestGit(t, repoDir, "status", "--porcelain"); status != "" {
+			t.Fatalf("dirty working tree after revert abort:\n%s", status)
+		}
+	})
+}
+
+// #1531 acceptance: git stash pop leaves unmerged scene entries with NO *_HEAD file;
+// the editor detects and resolves them, stages the file without creating a commit,
+// and aborts cleanly via `git reset --merge` while keeping the stash entry intact.
+func TestSceneConflictStashPopEndToEndAndAbort(t *testing.T) {
+	setupStashPopRepo := func(t *testing.T) (repoDir, headSHA string) {
+		t.Helper()
+		if _, err := exec.LookPath("git"); err != nil {
+			t.Skip("git binary not installed")
+		}
+		dir := t.TempDir()
+		runTestGit(t, dir, "init", "-b", "main")
+		runTestGit(t, dir, "config", "user.name", "you")
+		runTestGit(t, dir, "config", "user.email", "you@example.com")
+		runTestGit(t, dir, "config", "commit.gpgsign", "false")
+
+		gameYAML := "version: 1\nname: dungeon-run\nid: dev.example.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"
+		if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(gameYAML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		sceneFile := filepath.Join(dir, "scenes", "level_01.scene.yaml")
+		if err := os.WriteFile(sceneFile, []byte(mergeFixtureBaseScene), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, dir, "add", ".")
+		runTestGit(t, dir, "commit", "-m", "Initial level_01")
+
+		// Edit working tree to Theirs scene and stash it.
+		if err := os.WriteFile(sceneFile, []byte(mergeFixtureTheirsScene), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, dir, "stash", "push", "-m", "lever-work")
+
+		// Commit Mine scene on main, then pop the stash to trigger conflict without any *_HEAD ref.
+		if err := os.WriteFile(sceneFile, []byte(mergeFixtureMineScene), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runTestGit(t, dir, "add", "scenes/level_01.scene.yaml")
+		runTestGitAs(t, dir, "you", "commit", "-m", "Add a plank guard and a coin trail to level_01")
+		headSHA = runTestGit(t, dir, "rev-parse", "HEAD")
+
+		runTestGitExpectFailure(t, dir, "stash", "pop")
+		// Confirm none of the *_HEAD files exist.
+		for _, ref := range []string{"MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"} {
+			if _, err := os.Stat(filepath.Join(dir, ".git", ref)); err == nil {
+				t.Fatalf("unexpected %s file after git stash pop", ref)
+			}
+		}
+		return dir, headSHA
+	}
+
+	t.Run("resolve-and-stage-only", func(t *testing.T) {
+		repoDir, headSHA := setupStashPopRepo(t)
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configureFastMergeVerifiers(ed)
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatalf("OpenProject during stash pop conflict: %v", err)
+		}
+		if !ed.MergeConflictOpen() {
+			t.Fatalf("expected MergeConflictOpen() == true during stash pop conflict (status=%q)", ed.Status)
+		}
+		sess := ed.MergeSession()
+		if sess.Operation != editor.MergeOperationStash {
+			t.Fatalf("Operation = %q, want stash", sess.Operation)
+		}
+		if sess.Theirs.Label != "Stash" {
+			t.Fatalf("stash Theirs.Label = %q, want Stash", sess.Theirs.Label)
+		}
+
+		if err := ed.TakeAllAgentMergeSuggestions(); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.FinishMerge(); err != nil {
+			t.Fatalf("FinishMerge (stash stage-only): %v", err)
+		}
+		if !sess.Finished || sess.CommitSHA != "" {
+			t.Fatalf("expected Finished=true and empty CommitSHA for stash stage-only, got finished=%v sha=%q", sess.Finished, sess.CommitSHA)
+		}
+		assertResolvedFixtureScene(t, filepath.Join(repoDir, "scenes", "level_01.scene.yaml"))
+
+		// HEAD must NOT move (no commit created), unmerged list must be empty, and scene must be staged.
+		if curHead := runTestGit(t, repoDir, "rev-parse", "HEAD"); curHead != headSHA {
+			t.Fatalf("HEAD moved during stash resolution: got %s, want %s", curHead, headSHA)
+		}
+		if unmerged := runTestGit(t, repoDir, "diff", "--name-only", "--diff-filter=U"); unmerged != "" {
+			t.Fatalf("unmerged files remain after stash FinishMerge: %q", unmerged)
+		}
+		if staged := runTestGit(t, repoDir, "diff", "--cached", "--name-only"); staged != "scenes/level_01.scene.yaml" {
+			t.Fatalf("staged files = %q, want scenes/level_01.scene.yaml", staged)
+		}
+	})
+
+	t.Run("abort-stash-conflict", func(t *testing.T) {
+		repoDir, headSHA := setupStashPopRepo(t)
+
+		ed, err := editor.New(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.OpenProject(repoDir); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.AbortMerge(); err != nil {
+			t.Fatalf("AbortMerge (stash reset --merge): %v", err)
+		}
+		if head := runTestGit(t, repoDir, "rev-parse", "HEAD"); head != headSHA {
+			t.Fatalf("HEAD after stash abort = %s, want %s", head, headSHA)
+		}
+		if status := runTestGit(t, repoDir, "status", "--porcelain"); status != "" {
+			t.Fatalf("dirty working tree after stash abort:\n%s", status)
+		}
+		if stashList := runTestGit(t, repoDir, "stash", "list"); !strings.Contains(stashList, "lever-work") {
+			t.Fatalf("stash entry lost after abort: %q", stashList)
+		}
+	})
+}

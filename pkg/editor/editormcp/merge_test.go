@@ -155,7 +155,30 @@ layers:
 		t.Fatalf("merge_abort = %q (err=%v open=%v)", text(abortRes), abortRes.IsError, f.ed.MergeConflictOpen())
 	}
 
-	// 5. merge_status(open: true) refuses absolute paths, ../ traversal, symlinks leaving project, and Play mode.
+	// 5. Rebase conflict session reports operation="rebase", swapped-perspective labels, and Rebase abort text.
+	if err := f.ed.OpenMergeConflictSession(editor.MergeConflictSessionConfig{
+		ScenePath:   "scenes/level_01.scene.yaml",
+		ProjectName: "dungeon-run",
+		SceneName:   "level_01",
+		Operation:   editor.MergeOperationRebase,
+		Mine:        editor.MergeSideMeta{Branch: "feat/slime-patrol", Author: "you", Commit: "9f3c2d1"},
+		Theirs:      editor.MergeSideMeta{Branch: "origin/main", Author: "mia", Commit: "7c21f0e"},
+		BaseDoc:     baseDoc,
+		MineDoc:     mineDoc,
+		TheirsDoc:   theirsDoc,
+	}); err != nil {
+		t.Fatalf("OpenMergeConflictSession(rebase): %v", err)
+	}
+	rebaseStatus := call(t, cs, editormcp.ToolMergeStatus, map[string]any{})
+	if rebaseStatus.IsError || !strings.Contains(text(rebaseStatus), "Rebasing feat/slime-patrol onto origin/main") {
+		t.Fatalf("rebase merge_status = %q (err=%v)", text(rebaseStatus), rebaseStatus.IsError)
+	}
+	rebaseAbort := call(t, cs, editormcp.ToolMergeAbort, map[string]any{})
+	if rebaseAbort.IsError || !strings.Contains(text(rebaseAbort), "Rebase aborted") {
+		t.Fatalf("rebase merge_abort = %q (err=%v)", text(rebaseAbort), rebaseAbort.IsError)
+	}
+
+	// 6. merge_status(open: true) refuses absolute paths, ../ traversal, symlinks leaving project, and Play mode.
 	for _, bad := range []string{"/etc/passwd", "../outside.scene.yaml"} {
 		res := call(t, cs, editormcp.ToolMergeStatus, map[string]any{"open": true, "file": bad})
 		if !res.IsError {

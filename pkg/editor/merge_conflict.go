@@ -37,8 +37,25 @@ const (
 	MergeChoiceCustom MergeChoice = "custom"
 )
 
-// MergeSideMeta describes one branch participating in a scene merge.
+// MergeOperation identifies which Git operation left the active scene conflict.
+type MergeOperation string
+
+const (
+	// MergeOperationMerge is a regular `git merge` (MERGE_HEAD).
+	MergeOperationMerge MergeOperation = "merge"
+	// MergeOperationRebase is a `git rebase` or `git pull --rebase` (REBASE_HEAD, rebase-merge, or rebase-apply).
+	MergeOperationRebase MergeOperation = "rebase"
+	// MergeOperationCherryPick is a `git cherry-pick` (CHERRY_PICK_HEAD).
+	MergeOperationCherryPick MergeOperation = "cherry-pick"
+	// MergeOperationRevert is a `git revert` (REVERT_HEAD).
+	MergeOperationRevert MergeOperation = "revert"
+	// MergeOperationStash is an unmerged conflict left by `git stash pop` / `git stash apply`.
+	MergeOperationStash MergeOperation = "stash"
+)
+
+// MergeSideMeta describes one branch or commit participating in a scene conflict.
 type MergeSideMeta struct {
+	Label   string `json:"label,omitempty"`
 	Branch  string `json:"branch"`
 	Author  string `json:"author,omitempty"`
 	Commit  string `json:"commit,omitempty"`
@@ -138,6 +155,7 @@ type MergeConflictSessionConfig struct {
 	ScenePath   string
 	ProjectName string
 	SceneName   string
+	Operation   MergeOperation
 	Mine        MergeSideMeta
 	Theirs      MergeSideMeta
 	BaseDoc     *sceneformat.SceneDoc
@@ -151,6 +169,7 @@ type MergeConflictSession struct {
 	ScenePath     string
 	ProjectName   string
 	SceneName     string
+	Operation     MergeOperation
 	Mine          MergeSideMeta
 	Theirs        MergeSideMeta
 	BaseDoc       *sceneformat.SceneDoc
@@ -241,13 +260,31 @@ func (e *Editor) OpenMergeConflictSession(cfg MergeConflictSessionConfig) error 
 	}
 	e.CloseAskInPlace()
 
+	op := cfg.Operation
+	if op == "" {
+		op = MergeOperationMerge
+	}
+
 	mineMeta := cfg.Mine
 	if mineMeta.Branch == "" {
 		mineMeta.Branch = "HEAD"
 	}
+	if mineMeta.Label == "" {
+		mineMeta.Label = defaultMineSideLabel(op)
+	}
 	theirsMeta := cfg.Theirs
 	if theirsMeta.Branch == "" {
-		theirsMeta.Branch = "theirs"
+		switch op {
+		case MergeOperationRebase:
+			theirsMeta.Branch = "upstream"
+		case MergeOperationStash:
+			theirsMeta.Branch = "stash"
+		default:
+			theirsMeta.Branch = "theirs"
+		}
+	}
+	if theirsMeta.Label == "" {
+		theirsMeta.Label = defaultTheirsSideLabel(op, theirsMeta)
 	}
 
 	sceneName := cfg.SceneName
@@ -273,7 +310,7 @@ func (e *Editor) OpenMergeConflictSession(cfg MergeConflictSessionConfig) error 
 		}
 	}
 
-	autoMerged := buildAutoMergedItems(res.Merged, res.Conflicts, cfg.BaseDoc, cfg.MineDoc, cfg.TheirsDoc)
+	autoMerged := buildAutoMergedItems(res.Merged, res.Conflicts, cfg.BaseDoc, cfg.MineDoc, cfg.TheirsDoc, op)
 	items := groupMergeConflictItems(res, cfg.BaseDoc, cfg.MineDoc, cfg.TheirsDoc, mineMeta, theirsMeta)
 
 	// Populate agent suggestions (custom MergeSuggester if set, otherwise deterministic analyzer).
@@ -322,6 +359,7 @@ func (e *Editor) OpenMergeConflictSession(cfg MergeConflictSessionConfig) error 
 		ScenePath:     cfg.ScenePath,
 		ProjectName:   projName,
 		SceneName:     sceneName,
+		Operation:     op,
 		Mine:          mineMeta,
 		Theirs:        theirsMeta,
 		BaseDoc:       cloneSceneDoc(cfg.BaseDoc),
@@ -804,15 +842,17 @@ func (e *Editor) FinishMerge() error {
 		return fmt.Errorf("editor: merge playtest: %w", err)
 	}
 
-	// 3. Stage and commit in Git when inside an active Git merge.
+	// 3. Stage and finish the active Git operation (commit, rebase/cherry-pick/revert --continue, or stage-only for stash).
 	commitSHA := ""
 	if sess.RepoDir != "" && relScenePath != "" {
-		sha, staged, gerr := e.stageAndCommitMerge(sess.RepoDir, relScenePath)
+		sha, staged, gerr := e.stageAndCommitMerge(sess.RepoDir, relScenePath, sess.effectiveOperation())
 		if gerr != nil {
 			if !staged {
 				restoreOnFailure()
+			} else {
+				e.refreshDetectedMergeConflicts()
 			}
-			sess.VerifyErr = "Git commit failed: " + gerr.Error()
+			sess.VerifyErr = "Git finish failed: " + gerr.Error()
 			e.merge.rev++
 			e.notify()
 			return gerr
@@ -851,19 +891,15 @@ func (e *Editor) FinishMerge() error {
 	e.refreshDetectedMergeConflicts()
 	e.CheckProblems()
 
-	if commitSHA != "" {
-		e.Status = "Merged as " + commitSHA
-	} else {
-		e.Status = "Merged scene resolved and verified"
-	}
+	e.Status = sess.finishedStatusText()
 	e.merge.rev++
 	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }
 
-// AbortMerge aborts the active Git merge (restoring the branch and working tree as they were)
-// and closes the Scene Merge Conflict screen.
+// AbortMerge aborts the active Git merge, rebase, cherry-pick, revert, or stash conflict
+// (restoring the branch and working tree as they were) and closes the conflict resolver.
 func (e *Editor) AbortMerge() error {
 	if !e.MergeConflictOpen() {
 		return ErrNoMergeConflict
@@ -872,9 +908,10 @@ func (e *Editor) AbortMerge() error {
 		return ErrPlaying
 	}
 	sess := e.merge.session
+	op := sess.effectiveOperation()
 	if sess.RepoDir != "" {
-		if err := e.abortGitMerge(sess.RepoDir); err != nil {
-			sess.VerifyErr = "Abort merge failed: " + err.Error()
+		if err := e.abortGitMerge(sess.RepoDir, op); err != nil {
+			sess.VerifyErr = "Abort failed: " + err.Error()
 			e.merge.rev++
 			e.notify()
 			return err
@@ -908,7 +945,7 @@ func (e *Editor) AbortMerge() error {
 	e.invalidateProjectIndex()
 	e.CheckProblems()
 	e.scheduleAutoSaveIfNeeded()
-	e.Status = "Merge aborted"
+	e.Status = abortedStatusText(op)
 	e.notify()
 	return nil
 }
@@ -1019,6 +1056,8 @@ func groupMergeConflictItems(
 		g.conflicts = append(g.conflicts, c)
 	}
 
+	mineTitle := nonEmpty(mineMeta.Label, "Mine")
+	theirsTitle := nonEmpty(theirsMeta.Label, "Theirs")
 	items := make([]MergeConflictItem, 0, len(order))
 	for _, key := range order {
 		g := groups[key]
@@ -1047,14 +1086,14 @@ func groupMergeConflictItems(
 			item.Name = objectDisplayName(refObj, g.objectID)
 			item.Kind = objectKindLabel(refObj)
 			item.Summary = summarizeObjectConflicts(item, theirsMeta)
-			item.Mine = buildSideObjectOption(MergeChoiceMine, "Mine", item, bp.obj, mp.obj, mineMeta)
-			item.Theirs = buildSideObjectOption(MergeChoiceTheirs, "Theirs", item, bp.obj, tp.obj, theirsMeta)
+			item.Mine = buildSideObjectOption(MergeChoiceMine, mineTitle, item, bp.obj, mp.obj, mineMeta)
+			item.Theirs = buildSideObjectOption(MergeChoiceTheirs, theirsTitle, item, bp.obj, tp.obj, theirsMeta)
 		} else {
 			item.Name = nonEmpty(g.target, g.layer, g.scope)
 			item.Kind = g.scope
 			item.Summary = summarizeNonObjectConflicts(g.conflicts, theirsMeta)
-			item.Mine = buildSideNonObjectOption(MergeChoiceMine, "Mine", g.conflicts)
-			item.Theirs = buildSideNonObjectOption(MergeChoiceTheirs, "Theirs", g.conflicts)
+			item.Mine = buildSideNonObjectOption(MergeChoiceMine, mineTitle, g.conflicts)
+			item.Theirs = buildSideNonObjectOption(MergeChoiceTheirs, theirsTitle, g.conflicts)
 		}
 		items = append(items, item)
 	}
@@ -1283,8 +1322,8 @@ func DefaultMergeSuggestion(req MergeSuggestRequest) MergeSuggestion {
 		reason := "Keeps your branch's value while preserving every non-conflicting scene change."
 		if len(item.Conflicts) > 0 && item.Conflicts[0].Ours == nil && item.Conflicts[0].Theirs != nil {
 			pick = MergeChoiceTheirs
-			meta = "same as theirs"
-			reason = "Takes the incoming branch's value because your branch cleared this entry."
+			meta = sameAsTheirsMeta(req.Theirs)
+			reason = "Takes the incoming side's value because your side cleared this entry."
 		}
 		opt := item.Mine
 		if pick == MergeChoiceTheirs {
@@ -1308,7 +1347,7 @@ func DefaultMergeSuggestion(req MergeSuggestRequest) MergeSuggestion {
 			}
 			reason += fmt.Sprintf("; keeping the deletion avoids reintroducing a removed object, and your %s change has nothing left to apply to.", changed)
 			return MergeSuggestion{
-				Meta:    "same as theirs",
+				Meta:    sameAsTheirsMeta(req.Theirs),
 				YAML:    fmt.Sprintf("# %s stays deleted", item.ObjectID),
 				Reason:  reason,
 				Deleted: true,
@@ -1407,7 +1446,7 @@ func DefaultMergeSuggestion(req MergeSuggestRequest) MergeSuggestion {
 				strings.Join(mineUnique, ", "), strings.Join(theirsUnique, ", "))
 		}
 	} else if choseTheirs && !choseMine {
-		meta = "same as theirs"
+		meta = sameAsTheirsMeta(req.Theirs)
 		if len(reasons) > 0 {
 			reason = strings.Join(reasons, " ")
 		} else {
@@ -1432,7 +1471,310 @@ func DefaultMergeSuggestion(req MergeSuggestRequest) MergeSuggestion {
 	}
 }
 
-func buildAutoMergedItems(merged []sceneformat.MergedItem, conflicts []sceneformat.MergeConflict, baseDoc, mineDoc, theirsDoc *sceneformat.SceneDoc) []MergeAutoItem {
+func defaultMineSideLabel(op MergeOperation) string {
+	if op == MergeOperationRebase {
+		return "Mine (commit being replayed)"
+	}
+	return "Mine"
+}
+
+func defaultTheirsSideLabel(op MergeOperation, meta MergeSideMeta) string {
+	switch op {
+	case MergeOperationRebase:
+		return "Upstream"
+	case MergeOperationCherryPick:
+		if meta.Commit != "" {
+			return "Picked commit " + meta.Commit
+		}
+		return "Picked commit"
+	case MergeOperationRevert:
+		if meta.Commit != "" {
+			return "Revert " + meta.Commit
+		}
+		return "Revert"
+	case MergeOperationStash:
+		return "Stash"
+	default:
+		return "Theirs"
+	}
+}
+
+func theirsAutoMergedSideName(op MergeOperation) string {
+	switch op {
+	case MergeOperationRebase:
+		return "upstream"
+	case MergeOperationCherryPick:
+		return "picked"
+	case MergeOperationRevert:
+		return "revert"
+	case MergeOperationStash:
+		return "stash"
+	default:
+		return "theirs"
+	}
+}
+
+func (s *MergeConflictSession) effectiveOperation() MergeOperation {
+	if s == nil || s.Operation == "" {
+		return MergeOperationMerge
+	}
+	return s.Operation
+}
+
+func (s *MergeConflictSession) mineSideTitle() string {
+	if s == nil {
+		return "Mine"
+	}
+	return nonEmpty(s.Mine.Label, defaultMineSideLabel(s.effectiveOperation()))
+}
+
+func (s *MergeConflictSession) theirsSideTitle() string {
+	if s == nil {
+		return "Theirs"
+	}
+	return nonEmpty(s.Theirs.Label, defaultTheirsSideLabel(s.effectiveOperation(), s.Theirs))
+}
+
+func (s *MergeConflictSession) theirsChipLabel() string {
+	switch s.effectiveOperation() {
+	case MergeOperationRebase:
+		return "Upstream"
+	case MergeOperationCherryPick:
+		return "Picked"
+	case MergeOperationRevert:
+		return "Revert"
+	case MergeOperationStash:
+		return "Stash"
+	default:
+		return "Theirs"
+	}
+}
+
+func (s *MergeConflictSession) headerProgressText() string {
+	if s == nil {
+		return ""
+	}
+	total := len(s.Conflicts)
+	remaining := s.RemainingCount()
+	allDone := s.AllResolved()
+	op := s.effectiveOperation()
+
+	switch op {
+	case MergeOperationRebase:
+		if s.Finished {
+			if s.CommitSHA != "" {
+				return fmt.Sprintf("Rebased %s onto %s · %s", s.Mine.Branch, s.Theirs.Branch, s.CommitSHA)
+			}
+			return fmt.Sprintf("Rebased %s onto %s · verified", s.Mine.Branch, s.Theirs.Branch)
+		}
+		if allDone {
+			return fmt.Sprintf("Rebasing %s onto %s · ready to continue", s.Mine.Branch, s.Theirs.Branch)
+		}
+		return fmt.Sprintf("Rebasing %s onto %s · %d of %d objects need you", s.Mine.Branch, s.Theirs.Branch, remaining, total)
+
+	case MergeOperationCherryPick:
+		picked := nonEmpty(s.Theirs.Commit, s.Theirs.Branch)
+		if s.Finished {
+			if s.CommitSHA != "" {
+				return fmt.Sprintf("Cherry-picked %s onto %s · %s", picked, s.Mine.Branch, s.CommitSHA)
+			}
+			return fmt.Sprintf("Cherry-picked %s onto %s · verified", picked, s.Mine.Branch)
+		}
+		if allDone {
+			return fmt.Sprintf("Cherry-picking %s onto %s · ready to continue", picked, s.Mine.Branch)
+		}
+		return fmt.Sprintf("Cherry-picking %s onto %s · %d of %d objects need you", picked, s.Mine.Branch, remaining, total)
+
+	case MergeOperationRevert:
+		reverted := nonEmpty(s.Theirs.Commit, s.Theirs.Branch)
+		if s.Finished {
+			if s.CommitSHA != "" {
+				return fmt.Sprintf("Reverted %s on %s · %s", reverted, s.Mine.Branch, s.CommitSHA)
+			}
+			return fmt.Sprintf("Reverted %s on %s · verified", reverted, s.Mine.Branch)
+		}
+		if allDone {
+			return fmt.Sprintf("Reverting %s on %s · ready to continue", reverted, s.Mine.Branch)
+		}
+		return fmt.Sprintf("Reverting %s on %s · %d of %d objects need you", reverted, s.Mine.Branch, remaining, total)
+
+	case MergeOperationStash:
+		if s.Finished {
+			return fmt.Sprintf("Applied %s onto %s · staged", s.Theirs.Branch, s.Mine.Branch)
+		}
+		if allDone {
+			return fmt.Sprintf("Applying %s onto %s · ready to stage", s.Theirs.Branch, s.Mine.Branch)
+		}
+		return fmt.Sprintf("Applying %s onto %s · %d of %d objects need you", s.Theirs.Branch, s.Mine.Branch, remaining, total)
+
+	default:
+		if s.Finished {
+			if s.CommitSHA != "" {
+				return fmt.Sprintf("Merged %s into %s · %s", s.Theirs.Branch, s.Mine.Branch, s.CommitSHA)
+			}
+			return fmt.Sprintf("Merged %s into %s · verified", s.Theirs.Branch, s.Mine.Branch)
+		}
+		if allDone {
+			return fmt.Sprintf("Merging %s into %s · ready to finish", s.Theirs.Branch, s.Mine.Branch)
+		}
+		return fmt.Sprintf("Merging %s into %s · %d of %d objects need you", s.Theirs.Branch, s.Mine.Branch, remaining, total)
+	}
+}
+
+func (s *MergeConflictSession) finishButtonLabel() string {
+	if s == nil {
+		return "Finish merge"
+	}
+	remaining := s.RemainingCount()
+	allDone := s.AllResolved()
+	switch s.effectiveOperation() {
+	case MergeOperationRebase:
+		if s.Finished {
+			return "Rebased"
+		}
+		if allDone {
+			return "Continue rebase"
+		}
+		return fmt.Sprintf("Continue rebase · %d left", remaining)
+	case MergeOperationCherryPick:
+		if s.Finished {
+			return "Cherry-picked"
+		}
+		if allDone {
+			return "Continue cherry-pick"
+		}
+		return fmt.Sprintf("Continue cherry-pick · %d left", remaining)
+	case MergeOperationRevert:
+		if s.Finished {
+			return "Reverted"
+		}
+		if allDone {
+			return "Continue revert"
+		}
+		return fmt.Sprintf("Continue revert · %d left", remaining)
+	case MergeOperationStash:
+		if s.Finished {
+			return "Staged"
+		}
+		if allDone {
+			return "Stage resolved"
+		}
+		return fmt.Sprintf("Stage resolved · %d left", remaining)
+	default:
+		if s.Finished {
+			return "Merged"
+		}
+		if allDone {
+			return "Finish merge"
+		}
+		return fmt.Sprintf("Finish merge · %d left", remaining)
+	}
+}
+
+func (s *MergeConflictSession) abortButtonLabel() string {
+	switch s.effectiveOperation() {
+	case MergeOperationRebase:
+		return "Abort rebase"
+	case MergeOperationCherryPick:
+		return "Abort cherry-pick"
+	case MergeOperationRevert:
+		return "Abort revert"
+	case MergeOperationStash:
+		return "Abort stash"
+	default:
+		return "Abort merge"
+	}
+}
+
+func (s *MergeConflictSession) resultSubtitle() string {
+	switch s.effectiveOperation() {
+	case MergeOperationRebase:
+		return fmt.Sprintf("what %s will be after the rebase", s.SceneName)
+	case MergeOperationCherryPick:
+		return fmt.Sprintf("what %s will be after the cherry-pick", s.SceneName)
+	case MergeOperationRevert:
+		return fmt.Sprintf("what %s will be after the revert", s.SceneName)
+	case MergeOperationStash:
+		return fmt.Sprintf("what %s will be after applying stash", s.SceneName)
+	default:
+		return fmt.Sprintf("what %s will be after the merge", s.SceneName)
+	}
+}
+
+func (s *MergeConflictSession) resultCardTitle() string {
+	if s == nil {
+		return "Scene resolved and saved"
+	}
+	if s.CommitSHA != "" {
+		switch s.effectiveOperation() {
+		case MergeOperationRebase:
+			return "Rebased as " + s.CommitSHA
+		case MergeOperationCherryPick:
+			return "Cherry-picked as " + s.CommitSHA
+		case MergeOperationRevert:
+			return "Reverted as " + s.CommitSHA
+		default:
+			return "Merged as " + s.CommitSHA
+		}
+	}
+	if s.effectiveOperation() == MergeOperationStash || s.RepoDir != "" {
+		return "Scene resolved and staged"
+	}
+	return "Scene resolved and saved"
+}
+
+func (s *MergeConflictSession) finishedStatusText() string {
+	if s == nil {
+		return "Merged scene resolved and verified"
+	}
+	if s.CommitSHA != "" {
+		switch s.effectiveOperation() {
+		case MergeOperationRebase:
+			return "Rebased as " + s.CommitSHA
+		case MergeOperationCherryPick:
+			return "Cherry-picked as " + s.CommitSHA
+		case MergeOperationRevert:
+			return "Reverted as " + s.CommitSHA
+		default:
+			return "Merged as " + s.CommitSHA
+		}
+	}
+	if s.effectiveOperation() == MergeOperationStash {
+		return "Resolved stash conflict and staged scene"
+	}
+	if s.RepoDir != "" {
+		return "Staged resolved scene"
+	}
+	return "Merged scene resolved and verified"
+}
+
+func abortedStatusText(op MergeOperation) string {
+	switch op {
+	case MergeOperationRebase:
+		return "Rebase aborted"
+	case MergeOperationCherryPick:
+		return "Cherry-pick aborted"
+	case MergeOperationRevert:
+		return "Revert aborted"
+	case MergeOperationStash:
+		return "Stash conflict aborted"
+	default:
+		return "Merge aborted"
+	}
+}
+
+func sameAsTheirsMeta(theirs MergeSideMeta) string {
+	switch strings.ToLower(strings.TrimSpace(theirs.Label)) {
+	case "upstream":
+		return "same as upstream"
+	case "stash":
+		return "same as stash"
+	default:
+		return "same as theirs"
+	}
+}
+
+func buildAutoMergedItems(merged []sceneformat.MergedItem, conflicts []sceneformat.MergeConflict, baseDoc, mineDoc, theirsDoc *sceneformat.SceneDoc, op MergeOperation) []MergeAutoItem {
 	if len(merged) == 0 {
 		return nil
 	}
@@ -1443,6 +1785,7 @@ func buildAutoMergedItems(merged []sceneformat.MergedItem, conflicts []sceneform
 	baseIdx := indexObjects(baseDoc)
 	mineIdx := indexObjects(mineDoc)
 	theirsIdx := indexObjects(theirsDoc)
+	theirsSideName := theirsAutoMergedSideName(op)
 
 	out := make([]MergeAutoItem, 0, len(merged))
 	for _, m := range merged {
@@ -1465,8 +1808,11 @@ func buildAutoMergedItems(merged []sceneformat.MergedItem, conflicts []sceneform
 			}
 		}
 		sideName := m.Side
-		if sideName == "ours" {
+		switch sideName {
+		case "ours":
 			sideName = "mine"
+		case "theirs":
+			sideName = theirsSideName
 		}
 		detail := m.Action
 		if m.Scope == "object" && m.Action == "changed" {

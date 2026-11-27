@@ -229,3 +229,78 @@ func TestSceneMergeConflictMacOSScreenshots(t *testing.T) {
 	app.Press("id:merge-finish")
 	app.Screenshot("merge-conflict-finished")
 }
+
+// TestSceneRebaseConflictMacOSScreenshots renders the Scene Merge Conflict screen during a
+// git rebase on the native macOS host, confirming Mine shows the person's commit being replayed
+// and Upstream shows the target branch, with Continue rebase / Abort rebase controls.
+func TestSceneRebaseConflictMacOSScreenshots(t *testing.T) {
+	baseDoc, err := sceneformat.Parse([]byte(macosMergeBaseScene))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mineDoc, err := sceneformat.Parse([]byte(macosMergeMineScene))
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirsDoc, err := sceneformat.Parse([]byte(macosMergeTheirsScene))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(mineDoc.Clone(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.MergeCheckRunner = func(dir, scenePath string, doc *sceneformat.SceneDoc) ([]assetcheck.Problem, error) {
+		return nil, nil
+	}
+	ed.MergePlaytestRunner = func(dir, scenePath string, doc *sceneformat.SceneDoc) (editor.MergePlaytestResult, error) {
+		return editor.MergePlaytestResult{
+			Duration: 10 * time.Second,
+			Steps:    600,
+			Summary:  "The agent ran game check and a 10 s playtest on the result: no problems, 3 of 3 coins reachable.",
+		}, nil
+	}
+
+	if err := ed.OpenMergeConflictSession(editor.MergeConflictSessionConfig{
+		ScenePath:   "scenes/level_01.scene.yaml",
+		ProjectName: "dungeon-run",
+		SceneName:   "level_01",
+		Operation:   editor.MergeOperationRebase,
+		Mine: editor.MergeSideMeta{
+			Branch:  "feat/slime-patrol",
+			Author:  "you",
+			Commit:  "9f3c2d1",
+			Message: "Add a plank guard and a coin trail to level_01",
+		},
+		Theirs: editor.MergeSideMeta{
+			Branch:  "origin/main",
+			Author:  "mia",
+			Commit:  "7c21f0e",
+			Message: "Thin out the lower floor for the lever",
+		},
+		BaseDoc:   baseDoc,
+		MineDoc:   mineDoc,
+		TheirsDoc: theirsDoc,
+	}); err != nil {
+		t.Fatalf("OpenMergeConflictSession: %v", err)
+	}
+	if err := ed.ResolveMergeConflict("slime_02", editor.MergeChoiceTheirs); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.FocusMergeConflict("door"); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+
+	app.Screenshot("rebase-conflict-unresolved")
+
+	app.Press("id:merge-take-all-agent")
+	app.Screenshot("rebase-conflict-resolved")
+
+	app.Press("id:merge-finish")
+	app.Screenshot("rebase-conflict-finished")
+}
