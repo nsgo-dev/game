@@ -12,6 +12,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/quality"
 	"github.com/nsgo-dev/game/pkg/save"
+	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 )
@@ -375,6 +376,8 @@ type SettingsMenuConfig struct {
 	Theme *Theme
 	// Viewport optionally attaches virtual-resolution scaling to the menu's Root.
 	Viewport *Viewport
+	// Env optionally supplies the platform environment so SettingsMenu hides Window Mode where the platform cannot enter full screen (screen.CanFullScreen) and keeps Window Mode synchronized with Env.FullScreen.
+	Env *core.Env
 
 	// AutoApply dispatches Targets and OnApply immediately whenever any control changes.
 	AutoApply bool
@@ -420,6 +423,10 @@ type SettingsMenu struct {
 	userTheme *Theme
 	autoApply bool
 	autoSave  bool
+
+	env           *core.Env
+	canFullScreen bool
+	lastEnvFull   bool
 
 	onChange           func(save.Settings)
 	onApply            func(save.Settings) error
@@ -503,6 +510,8 @@ func NewSettingsMenu(cfg SettingsMenuConfig) *SettingsMenu {
 		userTheme:          cfg.Theme,
 		autoApply:          cfg.AutoApply,
 		autoSave:           cfg.AutoSave,
+		env:                cfg.Env,
+		canFullScreen:      screen.CanFullScreen(cfg.Env),
 		onChange:           cfg.OnChange,
 		onApply:            cfg.OnApply,
 		onSave:             cfg.OnSave,
@@ -562,6 +571,14 @@ func NewSettingsMenu(cfg SettingsMenuConfig) *SettingsMenu {
 	m.actions = defaultSettingsActions(cfg.Actions, initial.Bindings, m.defaults.Bindings)
 	ensureActionBindings(&m.defaults, m.actions)
 	ensureActionBindings(&initial, m.actions)
+
+	if m.env != nil {
+		m.lastEnvFull = m.env.FullScreen()
+		if m.canFullScreen && m.env.OS() == core.OSWeb {
+			// On the web, startup full-screen requests are deferred until a user gesture, so show the page's actual state rather than a stale saved true.
+			initial.Display.Fullscreen = m.lastEnvFull
+		}
+	}
 
 	m.settings = cloneSaveSettings(initial)
 	m.savedSnap = cloneSaveSettings(initial)
@@ -1029,15 +1046,17 @@ func (m *SettingsMenu) buildAudioTab() {
 }
 
 func (m *SettingsMenu) buildVideoTab() {
-	stepWindowMode := func(_ int) {
-		m.settings.Display.Fullscreen = !m.settings.Display.Fullscreen
-		m.onSettingMutated()
+	if m.canFullScreen {
+		stepWindowMode := func(_ int) {
+			m.settings.Display.Fullscreen = !m.settings.Display.Fullscreen
+			m.onSettingMutated()
+		}
+		m.windowModeBtn = &Button{
+			Height:  30,
+			OnClick: func() { stepWindowMode(1) },
+		}
+		m.cycleHandlers[m.windowModeBtn] = stepWindowMode
 	}
-	m.windowModeBtn = &Button{
-		Height:  30,
-		OnClick: func() { stepWindowMode(1) },
-	}
-	m.cycleHandlers[m.windowModeBtn] = stepWindowMode
 
 	stepResolution := func(delta int) {
 		if len(m.resolutions) == 0 {
@@ -1139,15 +1158,18 @@ func (m *SettingsMenu) buildVideoTab() {
 	}
 	m.cycleHandlers[m.frameCapBtn] = stepFrameCap
 
-	controls := []Widget{
-		m.windowModeBtn,
+	controls := make([]Widget, 0, 7)
+	if m.windowModeBtn != nil {
+		controls = append(controls, m.windowModeBtn)
+	}
+	controls = append(controls,
 		m.resolutionBtn,
 		m.scaleModeBtn,
 		m.integerScaleTog,
 		m.qualityBtn,
 		m.vsyncToggle,
 		m.frameCapBtn,
-	}
+	)
 	m.tabPanels[SettingsTabVideo] = &VBox{
 		Spacing:  6,
 		Align:    AlignStretch,
@@ -1465,11 +1487,13 @@ func (m *SettingsMenu) syncWidgets() {
 	}
 
 	// Video
-	winLabel := m.text.Windowed
-	if m.settings.Display.Fullscreen {
-		winLabel = m.text.Fullscreen
+	if m.windowModeBtn != nil {
+		winLabel := m.text.Windowed
+		if m.settings.Display.Fullscreen {
+			winLabel = m.text.Fullscreen
+		}
+		m.windowModeBtn.Text = fmt.Sprintf("%s: < %s >", m.text.WindowMode, winLabel)
 	}
-	m.windowModeBtn.Text = fmt.Sprintf("%s: < %s >", m.text.WindowMode, winLabel)
 
 	resID := SettingsResolutionFrom(m.settings)
 	resLabel := resID
@@ -1606,6 +1630,7 @@ func (m *SettingsMenu) SetTab(tab SettingsTab) {
 	for i := range settingsTabCount {
 		m.tabPanels[i].Hidden = SettingsTab(i) != tab
 	}
+	m.syncEnvFullScreen()
 	m.syncWidgets()
 	m.wireNav()
 	if b := m.root.Bounds(); b.Size.Width > 0 && b.Size.Height > 0 {
@@ -1651,8 +1676,25 @@ func (m *SettingsMenu) FooterButtons() (apply, saveBtn, reset, back *Button) {
 	return m.applyBtn, m.saveBtn, m.resetBtn, m.backBtn
 }
 
+// syncEnvFullScreen reflects transitions of Env.FullScreen into the working Display.Fullscreen without clobbering unapplied edits while Env.FullScreen has not changed.
+func (m *SettingsMenu) syncEnvFullScreen() {
+	if m.env == nil || !m.canFullScreen {
+		return
+	}
+	cur := m.env.FullScreen()
+	if cur == m.lastEnvFull {
+		return
+	}
+	m.lastEnvFull = cur
+	if m.settings.Display.Fullscreen != cur {
+		m.settings.Display.Fullscreen = cur
+		m.syncWidgets()
+	}
+}
+
 // Settings returns a deep copy of the menu's current working player settings.
 func (m *SettingsMenu) Settings() save.Settings {
+	m.syncEnvFullScreen()
 	return cloneSaveSettings(m.settings)
 }
 
@@ -1666,6 +1708,9 @@ func (m *SettingsMenu) SetSettings(s save.Settings) {
 		SetSettingsResolution(&cp, m.resolutions[0].ID)
 	}
 	m.settings = cp
+	if m.env != nil {
+		m.lastEnvFull = m.env.FullScreen()
+	}
 	m.capturingAction = ""
 	m.applyTheme()
 	m.syncWidgets()
@@ -1851,11 +1896,13 @@ func (m *SettingsMenu) Back() {
 
 // Layout lays out the menu inside bounds.
 func (m *SettingsMenu) Layout(bounds core.Bounds) {
+	m.syncEnvFullScreen()
 	m.root.Layout(bounds)
 }
 
 // Draw lays out and renders the settings menu into d within bounds.
 func (m *SettingsMenu) Draw(d *core.Drawing, bounds core.Bounds) {
+	m.syncEnvFullScreen()
 	m.root.Draw(d, bounds)
 }
 
@@ -1866,21 +1913,25 @@ func (m *SettingsMenu) OnPointerMove(p core.Point) bool {
 
 // OnPointerDown focuses and presses the control under p.
 func (m *SettingsMenu) OnPointerDown(p core.Point) bool {
+	m.syncEnvFullScreen()
 	return m.root.OnPointerDown(p)
 }
 
 // OnPointerUp finishes any press or slider drag, activating controls released inside their bounds.
 func (m *SettingsMenu) OnPointerUp(p core.Point) bool {
+	m.syncEnvFullScreen()
 	return m.root.OnPointerUp(p)
 }
 
 // OnPress handles a completed core.PressEvent directly.
 func (m *SettingsMenu) OnPress(ev core.PressEvent) bool {
+	m.syncEnvFullScreen()
 	return m.root.OnPress(ev)
 }
 
 // OnTouch routes touch start, move, end, and cancel events to sliders, toggles, and buttons.
 func (m *SettingsMenu) OnTouch(ev core.TouchEvent) bool {
+	m.syncEnvFullScreen()
 	switch ev.Phase {
 	case core.TouchStart:
 		if m.hasActiveTouch || len(ev.Touches) == 0 {
@@ -1992,6 +2043,7 @@ func (m *SettingsMenu) OnKeyDown(ev core.KeyEvent) bool {
 // HandleAction dispatches a logical NavAction through the menu, supporting slider adjustment,
 // toggle switching, cycle-option stepping on NavLeft/NavRight, and capture cancellation on NavBack.
 func (m *SettingsMenu) HandleAction(action NavAction) bool {
+	m.syncEnvFullScreen()
 	if m.capturingAction != "" {
 		if action == NavBack {
 			m.CancelCapture()

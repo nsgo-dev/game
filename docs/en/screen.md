@@ -108,12 +108,19 @@ The request does nothing on desktops. Android may disregard it in multi-window o
 
 ```go
 loop := &game.Loop{Update: update, Draw: draw}
-video := &screen.Video{Loop: loop}
+video := &screen.Video{
+	Loop: loop,
+	OnWindowChanged: func(d save.DisplaySettings) {
+		// Keep settings UI or persisted preferences in sync after Escape or browser/OS window controls.
+	},
+}
 store := save.NewStorageSettingsStore(cx.Storage(), "mygame")
 
 loop.Run(cx)
 video.Run(cx)
 settings, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: video.Apply})
+// On the web, attach the game's input view (or call video.ApplyPending() in a press handler) so a saved Fullscreen setting enters full screen on the first user press.
+video.Attach(&gameView)
 ```
 
 | Field | Effect |
@@ -124,4 +131,4 @@ settings, err := store.LoadAndApply(save.SettingsTargets{ApplyDisplay: video.App
 | `FrameCap` | Most frames drawn a second (the loop's `DrawRate`), uncapped when 0. Updates keep to `Loop.Rate`. |
 | `AutoDropLowPower` | Lowers the cap to `Video.LowPowerCap` (30 when 0) while `cx.Env().LowPowerMode()` is on or `ThermalState()` is serious or critical, keeping a lower `FrameCap`, and restores it once the condition clears. |
 
-`Video` asks the window to change full screen or display only when the settings change them, or on the first `Apply` when they differ from the window, so applying other settings does not undo a player leaving full screen with the system's own controls. Settings applied before `Run` take effect when it starts, and disposing the owner that called `Run`, like calling the `stop` it returns, restores the cap and stops sending window requests. `Video.FrameCap()` returns the cap in effect and `Video.Dropped()` whether it is lowered; read inside a component or effect while `Run` is active, both update when the power state changes, and settings changes arrive through the screen's own `Apply` call; `screen.DisplayID` and `screen.Constrained` expose the display choice and the power rule for a settings screen. Full screen applies on macOS (as native full screen in its own Space), Windows and Linux. On the web it asks the browser, which grants full screen only during a user gesture such as the click that changes the setting, so a saved full-screen setting applied at start stays windowed there. Android and iOS ignore it. The frame cap applies everywhere.
+`Video` asks the window to change full screen or display only when the settings change them, or on the first `Apply` when they differ from the window, so applying other settings does not undo a player leaving full screen with the system's own controls. Settings applied before `Run` take effect when it starts, and disposing the owner that called `Run`, like calling the `stop` it returns, restores the cap and stops sending window requests. While `Run` is active, `Video` watches `cx.Env().FullScreen()`: when the window enters or leaves full screen outside a `Video` request (such as pressing Escape or using browser or system controls), `Video` updates the settings returned by `Video.Settings()` and calls `Video.OnWindowChanged`. `Video.FrameCap()` returns the cap in effect and `Video.Dropped()` whether it is lowered; read inside a component or effect while `Run` is active, both update when the power state changes, and settings changes arrive through the screen's own `Apply` call; `screen.DisplayID`, `screen.Constrained`, and `screen.CanFullScreen` expose the display choice, the power rule, and whether the platform can enter full screen for a settings screen. Full screen applies on macOS (as native full screen in its own Space), Windows and Linux. On the web, browsers grant full screen only during a user gesture, so a saved full-screen setting applied at start is marked pending (`Video.PendingFullScreen()`) rather than requested immediately, and is sent on the first press seen by `Video.Attach` (or when a press handler calls `Video.ApplyPending()`); interactive toggles from a settings button apply immediately. Android, iOS, and phone web browsers (such as iPhone Safari) cannot enter full screen (`screen.CanFullScreen(cx.Env())` returns `false`). The frame cap applies everywhere.

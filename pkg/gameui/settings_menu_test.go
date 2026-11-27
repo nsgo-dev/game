@@ -3,6 +3,7 @@ package gameui_test
 import (
 	"math"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/gameui"
@@ -475,5 +476,125 @@ func TestBindingTokenRoundTripAndApplyToActions(t *testing.T) {
 	want := []input.Input{region, input.Key("k"), input.GamepadButton(gamepad.ButtonWest)}
 	if !slices.Equal(got, want) {
 		t.Fatalf("Bindings(jump) = %+v, want %+v", got, want)
+	}
+}
+
+func TestSettingsMenuHidesWindowModeWhenPlatformCannotFullScreen(t *testing.T) {
+	cases := []struct {
+		name           string
+		env            core.Environment
+		wantWindowMode bool
+	}{
+		{"web phone", core.Environment{OS: core.OSWeb, Idiom: core.IdiomPhone}, false},
+		{"ios phone", core.Environment{OS: core.OSIOS, Idiom: core.IdiomPhone}, false},
+		{"android phone", core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone}, false},
+		{"web desktop", core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop}, true},
+		{"macos desktop", core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}, true},
+	}
+
+	bounds := core.Bounds{Size: core.Size{Width: 960, Height: 540}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var menu *gameui.SettingsMenu
+			nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				menu = gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+					Env: cx.Env(),
+				})
+				return core.View{}
+			}, nsgotest.Environment(tc.env))
+
+			menu.SetTab(gameui.SettingsTabVideo)
+			menu.Layout(bounds)
+
+			controls := menu.TabControls(gameui.SettingsTabVideo)
+			hasWindowMode := false
+			for _, w := range controls {
+				if btn, ok := w.(*gameui.Button); ok && strings.HasPrefix(btn.Text, "Window Mode:") {
+					hasWindowMode = true
+				}
+			}
+			if hasWindowMode != tc.wantWindowMode {
+				t.Fatalf("%s: hasWindowMode = %v, want %v (controls=%d)", tc.name, hasWindowMode, tc.wantWindowMode, len(controls))
+			}
+
+			wantCount := 6
+			if tc.wantWindowMode {
+				wantCount = 7
+			}
+			if len(controls) != wantCount {
+				t.Fatalf("%s: Video tab control count = %d, want %d", tc.name, len(controls), wantCount)
+			}
+
+			// Verify layout bounds remain non-overlapping and inside bounds.
+			for i, w := range controls {
+				b := w.Bounds()
+				if b.Size.Width <= 0 || b.Size.Height <= 0 || !boundsInside(b, bounds) {
+					t.Fatalf("%s: control %d invalid bounds %+v", tc.name, i, b)
+				}
+				for j := i + 1; j < len(controls); j++ {
+					if boundsOverlap(b, controls[j].Bounds()) {
+						t.Fatalf("%s: controls %d and %d overlap", tc.name, i, j)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSettingsMenuWebSyncsWindowModeWithEnvFullScreen(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+	saved := save.DefaultSettings()
+	saved.Display.Fullscreen = true
+	if err := store.Save(saved); err != nil {
+		t.Fatal(err)
+	}
+
+	var applied []bool
+	var menu *gameui.SettingsMenu
+	webEnv := core.Environment{OS: core.OSWeb, Idiom: core.IdiomDesktop, FullScreen: false}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		menu = gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+			Store:     store,
+			Env:       cx.Env(),
+			AutoApply: true,
+			Targets: save.SettingsTargets{
+				ApplyDisplay: func(d save.DisplaySettings) error {
+					applied = append(applied, d.Fullscreen)
+					return nil
+				},
+			},
+		})
+		return core.View{}
+	}, nsgotest.Environment(webEnv))
+
+	menu.SetTab(gameui.SettingsTabVideo)
+	menu.Layout(core.Bounds{Size: core.Size{Width: 960, Height: 540}})
+
+	// Saved Fullscreen=true must not lie while the web page is windowed.
+	winBtn := menu.TabControls(gameui.SettingsTabVideo)[0].(*gameui.Button)
+	if !strings.Contains(winBtn.Text, "Windowed") {
+		t.Fatalf("Window Mode text = %q, want Windowed", winBtn.Text)
+	}
+
+	// One click enters full screen.
+	pt := centerOf(winBtn.Bounds())
+	menu.OnPointerDown(pt)
+	menu.OnPointerUp(pt)
+	if !slices.Equal(applied, []bool{true}) {
+		t.Fatalf("applied fullscreen = %v, want [true]", applied)
+	}
+
+	// Browser enters full screen, then leaves via Escape.
+	fullEnv := webEnv
+	fullEnv.FullScreen = true
+	app.SetEnvironment(fullEnv)
+	_ = menu.Settings()
+	app.SetEnvironment(webEnv)
+	if menu.Settings().Display.Fullscreen {
+		t.Fatal("expected Display.Fullscreen == false after browser left full screen")
+	}
+	if !strings.Contains(winBtn.Text, "Windowed") {
+		t.Fatalf("Window Mode text after Escape = %q, want Windowed", winBtn.Text)
 	}
 }
