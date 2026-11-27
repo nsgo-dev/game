@@ -358,7 +358,7 @@ _, _ = detour, watchID
 
 ## Bounded, partial, and incremental path searches
 
-Clicking an unreachable target should still move a unit as close as possible, and dozens of simultaneous long searches should never stall a frame. `AStar`, 2D `NavMesh`, and [world3d](world3d.md)'s 3D `NavMesh` share `PathOptions{MaxExpansions, AllowPartial}` and the `IncrementalSearch` interface:
+Clicking an unreachable target should still move a unit as close as possible, and dozens of simultaneous long searches should never stall a frame. `AStar`, 2D `NavMesh`, and [pathfind3d](pathfind3d.md)'s 3D `NavMesh` share `PathOptions{MaxExpansions, AllowPartial}` and the `IncrementalSearch` interface:
 
 ```go
 // Single-shot bounded search with partial-path fallback:
@@ -382,7 +382,7 @@ _ = navRes
 
 - **Partial paths**: when `AllowPartial` is `true` and the goal is walled off, blocked, outside the mesh, or beyond `MaxExpansions`, `FindWithOptions` / `FindWithOptionsInto` (zero-allocation after warm-up) and `NavMesh.FindPathWithOptions` return a valid path to the closest explored cell or closest point on an explored polygon, with `Partial: true`. Setting `AStar.MaxExpansions > 0` also caps `Find` / `FindInto` and acts as the default budget when `PathOptions.MaxExpansions == 0` (pass a negative `PathOptions.MaxExpansions` to override to unlimited).
 - **Deterministic incremental stepping**: start a multi-frame search with `astar.StartSearch(grid, start, goal, opts)` (`*AStarSearch`, reusable via `Reset`) or `mesh.StartSearch(start, goal, opts)` (`*NavMeshSearch`) and advance it with `Step(maxExpansions)`. Splitting a search across any positive step sizes (even 1 expansion per step) produces the exact same path, cost, partial flag, and expansion count as a single-shot call.
-- **Budgeted request queue (`PathQueue`)**: service many grid, 2D `NavMesh`, and `world3d.NavMesh` searches within one strict per-step expansion budget using `NewPathQueue`, `Submit` / `SubmitGrid` / `SubmitNavMesh`, `Cancel`, and `Step(budget)` / `StepDefault()`:
+- **Budgeted request queue (`PathQueue`)**: service many grid, 2D `NavMesh`, and `pathfind3d.NavMesh` searches within one strict per-step expansion budget using `NewPathQueue`, `Submit` / `SubmitGrid` / `SubmitNavMesh`, `Cancel`, and `Step(budget)` / `StepDefault()`:
 
 ```go
 queue := pathfind.NewPathQueue(pathfind.PathQueueConfig{

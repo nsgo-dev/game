@@ -1,10 +1,11 @@
-package world3d
+package pathfind3d
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
 // NavTileStreamerConfig configures a NavTileStreamer that drives a 3D TiledNavMesh
@@ -21,19 +22,19 @@ type NavTileStreamerConfig struct {
 	// MaxIntegrationsPerFrame caps how many completed tiles are installed into Mesh per Update call
 	// (<= 0 allows unlimited integrations per frame).
 	MaxIntegrationsPerFrame int
-	// Workers sets the number of background ChunkStreamer loader goroutines.
+	// Workers sets the number of background world3d.ChunkStreamer loader goroutines.
 	// When 0, Bake runs synchronously inside Update (useful for deterministic tests).
 	Workers int
 	// Bake builds the standalone *NavTile for chunk coord and world-space XZ bounds.
 	// When Workers > 0, Bake runs on worker goroutines and must respect ctx cancellation.
 	// Return (nil, nil) for a chunk with no walkable surface.
-	Bake func(ctx context.Context, coord ChunkCoord, bounds math3d.AABB) (*NavTile, error)
+	Bake func(ctx context.Context, coord world3d.ChunkCoord, bounds math3d.AABB) (*NavTile, error)
 	// OnLoad runs on the Update goroutine after the tile is installed into Mesh.
-	OnLoad func(coord ChunkCoord, tile *NavTile)
+	OnLoad func(coord world3d.ChunkCoord, tile *NavTile)
 	// OnUnload runs on the Update/Close goroutine after the tile is removed from Mesh.
-	OnUnload func(coord ChunkCoord)
+	OnUnload func(coord world3d.ChunkCoord)
 	// OnError runs on the Update goroutine when Bake returns a non-nil error.
-	OnError func(coord ChunkCoord, err error)
+	OnError func(coord world3d.ChunkCoord, err error)
 }
 
 // NavTileStreamer bridges world3d.ChunkStreamer[*NavTile] onto a 3D TiledNavMesh:
@@ -42,21 +43,21 @@ type NavTileStreamerConfig struct {
 // are removed from Mesh, unlinking neighbor portals and invalidating paths that crossed them.
 type NavTileStreamer struct {
 	cfg      NavTileStreamerConfig
-	streamer *ChunkStreamer[*NavTile]
+	streamer *world3d.ChunkStreamer[*NavTile]
 }
 
-// NewNavTileStreamer constructs a NavTileStreamer backed by a ChunkStreamer[*NavTile]
+// NewNavTileStreamer constructs a NavTileStreamer backed by a world3d.ChunkStreamer[*NavTile]
 // whose ChunkSize matches cfg.Mesh.TileSize(). Call Close when finished to stop worker
 // goroutines and unload remaining tiles.
 func NewNavTileStreamer(cfg NavTileStreamerConfig) (*NavTileStreamer, error) {
 	if cfg.Mesh == nil {
-		return nil, fmt.Errorf("world3d: nav tile streamer: nil tiled navmesh")
+		return nil, fmt.Errorf("pathfind3d: nav tile streamer: nil tiled navmesh")
 	}
 	if cfg.Mesh.TileSize() <= 0 {
-		return nil, fmt.Errorf("world3d: nav tile streamer: non-positive tile size %g", cfg.Mesh.TileSize())
+		return nil, fmt.Errorf("pathfind3d: nav tile streamer: non-positive tile size %g", cfg.Mesh.TileSize())
 	}
 	ns := &NavTileStreamer{cfg: cfg}
-	ns.streamer = NewChunkStreamer(ChunkStreamerConfig[*NavTile]{
+	ns.streamer = world3d.NewChunkStreamer(world3d.ChunkStreamerConfig[*NavTile]{
 		ChunkSize:               float64(cfg.Mesh.TileSize()),
 		LoadRadius:              cfg.LoadRadius,
 		UnloadRadius:            cfg.UnloadRadius,
@@ -70,7 +71,7 @@ func NewNavTileStreamer(cfg NavTileStreamerConfig) (*NavTileStreamer, error) {
 	return ns, nil
 }
 
-func (s *NavTileStreamer) loadTile(ctx context.Context, coord ChunkCoord) (*NavTile, error) {
+func (s *NavTileStreamer) loadTile(ctx context.Context, coord world3d.ChunkCoord) (*NavTile, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -85,7 +86,7 @@ func (s *NavTileStreamer) loadTile(ctx context.Context, coord ChunkCoord) (*NavT
 	return s.cfg.Bake(ctx, coord, bounds)
 }
 
-func (s *NavTileStreamer) onLoad(coord ChunkCoord, tile *NavTile) {
+func (s *NavTileStreamer) onLoad(coord world3d.ChunkCoord, tile *NavTile) {
 	if tile != nil {
 		s.cfg.Mesh.SetTile(coord, tile)
 	}
@@ -94,7 +95,7 @@ func (s *NavTileStreamer) onLoad(coord ChunkCoord, tile *NavTile) {
 	}
 }
 
-func (s *NavTileStreamer) onUnload(coord ChunkCoord, _ *NavTile) {
+func (s *NavTileStreamer) onUnload(coord world3d.ChunkCoord, _ *NavTile) {
 	s.cfg.Mesh.RemoveTile(coord)
 	if s.cfg.OnUnload != nil {
 		s.cfg.OnUnload(coord)
@@ -103,11 +104,11 @@ func (s *NavTileStreamer) onUnload(coord ChunkCoord, _ *NavTile) {
 
 // Update advances chunk streaming around worldPos (offset by Mesh.Origin() when non-zero),
 // installing completed tiles up to MaxIntegrationsPerFrame and unloading distant tiles.
-func (s *NavTileStreamer) Update(worldPos WorldPos64) {
+func (s *NavTileStreamer) Update(worldPos world3d.WorldPos64) {
 	if s == nil || s.streamer == nil {
 		return
 	}
-	shifted := WorldPos64{
+	shifted := world3d.WorldPos64{
 		X: worldPos.X - s.cfg.Mesh.originX,
 		Y: worldPos.Y,
 		Z: worldPos.Z - s.cfg.Mesh.originZ,
@@ -115,8 +116,8 @@ func (s *NavTileStreamer) Update(worldPos WorldPos64) {
 	s.streamer.Update(shifted)
 }
 
-// Streamer returns the underlying ChunkStreamer[*NavTile].
-func (s *NavTileStreamer) Streamer() *ChunkStreamer[*NavTile] {
+// Streamer returns the underlying world3d.ChunkStreamer[*NavTile].
+func (s *NavTileStreamer) Streamer() *world3d.ChunkStreamer[*NavTile] {
 	if s == nil {
 		return nil
 	}
@@ -124,7 +125,7 @@ func (s *NavTileStreamer) Streamer() *ChunkStreamer[*NavTile] {
 }
 
 // LoadedTiles returns a sorted slice of chunk coordinates currently tracked as loaded.
-func (s *NavTileStreamer) LoadedTiles() []ChunkCoord {
+func (s *NavTileStreamer) LoadedTiles() []world3d.ChunkCoord {
 	if s == nil || s.streamer == nil {
 		return nil
 	}

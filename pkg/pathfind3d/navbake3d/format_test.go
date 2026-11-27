@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 )
 
 func readRamp(t testing.TB) []byte {
@@ -159,8 +159,8 @@ func TestOffMeshLinksYAMLAndNavMesh(t *testing.T) {
 			End:      navbake3d.Point{7, 1, 2},
 			Radius:   0.5,
 			Cost:     1,
-			Area:     world3d.NavAreaTeleport,
-			Flags:    uint32(world3d.NavFlagTeleport),
+			Area:     pathfind3d.NavAreaTeleport,
+			Flags:    uint32(pathfind3d.NavFlagTeleport),
 			UserData: "teleport",
 		},
 	}

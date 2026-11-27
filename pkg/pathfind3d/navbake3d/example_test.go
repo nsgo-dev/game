@@ -3,8 +3,8 @@ package navbake3d_test
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
@@ -43,7 +43,7 @@ func Example() {
 	// agent types: 1 humanoid
 }
 
-// Parse reads a navigation mesh file, and Mesh.NavMesh turns an agent type's mesh into a world3d.NavMesh to find paths on.
+// Parse reads a navigation mesh file, and Mesh.NavMesh turns an agent type's mesh into a pathfind3d.NavMesh to find paths on.
 func ExampleParse() {
 	data := []byte(`version: 1
 settings:

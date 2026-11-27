@@ -77,7 +77,7 @@ for i := range agents {
 
 `Agent3D`, `Vec3`, `Obstacle3D`, `Wall3D`, `WeightedForce3D`, and `NeighborGrid3D` provide the matching 3D steering suite (`Seek3D`, `Arrive3D`, `Flee3D`, `Pursue3D`, `Evade3D`, `OffsetPursuit3D`, `FollowPath3D`, `Separation3D`, `Alignment3D`, `Cohesion3D`, `ObstacleAvoidance3D`, `WallAvoidance3D`, `Hide3D`, `Interpose3D`, `Combine3D`, `CombinePrioritized3D`).
 
-`ai.Vec3` shares the exact `X, Y, Z float32` layout of `math3d.Vec3` (right-handed Y-up: `+X` right, `+Y` up, `-Z` forward), so values convert with `ai.Vec3(v)` at zero cost while keeping `game/ai` free of experimental imports. Set `Agent3D.PlanarXZ = true` for grounded agents following `world3d.NavMesh` paths on the horizontal XZ plane:
+`ai.Vec3` shares the exact `X, Y, Z float32` layout of `math3d.Vec3` (right-handed Y-up: `+X` right, `+Y` up, `-Z` forward), so values convert with `ai.Vec3(v)` at zero cost while keeping `game/ai` free of experimental imports. Set `Agent3D.PlanarXZ = true` for grounded agents following `pathfind3d.NavMesh` paths on the horizontal XZ plane:
 
 ```go
 rawPath, ok := navMesh3D.FindPath(start, goal)

@@ -136,7 +136,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
   },
   {
     key: 'threeD',
-    slugs: ['3d-models-blender', 'math3d', 'scene3d', 'render3d', 'scenemodel', 'anim3d', 'physics3d', 'vehicle3d', 'world3d', 'navbake3d', 'voxel'],
+    slugs: ['3d-models-blender', 'math3d', 'scene3d', 'render3d', 'scenemodel', 'anim3d', 'physics3d', 'vehicle3d', 'world3d', 'pathfind3d', 'navbake3d', 'voxel'],
   },
 ]
 

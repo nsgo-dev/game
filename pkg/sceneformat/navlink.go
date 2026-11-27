@@ -7,7 +7,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -16,7 +16,7 @@ import (
 const NavLinkComponentName = "nav_link"
 
 // NavLinkComponent returns the ComponentType schema for authoring off-mesh navigation links
-// in scene YAML files (for both 2D pathfind.NavMesh and 3D world3d.NavMesh / navbake3d).
+// in scene YAML files (for both 2D pathfind.NavMesh and 3D pathfind3d.NavMesh / navbake3d).
 //
 // The link's Start and End are expressed in the object's local space (start defaults to the object
 // origin (0, 0, 0), end to (endX, endY, endZ)) and transformed by the object's composed world
@@ -249,12 +249,12 @@ func ExtractBuiltNavLinks2D(scene *BuiltScene) ([]pathfind.NavOffMeshLink, error
 
 // ExtractNavLinks3D extracts all authored "nav_link" components from doc in deterministic
 // document order (including nested child objects, composing full 3D object transforms) as 3D
-// world3d.NavOffMeshLink values ready for world3d.NavMesh.AddOffMeshLink or navbake3d.
-func ExtractNavLinks3D(doc *SceneDoc) ([]world3d.NavOffMeshLink, error) {
+// pathfind3d.NavOffMeshLink values ready for pathfind3d.NavMesh.AddOffMeshLink or navbake3d.
+func ExtractNavLinks3D(doc *SceneDoc) ([]pathfind3d.NavOffMeshLink, error) {
 	if doc == nil {
 		return nil, nil
 	}
-	var out []world3d.NavOffMeshLink
+	var out []pathfind3d.NavOffMeshLink
 
 	var visit func(objs []ObjectDoc, parentWorld math3d.Mat4) error
 	visit = func(objs []ObjectDoc, parentWorld math3d.Mat4) error {
@@ -269,7 +269,7 @@ func ExtractNavLinks3D(doc *SceneDoc) ([]world3d.NavOffMeshLink, error) {
 				}
 				start := world.TransformPoint(math3d.Vec3{X: d.startX, Y: d.startY, Z: d.startZ})
 				end := world.TransformPoint(math3d.Vec3{X: d.endX, Y: d.endY, Z: d.endZ})
-				out = append(out, world3d.NavOffMeshLink{
+				out = append(out, pathfind3d.NavOffMeshLink{
 					Start:         start,
 					End:           end,
 					Radius:        d.radius,
@@ -299,7 +299,7 @@ func ExtractNavLinks3D(doc *SceneDoc) ([]world3d.NavOffMeshLink, error) {
 }
 
 // ExtractBuiltNavLinks3D extracts all authored "nav_link" components from a resolved BuiltScene as 3D links.
-func ExtractBuiltNavLinks3D(scene *BuiltScene) ([]world3d.NavOffMeshLink, error) {
+func ExtractBuiltNavLinks3D(scene *BuiltScene) ([]pathfind3d.NavOffMeshLink, error) {
 	if scene == nil || scene.Doc == nil {
 		return nil, nil
 	}

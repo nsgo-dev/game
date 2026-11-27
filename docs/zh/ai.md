@@ -77,7 +77,7 @@ for i := range agents {
 
 `Agent3D`、`Vec3`、`Obstacle3D`、`Wall3D`、`WeightedForce3D` 和 `NeighborGrid3D` 提供与 2D 对称的 3D 转向行为（`Seek3D`、`Arrive3D`、`Flee3D`、`Pursue3D`、`Evade3D`、`OffsetPursuit3D`、`FollowPath3D`、`Separation3D`、`Alignment3D`、`Cohesion3D`、`ObstacleAvoidance3D`、`WallAvoidance3D`、`Hide3D`、`Interpose3D`、`Combine3D`、`CombinePrioritized3D`）。
 
-`ai.Vec3` 与 `math3d.Vec3` 具有完全相同的 `X, Y, Z float32` 布局（右手 Y-up：`+X` 向右、`+Y` 向上、`-Z` 向前），可通过 `ai.Vec3(v)` 零成本转换，同时保持稳定的 `game/ai` 不依赖实验性包。将 `Agent3D.PlanarXZ` 设为 `true` 时，地面智能体在水平 XZ 平面上跟踪 `world3d.NavMesh` 路径：
+`ai.Vec3` 与 `math3d.Vec3` 具有完全相同的 `X, Y, Z float32` 布局（右手 Y-up：`+X` 向右、`+Y` 向上、`-Z` 向前），可通过 `ai.Vec3(v)` 零成本转换，同时保持稳定的 `game/ai` 不依赖实验性包。将 `Agent3D.PlanarXZ` 设为 `true` 时，地面智能体在水平 XZ 平面上跟踪 `pathfind3d.NavMesh` 路径：
 
 ```go
 rawPath, ok := navMesh3D.FindPath(start, goal)

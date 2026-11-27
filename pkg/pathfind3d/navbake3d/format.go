@@ -11,7 +11,7 @@ import (
 	"github.com/nsgo-dev/game/internal/yamlzero"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -61,8 +61,8 @@ type OffMeshLink struct {
 	// Cost overrides the A* traversal cost when positive; 0 uses 3D Euclidean distance.
 	Cost float32 `yaml:"cost,omitempty" schema:"minimum=0"`
 	// Area is the link's navigation area ID (0 for default).
-	Area world3d.NavArea `yaml:"area,omitempty"`
-	// Flags holds optional custom link flag bits; world3d.NavLinkOffMesh is always added on load.
+	Area pathfind3d.NavArea `yaml:"area,omitempty"`
+	// Flags holds optional custom link flag bits; pathfind3d.NavLinkOffMesh is always added on load.
 	Flags uint32 `yaml:"flags,omitempty"`
 	// UserData holds optional game-defined metadata (such as "jump", "ladder", or "teleport").
 	UserData string `yaml:"userData,omitempty"`
@@ -305,8 +305,8 @@ func (m *Mesh) TriangleVertices(p *Polygon, t Triangle) [3]math3d.Vec3 {
 	return out
 }
 
-// NavMesh builds the world3d.NavMesh agents path find on from m: each detail triangle becomes one of its walkable polygons, linked to its neighbours across shared edges, so paths follow ramps, stairs and terrain at the baked heights and keep stacked floors apart. Any OffMeshLinks stored in m.Links are registered via AddOffMeshLink. The bake already decided what is walkable, so no triangle is dropped for its slope. m must be valid, as Parse and Bake return it.
-func (m *Mesh) NavMesh() *world3d.NavMesh {
+// NavMesh builds the pathfind3d.NavMesh agents path find on from m: each detail triangle becomes one of its walkable polygons, linked to its neighbours across shared edges, so paths follow ramps, stairs and terrain at the baked heights and keep stacked floors apart. Any OffMeshLinks stored in m.Links are registered via AddOffMeshLink. The bake already decided what is walkable, so no triangle is dropped for its slope. m must be valid, as Parse and Bake return it.
+func (m *Mesh) NavMesh() *pathfind3d.NavMesh {
 	var polys [][]math3d.Vec3
 	for pi := range m.Polygons {
 		p := &m.Polygons[pi]
@@ -315,14 +315,14 @@ func (m *Mesh) NavMesh() *world3d.NavMesh {
 			polys = append(polys, v[:])
 		}
 	}
-	nm := world3d.BuildNavMesh(polys, math.Pi/2)
+	nm := pathfind3d.BuildNavMesh(polys, math.Pi/2)
 	nm.VerticalTolerance = max(m.Agent.Height, m.Agent.MaxClimb)
 	for _, l := range m.Links {
 		var ud any
 		if l.UserData != "" {
 			ud = l.UserData
 		}
-		nm.AddOffMeshLink(world3d.NavOffMeshLink{
+		nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 			Start:         l.Start.Vec3(),
 			End:           l.End.Vec3(),
 			Radius:        l.Radius,
@@ -337,11 +337,11 @@ func (m *Mesh) NavMesh() *world3d.NavMesh {
 	return nm
 }
 
-// TiledNavMesh builds a world3d.TiledNavMesh partitioned into fixed square XZ tiles of size tileSize
+// TiledNavMesh builds a pathfind3d.TiledNavMesh partitioned into fixed square XZ tiles of size tileSize
 // from m's detail triangles, ready for runtime tile replacement, dynamic obstacle carving, and chunk streaming.
-func (m *Mesh) TiledNavMesh(tileSize float32) *world3d.TiledNavMesh {
+func (m *Mesh) TiledNavMesh(tileSize float32) *pathfind3d.TiledNavMesh {
 	if m == nil {
-		return world3d.BuildTiledNavMesh(nil, math.Pi/2, tileSize)
+		return pathfind3d.BuildTiledNavMesh(nil, math.Pi/2, tileSize)
 	}
 	var polys [][]math3d.Vec3
 	for pi := range m.Polygons {
@@ -351,7 +351,7 @@ func (m *Mesh) TiledNavMesh(tileSize float32) *world3d.TiledNavMesh {
 			polys = append(polys, v[:])
 		}
 	}
-	tm := world3d.BuildTiledNavMesh(polys, math.Pi/2, tileSize)
+	tm := pathfind3d.BuildTiledNavMesh(polys, math.Pi/2, tileSize)
 	if vtol := max(m.Agent.Height, m.Agent.MaxClimb); vtol > 0 {
 		tm.VerticalTolerance = vtol
 	}

@@ -1,9 +1,9 @@
 # navbake3d
 
-`game/ai/navbake3d` bakes 3D navigation meshes from a level's geometry, as Recast, Godot's `NavigationRegion3D` and Unity's `NavMeshSurface` do, so a 3D game no longer authors the convex polygons of a [world3d](world3d.md) `NavMesh` by hand. It reads the level from glTF models, scene files, terrain heightmaps, `GridMap`s and physics colliders, bakes one mesh per agent type, and saves them in a versioned YAML file that a scene names. For a 2D level, [navbake](navbake.md) bakes `pathfind.NavMesh` polygons instead.
+`game/pathfind3d/navbake3d` bakes 3D navigation meshes from a level's geometry, as Recast, Godot's `NavigationRegion3D` and Unity's `NavMeshSurface` do, so a 3D game no longer authors the convex polygons of a [pathfind3d](pathfind3d.md) `NavMesh` by hand. It reads the level from glTF models, scene files, terrain heightmaps, `GridMap`s and physics colliders, bakes one mesh per agent type, and saves them in a versioned YAML file that a scene names. For a 2D level, [navbake](navbake.md) bakes `pathfind.NavMesh` polygons instead.
 
 ```go
-import "github.com/nsgo-dev/game/pkg/ai/navbake3d"
+import "github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 ```
 
 ## Baking a level
@@ -110,13 +110,13 @@ meshes:
 | `meshes[].polygons[].vertices` | Indices of the polygon's corners in `vertices`, 3 to `maxVertsPerPoly` of them, around the polygon |
 | `meshes[].polygons[].detail` | Extra vertices sampled on the polygon's edges and inside it where the ground is uneven |
 | `meshes[].polygons[].triangles` | The triangles covering the polygon, counter-clockwise seen from above; index `i` below the polygon's vertex count names its `i`th corner, and index `n + i` names `detail[i]` |
-| `meshes[].links` | Optional point-to-point off-mesh links (`id`, `start: [x, y, z]`, `end: [x, y, z]`, `radius`, `bidirectional`, `cost`, `area`, `flags`, `userData`) registered on the `world3d.NavMesh` by `Mesh.NavMesh` |
+| `meshes[].links` | Optional point-to-point off-mesh links (`id`, `start: [x, y, z]`, `end: [x, y, z]`, `radius`, `bidirectional`, `cost`, `area`, `flags`, `userData`) registered on the `pathfind3d.NavMesh` by `Mesh.NavMesh` |
 
 `Parse` refuses unknown fields, a missing or unsupported version, non-finite coordinates and indices out of range, with the line, field and a fix; `Encode` writes the fixed key order above, and loading then saving a file changes nothing. [File Formats](formats.md#3d-navigation-meshes) lists it with the others.
 
 ## Finding paths
 
-Load the scene's file and turn one agent type's mesh into a `world3d.NavMesh`:
+Load the scene's file and turn one agent type's mesh into a `pathfind3d.NavMesh`:
 
 ```go
 file, err := navbake3d.LoadFS(assets, scene.NavMesh)
@@ -131,7 +131,7 @@ nav := mesh.NavMesh()
 path, ok := nav.FindPath(start, goal)
 ```
 
-`Mesh.NavMesh` makes each detail triangle a walkable polygon of the `NavMesh`, linked to its neighbours across shared edges, so `FindPath` follows ramps, stairs and terrain at the baked heights and keeps stacked floors apart. Its `VerticalTolerance` is the larger of the agent's height and climb, so `FindPolygon` snaps a point to the surface under or over it within that distance. For dynamic obstacles and chunk streaming, call `Mesh.TiledNavMesh(tileSize)` to build a `*world3d.TiledNavMesh`, or call `navbake3d.BakeTile(g, settings, agent, coord, tileSize, origin)` to voxel-bake a single `*world3d.NavTile` aligned to a `world3d.ChunkCoord` with an erosion border.
+`Mesh.NavMesh` makes each detail triangle a walkable polygon of the `NavMesh`, linked to its neighbours across shared edges, so `FindPath` follows ramps, stairs and terrain at the baked heights and keeps stacked floors apart. Its `VerticalTolerance` is the larger of the agent's height and climb, so `FindPolygon` snaps a point to the surface under or over it within that distance. For dynamic obstacles and chunk streaming, call `Mesh.TiledNavMesh(tileSize)` to build a `*pathfind3d.TiledNavMesh`, or call `navbake3d.BakeTile(g, settings, agent, coord, tileSize, origin)` to voxel-bake a single `*pathfind3d.NavTile` aligned to a `world3d.ChunkCoord` with an erosion border.
 
 ## Debug drawing
 

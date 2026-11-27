@@ -16,7 +16,7 @@ type Vec3 = pathfind.Vec3
 //
 // When PlanarXZ is true, steering forces and Step integration operate on the
 // horizontal XZ plane (force.Y is zeroed and speed limits apply to XZ), which
-// suits grounded agents following world3d.NavMesh paths.
+// suits grounded agents following pathfind3d.NavMesh paths.
 type Agent3D struct {
 	Pos      Vec3
 	Vel      Vec3
@@ -380,7 +380,7 @@ func Cohesion3D(a Agent3D, neighbors []Agent3D, radius float32) Vec3 {
 
 // FollowPath3D steers a along path, advancing state.Index when a enters
 // waypointRadius of the current waypoint (measured on XZ when a.PlanarXZ is
-// true, so grounded agents follow sloped world3d.NavMesh paths smoothly).
+// true, so grounded agents follow sloped pathfind3d.NavMesh paths smoothly).
 func FollowPath3D(a Agent3D, path []Vec3, state *PathFollowState, waypointRadius float32, loop bool) Vec3 {
 	if len(path) == 0 {
 		if state != nil {

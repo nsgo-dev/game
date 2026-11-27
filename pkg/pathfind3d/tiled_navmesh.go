@@ -1,4 +1,4 @@
-package world3d
+package pathfind3d
 
 import (
 	"math"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
 const (
@@ -31,24 +32,24 @@ func clampTileCoord3D(v float64) int32 {
 	return int32(f)
 }
 
-func neighborCoord3D(c, dir ChunkCoord) (ChunkCoord, bool) {
+func neighborCoord3D(c, dir world3d.ChunkCoord) (world3d.ChunkCoord, bool) {
 	nx := int64(c.X) + int64(dir.X)
 	nz := int64(c.Z) + int64(dir.Z)
 	if nx < math.MinInt32 || nx > math.MaxInt32 || nz < math.MinInt32 || nz > math.MaxInt32 {
-		return ChunkCoord{}, false
+		return world3d.ChunkCoord{}, false
 	}
-	return ChunkCoord{X: int32(nx), Z: int32(nz)}, true
+	return world3d.ChunkCoord{X: int32(nx), Z: int32(nz)}, true
 }
 
 // NavTileCoord identifies a fixed-size tile in a 3D TiledNavMesh.
-// It aliases ChunkCoord so 3D navmesh tiles align 1:1 with world3d.ChunkStreamer chunks.
-type NavTileCoord = ChunkCoord
+// It aliases world3d.ChunkCoord so 3D navmesh tiles align 1:1 with world3d.ChunkStreamer chunks.
+type NavTileCoord = world3d.ChunkCoord
 
 // NavPolyRef uniquely identifies a walkable convex 3D polygon inside a TiledNavMesh.
 // Salt increments whenever the owning tile is replaced, rebuilt, or removed so stale
 // references are detected in O(1).
 type NavPolyRef struct {
-	Tile ChunkCoord
+	Tile world3d.ChunkCoord
 	Poly int32
 	Salt uint32
 }
@@ -60,7 +61,7 @@ func (r NavPolyRef) Valid() bool {
 
 // NavTileVersion records a tile coordinate together with its revision number when a path was computed.
 type NavTileVersion struct {
-	Coord   ChunkCoord
+	Coord   world3d.ChunkCoord
 	Version uint64
 }
 
@@ -75,7 +76,7 @@ const (
 
 // NavTileChange describes a single 3D tile mutation event delivered to tile listeners and path watchers.
 type NavTileChange struct {
-	Coord   ChunkCoord
+	Coord   world3d.ChunkCoord
 	Kind    NavTileChangeKind
 	Version uint64
 }
@@ -191,7 +192,7 @@ type basePoly3D struct {
 // [minX, maxX] x [minZ, maxZ]. A NavTile may be baked concurrently on worker goroutines
 // with BakeNavTile and installed into a TiledNavMesh with AddTile, ReplaceTile, or SetTile.
 type NavTile struct {
-	coord    ChunkCoord
+	coord    world3d.ChunkCoord
 	tileSize float64
 	minX     float64
 	minZ     float64
@@ -201,9 +202,9 @@ type NavTile struct {
 }
 
 // Coord returns the chunk/tile coordinate this tile was baked for.
-func (t *NavTile) Coord() ChunkCoord {
+func (t *NavTile) Coord() world3d.ChunkCoord {
 	if t == nil {
-		return ChunkCoord{}
+		return world3d.ChunkCoord{}
 	}
 	return t.coord
 }
@@ -238,8 +239,8 @@ func (t *NavTile) Bounds() math3d.AABB {
 // BakeNavTile bakes an independent 3D NavTile for coord from convex walkable 3D polygons,
 // filtering slopes steeper than maxSlopeRad (default pi/4 when < 0) and clipping every polygon
 // cleanly to the tile's exact XZ bounds while preserving exact 3D plane heights.
-// BakeNavTile is pure and safe to call concurrently from ChunkStreamer worker goroutines.
-func BakeNavTile(coord ChunkCoord, tileSize float32, origin math3d.Vec3, polys []NavPolygonInput, maxSlopeRad float32) *NavTile {
+// BakeNavTile is pure and safe to call concurrently from world3d.ChunkStreamer worker goroutines.
+func BakeNavTile(coord world3d.ChunkCoord, tileSize float32, origin math3d.Vec3, polys []NavPolygonInput, maxSlopeRad float32) *NavTile {
 	ts := float64(tileSize)
 	if !isFinite32(tileSize) || ts <= 0 {
 		ts = float64(defaultNavTileSize3D)
@@ -350,7 +351,7 @@ func BakeNavTile(coord ChunkCoord, tileSize float32, origin math3d.Vec3, polys [
 // TiledNavMeshConfig configures a 3D TiledNavMesh.
 type TiledNavMeshConfig struct {
 	// TileSize is the XZ width and depth of each square tile in world units.
-	// Defaults to 64 when <= 0 (matching ChunkStreamerConfig.ChunkSize).
+	// Defaults to 64 when <= 0 (matching world3d.ChunkStreamerConfig.ChunkSize).
 	TileSize float32
 	// Origin is the world-space XZ origin of tile (0, 0). Defaults to (0, 0, 0).
 	Origin math3d.Vec3
@@ -375,7 +376,7 @@ type TiledNavPathResult struct {
 }
 
 // CrossesTile reports whether r's corridor passes through coord.
-func (r TiledNavPathResult) CrossesTile(coord ChunkCoord) bool {
+func (r TiledNavPathResult) CrossesTile(coord world3d.ChunkCoord) bool {
 	for _, tv := range r.Tiles {
 		if tv.Coord == coord {
 			return true
@@ -385,11 +386,11 @@ func (r TiledNavPathResult) CrossesTile(coord ChunkCoord) bool {
 }
 
 // TileCoords returns the deduplicated list of chunk/tile coordinates crossed by r.
-func (r TiledNavPathResult) TileCoords() []ChunkCoord {
+func (r TiledNavPathResult) TileCoords() []world3d.ChunkCoord {
 	if len(r.Tiles) == 0 {
 		return nil
 	}
-	out := make([]ChunkCoord, len(r.Tiles))
+	out := make([]world3d.ChunkCoord, len(r.Tiles))
 	for i, tv := range r.Tiles {
 		out[i] = tv.Coord
 	}
@@ -406,7 +407,7 @@ type TiledNavRaycastHit struct {
 }
 
 // Cardinal neighbor directions for 3D XZ tiles: 0=-X, 1=+X, 2=-Z, 3=+Z.
-var tileDir3D = [4]ChunkCoord{
+var tileDir3D = [4]world3d.ChunkCoord{
 	{X: -1, Z: 0},
 	{X: 1, Z: 0},
 	{X: 0, Z: -1},
@@ -427,7 +428,7 @@ type tiledLink3D struct {
 type navTileSlot3D struct {
 	slotID    int32
 	salt      uint32
-	coord     ChunkCoord
+	coord     world3d.ChunkCoord
 	minX      float64
 	minZ      float64
 	maxX      float64
@@ -451,7 +452,7 @@ type obstacleEntry3D struct {
 	maxX, maxZ float64
 	minY, maxY float32
 	unboundedY bool
-	tiles      []ChunkCoord
+	tiles      []world3d.ChunkCoord
 }
 
 type tileListener3D struct {
@@ -461,13 +462,13 @@ type tileListener3D struct {
 
 type pathWatch3D struct {
 	id    NavPathWatchID
-	tiles []ChunkCoord
+	tiles []world3d.ChunkCoord
 	fn    func(NavTileChange)
 }
 
 // TiledNavMesh is a 3D navigation mesh partitioned into fixed-size XZ tiles that
 // can be baked, added, removed, and replaced independently at runtime (including
-// via NavTileStreamer / ChunkStreamer). Polygons are automatically linked in full 3D
+// via NavTileStreamer / world3d.ChunkStreamer). Polygons are automatically linked in full 3D
 // across tile borders (preserving multi-level separation), dynamic obstacles rebuild
 // only the touched tiles, a two-level 3D spatial index avoids whole-mesh scans, and
 // per-tile versions + watchers invalidate paths crossing changed tiles.
@@ -480,12 +481,12 @@ type TiledNavMesh struct {
 	maxSlopeRad       float32
 	VerticalTolerance float32
 
-	tiles     map[ChunkCoord]*navTileSlot3D
+	tiles     map[world3d.ChunkCoord]*navTileSlot3D
 	slots     []*navTileSlot3D
 	freeSlots []int32
 	nextSalt  uint32
 
-	tileVersions map[ChunkCoord]uint64
+	tileVersions map[world3d.ChunkCoord]uint64
 	revision     uint64
 	polyCount    int
 
@@ -496,16 +497,16 @@ type TiledNavMesh struct {
 
 	nextObstacleID NavObstacleID
 	obstacles      map[NavObstacleID]*obstacleEntry3D
-	tileObstacles  map[ChunkCoord][]NavObstacleID
+	tileObstacles  map[world3d.ChunkCoord][]NavObstacleID
 
 	nextListenerID NavListenerID
 	listeners      []tileListener3D
 	nextWatchID    NavPathWatchID
 	watches        map[NavPathWatchID]*pathWatch3D
-	tileWatches    map[ChunkCoord][]NavPathWatchID
+	tileWatches    map[world3d.ChunkCoord][]NavPathWatchID
 
 	batchDepth int
-	dirtyTiles map[ChunkCoord]NavTileChangeKind
+	dirtyTiles map[world3d.ChunkCoord]NavTileChangeKind
 }
 
 // NewTiledNavMesh creates an empty 3D TiledNavMesh with cfg.
@@ -535,12 +536,12 @@ func NewTiledNavMesh(cfg TiledNavMeshConfig) *TiledNavMesh {
 		originZ:           oz,
 		maxSlopeRad:       maxSlope,
 		VerticalTolerance: vtol,
-		tiles:             make(map[ChunkCoord]*navTileSlot3D),
-		tileVersions:      make(map[ChunkCoord]uint64),
+		tiles:             make(map[world3d.ChunkCoord]*navTileSlot3D),
+		tileVersions:      make(map[world3d.ChunkCoord]uint64),
 		obstacles:         make(map[NavObstacleID]*obstacleEntry3D),
-		tileObstacles:     make(map[ChunkCoord][]NavObstacleID),
+		tileObstacles:     make(map[world3d.ChunkCoord][]NavObstacleID),
 		watches:           make(map[NavPathWatchID]*pathWatch3D),
-		tileWatches:       make(map[ChunkCoord][]NavPathWatchID),
+		tileWatches:       make(map[world3d.ChunkCoord][]NavPathWatchID),
 		revision:          1,
 	}
 }
@@ -567,8 +568,8 @@ func BuildTiledNavMeshWithAreas(polys []NavPolygonInput, maxSlopeRad, tileSize f
 	if len(polys) == 0 {
 		return tm
 	}
-	perTile := make(map[ChunkCoord][]NavPolygonInput)
-	var coords []ChunkCoord
+	perTile := make(map[world3d.ChunkCoord][]NavPolygonInput)
+	var coords []world3d.ChunkCoord
 	for _, in := range polys {
 		if len(in.Vertices) < 3 {
 			continue
@@ -592,7 +593,7 @@ func BuildTiledNavMeshWithAreas(polys []NavPolygonInput, maxSlopeRad, tileSize f
 		tx0, tz0, tx1, tz1 := tm.tileRangeForXZ(minX, minZ, maxX, maxZ)
 		for tx := int64(tx0); tx <= int64(tx1); tx++ {
 			for tz := int64(tz0); tz <= int64(tz1); tz++ {
-				c := ChunkCoord{X: int32(tx), Z: int32(tz)}
+				c := world3d.ChunkCoord{X: int32(tx), Z: int32(tz)}
 				if _, exists := perTile[c]; !exists {
 					coords = append(coords, c)
 				}
@@ -627,12 +628,12 @@ func (tm *TiledNavMesh) Origin() math3d.Vec3 {
 	return math3d.Vec3{X: float32(tm.originX), Z: float32(tm.originZ)}
 }
 
-// TileCoordAt returns the ChunkCoord containing (p.X, p.Z).
-func (tm *TiledNavMesh) TileCoordAt(p math3d.Vec3) ChunkCoord {
+// TileCoordAt returns the world3d.ChunkCoord containing (p.X, p.Z).
+func (tm *TiledNavMesh) TileCoordAt(p math3d.Vec3) world3d.ChunkCoord {
 	if tm == nil || tm.tileSize <= 0 {
-		return ChunkCoord{}
+		return world3d.ChunkCoord{}
 	}
-	return ChunkCoord{
+	return world3d.ChunkCoord{
 		X: clampTileCoord3D((float64(p.X) - tm.originX) / tm.tileSize),
 		Z: clampTileCoord3D((float64(p.Z) - tm.originZ) / tm.tileSize),
 	}
@@ -640,7 +641,7 @@ func (tm *TiledNavMesh) TileCoordAt(p math3d.Vec3) ChunkCoord {
 
 // TileBounds returns the world-space XZ bounds of tile coord (with Y spanning [-math.MaxFloat32/4, +math.MaxFloat32/4]
 // when empty or the tile's polygon Y bounds when loaded).
-func (tm *TiledNavMesh) TileBounds(coord ChunkCoord) math3d.AABB {
+func (tm *TiledNavMesh) TileBounds(coord world3d.ChunkCoord) math3d.AABB {
 	if tm == nil {
 		return math3d.AABB{}
 	}
@@ -657,7 +658,7 @@ func (tm *TiledNavMesh) TileBounds(coord ChunkCoord) math3d.AABB {
 	}
 }
 
-func (tm *TiledNavMesh) tileBounds64(coord ChunkCoord) (minX, minZ, maxX, maxZ float64) {
+func (tm *TiledNavMesh) tileBounds64(coord world3d.ChunkCoord) (minX, minZ, maxX, maxZ float64) {
 	minX = tm.originX + float64(float64(coord.X)*tm.tileSize)
 	maxX = tm.originX + float64((float64(coord.X)+1)*tm.tileSize)
 	minZ = tm.originZ + float64(float64(coord.Z)*tm.tileSize)
@@ -696,7 +697,7 @@ func (tm *TiledNavMesh) Revision() uint64 {
 }
 
 // TileVersion returns the current revision number of tile coord (0 if never modified).
-func (tm *TiledNavMesh) TileVersion(coord ChunkCoord) uint64 {
+func (tm *TiledNavMesh) TileVersion(coord world3d.ChunkCoord) uint64 {
 	if tm == nil {
 		return 0
 	}
@@ -712,7 +713,7 @@ func (tm *TiledNavMesh) TileCount() int {
 }
 
 // HasTile reports whether a tile is currently installed at coord.
-func (tm *TiledNavMesh) HasTile(coord ChunkCoord) bool {
+func (tm *TiledNavMesh) HasTile(coord world3d.ChunkCoord) bool {
 	if tm == nil {
 		return false
 	}
@@ -721,11 +722,11 @@ func (tm *TiledNavMesh) HasTile(coord ChunkCoord) bool {
 }
 
 // TileCoords returns all installed tile coordinates in deterministic sorted order.
-func (tm *TiledNavMesh) TileCoords() []ChunkCoord {
+func (tm *TiledNavMesh) TileCoords() []world3d.ChunkCoord {
 	if tm == nil || len(tm.tiles) == 0 {
 		return nil
 	}
-	out := make([]ChunkCoord, 0, len(tm.tiles))
+	out := make([]world3d.ChunkCoord, 0, len(tm.tiles))
 	for c := range tm.tiles {
 		out = append(out, c)
 	}
@@ -742,7 +743,7 @@ func (tm *TiledNavMesh) PolygonCount() int {
 }
 
 // TilePolygonCount returns the number of active polygons currently inside tile coord.
-func (tm *TiledNavMesh) TilePolygonCount(coord ChunkCoord) int {
+func (tm *TiledNavMesh) TilePolygonCount(coord world3d.ChunkCoord) int {
 	if tm == nil {
 		return 0
 	}
@@ -754,7 +755,7 @@ func (tm *TiledNavMesh) TilePolygonCount(coord ChunkCoord) int {
 }
 
 // BakeTile bakes polys into a 3D NavTile for coord using tm's TileSize, Origin, and MaxSlopeRad and installs it into tm.
-func (tm *TiledNavMesh) BakeTile(coord ChunkCoord, polys []NavPolygonInput) *NavTile {
+func (tm *TiledNavMesh) BakeTile(coord world3d.ChunkCoord, polys []NavPolygonInput) *NavTile {
 	if tm == nil {
 		return nil
 	}
@@ -764,7 +765,7 @@ func (tm *TiledNavMesh) BakeTile(coord ChunkCoord, polys []NavPolygonInput) *Nav
 }
 
 // AddTile installs tile at coord only if no tile currently exists at coord.
-func (tm *TiledNavMesh) AddTile(coord ChunkCoord, tile *NavTile) bool {
+func (tm *TiledNavMesh) AddTile(coord world3d.ChunkCoord, tile *NavTile) bool {
 	if tm == nil || tile == nil {
 		return false
 	}
@@ -776,7 +777,7 @@ func (tm *TiledNavMesh) AddTile(coord ChunkCoord, tile *NavTile) bool {
 }
 
 // ReplaceTile replaces the existing tile at coord with tile.
-func (tm *TiledNavMesh) ReplaceTile(coord ChunkCoord, tile *NavTile) bool {
+func (tm *TiledNavMesh) ReplaceTile(coord world3d.ChunkCoord, tile *NavTile) bool {
 	if tm == nil || tile == nil {
 		return false
 	}
@@ -789,7 +790,7 @@ func (tm *TiledNavMesh) ReplaceTile(coord ChunkCoord, tile *NavTile) bool {
 
 // SetTile installs or replaces tile at coord, applying active dynamic obstacles touching coord
 // and linking polygons in full 3D across tile borders with neighboring tiles.
-func (tm *TiledNavMesh) SetTile(coord ChunkCoord, tile *NavTile) bool {
+func (tm *TiledNavMesh) SetTile(coord world3d.ChunkCoord, tile *NavTile) bool {
 	if tm == nil || tile == nil {
 		return false
 	}
@@ -803,7 +804,7 @@ func (tm *TiledNavMesh) SetTile(coord ChunkCoord, tile *NavTile) bool {
 
 // RemoveTile unloads the tile at coord, unlinks cross-tile border links from neighboring tiles,
 // bumps coord's tile version, and notifies listeners / invalidates paths crossing coord.
-func (tm *TiledNavMesh) RemoveTile(coord ChunkCoord) bool {
+func (tm *TiledNavMesh) RemoveTile(coord world3d.ChunkCoord) bool {
 	if tm == nil {
 		return false
 	}
@@ -830,7 +831,7 @@ func (tm *TiledNavMesh) RemoveTile(coord ChunkCoord) bool {
 }
 
 // RebuildTile rebuilds the existing tile at coord from its base polygons and active dynamic obstacles.
-func (tm *TiledNavMesh) RebuildTile(coord ChunkCoord) bool {
+func (tm *TiledNavMesh) RebuildTile(coord world3d.ChunkCoord) bool {
 	if tm == nil {
 		return false
 	}
@@ -858,7 +859,7 @@ func (tm *TiledNavMesh) allocSalt() uint32 {
 	return tm.nextSalt
 }
 
-func (tm *TiledNavMesh) installTile(coord ChunkCoord, tile *NavTile, kind NavTileChangeKind) {
+func (tm *TiledNavMesh) installTile(coord world3d.ChunkCoord, tile *NavTile, kind NavTileChangeKind) {
 	minX, minZ, maxX, maxZ := tm.tileBounds64(coord)
 	sameBounds := math.Abs(tile.minX-minX) <= tiledSplitEps3D &&
 		math.Abs(tile.minZ-minZ) <= tiledSplitEps3D &&
@@ -1267,9 +1268,9 @@ func (tm *TiledNavMesh) Batch(fn func()) {
 	fn()
 }
 
-func (tm *TiledNavMesh) markDirtyBatch(coord ChunkCoord, kind NavTileChangeKind) {
+func (tm *TiledNavMesh) markDirtyBatch(coord world3d.ChunkCoord, kind NavTileChangeKind) {
 	if tm.dirtyTiles == nil {
-		tm.dirtyTiles = make(map[ChunkCoord]NavTileChangeKind)
+		tm.dirtyTiles = make(map[world3d.ChunkCoord]NavTileChangeKind)
 	}
 	prev, exists := tm.dirtyTiles[coord]
 	if !exists {
@@ -1287,7 +1288,7 @@ func (tm *TiledNavMesh) flushBatch() {
 	if len(tm.dirtyTiles) == 0 {
 		return
 	}
-	coords := make([]ChunkCoord, 0, len(tm.dirtyTiles))
+	coords := make([]world3d.ChunkCoord, 0, len(tm.dirtyTiles))
 	for c := range tm.dirtyTiles {
 		coords = append(coords, c)
 	}
@@ -1379,7 +1380,7 @@ func (tm *TiledNavMesh) UpdateObstacle(id NavObstacleID, obs NavObstacle) bool {
 		tm.addTileObstacleRef(c, id)
 	}
 
-	union := make([]ChunkCoord, 0, len(oldTiles)+len(newTiles))
+	union := make([]world3d.ChunkCoord, 0, len(oldTiles)+len(newTiles))
 	union = append(union, oldTiles...)
 	union = append(union, newTiles...)
 	slices.SortFunc(union, compareChunkCoord)
@@ -1410,7 +1411,7 @@ func (tm *TiledNavMesh) ClearObstacles() {
 	if tm == nil || len(tm.obstacles) == 0 {
 		return
 	}
-	var affected []ChunkCoord
+	var affected []world3d.ChunkCoord
 	for c := range tm.tileObstacles {
 		affected = append(affected, c)
 	}
@@ -1428,7 +1429,7 @@ func (tm *TiledNavMesh) ObstacleCount() int {
 	return len(tm.obstacles)
 }
 
-func (tm *TiledNavMesh) coordsForObstacleXZ(minX, minZ, maxX, maxZ float64) ([]ChunkCoord, bool) {
+func (tm *TiledNavMesh) coordsForObstacleXZ(minX, minZ, maxX, maxZ float64) ([]world3d.ChunkCoord, bool) {
 	if math.IsNaN(minX) || math.IsInf(minX, 0) || math.IsNaN(minZ) || math.IsInf(minZ, 0) ||
 		math.IsNaN(maxX) || math.IsInf(maxX, 0) || math.IsNaN(maxZ) || math.IsInf(maxZ, 0) {
 		return nil, false
@@ -1462,16 +1463,16 @@ func (tm *TiledNavMesh) coordsForObstacleXZ(minX, minZ, maxX, maxZ float64) ([]C
 	}
 	tx0, tz0 := int64(fMinX), int64(fMinZ)
 	tx1, tz1 := int64(fMaxX), int64(fMaxZ)
-	out := make([]ChunkCoord, 0, int(spanX*spanZ))
+	out := make([]world3d.ChunkCoord, 0, int(spanX*spanZ))
 	for tx := tx0; tx <= tx1; tx++ {
 		for tz := tz0; tz <= tz1; tz++ {
-			out = append(out, ChunkCoord{X: int32(tx), Z: int32(tz)})
+			out = append(out, world3d.ChunkCoord{X: int32(tx), Z: int32(tz)})
 		}
 	}
 	return out, true
 }
 
-func (tm *TiledNavMesh) addTileObstacleRef(coord ChunkCoord, id NavObstacleID) {
+func (tm *TiledNavMesh) addTileObstacleRef(coord world3d.ChunkCoord, id NavObstacleID) {
 	ids := tm.tileObstacles[coord]
 	idx, found := slices.BinarySearch(ids, id)
 	if found {
@@ -1480,7 +1481,7 @@ func (tm *TiledNavMesh) addTileObstacleRef(coord ChunkCoord, id NavObstacleID) {
 	tm.tileObstacles[coord] = slices.Insert(ids, idx, id)
 }
 
-func (tm *TiledNavMesh) removeTileObstacleRef(coord ChunkCoord, id NavObstacleID) {
+func (tm *TiledNavMesh) removeTileObstacleRef(coord world3d.ChunkCoord, id NavObstacleID) {
 	ids := tm.tileObstacles[coord]
 	idx, found := slices.BinarySearch(ids, id)
 	if !found {
@@ -1494,7 +1495,7 @@ func (tm *TiledNavMesh) removeTileObstacleRef(coord ChunkCoord, id NavObstacleID
 	}
 }
 
-func (tm *TiledNavMesh) rebuildAffectedTiles(coords []ChunkCoord) {
+func (tm *TiledNavMesh) rebuildAffectedTiles(coords []world3d.ChunkCoord) {
 	if len(coords) == 0 {
 		return
 	}
@@ -1565,11 +1566,11 @@ func (tm *TiledNavMesh) IsPathValid(res TiledNavPathResult) bool {
 
 // WatchPath registers a one-shot invalidation callback invoked when any tile in tiles changes.
 // Once triggered, the watch is automatically removed.
-func (tm *TiledNavMesh) WatchPath(tiles []ChunkCoord, onInvalidate func(NavTileChange)) NavPathWatchID {
+func (tm *TiledNavMesh) WatchPath(tiles []world3d.ChunkCoord, onInvalidate func(NavTileChange)) NavPathWatchID {
 	if tm == nil || len(tiles) == 0 || onInvalidate == nil {
 		return 0
 	}
-	dedup := make([]ChunkCoord, len(tiles))
+	dedup := make([]world3d.ChunkCoord, len(tiles))
 	copy(dedup, tiles)
 	slices.SortFunc(dedup, compareChunkCoord)
 	dedup = slices.Compact(dedup)
@@ -1735,7 +1736,7 @@ func (tm *TiledNavMesh) Neighbors(ref NavPolyRef) []NavPolyRef {
 	return out
 }
 
-func (tm *TiledNavMesh) candidateTilesAtXZ(x, z float64, buf []ChunkCoord) []ChunkCoord {
+func (tm *TiledNavMesh) candidateTilesAtXZ(x, z float64, buf []world3d.ChunkCoord) []world3d.ChunkCoord {
 	buf = buf[:0]
 	const eps = float64(sharedEdgeEps)
 	tx0 := clampTileCoord3D((x - eps - tm.originX) / tm.tileSize)
@@ -1744,7 +1745,7 @@ func (tm *TiledNavMesh) candidateTilesAtXZ(x, z float64, buf []ChunkCoord) []Chu
 	tz1 := clampTileCoord3D((z + eps - tm.originZ) / tm.tileSize)
 	for tx := int64(tx0); tx <= int64(tx1); tx++ {
 		for tz := int64(tz0); tz <= int64(tz1); tz++ {
-			buf = append(buf, ChunkCoord{X: int32(tx), Z: int32(tz)})
+			buf = append(buf, world3d.ChunkCoord{X: int32(tx), Z: int32(tz)})
 		}
 	}
 	return buf
@@ -1762,7 +1763,7 @@ func (tm *TiledNavMesh) FindPolygonWithFilter(p math3d.Vec3, filter NavFilter) (
 		return NavPolyRef{}, false
 	}
 	tol := tm.verticalTol()
-	var coordBuf [4]ChunkCoord
+	var coordBuf [4]world3d.ChunkCoord
 	coords := tm.candidateTilesAtXZ(float64(p.X), float64(p.Z), coordBuf[:0])
 
 	var bestRef NavPolyRef
@@ -1975,7 +1976,7 @@ func (tm *TiledNavMesh) nearestPolyInternal(p, ext math3d.Vec3, useExtent bool, 
 			if spanX > 0 && spanZ > 0 && spanX <= 64 && spanZ <= 64 && spanX*spanZ <= 64 && spanX*spanZ <= int64(len(tm.tiles))*2 {
 				for tx := tx0; tx <= tx1; tx++ {
 					for tz := tz0; tz <= tz1; tz++ {
-						considerSlot(tm.tiles[ChunkCoord{X: int32(tx), Z: int32(tz)}])
+						considerSlot(tm.tiles[world3d.ChunkCoord{X: int32(tx), Z: int32(tz)}])
 					}
 				}
 				return bestRef, bestPt, bestFound
@@ -2270,7 +2271,7 @@ func (tm *TiledNavMesh) RaycastWithFilter(start, target math3d.Vec3, filter NavF
 	return tm.raycastWithFilterInternal(start, target, filter, 0, nil, nil)
 }
 
-func (tm *TiledNavMesh) raycastWithFilterInternal(start, target math3d.Vec3, filter NavFilter, maxAreaCost float64, samePlaneRef *NavPoly, visitedTiles map[ChunkCoord]bool) (TiledNavRaycastHit, bool) {
+func (tm *TiledNavMesh) raycastWithFilterInternal(start, target math3d.Vec3, filter NavFilter, maxAreaCost float64, samePlaneRef *NavPoly, visitedTiles map[world3d.ChunkCoord]bool) (TiledNavRaycastHit, bool) {
 	if tm == nil || len(tm.tiles) == 0 || !isFiniteVec3(start) || !isFiniteVec3(target) {
 		hit := TiledNavRaycastHit{Point: start, T: 0, Hit: true}
 		return hit, true
@@ -2511,7 +2512,7 @@ func (tm *TiledNavMesh) findPolyLocsAt(p math3d.Vec3, filter NavFilter, requireF
 	minY, maxY := p.Y-tol-xzPad, p.Y+tol+xzPad
 	minZ, maxZ := p.Z-xzPad, p.Z+xzPad
 
-	var coordBuf [4]ChunkCoord
+	var coordBuf [4]world3d.ChunkCoord
 	coords := tm.candidateTilesAtXZ(float64(p.X), float64(p.Z), coordBuf[:0])
 
 	type cand struct {
@@ -2643,9 +2644,9 @@ type tiledAStarNode3D struct {
 	idx       int
 	f         float64
 	h         float64
-	tieTile   ChunkCoord
+	tieTile   world3d.ChunkCoord
 	tiePoly   int32
-	tieToTile ChunkCoord
+	tieToTile world3d.ChunkCoord
 	tieToPoly int32
 }
 
@@ -2728,7 +2729,7 @@ func tiledSiftDown3D(s []tiledAStarNode3D, heapPos []int, i int) {
 
 // FindPathWithFilterAndOptions finds a minimum-cost 3D path across tm restricted to filter and opts.
 // Sparse portal-graph A* touches only visited portals and runs 3D XZ-funnel smoothing with exact
-// plane-transition crossings so paths across tile borders match an untiled world3d.NavMesh.
+// plane-transition crossings so paths across tile borders match an untiled NavMesh.
 func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal math3d.Vec3, filter NavFilter, opts pathfind.PathOptions) TiledNavPathResult {
 	var res TiledNavPathResult
 	if tm == nil || len(tm.tiles) == 0 || !isFiniteVec3(start) || !isFiniteVec3(goal) {
@@ -2817,8 +2818,8 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal math3d.Vec3, fi
 		return (uint64(uint32(slotID)) << 32) | uint64(uint32(lid))
 	}
 
-	maxCoord := ChunkCoord{X: math.MaxInt32, Z: math.MaxInt32}
-	pushOrUpdate := func(slotID, lid int32, g, h float64, parent int, pt, apex, fLeft, fRight math3d.Vec3, apexG, areaCost float64, pl plane3D, tieTile ChunkCoord, tiePoly int32, tieToTile ChunkCoord, tieToPoly int32) {
+	maxCoord := world3d.ChunkCoord{X: math.MaxInt32, Z: math.MaxInt32}
+	pushOrUpdate := func(slotID, lid int32, g, h float64, parent int, pt, apex, fLeft, fRight math3d.Vec3, apexG, areaCost float64, pl plane3D, tieTile world3d.ChunkCoord, tiePoly int32, tieToTile world3d.ChunkCoord, tieToPoly int32) {
 		f := g + h
 		var idx int
 		if slotID < 0 {
@@ -3091,11 +3092,11 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal math3d.Vec3, fi
 	return res
 }
 
-func (tm *TiledNavMesh) collectTileVersions(corridor []NavPolyRef, extra []ChunkCoord) []NavTileVersion {
+func (tm *TiledNavMesh) collectTileVersions(corridor []NavPolyRef, extra []world3d.ChunkCoord) []NavTileVersion {
 	if len(corridor) == 0 && len(extra) == 0 {
 		return nil
 	}
-	coords := make([]ChunkCoord, 0, len(corridor)+len(extra))
+	coords := make([]world3d.ChunkCoord, 0, len(corridor)+len(extra))
 	for _, ref := range corridor {
 		coords = append(coords, ref.Tile)
 	}
@@ -3189,7 +3190,7 @@ func simplifyCollinear3D(pts []math3d.Vec3) []math3d.Vec3 {
 
 // tightenTiledPath3D removes artificial bends at interior tile-grid vertices on uniform-cost
 // coplanar runs while preserving slope transitions and vertical multi-level separation.
-func (tm *TiledNavMesh) tightenTiledPath3D(pts []math3d.Vec3, corridor []NavPolyRef, polys []*NavPoly, filter NavFilter) ([]math3d.Vec3, []ChunkCoord) {
+func (tm *TiledNavMesh) tightenTiledPath3D(pts []math3d.Vec3, corridor []NavPolyRef, polys []*NavPoly, filter NavFilter) ([]math3d.Vec3, []world3d.ChunkCoord) {
 	pts = simplifyCollinear3D(pts)
 	if len(pts) <= 2 || len(corridor) == 0 {
 		return pts, nil
@@ -3281,14 +3282,14 @@ func (tm *TiledNavMesh) tightenTiledPath3D(pts []math3d.Vec3, corridor []NavPoly
 		}
 	}
 	res := simplifyCollinear3D(out)
-	var extraTiles []ChunkCoord
+	var extraTiles []world3d.ChunkCoord
 	if modified && len(res) >= 2 {
-		visited := make(map[ChunkCoord]bool, len(corridor))
+		visited := make(map[world3d.ChunkCoord]bool, len(corridor))
 		for i := 0; i+1 < len(res); i++ {
 			tm.raycastWithFilterInternal(res[i], res[i+1], filter, maxCost, nil, visited)
 		}
 		if len(visited) > 0 {
-			extraTiles = make([]ChunkCoord, 0, len(visited))
+			extraTiles = make([]world3d.ChunkCoord, 0, len(visited))
 			for c := range visited {
 				extraTiles = append(extraTiles, c)
 			}
@@ -3386,4 +3387,21 @@ func smoothCorridorTiled3D(polys []*NavPoly, portals []tiledLink3D, start, goal 
 		}
 	}
 	return out
+}
+
+// compareChunkCoord orders tile coordinates by X then Z, the order world3d sorts chunk coordinates in, so tile iteration stays deterministic.
+func compareChunkCoord(a, b world3d.ChunkCoord) int {
+	if a.X != b.X {
+		if a.X < b.X {
+			return -1
+		}
+		return 1
+	}
+	if a.Z < b.Z {
+		return -1
+	}
+	if a.Z > b.Z {
+		return 1
+	}
+	return 0
 }

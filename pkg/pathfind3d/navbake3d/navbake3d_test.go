@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 )
 
 func v3(x, y, z float32) math3d.Vec3 { return math3d.Vec3{X: x, Y: y, Z: z} }
 
 // findPath returns the path between a and b on nm, failing the test when there is none.
-func findPath(t *testing.T, nm *world3d.NavMesh, a, b math3d.Vec3) []math3d.Vec3 {
+func findPath(t *testing.T, nm *pathfind3d.NavMesh, a, b math3d.Vec3) []math3d.Vec3 {
 	t.Helper()
 	path, ok := nm.FindPath(a, b)
 	if !ok {

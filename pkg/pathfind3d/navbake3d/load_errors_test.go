@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/loaderrtest"
-	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 )
 
 func TestParseLoadErrors(t *testing.T) {

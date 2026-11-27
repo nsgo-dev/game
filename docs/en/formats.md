@@ -832,7 +832,7 @@ conflicts:
       "y": 280
     theirs: null
 ```
-<!-- format: ai/navbake3d -->
+<!-- format: pathfind3d/navbake3d -->
 ### 3D navigation meshes
 
 | Files | Version | Read and written by | Fields |

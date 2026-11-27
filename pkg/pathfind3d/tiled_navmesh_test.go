@@ -1,4 +1,4 @@
-package world3d_test
+package pathfind3d_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
@@ -49,7 +50,7 @@ func segmentIntersectsBox3D(a, b math3d.Vec3, minX, minZ, maxX, maxZ float64) bo
 // and removing it restores the original path.
 func TestTiledNavMesh3DBoxObstacleDetourAndRestore(t *testing.T) {
 	corridor := [][]math3d.Vec3{tiledQuadXZ(0, 0, 120, 40, 0)}
-	tm := world3d.BuildTiledNavMesh(corridor, math3d.DegToRad(45), 30)
+	tm := pathfind3d.BuildTiledNavMesh(corridor, math3d.DegToRad(45), 30)
 
 	start := v3(10, 0, 20)
 	goal := v3(110, 0, 20)
@@ -66,7 +67,7 @@ func TestTiledNavMesh3DBoxObstacleDetourAndRestore(t *testing.T) {
 	v0 := tm.TileVersion(world3d.ChunkCoord{X: 0, Z: 0})
 	v3Ver := tm.TileVersion(world3d.ChunkCoord{X: 3, Z: 0})
 
-	obsID, ok := tm.AddObstacle(world3d.NavBoxObstacle(v3(50, -1, 10), v3(70, 3, 30)))
+	obsID, ok := tm.AddObstacle(pathfind3d.NavBoxObstacle(v3(50, -1, 10), v3(70, 3, 30)))
 	if !ok || obsID == 0 {
 		t.Fatal("AddObstacle 3D failed")
 	}
@@ -130,9 +131,9 @@ func TestTiledNavMesh3DMatchesUntiledAcrossBordersAndRamps(t *testing.T) {
 		tiledQuadXZ(115, 12, 140, 28, 10),
 	}
 
-	untiled := world3d.BuildNavMesh(polys, math3d.DegToRad(45))
+	untiled := pathfind3d.BuildNavMesh(polys, math3d.DegToRad(45))
 	// Tile size 25 splits the floor, the sloped ramp, and the upper deck across borders!
-	tiled := world3d.BuildTiledNavMesh(polys, math3d.DegToRad(45), 25)
+	tiled := pathfind3d.BuildTiledNavMesh(polys, math3d.DegToRad(45), 25)
 
 	cases := []struct {
 		name  string
@@ -178,10 +179,10 @@ func TestTiledNavMesh3DMultiLevelVerticalSeparation(t *testing.T) {
 		tiledQuadXZ(0, 0, 64, 32, 0),  // ground floor
 		tiledQuadXZ(0, 10, 64, 22, 8), // upper bridge
 	}
-	tm := world3d.BuildTiledNavMesh(polys, math3d.DegToRad(45), 32)
+	tm := pathfind3d.BuildTiledNavMesh(polys, math3d.DegToRad(45), 32)
 
 	// Place a box obstacle ONLY on the ground floor (y in [-1, 3]).
-	tm.AddObstacle(world3d.NavBoxObstacle(v3(26, -1, 0), v3(38, 3, 32)))
+	tm.AddObstacle(pathfind3d.NavBoxObstacle(v3(26, -1, 0), v3(38, 3, 32)))
 
 	// Ground floor should now be completely blocked.
 	if _, ok := tm.FindPath(v3(8, 0, 16), v3(56, 0, 16)); ok {
@@ -204,10 +205,10 @@ func TestTiledNavMesh3DMultiLevelVerticalSeparation(t *testing.T) {
 }
 
 func TestTiledNavMesh3DCylinderPolygonAndMarkObstacles(t *testing.T) {
-	tm := world3d.BuildTiledNavMesh([][]math3d.Vec3{tiledQuadXZ(0, 0, 120, 80, 0)}, math3d.DegToRad(45), 40)
+	tm := pathfind3d.BuildTiledNavMesh([][]math3d.Vec3{tiledQuadXZ(0, 0, 120, 80, 0)}, math3d.DegToRad(45), 40)
 
 	// Cylinder obstacle.
-	cid, ok := tm.AddObstacle(world3d.NavCylinderObstacle(v3(60, 0, 40), 10, 4))
+	cid, ok := tm.AddObstacle(pathfind3d.NavCylinderObstacle(v3(60, 0, 40), 10, 4))
 	if !ok {
 		t.Fatal("AddObstacle cylinder failed")
 	}
@@ -225,7 +226,7 @@ func TestTiledNavMesh3DCylinderPolygonAndMarkObstacles(t *testing.T) {
 		v3(50, 0, 20), v3(80, 0, 20), v3(80, 0, 32),
 		v3(62, 0, 32), v3(62, 0, 60), v3(50, 0, 60),
 	}
-	pid, ok := tm.AddObstacle(world3d.NavPolygonObstacle(lPoly, -1, 5))
+	pid, ok := tm.AddObstacle(pathfind3d.NavPolygonObstacle(lPoly, -1, 5))
 	if !ok {
 		t.Fatal("AddObstacle polygon failed")
 	}
@@ -235,8 +236,8 @@ func TestTiledNavMesh3DCylinderPolygonAndMarkObstacles(t *testing.T) {
 	tm.RemoveObstacle(pid)
 
 	// Mark mode (disabled).
-	mark := world3d.NavBoxObstacle(v3(55, -1, 0), v3(65, 4, 80))
-	mark.Mode = world3d.NavObstacleMark
+	mark := pathfind3d.NavBoxObstacle(v3(55, -1, 0), v3(65, 4, 80))
+	mark.Mode = pathfind3d.NavObstacleMark
 	tm.AddObstacle(mark)
 	if _, ok := tm.FindPath(v3(10, 0, 40), v3(110, 0, 40)); ok {
 		t.Fatal("expected blocked path across marked disabled strip")
@@ -245,22 +246,22 @@ func TestTiledNavMesh3DCylinderPolygonAndMarkObstacles(t *testing.T) {
 
 func TestNavTileStreamerFollowsChunkStreaming(t *testing.T) {
 	const tileSize = 32
-	tm := world3d.NewTiledNavMesh(world3d.TiledNavMeshConfig{TileSize: tileSize})
+	tm := pathfind3d.NewTiledNavMesh(pathfind3d.TiledNavMeshConfig{TileSize: tileSize})
 
 	// Place a dynamic obstacle ahead in chunk (2, 0) BEFORE that chunk is even streamed in!
-	tm.AddObstacle(world3d.NavBoxObstacle(v3(2*tileSize+12, -1, 12), v3(2*tileSize+20, 4, 20)))
+	tm.AddObstacle(pathfind3d.NavBoxObstacle(v3(2*tileSize+12, -1, 12), v3(2*tileSize+20, 4, 20)))
 
 	var loaded, unloaded []world3d.ChunkCoord
-	streamer, err := world3d.NewNavTileStreamer(world3d.NavTileStreamerConfig{
+	streamer, err := pathfind3d.NewNavTileStreamer(pathfind3d.NavTileStreamerConfig{
 		Mesh:         tm,
 		LoadRadius:   1,
 		UnloadRadius: 1,
 		Workers:      0, // synchronous for deterministic testing
-		Bake: func(_ context.Context, coord world3d.ChunkCoord, bounds math3d.AABB) (*world3d.NavTile, error) {
+		Bake: func(_ context.Context, coord world3d.ChunkCoord, bounds math3d.AABB) (*pathfind3d.NavTile, error) {
 			poly := tiledQuadXZ(bounds.Min.X, bounds.Min.Z, bounds.Max.X, bounds.Max.Z, 0)
-			return world3d.BakeNavTile(coord, tileSize, tm.Origin(), []world3d.NavPolygonInput{{Vertices: poly}}, math3d.DegToRad(45)), nil
+			return pathfind3d.BakeNavTile(coord, tileSize, tm.Origin(), []pathfind3d.NavPolygonInput{{Vertices: poly}}, math3d.DegToRad(45)), nil
 		},
-		OnLoad: func(c world3d.ChunkCoord, _ *world3d.NavTile) {
+		OnLoad: func(c world3d.ChunkCoord, _ *pathfind3d.NavTile) {
 			loaded = append(loaded, c)
 		},
 		OnUnload: func(c world3d.ChunkCoord) {
@@ -284,7 +285,7 @@ func TestNavTileStreamerFollowsChunkStreaming(t *testing.T) {
 		t.Fatal("expected cross-chunk path across streamed tiles")
 	}
 	invalidated := false
-	tm.WatchPath(res.TileCoords(), func(_ world3d.NavTileChange) {
+	tm.WatchPath(res.TileCoords(), func(_ pathfind3d.NavTileChange) {
 		invalidated = true
 	})
 
@@ -322,16 +323,16 @@ func TestNavTileStreamerFollowsChunkStreaming(t *testing.T) {
 
 func TestNavTileStreamerAsyncWorkers(t *testing.T) {
 	const tileSize = 32
-	tm := world3d.NewTiledNavMesh(world3d.TiledNavMeshConfig{TileSize: tileSize})
+	tm := pathfind3d.NewTiledNavMesh(pathfind3d.TiledNavMeshConfig{TileSize: tileSize})
 
-	streamer, err := world3d.NewNavTileStreamer(world3d.NavTileStreamerConfig{
+	streamer, err := pathfind3d.NewNavTileStreamer(pathfind3d.NavTileStreamerConfig{
 		Mesh:         tm,
 		LoadRadius:   1,
 		UnloadRadius: 2,
 		Workers:      2,
-		Bake: func(_ context.Context, coord world3d.ChunkCoord, bounds math3d.AABB) (*world3d.NavTile, error) {
+		Bake: func(_ context.Context, coord world3d.ChunkCoord, bounds math3d.AABB) (*pathfind3d.NavTile, error) {
 			poly := tiledQuadXZ(bounds.Min.X, bounds.Min.Z, bounds.Max.X, bounds.Max.Z, 0)
-			return world3d.BakeNavTile(coord, tileSize, tm.Origin(), []world3d.NavPolygonInput{{Vertices: poly}}, math3d.DegToRad(45)), nil
+			return pathfind3d.BakeNavTile(coord, tileSize, tm.Origin(), []pathfind3d.NavPolygonInput{{Vertices: poly}}, math3d.DegToRad(45)), nil
 		},
 	})
 	if err != nil {
@@ -353,19 +354,19 @@ func TestNavTileStreamerAsyncWorkers(t *testing.T) {
 }
 
 func TestTiledNavMesh3DDeterminism(t *testing.T) {
-	build := func(rev bool) *world3d.TiledNavMesh {
-		tm := world3d.NewTiledNavMesh(world3d.TiledNavMeshConfig{TileSize: 32})
-		coords := []world3d.ChunkCoord{{0, 0}, {1, 0}, {2, 0}, {0, 1}, {1, 1}, {2, 1}}
+	build := func(rev bool) *pathfind3d.TiledNavMesh {
+		tm := pathfind3d.NewTiledNavMesh(pathfind3d.TiledNavMeshConfig{TileSize: 32})
+		coords := []world3d.ChunkCoord{{X: 0, Z: 0}, {X: 1, Z: 0}, {X: 2, Z: 0}, {X: 0, Z: 1}, {X: 1, Z: 1}, {X: 2, Z: 1}}
 		if rev {
 			slices.Reverse(coords)
 		}
 		tm.Batch(func() {
 			for _, c := range coords {
 				x0, z0 := float32(c.X*32), float32(c.Z*32)
-				tm.BakeTile(c, []world3d.NavPolygonInput{{Vertices: tiledQuadXZ(x0, z0, x0+32, z0+32, 0)}})
+				tm.BakeTile(c, []pathfind3d.NavPolygonInput{{Vertices: tiledQuadXZ(x0, z0, x0+32, z0+32, 0)}})
 			}
-			tm.AddObstacle(world3d.NavBoxObstacle(v3(28, -1, 16), v3(44, 4, 40)))
-			tm.AddObstacle(world3d.NavCylinderObstacle(v3(64, 0, 32), 8, 4))
+			tm.AddObstacle(pathfind3d.NavBoxObstacle(v3(28, -1, 16), v3(44, 4, 40)))
+			tm.AddObstacle(pathfind3d.NavCylinderObstacle(v3(64, 0, 32), 8, 4))
 		})
 		return tm
 	}
@@ -384,8 +385,8 @@ func TestTiledNavMesh3DDeterminism(t *testing.T) {
 	}
 }
 
-func buildLargeTiledMesh3D(gridN int, tileSize float32) *world3d.TiledNavMesh {
-	tm := world3d.NewTiledNavMesh(world3d.TiledNavMeshConfig{TileSize: tileSize})
+func buildLargeTiledMesh3D(gridN int, tileSize float32) *pathfind3d.TiledNavMesh {
+	tm := pathfind3d.NewTiledNavMesh(pathfind3d.TiledNavMeshConfig{TileSize: tileSize})
 	tm.Batch(func() {
 		for tx := range gridN {
 			for tz := range gridN {
@@ -393,7 +394,7 @@ func buildLargeTiledMesh3D(gridN int, tileSize float32) *world3d.TiledNavMesh {
 				z0 := float32(tz) * tileSize
 				midX := x0 + tileSize*0.5
 				midZ := z0 + tileSize*0.5
-				tm.BakeTile(world3d.ChunkCoord{X: int32(tx), Z: int32(tz)}, []world3d.NavPolygonInput{
+				tm.BakeTile(world3d.ChunkCoord{X: int32(tx), Z: int32(tz)}, []pathfind3d.NavPolygonInput{
 					{Vertices: tiledQuadXZ(x0, z0, midX, midZ, 0)},
 					{Vertices: tiledQuadXZ(midX, z0, x0+tileSize, midZ, 0)},
 					{Vertices: tiledQuadXZ(x0, midZ, midX, z0+tileSize, 0)},
@@ -410,7 +411,7 @@ func TestTiledNavMesh3DSingleTileRebuildBudget(t *testing.T) {
 	tm := buildLargeTiledMesh3D(20, tileSize) // 400 tiles, 1600 polygons
 	cx := float32(10*tileSize + 16)
 	cz := float32(10*tileSize + 16)
-	id, ok := tm.AddObstacle(world3d.NavBoxObstacle(v3(cx-4, -1, cz-4), v3(cx+4, 3, cz+4)))
+	id, ok := tm.AddObstacle(pathfind3d.NavBoxObstacle(v3(cx-4, -1, cz-4), v3(cx+4, 3, cz+4)))
 	if !ok {
 		t.Fatal("AddObstacle failed")
 	}
@@ -419,7 +420,7 @@ func TestTiledNavMesh3DSingleTileRebuildBudget(t *testing.T) {
 	const iters = 20
 	for i := range iters {
 		shift := float32(i%3) * 0.5
-		tm.UpdateObstacle(id, world3d.NavBoxObstacle(v3(cx-4+shift, -1, cz-4), v3(cx+4+shift, 3, cz+4)))
+		tm.UpdateObstacle(id, pathfind3d.NavBoxObstacle(v3(cx-4+shift, -1, cz-4), v3(cx+4+shift, 3, cz+4)))
 	}
 	avg := time.Since(start) / iters
 	if avg > 16*time.Millisecond {
@@ -432,9 +433,9 @@ func BenchmarkTiledNavMesh3DRebuildSingleTile(b *testing.B) {
 	tm := buildLargeTiledMesh3D(20, tileSize)
 	cx := float32(10*tileSize + 16)
 	cz := float32(10*tileSize + 16)
-	id, _ := tm.AddObstacle(world3d.NavBoxObstacle(v3(cx-4, -1, cz-4), v3(cx+4, 3, cz+4)))
-	obsA := world3d.NavBoxObstacle(v3(cx-4, -1, cz-4), v3(cx+4, 3, cz+4))
-	obsB := world3d.NavBoxObstacle(v3(cx-3, -1, cz-3), v3(cx+5, 3, cz+5))
+	id, _ := tm.AddObstacle(pathfind3d.NavBoxObstacle(v3(cx-4, -1, cz-4), v3(cx+4, 3, cz+4)))
+	obsA := pathfind3d.NavBoxObstacle(v3(cx-4, -1, cz-4), v3(cx+4, 3, cz+4))
+	obsB := pathfind3d.NavBoxObstacle(v3(cx-3, -1, cz-3), v3(cx+5, 3, cz+5))
 
 	b.ResetTimer()
 	for i := range b.N {
@@ -494,7 +495,7 @@ func TestTiledNavMesh3DConcurrentNearestPolygonRaceFree(t *testing.T) {
 
 func TestTiledNavMesh3DRaycastDiagonalCornerBridge(t *testing.T) {
 	// 2x2 grid of 16x16 tiles meeting at corner (16, 0, 16).
-	tm := world3d.BuildTiledNavMesh([][]math3d.Vec3{tiledQuadXZ(0, 0, 32, 32, 0)}, math.Pi/4, 16)
+	tm := pathfind3d.BuildTiledNavMesh([][]math3d.Vec3{tiledQuadXZ(0, 0, 32, 32, 0)}, math.Pi/4, 16)
 	hit, blocked := tm.Raycast(v3(2, 0, 2), v3(30, 0, 30))
 	if blocked || hit.Hit {
 		t.Fatalf("diagonal 3D raycast across 4-tile corner (16,0,16) falsely blocked: %+v", hit)
@@ -509,10 +510,10 @@ func TestTiledNavMesh3DSlopedRampIgnoresFloatingObstacle(t *testing.T) {
 		v3(20, 10, 8),
 		v3(20, 10, 0),
 	}
-	tm := world3d.BuildTiledNavMesh([][]math3d.Vec3{ramp}, math.Pi/4, 32)
+	tm := pathfind3d.BuildTiledNavMesh([][]math3d.Vec3{ramp}, math.Pi/4, 32)
 	// Place a floating box at X in [2,6], Y in [7,10] — well above the ramp surface Y in [1,3] there,
 	// even though its Y span overlaps the ramp polygon's overall AABB Y in [0,10].
-	if _, ok := tm.AddObstacle(world3d.NavBoxObstacle(v3(2, 7, 1), v3(6, 10, 7))); !ok {
+	if _, ok := tm.AddObstacle(pathfind3d.NavBoxObstacle(v3(2, 7, 1), v3(6, 10, 7))); !ok {
 		t.Fatal("AddObstacle failed")
 	}
 	// Surface at (4, 2, 4) directly beneath the floating box must remain walkable and uncarved.
@@ -526,15 +527,15 @@ func TestTiledNavMesh3DSlopedRampIgnoresFloatingObstacle(t *testing.T) {
 }
 
 func TestTiledNavMesh3DTightenRespectsCheapRoadAndOversizedObstacleSafe(t *testing.T) {
-	polys := []world3d.NavPolygonInput{
-		{Vertices: tiledQuadXZ(0, 0, 32, 10, 0), Area: world3d.NavAreaRoad, Flags: world3d.NavFlagWalk},
-		{Vertices: tiledQuadXZ(22, 10, 32, 32, 0), Area: world3d.NavAreaRoad, Flags: world3d.NavFlagWalk},
-		{Vertices: tiledQuadXZ(0, 22, 22, 32, 0), Area: world3d.NavAreaRoad, Flags: world3d.NavFlagWalk},
-		{Vertices: tiledQuadXZ(0, 10, 22, 22, 0), Area: world3d.NavAreaDefault, Flags: world3d.NavFlagWalk},
+	polys := []pathfind3d.NavPolygonInput{
+		{Vertices: tiledQuadXZ(0, 0, 32, 10, 0), Area: pathfind3d.NavAreaRoad, Flags: pathfind3d.NavFlagWalk},
+		{Vertices: tiledQuadXZ(22, 10, 32, 32, 0), Area: pathfind3d.NavAreaRoad, Flags: pathfind3d.NavFlagWalk},
+		{Vertices: tiledQuadXZ(0, 22, 22, 32, 0), Area: pathfind3d.NavAreaRoad, Flags: pathfind3d.NavFlagWalk},
+		{Vertices: tiledQuadXZ(0, 10, 22, 22, 0), Area: pathfind3d.NavAreaDefault, Flags: pathfind3d.NavFlagWalk},
 	}
-	tm := world3d.BuildTiledNavMeshWithAreas(polys, math.Pi/4, 16)
-	filter := world3d.DefaultNavFilter()
-	filter.SetAreaCost(world3d.NavAreaRoad, 0.2)
+	tm := pathfind3d.BuildTiledNavMeshWithAreas(polys, math.Pi/4, 16)
+	filter := pathfind3d.DefaultNavFilter()
+	filter.SetAreaCost(pathfind3d.NavAreaRoad, 0.2)
 
 	res := tm.FindPathWithFilterAndOptions(v3(4, 0, 5), v3(4, 0, 27), filter, pathfind.PathOptions{})
 	if !res.Found {
@@ -543,7 +544,7 @@ func TestTiledNavMesh3DTightenRespectsCheapRoadAndOversizedObstacleSafe(t *testi
 	if len(res.Path) <= 2 {
 		t.Fatalf("tightenTiledPath3D erroneously shortcut across higher-cost implicit NavAreaDefault: %v", res.Path)
 	}
-	if id, ok := tm.AddObstacle(world3d.NavBoxObstacle(v3(-1e9, -10, -1e9), v3(1e9, 10, 1e9))); ok || id != 0 {
+	if id, ok := tm.AddObstacle(pathfind3d.NavBoxObstacle(v3(-1e9, -10, -1e9), v3(1e9, 10, 1e9))); ok || id != 0 {
 		t.Fatalf("AddObstacle accepted oversized 3D box: id=%d ok=%v", id, ok)
 	}
 	if tm.ObstacleCount() != 0 {

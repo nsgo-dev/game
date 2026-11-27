@@ -163,7 +163,7 @@
           "maximum": 255
         },
         "flags": {
-          "description": "Flags holds optional custom link flag bits; world3d.NavLinkOffMesh is always added on load.",
+          "description": "Flags holds optional custom link flag bits; pathfind3d.NavLinkOffMesh is always added on load.",
           "type": "integer",
           "minimum": 0,
           "maximum": 4294967295

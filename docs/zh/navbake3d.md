@@ -1,9 +1,9 @@
 # navbake3d
 
-`game/ai/navbake3d` 从关卡几何体烘焙 3D 导航网格，做法与 Recast、Godot 的 `NavigationRegion3D` 和 Unity 的 `NavMeshSurface` 相同，因此 3D 游戏不必再手写 [world3d](world3d.md) `NavMesh` 的凸多边形。它从 glTF 模型、场景文件、地形高度图、`GridMap` 和物理碰撞体读取关卡，为每种代理类型烘焙一个网格，并保存在场景所引用的带版本 YAML 文件里。2D 关卡请改用 [navbake](navbake.md)，它烘焙 `pathfind.NavMesh` 多边形。
+`game/pathfind3d/navbake3d` 从关卡几何体烘焙 3D 导航网格，做法与 Recast、Godot 的 `NavigationRegion3D` 和 Unity 的 `NavMeshSurface` 相同，因此 3D 游戏不必再手写 [pathfind3d](pathfind3d.md) `NavMesh` 的凸多边形。它从 glTF 模型、场景文件、地形高度图、`GridMap` 和物理碰撞体读取关卡，为每种代理类型烘焙一个网格，并保存在场景所引用的带版本 YAML 文件里。2D 关卡请改用 [navbake](navbake.md)，它烘焙 `pathfind.NavMesh` 多边形。
 
 ```go
-import "github.com/nsgo-dev/game/pkg/ai/navbake3d"
+import "github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
 ```
 
 ## 烘焙关卡
@@ -110,13 +110,13 @@ meshes:
 | `meshes[].polygons[].vertices` | 多边形各拐角在 `vertices` 中的索引，3 到 `maxVertsPerPoly` 个，沿多边形排列 |
 | `meshes[].polygons[].detail` | 在地面起伏处于多边形的边上和内部采样得到的额外顶点 |
 | `meshes[].polygons[].triangles` | 覆盖该多边形的三角形，从上方看为逆时针；小于多边形顶点数的索引 `i` 指它的第 `i` 个拐角，索引 `n + i` 指 `detail[i]` |
-| `meshes[].links` | 可选的点对点离网连接（`id`、`start: [x, y, z]`、`end: [x, y, z]`、`radius`、`bidirectional`、`cost`、`area`、`flags`、`userData`），由 `Mesh.NavMesh` 自动注册到 `world3d.NavMesh` |
+| `meshes[].links` | 可选的点对点离网连接（`id`、`start: [x, y, z]`、`end: [x, y, z]`、`radius`、`bidirectional`、`cost`、`area`、`flags`、`userData`），由 `Mesh.NavMesh` 自动注册到 `pathfind3d.NavMesh` |
 
 `Parse` 拒绝未知字段、缺失或不支持的版本、非有限坐标和越界索引，并给出行号、字段和修复方法；`Encode` 按上面的固定键顺序写出，加载后再保存不会改变文件。[文件格式](formats.md#3d-导航网格)把它与其他格式列在一起。
 
 ## 寻路
 
-加载场景的文件，把某种代理类型的网格转成 `world3d.NavMesh`：
+加载场景的文件，把某种代理类型的网格转成 `pathfind3d.NavMesh`：
 
 ```go
 file, err := navbake3d.LoadFS(assets, scene.NavMesh)
@@ -131,7 +131,7 @@ nav := mesh.NavMesh()
 path, ok := nav.FindPath(start, goal)
 ```
 
-`Mesh.NavMesh` 把每个细节三角形变成 `NavMesh` 的一个可行走多边形，并通过共享边与相邻多边形相连，因此 `FindPath` 会按烘焙出的高度沿坡道、台阶和地形前进，并让叠放的楼层保持分离。其 `VerticalTolerance` 取代理身高与可攀爬高度中的较大者，所以 `FindPolygon` 会把一个点吸附到其上方或下方该距离以内的表面上。如需运行时动态障碍物与区块流式加载，可调用 `Mesh.TiledNavMesh(tileSize)` 构建 `*world3d.TiledNavMesh`，或调用 `navbake3d.BakeTile(g, settings, agent, coord, tileSize, origin)` 按 `world3d.ChunkCoord` 带边界外扩地独立体素烘焙单个 `*world3d.NavTile`。
+`Mesh.NavMesh` 把每个细节三角形变成 `NavMesh` 的一个可行走多边形，并通过共享边与相邻多边形相连，因此 `FindPath` 会按烘焙出的高度沿坡道、台阶和地形前进，并让叠放的楼层保持分离。其 `VerticalTolerance` 取代理身高与可攀爬高度中的较大者，所以 `FindPolygon` 会把一个点吸附到其上方或下方该距离以内的表面上。如需运行时动态障碍物与区块流式加载，可调用 `Mesh.TiledNavMesh(tileSize)` 构建 `*pathfind3d.TiledNavMesh`，或调用 `navbake3d.BakeTile(g, settings, agent, coord, tileSize, origin)` 按 `world3d.ChunkCoord` 带边界外扩地独立体素烘焙单个 `*pathfind3d.NavTile`。
 
 ## 调试绘制
 

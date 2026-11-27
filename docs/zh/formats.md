@@ -832,7 +832,7 @@ conflicts:
       "y": 280
     theirs: null
 ```
-<!-- format: ai/navbake3d -->
+<!-- format: pathfind3d/navbake3d -->
 ### 3D 导航网格
 
 | 文件 | 版本 | 读写函数 | 字段 |

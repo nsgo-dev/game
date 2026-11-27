@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
 
@@ -48,13 +49,13 @@ func BakeMesh(g *Geometry, settings Settings, agent AgentType) (*Mesh, error) {
 	return bakeMesh(g, settings, agent)
 }
 
-// BakeTile bakes one independent world3d.NavTile for chunk coordinate coord from g's triangles
+// BakeTile bakes one independent pathfind3d.NavTile for chunk coordinate coord from g's triangles
 // overlapping that tile (expanded by an erosion border so wall clearance near tile edges matches
 // a full-level bake). Resulting walkable triangles are clipped cleanly to the tile's exact XZ
-// bounds so neighboring tiles link seamlessly when installed in a world3d.TiledNavMesh.
+// bounds so neighboring tiles link seamlessly when installed in a pathfind3d.TiledNavMesh.
 //
-// When no selected geometry overlaps the tile, BakeTile returns an empty *world3d.NavTile and a nil error.
-func BakeTile(g *Geometry, settings Settings, agent AgentType, coord world3d.ChunkCoord, tileSize float32, origin math3d.Vec3) (*world3d.NavTile, error) {
+// When no selected geometry overlaps the tile, BakeTile returns an empty *pathfind3d.NavTile and a nil error.
+func BakeTile(g *Geometry, settings Settings, agent AgentType, coord world3d.ChunkCoord, tileSize float32, origin math3d.Vec3) (*pathfind3d.NavTile, error) {
 	settings = settings.withDefaults()
 	if err := settings.validate("settings"); err != nil {
 		return nil, err
@@ -70,7 +71,7 @@ func BakeTile(g *Geometry, settings Settings, agent AgentType, coord world3d.Chu
 		return nil, fmt.Errorf("navbake3d: tile origin %v must be finite", origin)
 	}
 	if g == nil || len(g.layers) == 0 {
-		return world3d.BakeNavTile(coord, tileSize, origin, nil, math.Pi/2), nil
+		return pathfind3d.BakeNavTile(coord, tileSize, origin, nil, math.Pi/2), nil
 	}
 
 	cs, ch := settings.CellSize, settings.CellHeight
@@ -109,7 +110,7 @@ func BakeTile(g *Geometry, settings Settings, agent AgentType, coord world3d.Chu
 		hits++
 	}
 	if hits == 0 {
-		return world3d.BakeNavTile(coord, tileSize, origin, nil, math.Pi/2), nil
+		return pathfind3d.BakeNavTile(coord, tileSize, origin, nil, math.Pi/2), nil
 	}
 	if maxY-minY < ch {
 		maxY = minY + ch
@@ -123,19 +124,19 @@ func BakeTile(g *Geometry, settings Settings, agent AgentType, coord world3d.Chu
 	if err != nil {
 		return nil, err
 	}
-	var inputs []world3d.NavPolygonInput
+	var inputs []pathfind3d.NavPolygonInput
 	for pi := range m.Polygons {
 		p := &m.Polygons[pi]
 		for _, tri := range p.Triangles {
 			v := m.TriangleVertices(p, tri)
-			inputs = append(inputs, world3d.NavPolygonInput{
+			inputs = append(inputs, pathfind3d.NavPolygonInput{
 				Vertices: []math3d.Vec3{v[0], v[1], v[2]},
-				Area:     world3d.NavAreaDefault,
-				Flags:    world3d.NavFlagWalk,
+				Area:     pathfind3d.NavAreaDefault,
+				Flags:    pathfind3d.NavFlagWalk,
 			})
 		}
 	}
-	return world3d.BakeNavTile(coord, tileSize, origin, inputs, math.Pi/2), nil
+	return pathfind3d.BakeNavTile(coord, tileSize, origin, inputs, math.Pi/2), nil
 }
 
 // bakeMesh runs the pipeline for one agent with validated, defaulted settings.

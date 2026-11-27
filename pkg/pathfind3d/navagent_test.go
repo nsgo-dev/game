@@ -1,4 +1,4 @@
-package world3d_test
+package pathfind3d_test
 
 import (
 	"math"
@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/world3d"
+	"github.com/nsgo-dev/game/pkg/pathfind3d"
 )
 
-func buildMultiLevelBridgeNavMesh() *world3d.NavMesh {
+func buildMultiLevelBridgeNavMesh() *pathfind3d.NavMesh {
 	ground := quadXZ(0, -2, 12, 2, 0)        // 0: ground under bridge
 	eastLanding := quadXZ(12, -2, 16, 2, 0)  // 1: east ground landing
 	northApproach := quadXZ(12, 2, 16, 6, 0) // 2: ramp base
@@ -23,7 +23,7 @@ func buildMultiLevelBridgeNavMesh() *world3d.NavMesh {
 	bridgeDeck := quadXZ(2, -2, 10, 2, 3) // 5: upper bridge directly above poly 0
 	island := quadXZ(20, -2, 24, 2, 3)    // 6: disconnected floating island
 
-	nm := world3d.BuildNavMesh([][]math3d.Vec3{
+	nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		ground,
 		eastLanding,
 		northApproach,
@@ -57,20 +57,20 @@ func TestNavAgent3DClimbsRampAndMultiLevelBridge(t *testing.T) {
 	nm := buildMultiLevelBridgeNavMesh()
 
 	// Start directly underneath the bridge at Y=0 and target the deck directly overhead at Y=3.
-	agent := world3d.NewNavAgent(nm, math3d.Vec3{X: 6, Y: 0, Z: 0}, world3d.NavAgentConfig{
+	agent := pathfind3d.NewNavAgent(nm, math3d.Vec3{X: 6, Y: 0, Z: 0}, pathfind3d.NavAgentConfig{
 		MaxSpeed:         6,
 		MaxAcceleration:  30,
 		Radius:           0.35,
 		ArrivalRadius:    1.5,
 		StoppingDistance: 0.3,
 	})
-	if agent.State() != world3d.NavAgentIdle || agent.State().String() != "idle" {
+	if agent.State() != pathfind3d.NavAgentIdle || agent.State().String() != "idle" {
 		t.Fatalf("initial state = %v, want idle", agent.State())
 	}
 
 	goal := math3d.Vec3{X: 6, Y: 3, Z: 0}
 	agent.SetTarget(goal)
-	if agent.State() != world3d.NavAgentMoving {
+	if agent.State() != pathfind3d.NavAgentMoving {
 		t.Fatalf("state after SetTarget = %v, want moving (must not falsely arrive underneath bridge)", agent.State())
 	}
 	if path := agent.Path(); len(path) < 4 {
@@ -93,7 +93,7 @@ func TestNavAgent3DClimbsRampAndMultiLevelBridge(t *testing.T) {
 		if polyIdx == 3 && p.Y > 0.5 && p.Y < 2.5 {
 			reachedRamp = true
 		}
-		if agent.State() == world3d.NavAgentArrived {
+		if agent.State() == pathfind3d.NavAgentArrived {
 			break
 		}
 	}
@@ -101,7 +101,7 @@ func TestNavAgent3DClimbsRampAndMultiLevelBridge(t *testing.T) {
 	if !reachedRamp {
 		t.Fatal("agent never climbed intermediate heights on the sloped ramp")
 	}
-	if agent.State() != world3d.NavAgentArrived {
+	if agent.State() != pathfind3d.NavAgentArrived {
 		t.Fatalf("agent did not arrive on bridge deck: state=%v pos=%v", agent.State(), agent.Pos())
 	}
 	if agent.Pos().Dist(goal) > 0.3+1e-3 {
@@ -115,7 +115,7 @@ func TestNavAgent3DClimbsRampAndMultiLevelBridge(t *testing.T) {
 func TestNavAgent3DChasesMovingTarget(t *testing.T) {
 	nm := buildMultiLevelBridgeNavMesh()
 
-	chaser := world3d.NewNavAgent(nm, math3d.Vec3{X: 2, Y: 0, Z: 0}, world3d.NavAgentConfig{
+	chaser := pathfind3d.NewNavAgent(nm, math3d.Vec3{X: 2, Y: 0, Z: 0}, pathfind3d.NavAgentConfig{
 		MaxSpeed:         7,
 		MaxAcceleration:  35,
 		Radius:           0.35,
@@ -161,7 +161,7 @@ func TestNavAgent3DChasesMovingTarget(t *testing.T) {
 		if _, ok := nm.FindPolygon(chaser.Pos()); !ok {
 			t.Fatalf("step %d: 3D chaser left navmesh at %v", step, chaser.Pos())
 		}
-		if chaser.State() == world3d.NavAgentArrived {
+		if chaser.State() == pathfind3d.NavAgentArrived {
 			caught = true
 			break
 		}
@@ -178,7 +178,7 @@ func TestNavAgent3DChasesMovingTarget(t *testing.T) {
 
 func TestNavAgent3DPushedOffCorridorRepairsLocallyWithoutReplan(t *testing.T) {
 	// Hallway 0 -> 1 -> 2 -> 3 with 1-hop alcove 4 (off poly 1) and 2-hop alcove 5 (off poly 4).
-	nm := world3d.BuildNavMesh([][]math3d.Vec3{
+	nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		quadXZ(0, 0, 5, 5, 0),   // 0
 		quadXZ(5, 0, 10, 5, 0),  // 1
 		quadXZ(10, 0, 15, 5, 0), // 2
@@ -187,7 +187,7 @@ func TestNavAgent3DPushedOffCorridorRepairsLocallyWithoutReplan(t *testing.T) {
 		quadXZ(5, 10, 10, 15, 0),
 	}, math3d.DegToRad(45))
 
-	agent := world3d.NewNavAgent(nm, math3d.Vec3{X: 2.5, Y: 0, Z: 2.5}, world3d.NavAgentConfig{
+	agent := pathfind3d.NewNavAgent(nm, math3d.Vec3{X: 2.5, Y: 0, Z: 2.5}, pathfind3d.NavAgentConfig{
 		MaxSpeed:         10,
 		MaxAcceleration:  50,
 		StoppingDistance: 0.35,
@@ -230,11 +230,11 @@ func TestNavAgent3DPushedOffCorridorRepairsLocallyWithoutReplan(t *testing.T) {
 
 	for range 600 {
 		agent.Step(dt)
-		if agent.State() == world3d.NavAgentArrived {
+		if agent.State() == pathfind3d.NavAgentArrived {
 			break
 		}
 	}
-	if agent.State() != world3d.NavAgentArrived {
+	if agent.State() != pathfind3d.NavAgentArrived {
 		t.Fatalf("3D agent failed to recover and arrive: state=%v pos=%v", agent.State(), agent.Pos())
 	}
 	if agent.ReplanCount() != initialReplans {
@@ -243,7 +243,7 @@ func TestNavAgent3DPushedOffCorridorRepairsLocallyWithoutReplan(t *testing.T) {
 }
 
 func TestNavAgent3DUnreachableAndOffMeshLinkCallbacks(t *testing.T) {
-	nm := world3d.BuildNavMesh([][]math3d.Vec3{
+	nm := pathfind3d.BuildNavMesh([][]math3d.Vec3{
 		quadXZ(0, 0, 6, 6, 0),   // 0: ground start
 		quadXZ(6, 0, 12, 6, 0),  // 1: ground jump pad
 		quadXZ(18, 0, 24, 6, 4), // 2: elevated floating island (Y=4)
@@ -253,13 +253,13 @@ func TestNavAgent3DUnreachableAndOffMeshLinkCallbacks(t *testing.T) {
 	const flagJumpPad uint32 = 1 << 3
 
 	var gateTicks, jumpTicks int
-	var sawJump world3d.NavLinkEvent
+	var sawJump pathfind3d.NavLinkEvent
 
-	agent := world3d.NewNavAgent(nm, math3d.Vec3{X: 2, Y: 0, Z: 3}, world3d.NavAgentConfig{
+	agent := pathfind3d.NewNavAgent(nm, math3d.Vec3{X: 2, Y: 0, Z: 3}, pathfind3d.NavAgentConfig{
 		MaxSpeed:         10,
 		MaxAcceleration:  60,
 		StoppingDistance: 0.35,
-		OnLink: func(a *world3d.NavAgent, ev world3d.NavLinkEvent, dt time.Duration) bool {
+		OnLink: func(a *pathfind3d.NavAgent, ev pathfind3d.NavLinkEvent, dt time.Duration) bool {
 			if ev.OffMesh {
 				sawJump = ev
 				jumpTicks++
@@ -281,7 +281,7 @@ func TestNavAgent3DUnreachableAndOffMeshLinkCallbacks(t *testing.T) {
 	// Before adding the off-mesh link, the floating island is unreachable.
 	goal := math3d.Vec3{X: 22, Y: 4, Z: 3}
 	agent.SetTarget(goal)
-	if agent.State() != world3d.NavAgentUnreachable || agent.State().String() != "unreachable" {
+	if agent.State() != pathfind3d.NavAgentUnreachable || agent.State().String() != "unreachable" {
 		t.Fatalf("expected unreachable before off-mesh link, got %v", agent.State())
 	}
 
@@ -289,7 +289,7 @@ func TestNavAgent3DUnreachableAndOffMeshLinkCallbacks(t *testing.T) {
 	if !nm.SetEdgeFlags(0, 1, flagGate) {
 		t.Fatal("SetEdgeFlags(0, 1) failed")
 	}
-	if !nm.AddOffMeshLink(world3d.NavOffMeshLink{
+	if !nm.AddOffMeshLink(pathfind3d.NavOffMeshLink{
 		Start: math3d.Vec3{X: 11, Y: 0, Z: 3},
 		End:   math3d.Vec3{X: 19, Y: 4, Z: 3},
 		Flags: flagJumpPad,
@@ -301,18 +301,18 @@ func TestNavAgent3DUnreachableAndOffMeshLinkCallbacks(t *testing.T) {
 	const dt = time.Second / 60
 	for range 400 {
 		agent.Step(dt)
-		if agent.State() == world3d.NavAgentArrived {
+		if agent.State() == pathfind3d.NavAgentArrived {
 			break
 		}
 	}
 
-	if agent.State() != world3d.NavAgentArrived {
+	if agent.State() != pathfind3d.NavAgentArrived {
 		t.Fatalf("3D agent did not arrive across gate + off-mesh jump: state=%v pos=%v", agent.State(), agent.Pos())
 	}
 	if gateTicks != 2 {
 		t.Fatalf("gateTicks = %d, want 2", gateTicks)
 	}
-	if jumpTicks != 6 || !sawJump.OffMesh || sawJump.LinkID != 42 || sawJump.Flags != (flagJumpPad|world3d.NavLinkOffMesh) {
+	if jumpTicks != 6 || !sawJump.OffMesh || sawJump.LinkID != 42 || sawJump.Flags != (flagJumpPad|pathfind3d.NavLinkOffMesh) {
 		t.Fatalf("jump event mismatch: ticks=%d ev=%+v", jumpTicks, sawJump)
 	}
 	if !math3d.ApproxEqual(agent.Pos().Y, 4, 1e-2) {
@@ -324,14 +324,14 @@ func TestNavAgent3DGroupStaggeredReplanBudget(t *testing.T) {
 	nm := buildMultiLevelBridgeNavMesh()
 
 	const maxBudget = 2
-	group := world3d.NewNavAgentGroup(world3d.NavAgentGroupConfig{
+	group := pathfind3d.NewNavAgentGroup(pathfind3d.NavAgentGroupConfig{
 		MaxReplansPerStep: maxBudget,
 		ReplanInterval:    100 * time.Millisecond,
 	})
 
 	const numAgents = 10
 	for i := range numAgents {
-		a := group.Add(nm, math3d.Vec3{X: float32(1 + i), Y: 0, Z: 0}, world3d.NavAgentConfig{
+		a := group.Add(nm, math3d.Vec3{X: float32(1 + i), Y: 0, Z: 0}, pathfind3d.NavAgentConfig{
 			MaxSpeed:         8,
 			MaxAcceleration:  40,
 			StoppingDistance: 0.4,
@@ -356,7 +356,7 @@ func TestNavAgent3DGroupStaggeredReplanBudget(t *testing.T) {
 
 	arrived := 0
 	for _, a := range group.Agents() {
-		if a.State() == world3d.NavAgentArrived {
+		if a.State() == pathfind3d.NavAgentArrived {
 			arrived++
 		}
 	}
@@ -368,13 +368,13 @@ func TestNavAgent3DGroupStaggeredReplanBudget(t *testing.T) {
 func TestNavAgent3DDeterministicReplayBitIdentical(t *testing.T) {
 	runSim := func() [][3]uint32 {
 		nm := buildMultiLevelBridgeNavMesh()
-		group := world3d.NewNavAgentGroup(world3d.NavAgentGroupConfig{
+		group := pathfind3d.NewNavAgentGroup(pathfind3d.NavAgentGroupConfig{
 			MaxReplansPerStep: 2,
 			StaggerStride:     3,
 			ReplanInterval:    50 * time.Millisecond,
 		})
 		for i := range 6 {
-			a := group.Add(nm, math3d.Vec3{X: float32(2 + i), Y: 0, Z: -1 + float32(i%3)}, world3d.NavAgentConfig{
+			a := group.Add(nm, math3d.Vec3{X: float32(2 + i), Y: 0, Z: -1 + float32(i%3)}, pathfind3d.NavAgentConfig{
 				MaxSpeed:         6,
 				MaxAcceleration:  30,
 				StoppingDistance: 0.35,
