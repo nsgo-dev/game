@@ -111,3 +111,69 @@ err := store.LoadChecked("slot1", &snap, func() error {
 - **Ranges & canonical names**: `CaptionScale` clamps to `[MinCaptionScale, MaxCaptionScale]` (`0.5`–`3.0`), `GameSpeed` to `[MinGameSpeed, MaxGameSpeed]` (`0.25`–`2.0`), and `ScreenShake` to `[0, 1]`. `NormalizeColorBlindMode` accepts both `"none"` and `"normal"` (normalizing both to `"none"`), `"protanopia"`, `"deuteranopia"`, `"tritanopia"`, and `"high-contrast"` (including `"highcontrast"` / `"high_contrast"`).
 - **Assist fields & migration**: holds `Captions`, `SFXCaptions`, `ReduceFlashes`, `Invincibility`, `AutoAim`, and `HoldToToggle` as typed fields; loading an older file with `Custom["reduce_flashes"]` migrates it into `Accessibility.ReduceFlashes` automatically.
 - **Follow-platform defaults**: `EffectiveReduceMotion(env)`, `EffectiveHighContrast(env)`, and `EffectiveCaptionScale(env)` fall back to `env.ReduceMotion()`, `env.IncreaseContrast()`, and `env.FontScale()` while unset; call `SetReduceMotion`, `SetHighContrast`, or `SetCaptionScale` to record an explicit override (including `false` or `1.0`), and `ClearReduceMotion`, `ClearHighContrast`, or `ClearCaptionScale` to follow the platform again.
+
+## Whole-game save registry (`save.Game`)
+
+Instead of maintaining one hand-written struct and a manual snapshot/restore pair for every subsystem, register each saveable subsystem once on a `save.Game` and save or load the whole game in one call:
+
+```go
+saver := save.NewGame()
+saver.Register("bag", 1, bag.SavePart())
+saver.Register("gear", 1, gear.SavePart())
+saver.Register("quests", 1, quests.SavePart())
+saver.Register("dialogue", 1, dialogueRunner.SavePart())
+saver.Register("persistence", 1, persistence)
+saver.Register("player", 1, save.ValuePart(&player))
+
+if err := saver.Save(store, "slot1"); err != nil {
+	return err
+}
+if err := saver.Load(store, "slot1"); err != nil {
+	return err
+}
+```
+
+- **Slot layout**: `Game.Save` writes `{"parts": {"<name>": {"version": N, "data": ...}}}` inside the `Store` envelope, with part keys in deterministic order.
+- **Built-in `SavePart()` adapters**: `inventory.Container`, `inventory.Equipment`, `quest.Log`, `stats.Sheet`, `ability.Caster`, `flow.Machine[S]`, `flow.DialogueRunner`, and `entities.World` each expose `SavePart() save.Part`. `save.Persistence` implements `save.Part`, `save.StagedPart`, and `save.Resetter` directly.
+- **Custom parts**: wrap a pointer with `save.ValuePart(&state)`, a save/load pair with `save.FuncPart(saveFn, loadFn, resetFn...)`, or a two-phase validate-then-apply pair with `save.StagedFuncPart(saveFn, prepareFn, resetFn...)`.
+- **All-or-nothing loads**: `Game.Load` runs through `Store.LoadChecked`, validates and migrates every part before mutating live state, and applies all parts in registration order. Every built-in adapter implements `save.StagedPart` (`PrepareLoad`), so a failure never touches any subsystem; plain `save.Part` implementations are snapshotted before commit and rolled back on failure. If the primary copy fails part validation, `Store.LoadChecked` automatically tries the backup copy.
+- **Per-part versions, migrations, and newly added parts**: bump an individual part's version and pass `save.WithPartMigration(from, fn)` (or `saver.RegisterMigration(name, from, fn)`). When an older slot omits a part added in a newer build, `Game.Load` initializes it from `save.WithPartDefault(v)` if given, calls `ResetState()` if the part implements `save.Resetter` (as all built-in adapters do), or leaves it untouched. A part with a newer version than registered returns `ErrFutureVersion`, and a missing step returns `ErrMissingMigration`, both without downgrading to an older backup.
+- **Migrating legacy flat slots & load-menu summaries**: use `save.EncodeParts` inside a `Store`-level `save.Migration` to upgrade a legacy flat struct into a `Game` parts slot, and `saver.PeekPart(store, slot, "player", &summary)` to read one part (with migrations applied) without mutating the running game.
+
+## Persistent per-scene object state (`save.Persistence`)
+
+`save.Persistence` tracks per-scene object state keyed by cleaned scene path and object ID—destroyed objects (`MarkDestroyed` / `IsDestroyed`), moved 2D/3D positions and rotations (`SetPosition` / `SetPosition3D` / `SetRotation`), component field overrides (`SetComponentField` / `ComponentField`), RPG Maker-style boolean self switches (`SetSwitch` / `Switch`), and per-object variables (`SetVar` / `Var`).
+
+Register it on `save.Game` alongside your other parts, and connect it to `sceneformat` when entering and leaving scenes:
+
+```go
+// On entering a scene:
+spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{
+	Components:  reg,
+	Persistence: persistence,
+	ScenePath:   "scenes/cave.scene.yaml",
+})
+
+// Before leaving the scene:
+sceneformat.CapturePersistence(doc, world, spawned, persistence, "scenes/cave.scene.yaml")
+```
+
+`sceneformat.ApplyPersistence` and `sceneformat.BuildWithPersistence` apply the same overrides to a cloned `SceneDoc` (omitting destroyed objects and pruning connections that reference them) without mutating the original parsed scene document. Integer values inside `Components` and `Vars` round-trip through JSON as Go `int` so `sceneformat.FieldInt` validation continues to pass after reload.
+
+## Round-trip testing (`pkg/save/savetest`)
+
+Use `savetest.RoundTrip` in tests to catch forgotten fields or broken restore paths early:
+
+```go
+import "github.com/nsgo-dev/game/pkg/save/savetest"
+
+func TestSaveRoundTrip(t *testing.T) {
+	g := newTestGame(t)
+	// ... play the game so every subsystem moves away from defaults ...
+	savetest.RoundTrip(t, g.saver, func() *save.Game {
+		return newTestGame(t).saver
+	})
+}
+```
+
+Passing a fresh factory saves `g` to a temporary store, loads it into the fresh `*save.Game`, verifies both register the same parts and versions, and compares every part's JSON before and after the load. Calling `savetest.RoundTrip(t, g)` without a factory resets any `save.Resetter` parts on `g` before reloading back into `g`.

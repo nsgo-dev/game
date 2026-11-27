@@ -61,51 +61,59 @@ func (l *Log) Snapshot() Snapshot {
 //
 // A snapshot written before a content change that removes a quest or objective, lowers a count, adds a prerequisite, or turns objectives optional so an active quest would already be complete is refused; migrate it with a save.Migration.
 func (l *Log) Restore(s Snapshot) error {
+	next, err := l.prepareRestore(s)
+	if err != nil {
+		return err
+	}
+	l.quests = next
+	return nil
+}
+
+func (l *Log) prepareRestore(s Snapshot) ([]progress, error) {
 	if s.Version == 0 && len(s.Quests) == 0 {
-		l.quests = l.emptyProgress()
-		return nil
+		return l.emptyProgress(), nil
 	}
 	if s.Version != SnapshotVersion {
-		return fmt.Errorf("%w: unsupported version %d (want %d)", ErrInvalidSnapshot, s.Version, SnapshotVersion)
+		return nil, fmt.Errorf("%w: unsupported version %d (want %d)", ErrInvalidSnapshot, s.Version, SnapshotVersion)
 	}
 	next := l.emptyProgress()
 	seen := make([]bool, len(l.quests))
 	for _, rec := range s.Quests {
 		i, ok := l.index[rec.ID]
 		if !ok {
-			return fmt.Errorf("%w: %w: %q", ErrInvalidSnapshot, ErrUnknownQuest, rec.ID)
+			return nil, fmt.Errorf("%w: %w: %q", ErrInvalidSnapshot, ErrUnknownQuest, rec.ID)
 		}
 		if seen[i] {
-			return fmt.Errorf("%w: quest %q recorded twice", ErrInvalidSnapshot, rec.ID)
+			return nil, fmt.Errorf("%w: quest %q recorded twice", ErrInvalidSnapshot, rec.ID)
 		}
 		seen[i] = true
 		switch rec.State {
 		case Active, Completed, Failed, Abandoned:
 		default:
-			return fmt.Errorf("%w: quest %q has state %s", ErrInvalidSnapshot, rec.ID, rec.State)
+			return nil, fmt.Errorf("%w: quest %q has state %s", ErrInvalidSnapshot, rec.ID, rec.State)
 		}
 		q := &l.book.Quests[i]
 		next[i].state = rec.State
 		for objID, n := range rec.Progress {
 			j := slices.IndexFunc(q.Objectives, func(o Objective) bool { return o.ID == objID })
 			if j < 0 {
-				return fmt.Errorf("%w: %w: %q in quest %q", ErrInvalidSnapshot, ErrUnknownObjective, objID, rec.ID)
+				return nil, fmt.Errorf("%w: %w: %q in quest %q", ErrInvalidSnapshot, ErrUnknownObjective, objID, rec.ID)
 			}
 			if n < 0 || n > q.Objectives[j].Required() {
-				return fmt.Errorf("%w: quest %q objective %q progress %d is outside [0, %d]", ErrInvalidSnapshot, rec.ID, objID, n, q.Objectives[j].Required())
+				return nil, fmt.Errorf("%w: quest %q objective %q progress %d is outside [0, %d]", ErrInvalidSnapshot, rec.ID, objID, n, q.Objectives[j].Required())
 			}
 			next[i].counts[j] = n
 		}
 		if rec.State == Abandoned && slices.ContainsFunc(next[i].counts, func(n int) bool { return n != 0 }) {
-			return fmt.Errorf("%w: abandoned quest %q has progress", ErrInvalidSnapshot, rec.ID)
+			return nil, fmt.Errorf("%w: abandoned quest %q has progress", ErrInvalidSnapshot, rec.ID)
 		}
 		if q.Ordered {
 			if err := checkOrderedProgress(q, next[i].counts); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		if rec.State == Active && requiredDone(q, next[i].counts) {
-			return fmt.Errorf("%w: active quest %q has every required objective complete", ErrInvalidSnapshot, rec.ID)
+			return nil, fmt.Errorf("%w: active quest %q has every required objective complete", ErrInvalidSnapshot, rec.ID)
 		}
 	}
 	// Prerequisites are checked once every record is known, since a record may name a quest recorded after it.
@@ -118,14 +126,13 @@ func (l *Log) Restore(s Snapshot) error {
 			r := l.index[req]
 			switch st := next[r].state; {
 			case st == Inactive:
-				return fmt.Errorf("%w: quest %q is %s but its prerequisite %q never started", ErrInvalidSnapshot, q.ID, next[i].state, req)
+				return nil, fmt.Errorf("%w: quest %q is %s but its prerequisite %q never started", ErrInvalidSnapshot, q.ID, next[i].state, req)
 			case st != Completed && !l.book.Quests[r].Repeatable:
-				return fmt.Errorf("%w: quest %q is %s but its prerequisite %q is %s", ErrInvalidSnapshot, q.ID, next[i].state, req, st)
+				return nil, fmt.Errorf("%w: quest %q is %s but its prerequisite %q is %s", ErrInvalidSnapshot, q.ID, next[i].state, req, st)
 			}
 		}
 	}
-	l.quests = next
-	return nil
+	return next, nil
 }
 
 func (l *Log) emptyProgress() []progress {

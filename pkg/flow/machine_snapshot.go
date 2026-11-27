@@ -56,6 +56,14 @@ func (m *Machine[S]) Snapshot() MachineSnapshot[S] {
 // Previous state, negative TimeInState, or non-zero TimeInState/Previous on an unstarted
 // machine, leaving m unchanged and returning an error wrapping [ErrInvalidSnapshot].
 func (m *Machine[S]) Restore(snap MachineSnapshot[S]) error {
+	if err := m.validateRestore(snap); err != nil {
+		return err
+	}
+	m.commitRestore(snap)
+	return nil
+}
+
+func (m *Machine[S]) validateRestore(snap MachineSnapshot[S]) error {
 	if m == nil {
 		return fmt.Errorf("%w: nil machine", ErrInvalidSnapshot)
 	}
@@ -80,7 +88,11 @@ func (m *Machine[S]) Restore(snap MachineSnapshot[S]) error {
 			return fmt.Errorf("%w: unstarted machine cannot have previous state %v", ErrInvalidSnapshot, snap.Previous)
 		}
 	}
+	return nil
+}
 
+func (m *Machine[S]) commitRestore(snap MachineSnapshot[S]) {
+	var zero S
 	m.current = snap.Current
 	m.previous = snap.Previous
 	m.hasPrevious = snap.Previous != zero
@@ -88,7 +100,21 @@ func (m *Machine[S]) Restore(snap MachineSnapshot[S]) error {
 	m.started = snap.Started
 	m.step = 0
 	m.ClearHistory()
-	return nil
+}
+
+func (m *Machine[S]) resetState() {
+	var zero S
+	if m.hasInitial {
+		m.current = m.initial
+	} else {
+		m.current = zero
+	}
+	m.previous = zero
+	m.hasPrevious = false
+	m.timeInState = 0
+	m.started = false
+	m.step = 0
+	m.ClearHistory()
 }
 
 // hasState reports whether id is a state known to m via AddState, NewMachine's initial

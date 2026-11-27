@@ -182,23 +182,31 @@ func (e *Equipment) Snapshot() EquipmentState {
 
 // Restore replaces the equipped items with st after checking every entry: the slot must exist and be listed once, and the item must be in the catalog and fit the slot's kind. On error the equipment is left unchanged.
 func (e *Equipment) Restore(st EquipmentState) error {
+	items, err := e.prepareRestore(st)
+	if err != nil {
+		return err
+	}
+	e.items = items
+	return nil
+}
+
+func (e *Equipment) prepareRestore(st EquipmentState) ([]string, error) {
 	items := make([]string, len(e.slots))
 	for _, s := range st.Slots {
 		i, ok := e.index[s.Slot]
 		if !ok {
-			return fmt.Errorf("%w: %q", ErrUnknownEquipSlot, s.Slot)
+			return nil, fmt.Errorf("%w: %q", ErrUnknownEquipSlot, s.Slot)
 		}
 		if items[i] != "" {
-			return fmt.Errorf("inventory: restore lists equipment slot %q twice", s.Slot)
+			return nil, fmt.Errorf("inventory: restore lists equipment slot %q twice", s.Slot)
 		}
 		if !e.catalog.Has(s.Item) {
-			return fmt.Errorf("%w: %q in equipment slot %q", ErrUnknownItem, s.Item, s.Slot)
+			return nil, fmt.Errorf("%w: %q in equipment slot %q", ErrUnknownItem, s.Item, s.Slot)
 		}
 		if !e.CanEquip(s.Slot, s.Item) {
-			return fmt.Errorf("%w: %q in %q (kind %q)", ErrNotEquippable, s.Item, s.Slot, e.slots[i].Kind)
+			return nil, fmt.Errorf("%w: %q in %q (kind %q)", ErrNotEquippable, s.Item, s.Slot, e.slots[i].Kind)
 		}
 		items[i] = s.Item
 	}
-	e.items = items
-	return nil
+	return items, nil
 }
