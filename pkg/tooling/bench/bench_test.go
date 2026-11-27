@@ -147,14 +147,14 @@ func TestParseOutputTakesMediansFromGoAndNSGoOutput(t *testing.T) {
 goarch: amd64
 BenchmarkBatchDraw1000-10          10000            110000 ns/op             512 B/op          2 allocs/op
 BenchmarkBatchDraw1000-10          10000            100000 ns/op             512 B/op          2 allocs/op
-  ✓ BenchmarkBatchDraw1000-24 44 130000 ns/op 512 B/op 2 allocs/op
+  ✓ BenchmarkBatchDraw1000-10 44 130000 ns/op 512 B/op 2 allocs/op
 BenchmarkRaycast-10              2000000               420.5 ns/op             0 B/op          0 allocs/op
 BenchmarkRaycast-10              2000000               421.5 ns/op             0 B/op          0 allocs/op
-BenchmarkNoMem                   1000                  7 ns/op
+BenchmarkNoMem-10                1000                  7 ns/op
 BenchmarkTooShort-10 12
 BenchmarkNotANumber-10 lots 5 ns/op
 BenchmarkNoNs-10 100 5 MB/s
-Benchmark/sub-case-8 100 9 ns/op 1 B/op 1 allocs/op
+Benchmark/sub-case-10 100 9 ns/op 1 B/op 1 allocs/op
   ✓ 3 passed, 0 failed, 0 skipped
 PASS
 `
@@ -170,6 +170,221 @@ PASS
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ParseOutput = %+v, want %+v", got, want)
+	}
+}
+
+func TestParseOutputCPUSuffixHandling(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want map[string]bench.Metrics
+	}{
+		{
+			name: "1-CPU numeric sub-benchmarks stay separate",
+			raw: `goos: linux
+goarch: amd64
+pkg: example.com/decode
+cpu: Intel(R) Xeon(R) CPU
+BenchmarkDecode/size-1024    1000000    100 ns/op    64 B/op    1 allocs/op
+BenchmarkDecode/size-4096     200000    900 ns/op   256 B/op    2 allocs/op
+BenchmarkDecode/size-1024    1000000    120 ns/op    64 B/op    1 allocs/op
+BenchmarkDecode/size-4096     200000    940 ns/op   256 B/op    2 allocs/op
+PASS
+ok  	example.com/decode	1.234s
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkDecode/size-1024": {NsPerOp: 110, BytesPerOp: 64, AllocsPerOp: 1},
+				"BenchmarkDecode/size-4096": {NsPerOp: 920, BytesPerOp: 256, AllocsPerOp: 2},
+			},
+		},
+		{
+			name: "8-CPU numeric sub-benchmarks produce same keys as 1-CPU",
+			raw: `goos: linux
+goarch: amd64
+pkg: example.com/decode
+cpu: Intel(R) Xeon(R) CPU
+BenchmarkDecode/size-1024-8  1000000    100 ns/op    64 B/op    1 allocs/op
+BenchmarkDecode/size-4096-8   200000    900 ns/op   256 B/op    2 allocs/op
+BenchmarkDecode/size-1024-8  1000000    120 ns/op    64 B/op    1 allocs/op
+BenchmarkDecode/size-4096-8   200000    940 ns/op   256 B/op    2 allocs/op
+PASS
+ok  	example.com/decode	1.234s
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkDecode/size-1024": {NsPerOp: 110, BytesPerOp: 64, AllocsPerOp: 1},
+				"BenchmarkDecode/size-4096": {NsPerOp: 920, BytesPerOp: 256, AllocsPerOp: 2},
+			},
+		},
+		{
+			name: "1-CPU plain benchmark protects single numeric sub-benchmark",
+			raw: `BenchmarkRaycast             2000000    420 ns/op     0 B/op    0 allocs/op
+BenchmarkFoo/size-64          100000    100 ns/op    64 B/op    1 allocs/op
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkRaycast":     {NsPerOp: 420},
+				"BenchmarkFoo/size-64": {NsPerOp: 100, BytesPerOp: 64, AllocsPerOp: 1},
+			},
+		},
+		{
+			name: "1-CPU single sub-benchmark ending in -1 is never stripped",
+			raw:  "BenchmarkBar/step-1          100000     50 ns/op     8 B/op    1 allocs/op\n",
+			want: map[string]bench.Metrics{
+				"BenchmarkBar/step-1": {NsPerOp: 50, BytesPerOp: 8, AllocsPerOp: 1},
+			},
+		},
+		{
+			name: "1-CPU single sub-benchmark ending in -0 or leading zero is never stripped",
+			raw: `BenchmarkBar/step-0          100000     12 ns/op
+BenchmarkBar/step-08         100000     34 ns/op
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkBar/step-0":  {NsPerOp: 12},
+				"BenchmarkBar/step-08": {NsPerOp: 34},
+			},
+		},
+		{
+			name: "1-CPU verbose single sub-benchmark ending in -64 keeps suffix",
+			raw: `goos: darwin
+goarch: arm64
+pkg: example.com/foo
+cpu: Apple M2 Max
+BenchmarkFoo
+BenchmarkFoo/size-64
+BenchmarkFoo/size-64         100000     88 ns/op    32 B/op    1 allocs/op
+PASS
+ok  	example.com/foo	0.312s
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkFoo/size-64": {NsPerOp: 88, BytesPerOp: 32, AllocsPerOp: 1},
+			},
+		},
+		{
+			name: "1-CPU === RUN verbose single sub-benchmark ending in -64 keeps suffix",
+			raw: `=== RUN   BenchmarkFoo
+=== RUN   BenchmarkFoo/size-64
+BenchmarkFoo/size-64         100000     88 ns/op
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkFoo/size-64": {NsPerOp: 88},
+			},
+		},
+		{
+			name: "64-CPU verbose single sub-benchmark strips -64",
+			raw: `goos: linux
+goarch: amd64
+pkg: example.com/foo
+BenchmarkFoo
+BenchmarkFoo/size
+BenchmarkFoo/size-64         100000     88 ns/op
+PASS
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkFoo/size": {NsPerOp: 88},
+			},
+		},
+		{
+			name: "multi-CPU -4 with BenchmarkFoo-2-4 strips only trailing -4",
+			raw: `BenchmarkFoo-2-4             100000     75 ns/op    16 B/op    1 allocs/op
+BenchmarkBar/step-1-4        100000     50 ns/op     8 B/op    1 allocs/op
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkFoo-2":      {NsPerOp: 75, BytesPerOp: 16, AllocsPerOp: 1},
+				"BenchmarkBar/step-1": {NsPerOp: 50, BytesPerOp: 8, AllocsPerOp: 1},
+			},
+		},
+		{
+			name: "multi-CPU -16 strips uniform -16 across sub-benchmarks",
+			raw: `  ✓ BenchmarkFoo/size-64-16 1000 100 ns/op 64 B/op 1 allocs/op
+  ✓ BenchmarkBar/step-1-16 1000 50 ns/op 8 B/op 1 allocs/op
+  2 passed, 0 failed, 0 skipped
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkFoo/size-64": {NsPerOp: 100, BytesPerOp: 64, AllocsPerOp: 1},
+				"BenchmarkBar/step-1":  {NsPerOp: 50, BytesPerOp: 8, AllocsPerOp: 1},
+			},
+		},
+		{
+			name: "multi-cpu list -cpu=1,4 never merges distinct full names",
+			raw: `BenchmarkFoo                 100000    100 ns/op
+BenchmarkFoo-4               100000     40 ns/op
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkFoo":   {NsPerOp: 100},
+				"BenchmarkFoo-4": {NsPerOp: 40},
+			},
+		},
+		{
+			name: "multi-cpu list -cpu=4,8 never merges distinct full names",
+			raw: `BenchmarkFoo-4               100000     40 ns/op
+BenchmarkFoo-8               100000     25 ns/op
+`,
+			want: map[string]bench.Metrics{
+				"BenchmarkFoo-4": {NsPerOp: 40},
+				"BenchmarkFoo-8": {NsPerOp: 25},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := bench.ParseOutput(strings.NewReader(tc.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("ParseOutput = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseOutputRealGoTest1CPUAnd8CPUKeysMatch(t *testing.T) {
+	oneCPU := "goos: darwin\n" +
+		"goarch: arm64\n" +
+		"pkg: github.com/nsgo-dev/game/pkg/tooling/bench\n" +
+		"cpu: Apple M2 Max\n" +
+		"BenchmarkDecode/size-64\t 1000000\t       120.5 ns/op\t      64 B/op\t       1 allocs/op\n" +
+		"BenchmarkDecode/size-1024\t  200000\t       480.0 ns/op\t    1024 B/op\t       1 allocs/op\n" +
+		"BenchmarkDecode/size-4096\t   50000\t      1920.0 ns/op\t    4096 B/op\t       1 allocs/op\n" +
+		"BenchmarkBar/step-1\t 5000000\t        42.0 ns/op\t       0 B/op\t       0 allocs/op\n" +
+		"BenchmarkPlain\t 5000000\t        15.0 ns/op\t       0 B/op\t       0 allocs/op\n" +
+		"PASS\n" +
+		"ok  \tgithub.com/nsgo-dev/game/pkg/tooling/bench\t2.418s\n"
+
+	eightCPU := "goos: darwin\n" +
+		"goarch: arm64\n" +
+		"pkg: github.com/nsgo-dev/game/pkg/tooling/bench\n" +
+		"cpu: Apple M2 Max\n" +
+		"BenchmarkDecode/size-64-8\t 1000000\t       120.5 ns/op\t      64 B/op\t       1 allocs/op\n" +
+		"BenchmarkDecode/size-1024-8\t  200000\t       480.0 ns/op\t    1024 B/op\t       1 allocs/op\n" +
+		"BenchmarkDecode/size-4096-8\t   50000\t      1920.0 ns/op\t    4096 B/op\t       1 allocs/op\n" +
+		"BenchmarkBar/step-1-8\t 5000000\t        42.0 ns/op\t       0 B/op\t       0 allocs/op\n" +
+		"BenchmarkPlain-8\t 5000000\t        15.0 ns/op\t       0 B/op\t       0 allocs/op\n" +
+		"PASS\n" +
+		"ok  \tgithub.com/nsgo-dev/game/pkg/tooling/bench\t2.104s\n"
+
+	got1, err := bench.ParseOutput(strings.NewReader(oneCPU))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got8, err := bench.ParseOutput(strings.NewReader(eightCPU))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got1, got8) {
+		t.Fatalf("1-CPU and 8-CPU parsed outputs differ:\n1-CPU: %+v\n8-CPU: %+v", got1, got8)
+	}
+	if len(got1) != 5 {
+		t.Fatalf("got %d benchmarks, want 5: %+v", len(got1), got1)
+	}
+	for _, key := range []string{
+		"BenchmarkDecode/size-64",
+		"BenchmarkDecode/size-1024",
+		"BenchmarkDecode/size-4096",
+		"BenchmarkBar/step-1",
+		"BenchmarkPlain",
+	} {
+		if _, ok := got1[key]; !ok {
+			t.Errorf("missing expected key %q in %+v", key, got1)
+		}
 	}
 }
 
