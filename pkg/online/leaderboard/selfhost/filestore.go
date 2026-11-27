@@ -37,9 +37,11 @@ type FileStore struct {
 	// torn holds the paths whose last Save failed and could not be taken back, so the file may end in part of a line; the next Save cuts it off before appending.
 	torn map[string]bool
 
-	// writeLine and syncFile write and flush a period file; tests replace them to make a Save fail part way.
-	writeLine func(*os.File, []byte) (int, error)
-	syncFile  func(*os.File) error
+	// writeLine, syncFile, closeFile and renameFile perform the file operations that tests replace to make Save or compaction fail part way.
+	writeLine  func(*os.File, []byte) (int, error)
+	syncFile   func(*os.File) error
+	closeFile  func(*os.File) error
+	renameFile func(string, string) error
 }
 
 // FileStoreOptions are a FileStore's settings.
@@ -53,7 +55,16 @@ func OpenFileStore(dir string, opts FileStoreOptions) (*FileStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("selfhost: %w", err)
 	}
-	return &FileStore{dir: dir, sync: opts.Sync, files: map[string]*os.File{}, torn: map[string]bool{}, writeLine: (*os.File).Write, syncFile: (*os.File).Sync}, nil
+	return &FileStore{
+		dir:        dir,
+		sync:       opts.Sync,
+		files:      map[string]*os.File{},
+		torn:       map[string]bool{},
+		writeLine:  (*os.File).Write,
+		syncFile:   (*os.File).Sync,
+		closeFile:  (*os.File).Close,
+		renameFile: os.Rename,
+	}, nil
 }
 
 // fileRecord is one line of a period file.
@@ -154,22 +165,35 @@ func (f *FileStore) rewrite(path string, records []Record) error {
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".compact-*")
 	if err != nil {
-		return fmt.Errorf("selfhost: %w", err)
+		return fmt.Errorf("selfhost: compact %s: %w", path, err)
 	}
 	name := tmp.Name()
-	if _, err := tmp.Write(buf.Bytes()); err == nil {
-		err = tmp.Sync()
+	closed := false
+	renamed := false
+	defer func() {
+		if !closed {
+			_ = f.closeFile(tmp)
+		}
+		if !renamed {
+			_ = os.Remove(name)
+		}
+	}()
+	if n, err := f.writeLine(tmp, buf.Bytes()); err != nil {
+		return fmt.Errorf("selfhost: compact %s: %w", path, err)
+	} else if n != buf.Len() {
+		return fmt.Errorf("selfhost: compact %s: %w", path, io.ErrShortWrite)
 	}
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
+	if err := f.syncFile(tmp); err != nil {
+		return fmt.Errorf("selfhost: compact %s: %w", path, err)
 	}
-	if err == nil {
-		err = os.Rename(name, path)
+	closed = true
+	if err := f.closeFile(tmp); err != nil {
+		return fmt.Errorf("selfhost: compact %s: %w", path, err)
 	}
-	if err != nil {
-		_ = os.Remove(name)
-		return fmt.Errorf("selfhost: %w", err)
+	if err := f.renameFile(name, path); err != nil {
+		return fmt.Errorf("selfhost: compact %s: %w", path, err)
 	}
+	renamed = true
 	return nil
 }
 
