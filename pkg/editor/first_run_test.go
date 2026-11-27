@@ -2,19 +2,58 @@ package editor_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
+
+func testScriptedFirstRunPlan(req editor.FirstRunPlanRequest) *editor.FirstRunPlan {
+	return &editor.FirstRunPlan{
+		ProjectName:      req.ProjectName,
+		TargetDir:        req.TargetDir,
+		DisplayPath:      req.DisplayPath,
+		Module:           req.Module,
+		Idea:             req.Idea,
+		Template:         "platformer2d",
+		TemplateTitle:    "2D platformer",
+		SceneName:        "level_01",
+		EstimatedFiles:   5,
+		EstimatedObjects: 4,
+		EstimatedMinutes: 2,
+		Question: &editor.FirstRunPlanQuestion{
+			Prompt: "How should enemies react to the player?",
+			Options: []editor.FirstRunPlanOption{
+				{ID: "jump", Label: "Bounce defeat", Note: "Suggested", Suggested: true, Verb: "bounce"},
+				{ID: "sword", Label: "Melee attack", Note: "Adds an attack", Verb: "fight"},
+				{ID: "avoid", Label: "Avoid them", Note: "No combat", Verb: "dodge"},
+			},
+		},
+		Steps: []editor.FirstRunPlanStep{
+			{Number: 1, Title: "Copy the 2D platformer template", FilesLabel: "4 new files"},
+			{Number: 2, Title: "Build level_01: starter room, player, enemies to bounce, exit gate", FilesLabel: "level_01 · 4 objects"},
+			{Number: 3, Title: "Run check", FilesLabel: "no files"},
+		},
+		Ghosts: []editor.FirstRunGhost{
+			{ID: "ghost-rooms", Step: 2, Label: "starter rooms", Kind: "room", X: 110, Y: 138, W: 196, H: 154},
+		},
+	}
+}
 
 // #1051 Acceptance 1: With no agent connected, Start with AI opens Connect in place on the Start screen,
 // keeps the idea and name through Connect, shows WHAT HAPPENS NEXT, opens a read-only template preview
@@ -67,6 +106,10 @@ func TestFirstRunNoAgentConnectInPlaceKeepsIdeaAndNameAndNoFolderUntilApprove(t 
 		default:
 			return editor.FirstRunAPIKeyNotAccepted
 		}
+	}
+
+	ed.FirstRunPlanner = func(_ context.Context, req editor.FirstRunPlanRequest) (*editor.FirstRunPlan, error) {
+		return testScriptedFirstRunPlan(req), nil
 	}
 
 	// Hold the builder after Approve so we can assert folder creation timing.
@@ -254,6 +297,9 @@ func TestFirstRunBuildingCancelDeleteSafetyAndFailedCheckFix(t *testing.T) {
 		t.Fatal(err)
 	}
 	ed.SetFirstRunAgentConnected(true, "claude", "Claude Code", 18)
+	ed.FirstRunPlanner = func(_ context.Context, req editor.FirstRunPlanRequest) (*editor.FirstRunPlan, error) {
+		return testScriptedFirstRunPlan(req), nil
+	}
 	ed.SetStartProjectParentDir(parentDir)
 	ed.SetStartProjectName("dungeon-run")
 	ed.SetStartProjectIdea(idea)
@@ -419,6 +465,9 @@ func TestFirstRunReviewPlanDeviationsBeforeHoldBTipsPersistenceAndHelpReplay(t *
 		t.Fatalf("LoadSettings: %v", err)
 	}
 	ed.SetFirstRunAgentConnected(true, "claude", "Claude Code", 18)
+	ed.FirstRunPlanner = func(_ context.Context, req editor.FirstRunPlanRequest) (*editor.FirstRunPlan, error) {
+		return testScriptedFirstRunPlan(req), nil
+	}
 	ed.SetStartProjectParentDir(parentDir)
 	ed.SetStartProjectName("dungeon-run")
 	ed.SetStartProjectIdea("A short dungeon platformer: a knight jumps on slimes, collects coins and pulls a lever.")
@@ -568,6 +617,9 @@ func TestFirstRunReviewPlanDeviationsBeforeHoldBTipsPersistenceAndHelpReplay(t *
 		t.Fatal(err)
 	}
 	ed2.SetFirstRunAgentConnected(true, "claude", "Claude Code", 18)
+	ed2.FirstRunPlanner = func(_ context.Context, req editor.FirstRunPlanRequest) (*editor.FirstRunPlan, error) {
+		return testScriptedFirstRunPlan(req), nil
+	}
 	ed2.SetStartProjectParentDir(parentDir)
 	ed2.SetStartProjectName("dungeon-run-2")
 	ed2.SetStartProjectIdea("Second dungeon run")
@@ -622,6 +674,9 @@ func TestFirstRunSecurityFocusConcurrencySpecLightAndIntegrations(t *testing.T) 
 				{Kind: "claude", Name: "Claude Code", Description: "Not installed", Detected: false},
 				{Kind: "apikey", Name: "An API key", Description: "The editor calls the model itself", Detected: true},
 			}
+		}
+		ed.FirstRunPlanner = func(_ context.Context, req editor.FirstRunPlanRequest) (*editor.FirstRunPlan, error) {
+			return testScriptedFirstRunPlan(req), nil
 		}
 		ed.FirstRunValidateAPIKey = func(ctx context.Context, key string) editor.FirstRunAPIKeyStatus {
 			// Verify validation does not hold firstRun.mu (re-entrant read must not deadlock) and has a deadline.
@@ -707,6 +762,28 @@ func TestFirstRunSecurityFocusConcurrencySpecLightAndIntegrations(t *testing.T) 
 
 		// 3. Atomic os.Mkdir refuses a folder created between Plan and Approve without claiming ownership.
 		ed.FirstRunPlanner = nil
+		ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+			if strings.Contains(req.Prompt, "Propose a concise first-run plan") {
+				emit(editor.AgentEvent{
+					Kind: editor.AgentEventMessage,
+					Text: `{"template":"starter","sceneName":"level_01","estimatedObjects":1,"steps":[{"number":1,"title":"Create starter project"},{"number":2,"title":"Place player_spawn"}]}`,
+				})
+				emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+				return nil
+			}
+			// Build stage: place one real object in the open scene.
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepTitle: "Edit the open scene", StepStatus: editor.AgentStepRunning})
+			var placeErr error
+			ed.RunHeadless(func() {
+				_, placeErr = ed.PlaceObject("actors", sceneformat.ObjectDoc{ID: "player_spawn", X: 96, Y: 180})
+			})
+			if placeErr != nil {
+				return placeErr
+			}
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepTitle: "Edit the open scene", StepStatus: editor.AgentStepDone})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		})
 		if err := ed.OpenFirstRunPlan(); err != nil {
 			t.Fatalf("OpenFirstRunPlan: %v", err)
 		}
@@ -823,5 +900,486 @@ func TestFirstRunSecurityFocusConcurrencySpecLightAndIntegrations(t *testing.T) 
 		if !app.Exists("id:first-run-connect-timeout") {
 			t.Fatal("expected timeout alert after FirstRunConnectTimeout elapsed")
 		}
+	})
+}
+
+type stubFirstRunToolExecutor struct {
+	tools []editor.AgentToolSpec
+	err   error
+}
+
+func (s *stubFirstRunToolExecutor) ListTools(_ context.Context) ([]editor.AgentToolSpec, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.tools, nil
+}
+
+func (s *stubFirstRunToolExecutor) CallTool(_ context.Context, _ string, _ json.RawMessage) (editor.AgentToolCallResult, error) {
+	return editor.AgentToolCallResult{}, nil
+}
+
+// #1505 Acceptance 1: With no agent binary and no accepted API key, Start with AI cannot reach Connected:
+// prefix-only keys like "sk-123456789012" are validated against BuiltInAgentEndpoint instead of accepted offline,
+// and CLI connect fails visibly when the MCP server or CLI runner cannot answer.
+func TestFirstRunNoAgentBinaryAndNoKeyCannotReachConnected(t *testing.T) {
+	parentDir := t.TempDir()
+
+	var hits atomic.Int32
+	var gotKeys []string
+	var respStatus atomic.Int32
+	respStatus.Store(http.StatusUnauthorized)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		gotKeys = append(gotKeys, r.Header.Get("x-api-key"))
+		st := int(respStatus.Load())
+		w.Header().Set("Content-Type", "application/json")
+		if st == http.StatusOK {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":          "msg_ping",
+				"model":       editor.DefaultBuiltInFastModel,
+				"stop_reason": "end_turn",
+				"content":     []map[string]any{{"type": "text", "text": "ok"}},
+			})
+			return
+		}
+		w.WriteHeader(st)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"type":    "authentication_error",
+				"message": "invalid x-api-key",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	ed, err := editor.NewDemo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.BuiltInAgentEndpoint = srv.URL
+	ed.BuiltInHTTPClient = srv.Client()
+	ed.SetStartProjectParentDir(parentDir)
+	ed.SetStartProjectName("no-agent-game")
+	ed.SetStartProjectIdea("a kart racer on a beach")
+	ed.SetStartScreenOpen(true)
+	ed.FirstRunDetectAgents = func() []editor.FirstRunAgentOption {
+		return []editor.FirstRunAgentOption{
+			{Kind: "claude", Name: "Claude Code", Description: "Not installed", Detected: false},
+			{Kind: "codex", Name: "Codex", Description: "Not installed", Detected: false},
+			{Kind: "apikey", Name: "An API key", Description: "The editor calls the model itself", Detected: true},
+		}
+	}
+
+	if err := ed.StartWithAI(); err != nil {
+		t.Fatalf("StartWithAI: %v", err)
+	}
+	if ed.FirstRunStage() != editor.FirstRunStageConnect {
+		t.Fatalf("stage = %v, want connect", ed.FirstRunStage())
+	}
+	if ed.FirstRunConnectCanFinish() || ed.FirstRunAgentConnected() {
+		t.Fatal("cannot be connected with no agent binary and no API key")
+	}
+	if err := ed.FinishFirstRunConnect(); err == nil {
+		t.Fatal("FinishFirstRunConnect succeeded without a connected agent or valid API key")
+	}
+	if err := ed.SelectFirstRunAgent("claude"); err == nil {
+		t.Fatal("SelectFirstRunAgent(claude) succeeded when claude is not installed")
+	}
+	if err := ed.SelectFirstRunAgent("codex"); err == nil {
+		t.Fatal("SelectFirstRunAgent(codex) succeeded when codex is not installed")
+	}
+
+	// Previously accepted by prefix check alone ("sk-" + >=12 chars); must now hit provider and fail on 401.
+	ed.SetFirstRunAPIKey("sk-123456789012")
+	if hits.Load() != 1 {
+		t.Fatalf("expected 1 HTTP validation request, got %d", hits.Load())
+	}
+	if ed.FirstRunConnectStatus() != editor.FirstRunConnectKeyInvalid {
+		t.Fatalf("401 status = %v, want key_invalid", ed.FirstRunConnectStatus())
+	}
+	if ed.FirstRunConnectCanFinish() || ed.FirstRunAgentConnected() {
+		t.Fatal("rejected API key must not reach Connected")
+	}
+
+	// 429 maps to no_quota and still cannot finish.
+	respStatus.Store(http.StatusTooManyRequests)
+	ed.SetFirstRunAPIKey("sk-quota-123456")
+	if ed.FirstRunConnectStatus() != editor.FirstRunConnectKeyNoQuota || ed.FirstRunConnectCanFinish() {
+		t.Fatalf("429 status = %v canFinish=%v", ed.FirstRunConnectStatus(), ed.FirstRunConnectCanFinish())
+	}
+
+	// 200 maps to key_valid and enables Done.
+	respStatus.Store(http.StatusOK)
+	ed.SetFirstRunAPIKey("sk-real-key-999")
+	if ed.FirstRunConnectStatus() != editor.FirstRunConnectKeyValid || !ed.FirstRunConnectCanFinish() {
+		t.Fatalf("200 status = %v canFinish=%v", ed.FirstRunConnectStatus(), ed.FirstRunConnectCanFinish())
+	}
+
+	// Closed/unreachable endpoint maps to no_network.
+	srv.Close()
+	ed.SetFirstRunAPIKey("sk-offline-12345")
+	if ed.FirstRunConnectStatus() != editor.FirstRunConnectKeyNoNetwork || ed.FirstRunConnectCanFinish() {
+		t.Fatalf("closed server status = %v canFinish=%v", ed.FirstRunConnectStatus(), ed.FirstRunConnectCanFinish())
+	}
+
+	// Default CLI connect must also fail visibly when MCP server is absent or CLI fails.
+	ed2, err := editor.NewDemo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed2.SetStartProjectParentDir(parentDir)
+	ed2.SetStartProjectName("cli-fail-game")
+	ed2.FirstRunDetectAgents = func() []editor.FirstRunAgentOption {
+		return []editor.FirstRunAgentOption{
+			{Kind: "claude", Name: "Claude Code", Description: "Found", Detected: true},
+			{Kind: "apikey", Name: "An API key", Detected: true},
+		}
+	}
+	ed2.AgentRunner = editor.AgentRunnerFunc(func(context.Context, editor.AgentRequest, func(editor.AgentEvent)) error {
+		return errors.New("claude exited with status 1: not signed in")
+	})
+	if err := ed2.StartWithAI(); err != nil {
+		t.Fatalf("StartWithAI(ed2): %v", err)
+	}
+	ed2.WaitForFirstRunConnect()
+	if ed2.FirstRunConnectStatus() != editor.FirstRunConnectTimeout {
+		t.Fatalf("expected connect failure status timeout, got %v", ed2.FirstRunConnectStatus())
+	}
+	if ed2.FirstRunConnectError() == "" {
+		t.Fatal("expected non-empty FirstRunConnectError when MCP server is missing")
+	}
+	if ed2.FirstRunConnectCanFinish() || ed2.FirstRunAgentConnected() {
+		t.Fatal("failed CLI connect must not reach Connected")
+	}
+}
+
+// #1505 Acceptance 2 & 3: A scripted agent drives Connect (counting real MCP tools, never hardcoded 18),
+// Plan (showing the agent's beach kart racer plan), Build (placing real objects and skipping playtest honestly
+// when playtest.yaml is absent), and Review (listing exactly the written objects with zero artboard strings).
+func TestFirstRunScriptedAgentPlanBuildReviewAndNoArtboardStrings(t *testing.T) {
+	parentDir := t.TempDir()
+	idea := "a kart racer on a beach"
+
+	ed, err := editor.NewDemo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.SetProjectTemplates([]editor.ProjectTemplate{
+		{Name: "starter", Title: "Starter", Summary: "Minimal 2D starter", Default: true},
+		{Name: "racing3d", Title: "3D racer", Summary: "Laps, ghosts, AI drivers"},
+	})
+	ed.SetStartProjectParentDir(parentDir)
+	ed.SetStartProjectName("beach-karts")
+	ed.SetStartProjectIdea(idea)
+	ed.SetStartScreenOpen(true)
+
+	// Wire 23 tools (deliberately not 18) to verify the real MCP tool count is reported.
+	toolSpecs := make([]editor.AgentToolSpec, 23)
+	for i := range toolSpecs {
+		toolSpecs[i] = editor.AgentToolSpec{Name: "tool_" + string(rune('a'+i))}
+	}
+	ed.AgentTools = &stubFirstRunToolExecutor{tools: toolSpecs}
+
+	ed.FirstRunDetectAgents = func() []editor.FirstRunAgentOption {
+		return []editor.FirstRunAgentOption{
+			{Kind: "claude", Name: "Claude Code", Description: "Found on this computer", Detected: true, ExecutablePath: "/usr/local/bin/claude"},
+			{Kind: "apikey", Name: "An API key", Detected: true},
+		}
+	}
+
+	var sawConnectProbe, sawPlanPrompt, sawBuildPrompt bool
+	ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		switch {
+		case strings.Contains(req.Prompt, "Connection check"):
+			sawConnectProbe = true
+			emit(editor.AgentEvent{Kind: editor.AgentEventMessage, Text: "READY"})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		case strings.Contains(req.Prompt, "Propose a concise first-run plan"):
+			sawPlanPrompt = true
+			if !strings.Contains(req.Prompt, idea) {
+				t.Errorf("plan prompt missing author idea %q: %s", idea, req.Prompt)
+			}
+			emit(editor.AgentEvent{
+				Kind: editor.AgentEventMessage,
+				Text: `{
+					"template": "racing3d",
+					"sceneName": "beach_circuit",
+					"estimatedFiles": 3,
+					"estimatedObjects": 4,
+					"estimatedMinutes": 2,
+					"question": {
+						"prompt": "How should beach drift boosts trigger?",
+						"options": [
+							{"id": "drift", "label": "Hold drift", "note": "Suggested", "suggested": true, "stepTitleOverrides": {"2": "Build beach_circuit with drift boost pads"}},
+							{"id": "pads", "label": "Track pads only", "note": "Simpler handling", "stepTitleOverrides": {"2": "Build beach_circuit with sand boost pads"}}
+						]
+					},
+					"steps": [
+						{"number": 1, "title": "Create beach-karts from 3D racer", "filesLabel": "game.yaml"},
+						{"number": 2, "title": "Build beach_circuit with kart, dunes, palms and boost pad", "filesLabel": "scenes/beach_circuit.scene.yaml · 4 objects"},
+						{"number": 3, "title": "Run project check", "filesLabel": "no files"}
+					],
+					"ghosts": [
+						{"id": "beach-track", "step": 2, "label": "beach loop", "x": 60, "y": 140, "w": 220, "h": 110}
+					]
+				}`,
+			})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		default:
+			sawBuildPrompt = true
+			if !strings.Contains(req.Prompt, "pads") {
+				t.Errorf("build prompt missing selected answer 'pads': %s", req.Prompt)
+			}
+			// Place 4 beach kart objects directly into the open scene (simulating scene_edit).
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepTitle: "Place beach kart objects", StepStatus: editor.AgentStepRunning})
+			var placeErr error
+			ed.RunHeadless(func() {
+				for _, obj := range []sceneformat.ObjectDoc{
+					{ID: "kart_player", Name: "Beach Kart", X: 100, Y: 200},
+					{ID: "sand_dune_01", X: 260, Y: 180},
+					{ID: "palm_tree_01", X: 340, Y: 120},
+					{ID: "boost_pad_01", X: 480, Y: 210},
+				} {
+					if _, err := ed.PlaceObject("actors", obj); err != nil {
+						placeErr = err
+						return
+					}
+				}
+			})
+			if placeErr != nil {
+				return placeErr
+			}
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepTitle: "Place beach kart objects", StepStatus: editor.AgentStepDone})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return nil
+		}
+	})
+
+	// 1. Connect via real defaultFirstRunConnectAgent.
+	if err := ed.StartWithAI(); err != nil {
+		t.Fatalf("StartWithAI: %v", err)
+	}
+	ed.WaitForFirstRunConnect()
+	if ed.FirstRunConnectStatus() != editor.FirstRunConnectConnected {
+		t.Fatalf("connect status = %v (err=%q), want connected", ed.FirstRunConnectStatus(), ed.FirstRunConnectError())
+	}
+	if !sawConnectProbe {
+		t.Fatal("defaultFirstRunConnectAgent never invoked the agent runner")
+	}
+	steps := ed.FirstRunConnectSteps()
+	if len(steps) < 3 || !strings.Contains(steps[2].Text, "23 tools") {
+		t.Fatalf("connect step 3 = %+v, want real count '23 tools' (not 18)", steps)
+	}
+
+	// 2. Finish Connect -> Plan via real defaultFirstRunPlan.
+	if err := ed.FinishFirstRunConnect(); err != nil {
+		t.Fatalf("FinishFirstRunConnect: %v", err)
+	}
+	if !sawPlanPrompt {
+		t.Fatal("OpenFirstRunPlan never invoked the agent runner")
+	}
+	if _, _, tools := ed.FirstRunConnectedAgent(); tools != 23 {
+		t.Fatalf("connected tools = %d, want 23", tools)
+	}
+	plan := ed.FirstRunPlan()
+	if plan == nil || plan.Template != "racing3d" || plan.SceneName != "beach_circuit" {
+		t.Fatalf("unexpected plan: %+v", plan)
+	}
+	if plan.Question == nil || plan.Question.Prompt != "How should beach drift boosts trigger?" {
+		t.Fatalf("unexpected plan question: %+v", plan.Question)
+	}
+	if !ed.SelectFirstRunPlanAnswer("pads") {
+		t.Fatal("SelectFirstRunPlanAnswer(pads) returned false")
+	}
+	plan = ed.FirstRunPlan()
+	if !strings.Contains(plan.Steps[1].Title, "sand boost pads") {
+		t.Fatalf("StepTitleOverrides did not update step 2: %+v", plan.Steps)
+	}
+
+	// 3. Approve -> Build via real defaultFirstRunBuilder.
+	if err := ed.ApproveFirstRunPlan(); err != nil {
+		t.Fatalf("ApproveFirstRunPlan: %v", err)
+	}
+	ed.WaitForFirstRunBuild()
+	if !sawBuildPrompt {
+		t.Fatal("defaultFirstRunBuilder never invoked the agent runner")
+	}
+	if ed.FirstRunStage() != editor.FirstRunStageReview {
+		t.Fatalf("stage after build = %v, want review (build=%+v)", ed.FirstRunStage(), ed.FirstRunBuildState())
+	}
+
+	// Stage 4 must honestly report Skipped because no playtest.yaml exists.
+	buildSnap := ed.FirstRunBuildState()
+	if len(buildSnap.Log) < 5 || !strings.Contains(buildSnap.Log[4].Subtitle, "Skipped") {
+		t.Fatalf("expected honest playtest skip in build log[4], got %+v", buildSnap.Log)
+	}
+
+	// 4. Verify written scene on disk matches review objects 1-to-1, with zero artboard strings anywhere.
+	scenePath := filepath.Join(parentDir, "beach-karts", "scenes", "beach_circuit.scene.yaml")
+	rawScene, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", scenePath, err)
+	}
+	parsedScene, err := sceneformat.Parse(rawScene)
+	if err != nil {
+		t.Fatalf("Parse written scene: %v", err)
+	}
+	var diskIDs []string
+	for _, l := range parsedScene.Layers {
+		for _, o := range l.Objects {
+			diskIDs = append(diskIDs, o.ID)
+		}
+	}
+	wantIDs := []string{"kart_player", "sand_dune_01", "palm_tree_01", "boost_pad_01"}
+	if !reflect.DeepEqual(diskIDs, wantIDs) {
+		t.Fatalf("written scene object IDs = %v, want %v", diskIDs, wantIDs)
+	}
+
+	review := ed.FirstRunReviewState()
+	var reviewObjIDs []string
+	var combinedReviewText strings.Builder
+	for _, c := range review.Changes {
+		reviewObjIDs = append(reviewObjIDs, c.ObjectIDs...)
+		combinedReviewText.WriteString(c.Title + " " + c.Detail + "\n")
+	}
+	if !reflect.DeepEqual(reviewObjIDs, wantIDs) {
+		t.Fatalf("review object IDs = %v, want exact match with written scene %v", reviewObjIDs, wantIDs)
+	}
+
+	// Forbidden design-artboard strings must never appear in plan, build log, scene file, or review.
+	var audit strings.Builder
+	for _, s := range plan.Steps {
+		audit.WriteString(s.Title + " " + s.FilesLabel + "\n")
+	}
+	for _, l := range buildSnap.Log {
+		audit.WriteString(l.Title + " " + l.Subtitle + "\n")
+	}
+	audit.WriteString(string(rawScene))
+	audit.WriteString(combinedReviewText.String())
+	lowerAudit := strings.ToLower(audit.String())
+	for _, forbidden := range []string{"knight", "slime", "coin_", "lever", "door_exit", "612 tiles", "3 rooms", "10 s playtest", "18 tools"} {
+		if strings.Contains(lowerAudit, forbidden) {
+			t.Fatalf("forbidden artboard string %q leaked into first-run output:\n%s", forbidden, audit.String())
+		}
+	}
+}
+
+// #1505 Playtest stage: when playtest.yaml exists in the created project, Stage 4 runs FirstRunPlaytest
+// (or `game playtest`) and reports pass or missed goals honestly.
+func TestFirstRunPlaytestStageRunsWhenPlaytestYAMLExists(t *testing.T) {
+	runCase := func(t *testing.T, name string, rep *playtest.Report, ptErr error, wantSub string, wantDeviation string) {
+		t.Helper()
+		parentDir := t.TempDir()
+		ed, err := editor.NewDemo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ed.SetFirstRunAgentConnected(true, "claude", "Claude Code", 12)
+		ed.SetStartProjectParentDir(parentDir)
+		ed.SetStartProjectName(name)
+		ed.SetStartProjectIdea("a card battler")
+		ed.FirstRunPlanner = func(_ context.Context, req editor.FirstRunPlanRequest) (*editor.FirstRunPlan, error) {
+			return &editor.FirstRunPlan{
+				ProjectName:   req.ProjectName,
+				TargetDir:     req.TargetDir,
+				DisplayPath:   req.DisplayPath,
+				Template:      "cards2d",
+				TemplateTitle: "Card game",
+				SceneName:     "table_01",
+				Steps: []editor.FirstRunPlanStep{
+					{Number: 1, Title: "Create project"},
+					{Number: 2, Title: "Place deck"},
+				},
+			}, nil
+		}
+		ed.CreateProject = func(_ context.Context, req editor.CreateProjectRequest, _, _ io.Writer) error {
+			dir := req.TargetDir()
+			if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+				return err
+			}
+			pf := &project.File{
+				Version:    project.CurrentVersion,
+				Name:       req.Name,
+				ID:         "dev.nsgo.cardtest",
+				AppVersion: "0.1.0",
+				Window:     project.Window{Width: 640, Height: 360},
+			}
+			data, err := project.Encode(pf)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(dir, project.FileName), data, 0o644); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(dir, playtest.FileName), []byte("version: 1\n"), 0o644)
+		}
+		ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, _ editor.AgentRequest, emit func(editor.AgentEvent)) error {
+			var placeErr error
+			ed.RunHeadless(func() {
+				_, placeErr = ed.PlaceObject("actors", sceneformat.ObjectDoc{ID: "deck_pile", X: 120, Y: 180})
+			})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone})
+			return placeErr
+		})
+		var playtestCalled bool
+		ed.FirstRunPlaytest = func(_ context.Context, projectDir string) (*playtest.Report, error) {
+			playtestCalled = true
+			if filepath.Base(projectDir) != name {
+				t.Errorf("playtest projectDir = %q, want base %q", projectDir, name)
+			}
+			return rep, ptErr
+		}
+
+		if err := ed.StartWithAI(); err != nil {
+			t.Fatalf("StartWithAI: %v", err)
+		}
+		if err := ed.ApproveFirstRunPlan(); err != nil {
+			t.Fatalf("ApproveFirstRunPlan: %v", err)
+		}
+		ed.WaitForFirstRunBuild()
+
+		if !playtestCalled {
+			t.Fatal("expected FirstRunPlaytest to be invoked when playtest.yaml exists")
+		}
+		snap := ed.FirstRunBuildState()
+		if len(snap.Log) < 5 || !strings.Contains(snap.Log[4].Subtitle, wantSub) {
+			t.Fatalf("stage 4 log = %+v, want subtitle containing %q", snap.Log[4], wantSub)
+		}
+		rev := ed.FirstRunReviewState()
+		if wantDeviation == "" {
+			if len(rev.Deviations) != 0 {
+				t.Fatalf("unexpected deviations on passing playtest: %+v", rev.Deviations)
+			}
+		} else {
+			found := false
+			for _, d := range rev.Deviations {
+				if strings.Contains(d.Summary, wantDeviation) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected deviation containing %q, got %+v", wantDeviation, rev.Deviations)
+			}
+		}
+	}
+
+	t.Run("passing_playtest", func(t *testing.T) {
+		runCase(t, "cards-pass", &playtest.Report{
+			Passed: true,
+			Runs:   []playtest.RunReport{{Seed: 1}, {Seed: 2}},
+		}, nil, "passed · 2 runs · 0 missed goals", "")
+	})
+	t.Run("failing_playtest", func(t *testing.T) {
+		runCase(t, "cards-fail", &playtest.Report{
+			Passed: false,
+			Metrics: []playtest.MetricReport{
+				{Name: "win_rate", Status: "missed"},
+			},
+		}, nil, "failed · 1 missed goal(s)", "Playtest: failed · 1 missed goal(s)")
 	})
 }

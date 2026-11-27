@@ -568,6 +568,13 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 		copyText = "Copied"
 		copyIcon = lucide.Check
 	}
+	connectErr := strings.TrimSpace(ed.FirstRunConnectError())
+	headline := "No answer from " + agentName + " after 30 s"
+	body := fmt.Sprintf("1. Open Terminal, run %s once and sign in.\n2. When it asks, trust the folder %s.\n3. Come back here and try again.", bin, displayPath)
+	if connectErr != "" && !strings.Contains(strings.ToLower(connectErr), "timed out") && !strings.Contains(strings.ToLower(connectErr), "deadline exceeded") {
+		headline = "Couldn't connect to " + agentName
+		body = connectErr + "\n\n" + body
+	}
 	return core.View{
 		TestID: "first-run-connect-timeout",
 		Role:   core.RoleAlert,
@@ -581,7 +588,7 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "No answer from " + agentName + " after 30 s",
+				Content: headline,
 				Style: core.Style{
 					FontSize:   12.5,
 					FontWeight: core.FontWeightMedium,
@@ -589,7 +596,7 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 				},
 			},
 			core.Text{
-				Content: fmt.Sprintf("1. Open Terminal, run %s once and sign in.\n2. When it asks, trust the folder %s.\n3. Come back here and try again.", bin, displayPath),
+				Content: body,
 				Style: core.Style{
 					FontSize: 12,
 					Color:    p.TextSecondary,
@@ -761,11 +768,94 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 
 	planCard := func(cx *core.Scope) core.Node {
 		_ = rev.Get()
+		if ed.FirstRunPlanLoading() {
+			_, agentName, _ := ed.FirstRunConnectedAgent()
+			if agentName == "" {
+				agentName = "the agent"
+			}
+			return core.View{
+				TestID: "first-run-plan-loading",
+				Style: core.Style{
+					CornerRadius: specRadiusCard,
+					Background:   p.Raised,
+					BorderWidth:  1,
+					BorderColor:  p.LineRaised,
+					Padding:      core.All(14),
+					Gap:          8,
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: "Asking " + agentName + " for a plan…",
+						Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightMedium, Color: p.TextPrimary},
+					},
+					core.Text{
+						Content: "Nothing is written to disk before you approve.",
+						Style:   core.Style{FontSize: 12, Color: p.TextMuted},
+					},
+				},
+			}
+		}
+		if planErr := strings.TrimSpace(ed.FirstRunPlanError()); planErr != "" {
+			return core.View{
+				TestID: "first-run-plan-error",
+				Role:   core.RoleAlert,
+				Style: core.Style{
+					CornerRadius: specRadiusCard,
+					Background:   p.Warning.Fill,
+					BorderWidth:  1,
+					BorderColor:  p.Warning.Edge,
+					Padding:      core.All(14),
+					Gap:          10,
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: "Couldn't get a plan from the agent",
+						Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightSemibold, Color: p.Warning.Fg},
+					},
+					core.Text{
+						Content: planErr,
+						Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
+					},
+					core.View{
+						Style: core.Style{Direction: core.Row, Gap: 8},
+						Children: []core.Node{
+							specPanelButton(p, specPanelButtonSpec{
+								TestID:  "first-run-plan-retry",
+								Text:    "Try again",
+								Variant: specBtnQuiet,
+								OnPress: func() {
+									ed.report(ed.RetryFirstRunPlan())
+								},
+							}),
+							specPanelButton(p, specPanelButtonSpec{
+								TestID:  "first-run-plan-error-back",
+								Text:    "Back to Start",
+								Variant: specBtnGhost,
+								OnPress: func() {
+									ed.BackToStartFromPlan()
+								},
+							}),
+						},
+					},
+				},
+			}
+		}
 		plan := ed.FirstRunPlan()
 		if plan == nil {
 			return core.View{}
 		}
 		approveEnabled := ed.FirstRunPlanCanApprove()
+
+		metaParts := []string{fmt.Sprintf("%d steps", len(plan.Steps))}
+		if plan.EstimatedFiles > 0 {
+			metaParts = append(metaParts, fmt.Sprintf("%d files", plan.EstimatedFiles))
+		}
+		if plan.EstimatedObjects > 0 {
+			metaParts = append(metaParts, fmt.Sprintf("%d objects", plan.EstimatedObjects))
+		}
+		if plan.EstimatedMinutes > 0 {
+			metaParts = append(metaParts, fmt.Sprintf("about %d min", plan.EstimatedMinutes))
+		}
 
 		cardChildren := []core.Node{
 			core.View{
@@ -793,8 +883,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						},
 					},
 					core.Text{
-						Content: fmt.Sprintf("%d steps · %d files · %d objects · about %d min",
-							len(plan.Steps), plan.EstimatedFiles, plan.EstimatedObjects, max(plan.EstimatedMinutes, 1)),
+						Content: strings.Join(metaParts, " · "),
 						Style: core.Style{
 							FontSize: 12,
 							Color:    p.TextMuted,
@@ -1106,6 +1195,12 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 							core.Text{
 								ContentFunc: func() string {
 									_ = rev.Get()
+									if ed.FirstRunPlanLoading() {
+										return "Planning…"
+									}
+									if ed.FirstRunPlanError() != "" {
+										return "Plan failed"
+									}
 									if plan := ed.FirstRunPlan(); plan != nil && plan.Approved {
 										return "Plan approved · building"
 									}
@@ -1245,7 +1340,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 													_ = rev.Get()
 													_, agentName, _ := ed.FirstRunConnectedAgent()
 													if agentName == "" {
-														agentName = "Claude Code"
+														agentName = "Agent"
 													}
 													return "· " + agentName
 												},
@@ -2463,19 +2558,12 @@ func firstRunPreviewShapeNode(p SpecPalette, sh FirstRunPreviewShape) core.Node 
 		bg = p.LineRaised
 	case "divider":
 		bg = p.Line
-	case "knight":
-		bg = p.Changed.Fg
+	case "object":
+		bg = p.Accent.Fill
 		radius = 4
-	case "slime":
-		bg = p.Added.Fg
-		radius = 6
-	case "coin":
-		bg = p.Warning.Fg
-		radius = 5
-	case "lever":
-		bg = p.TextFaint
-	case "door":
-		bg = p.Changed.Fill
+	default:
+		bg = p.Added.Fill
+		radius = 4
 	}
 	st := core.Style{
 		Position:     core.Absolute,
@@ -2511,11 +2599,6 @@ func firstRunGhostNode(p SpecPalette, g FirstRunGhost) core.Node {
 	bg := core.Transparent
 	if g.Kind == "room" && g.Step > 1 {
 		bg = p.Agent.Fill
-	}
-	if g.Kind == "coin" {
-		radius = 5
-	} else if g.Kind == "slime" {
-		radius = 6
 	}
 	box := core.View{
 		TestID: "first-run-ghost-" + g.ID,

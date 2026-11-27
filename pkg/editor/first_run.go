@@ -1,23 +1,33 @@
 package editor
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"maps"
+	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/core"
 )
+
+var errFirstRunPlaytestUnsupported = errors.New("editor: headless playtest requires desktop")
 
 // FirstRunStage identifies the active stage of the Start with AI first-run journey
 // (design/editor/FirstRun.dc.html).
@@ -132,11 +142,12 @@ type FirstRunPlanRequest struct {
 
 // FirstRunPlanOption is one answer card for a clarifying question in the first plan.
 type FirstRunPlanOption struct {
-	ID        string
-	Label     string
-	Note      string
-	Suggested bool
-	Verb      string
+	ID                 string
+	Label              string
+	Note               string
+	Suggested          bool
+	Verb               string
+	StepTitleOverrides map[int]string
 }
 
 // FirstRunPlanQuestion is an optional clarifying question asked in the first plan before building.
@@ -158,7 +169,7 @@ type FirstRunPlanStep struct {
 type FirstRunPreviewShape struct {
 	ID       string
 	ChangeID string
-	Kind     string // "room", "floor", "platform", "divider", "knight", "slime", "coin", "lever", "door"
+	Kind     string // "room", "floor", "platform", "divider", "object"
 	X, Y     float32
 	W, H     float32
 	Outline  string // "", "added", "agent", "problem", "planned"
@@ -170,7 +181,7 @@ type FirstRunGhost struct {
 	ID    string
 	Step  int
 	Label string
-	Kind  string // "room", "floor", "slime", "coin", "lever", "door"
+	Kind  string // "room", "planned", "object"
 	X, Y  float32
 	W, H  float32
 }
@@ -418,9 +429,17 @@ type firstRunState struct {
 	apiKeyStoredInKeychain bool
 	connectCancel          context.CancelFunc
 	connectSeq             uint64
+	connectDone            chan struct{}
 
 	// Plan state (no project folder created until Approve).
-	plan *FirstRunPlan
+	plan         *FirstRunPlan
+	planning     bool
+	planLoading  bool
+	planErr      string
+	planCancel   context.CancelFunc
+	planSeq      uint64
+	planDone     chan struct{}
+	proposedPlan *AgentPlan
 
 	// Building state.
 	buildOutcome      FirstRunBuildOutcome
@@ -588,13 +607,14 @@ func (e *Editor) FirstRunAPIKeyStoredInKeychain() bool {
 }
 
 // FirstRunAgentConnected reports whether an agent is currently connected for Start with AI,
-// including an active MCP client or configured API-key mode from the editor's Connect an agent flow.
+// including an active MCP client or configured API-key mode with a stored/validated API key.
 func (e *Editor) FirstRunAgentConnected() bool {
 	if e == nil {
 		return false
 	}
 	e.firstRun.mu.Lock()
 	connected := e.firstRun.agentConnected
+	hasMemKey := strings.TrimSpace(e.firstRun.apiKey) != ""
 	e.firstRun.mu.Unlock()
 	if connected {
 		return true
@@ -602,7 +622,49 @@ func (e *Editor) FirstRunAgentConnected() bool {
 	if e.AgentStatus() == AgentStatusConnected || len(e.AgentClients()) > 0 {
 		return true
 	}
-	return e.AgentMode() == AgentModeAPIKey
+	if e.AgentMode() == AgentModeAPIKey {
+		return hasMemKey || e.HasAgentAPIKey(DefaultAgentAPIKeyAccount)
+	}
+	return false
+}
+
+// firstRunMCPToolCount queries the editor's MCP server (Editor.AgentTools) for the number of enabled tools.
+func (e *Editor) firstRunMCPToolCount(ctx context.Context) (int, error) {
+	if e == nil || e.AgentTools == nil {
+		return 0, errors.New("editor MCP server is not running")
+	}
+	specs, err := e.AgentTools.ListTools(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("editor MCP server failed to list tools: %w", err)
+	}
+	if len(specs) == 0 {
+		return 0, errors.New("editor MCP server reports 0 enabled tools")
+	}
+	return len(specs), nil
+}
+
+// firstRunLiveMCPToolCount returns the live count of enabled MCP tools, or 0 when no MCP server is attached.
+func (e *Editor) firstRunLiveMCPToolCount() int {
+	if e == nil || e.AgentTools == nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	n, err := e.firstRunMCPToolCount(ctx)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// FirstRunConnectError returns the last connection error message from Connect in place, if any.
+func (e *Editor) FirstRunConnectError() string {
+	if e == nil {
+		return ""
+	}
+	e.firstRun.mu.Lock()
+	defer e.firstRun.mu.Unlock()
+	return e.firstRun.connectErr
 }
 
 // FirstRunConnectedAgent returns the connected agent's kind, display name, and tool count,
@@ -615,14 +677,18 @@ func (e *Editor) FirstRunConnectedAgent() (kind, name string, tools int) {
 	if e.firstRun.agentConnected {
 		kind, name, tools = e.firstRun.agentKind, e.firstRun.agentName, e.firstRun.agentTools
 		e.firstRun.mu.Unlock()
+		if tools <= 0 {
+			tools = e.firstRunLiveMCPToolCount()
+		}
 		return kind, name, tools
 	}
+	hasMemKey := strings.TrimSpace(e.firstRun.apiKey) != ""
 	e.firstRun.mu.Unlock()
 
 	if e.AgentStatus() == AgentStatusConnected || len(e.AgentClients()) > 0 {
 		client, ok := e.AgentPrimaryClient()
 		display := "Agent"
-		inferredKind := "claude"
+		inferredKind := "local"
 		if ok {
 			if client.DisplayName != "" {
 				display = client.DisplayName
@@ -638,11 +704,14 @@ func (e *Editor) FirstRunConnectedAgent() (kind, name string, tools int) {
 			default:
 				inferredKind = "local"
 			}
+		} else if e.AgentMode() == AgentModeAPIKey {
+			inferredKind = "apikey"
+			display = firstRunAgentDisplayName("apikey")
 		}
-		return inferredKind, display, 18
+		return inferredKind, display, e.firstRunLiveMCPToolCount()
 	}
-	if e.AgentMode() == AgentModeAPIKey {
-		return "apikey", firstRunAgentDisplayName("apikey"), 18
+	if e.AgentMode() == AgentModeAPIKey && (hasMemKey || e.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
+		return "apikey", firstRunAgentDisplayName("apikey"), e.firstRunLiveMCPToolCount()
 	}
 	return "", "", 0
 }
@@ -653,17 +722,20 @@ func (e *Editor) SetFirstRunAgentConnected(connected bool, kind, name string, to
 	if e == nil {
 		return
 	}
+	if connected && tools <= 0 {
+		tools = e.firstRunLiveMCPToolCount()
+	}
 	e.firstRun.mu.Lock()
 	e.firstRun.agentConnected = connected
 	if connected {
 		if kind == "" {
-			kind = "claude"
+			kind = "local"
 		}
 		if name == "" {
 			name = firstRunAgentDisplayName(kind)
 		}
-		if tools <= 0 {
-			tools = 18
+		if tools < 0 {
+			tools = 0
 		}
 		e.firstRun.agentKind = kind
 		e.firstRun.agentName = name
@@ -928,24 +1000,26 @@ func (e *Editor) FirstRunConnectSteps() []FirstRunConnectStep {
 		displayPath = "~/games/" + e.StartProjectName()
 	}
 	agentName := firstRunAgentDisplayName(kind)
-	if tools <= 0 {
-		tools = 18
-	}
 	elapsed := max(int(e.now().Sub(started).Seconds()), 0)
 	step3 := FirstRunConnectStep{
 		Text:    fmt.Sprintf("Asking %s to connect · %d s", agentName, elapsed),
 		Waiting: true,
 	}
 	if st == FirstRunConnectConnected {
+		step3Text := fmt.Sprintf("%s connected", agentName)
+		if tools > 0 {
+			step3Text = fmt.Sprintf("%s connected · %d tools", agentName, tools)
+		}
 		step3 = FirstRunConnectStep{
-			Text:   fmt.Sprintf("%s connected · %d tools", agentName, tools),
+			Text:   step3Text,
 			Done:   true,
 			Strong: true,
 		}
 	}
+	mcpReady := e.AgentTools != nil || st == FirstRunConnectConnected
 	return []FirstRunConnectStep{
 		{Text: "Prepared MCP config for " + displayPath + " (written on Approve)", Done: true},
-		{Text: "Started the editor's MCP server", Done: true},
+		{Text: "Started the editor's MCP server", Done: mcpReady, Waiting: !mcpReady},
 		step3,
 	}
 }
@@ -1014,27 +1088,43 @@ func (e *Editor) cancelFirstRunConnect() {
 	}
 }
 
+// WaitForFirstRunConnect blocks until any active Start with AI connect handshake goroutine completes.
+func (e *Editor) WaitForFirstRunConnect() {
+	if e == nil {
+		return
+	}
+	e.firstRun.mu.Lock()
+	done := e.firstRun.connectDone
+	e.firstRun.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+}
+
 func (e *Editor) startFirstRunConnectHandshake(kind, displayPath string) {
 	timeout := e.FirstRunConnectTimeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	done := make(chan struct{})
 	e.firstRun.mu.Lock()
 	e.firstRun.connectSeq++
 	seq := e.firstRun.connectSeq
 	e.firstRun.connectCancel = cancel
+	e.firstRun.connectDone = done
 	e.firstRun.mu.Unlock()
 
 	connector := e.FirstRunConnectAgent
 	if connector == nil {
-		connector = defaultFirstRunConnectAgent
+		connector = e.defaultFirstRunConnectAgent
 	}
 
 	go func() {
 		defer cancel()
 		tools, err := connector(ctx, kind, displayPath)
 		apply := func() {
+			defer close(done)
 			e.firstRun.mu.Lock()
 			if e.firstRun.connectSeq != seq || e.firstRun.stage != FirstRunStageConnect {
 				e.firstRun.mu.Unlock()
@@ -1052,8 +1142,8 @@ func (e *Editor) startFirstRunConnectHandshake(kind, displayPath string) {
 				e.notify()
 				return
 			}
-			if tools <= 0 {
-				tools = 18
+			if tools < 0 {
+				tools = 0
 			}
 			e.firstRun.connectStatus = FirstRunConnectConnected
 			e.firstRun.agentTools = tools
@@ -1065,21 +1155,49 @@ func (e *Editor) startFirstRunConnectHandshake(kind, displayPath string) {
 	}()
 }
 
-func defaultFirstRunConnectAgent(ctx context.Context, kind, _ string) (int, error) {
+// defaultFirstRunConnectAgent verifies the editor's MCP server tool list and starts the chosen CLI agent
+// through Editor.AgentRunner (or CLIAgentRunner on desktop) with a read-only readiness probe, failing visibly
+// whenever the MCP server or CLI agent cannot answer.
+func (e *Editor) defaultFirstRunConnectAgent(ctx context.Context, kind, _ string) (int, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}
-	if !canRunGameDesktop {
-		return 0, errors.New("no local agent CLI available on this platform")
+	var agentKind ExternalAgentKind
+	switch kind {
+	case "claude":
+		agentKind = ExternalAgentClaudeCode
+	case "codex":
+		agentKind = ExternalAgentCodex
+	default:
+		return 0, fmt.Errorf("unsupported local agent kind %q", kind)
 	}
-	bin := "claude"
-	if kind == "codex" {
-		bin = "codex"
+
+	tools, err := e.firstRunMCPToolCount(ctx)
+	if err != nil {
+		return 0, err
 	}
-	if _, ok := resolveLocalAgentBinary(bin); !ok {
-		return 0, fmt.Errorf("%s not found on PATH or standard install locations", bin)
+
+	runner := e.AgentRunner
+	if runner == nil {
+		runner = defaultCLIAgentRunner()
 	}
-	return 18, nil
+	var streamErr string
+	runErr := runner.Run(ctx, AgentRequest{
+		Prompt:    "Connection check for NSGo Game Editor. Reply with READY. Do not modify any files or run commands.",
+		AgentKind: agentKind,
+		Route:     AgentRouteLocal,
+	}, func(ev AgentEvent) {
+		if ev.Kind == AgentEventError && strings.TrimSpace(ev.Err) != "" && streamErr == "" {
+			streamErr = strings.TrimSpace(ev.Err)
+		}
+	})
+	if runErr != nil {
+		return 0, runErr
+	}
+	if streamErr != "" {
+		return 0, errors.New(streamErr)
+	}
+	return tools, nil
 }
 
 // RetryFirstRunConnect retries connecting the currently selected CLI agent.
@@ -1176,14 +1294,14 @@ func (e *Editor) connectStatusForAPIKey(key string) FirstRunConnectStatus {
 	if trimmed == "" {
 		return FirstRunConnectKeyIdle
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	validator := e.FirstRunValidateAPIKey
 	var res FirstRunAPIKeyStatus
 	if validator != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
 		res = validator(ctx, trimmed)
 	} else {
-		res = defaultValidateAPIKey(trimmed)
+		res = e.defaultValidateAPIKey(ctx, trimmed)
 	}
 	switch res {
 	case FirstRunAPIKeyWorks:
@@ -1197,11 +1315,71 @@ func (e *Editor) connectStatusForAPIKey(key string) FirstRunConnectStatus {
 	}
 }
 
-func defaultValidateAPIKey(key string) FirstRunAPIKeyStatus {
-	if len(key) >= 12 && (strings.HasPrefix(key, "sk-") || strings.HasPrefix(key, "AIza")) {
-		return FirstRunAPIKeyWorks
+// defaultValidateAPIKey verifies key by sending one minimal request (max_tokens: 1 on the fast model)
+// to the built-in agent's configured endpoint.
+func (e *Editor) defaultValidateAPIKey(ctx context.Context, key string) FirstRunAPIKeyStatus {
+	rawEndpoint := strings.TrimSpace(e.BuiltInAgentEndpoint)
+	if rawEndpoint == "" {
+		rawEndpoint = DefaultBuiltInAgentEndpoint
 	}
-	return FirstRunAPIKeyNotAccepted
+	endpoint, err := validateAndResolveBuiltInEndpoint(rawEndpoint)
+	if err != nil {
+		return FirstRunAPIKeyNotAccepted
+	}
+	client := e.BuiltInHTTPClient
+	if client == nil {
+		client = &http.Client{
+			Timeout:       10 * time.Second,
+			CheckRedirect: builtInCheckRedirect,
+		}
+	}
+	payload := anthropicRequest{
+		Model:     DefaultBuiltInFastModel,
+		MaxTokens: 1,
+		Messages: []anthropicMessage{
+			{Role: "user", Content: "ping"},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return FirstRunAPIKeyNotAccepted
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return FirstRunAPIKeyNotAccepted
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", key)
+	req.Header.Set("anthropic-version", anthropicAPIVersion)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return FirstRunAPIKeyNoNetwork
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		return FirstRunAPIKeyWorks
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return FirstRunAPIKeyNotAccepted
+	case resp.StatusCode == http.StatusPaymentRequired || resp.StatusCode == http.StatusTooManyRequests:
+		return FirstRunAPIKeyNoQuota
+	case resp.StatusCode == http.StatusBadRequest:
+		var env anthropicErrorEnvelope
+		_ = json.Unmarshal(respBytes, &env)
+		combined := strings.ToLower(env.Error.Type + " " + env.Error.Message)
+		if strings.Contains(combined, "credit") || strings.Contains(combined, "quota") ||
+			strings.Contains(combined, "billing") || strings.Contains(combined, "balance") {
+			return FirstRunAPIKeyNoQuota
+		}
+		return FirstRunAPIKeyNotAccepted
+	case resp.StatusCode >= 500 || resp.StatusCode == 529:
+		return FirstRunAPIKeyNoNetwork
+	default:
+		return FirstRunAPIKeyNotAccepted
+	}
 }
 
 // FirstRunConnectCanFinish reports whether the Done button on Connect in place is enabled.
@@ -1232,7 +1410,7 @@ func (e *Editor) DeferFirstRunConnect() {
 }
 
 // FinishFirstRunConnect completes Connect in place once an agent has answered or an API key is verified,
-// syncs the #1200 Agent mode (and persists a validated API key via Editor.Keychain when available),
+// syncs the #1200 Agent mode (and persists a validated API key via Editor.Keychain / core.Secrets when available),
 // and immediately opens Step 3 (The first plan) without creating any project folder on disk.
 func (e *Editor) FinishFirstRunConnect() error {
 	if e == nil {
@@ -1245,9 +1423,13 @@ func (e *Editor) FinishFirstRunConnect() error {
 	kind := e.firstRun.selectedAgent
 	tools := e.firstRun.agentTools
 	apiKey := strings.TrimSpace(e.firstRun.apiKey)
+	e.firstRun.mu.Unlock()
+
 	if tools <= 0 {
-		tools = 18
+		tools = e.firstRunLiveMCPToolCount()
 	}
+
+	e.firstRun.mu.Lock()
 	e.firstRun.agentConnected = true
 	e.firstRun.agentKind = kind
 	e.firstRun.agentName = firstRunAgentDisplayName(kind)
@@ -1256,10 +1438,20 @@ func (e *Editor) FinishFirstRunConnect() error {
 
 	if kind == "apikey" {
 		e.agent.mode = AgentModeAPIKey
+		if e.agent.status == AgentStatusNotConnected || e.agent.status == AgentStatusDisconnected {
+			e.agent.status = AgentStatusConnected
+		}
 		stored := false
-		if e.Keychain != nil && apiKey != "" {
-			if err := e.Keychain.Set(FirstRunAPIKeyKeychainService, FirstRunAPIKeyKeychainAccount, apiKey); err == nil {
-				stored = true
+		if apiKey != "" {
+			if e.Keychain != nil {
+				if err := e.Keychain.Set(FirstRunAPIKeyKeychainService, FirstRunAPIKeyKeychainAccount, apiKey); err == nil {
+					stored = true
+				}
+			}
+			if e.Keychain != nil || e.AgentSecretStore != nil || e.agentSecretsStore() != nil {
+				if err := e.StoreAgentAPIKey(DefaultAgentAPIKeyAccount, apiKey); err == nil {
+					stored = true
+				}
 			}
 		}
 		e.firstRun.mu.Lock()
@@ -1267,7 +1459,7 @@ func (e *Editor) FinishFirstRunConnect() error {
 		e.firstRun.mu.Unlock()
 	} else {
 		e.agent.mode = AgentModeLocal
-		if e.agent.status == AgentStatusNotConnected {
+		if e.agent.status == AgentStatusNotConnected || e.agent.status == AgentStatusDisconnected {
 			e.agent.status = AgentStatusConnected
 		}
 	}
@@ -1275,8 +1467,148 @@ func (e *Editor) FinishFirstRunConnect() error {
 	return e.OpenFirstRunPlan()
 }
 
-// OpenFirstRunPlan generates the agent's first plan for the current Start Screen idea and name,
-// and transitions to Step 3 (The first plan). No project folder is created on disk until Approve.
+// IsFirstRunPlanning reports whether Start with AI is currently asking the connected agent to propose a first-run plan.
+// Used by editormcp's plan_propose tool to capture the plan without blocking on the working-editor plan dialog.
+func (e *Editor) IsFirstRunPlanning() bool {
+	if e == nil {
+		return false
+	}
+	e.firstRun.mu.Lock()
+	defer e.firstRun.mu.Unlock()
+	return e.firstRun.planning
+}
+
+// CaptureFirstRunAgentPlan stores an AgentPlan proposed via plan_propose during Start with AI planning
+// and clears the working-editor active plan slot so it does not leak into the workspace right rail.
+func (e *Editor) CaptureFirstRunAgentPlan(p *AgentPlan) {
+	if e == nil || p == nil {
+		return
+	}
+	cp := p.Clone()
+	e.firstRun.mu.Lock()
+	if e.firstRun.planning {
+		e.firstRun.proposedPlan = cp
+	}
+	e.firstRun.mu.Unlock()
+
+	e.plan.mu.Lock()
+	if e.plan.active != nil && e.plan.active.ID == cp.ID {
+		e.plan.active = nil
+		e.plan.waiters = nil
+		e.plan.decided = false
+		e.plan.seq++
+		e.plan.ghostRev++
+	}
+	e.plan.mu.Unlock()
+}
+
+func (e *Editor) takeCapturedFirstRunAgentPlan() *AgentPlan {
+	e.firstRun.mu.Lock()
+	p := e.firstRun.proposedPlan
+	e.firstRun.proposedPlan = nil
+	e.firstRun.mu.Unlock()
+	return p
+}
+
+// FirstRunPlanLoading reports whether Start with AI is waiting for the connected agent to propose a plan.
+func (e *Editor) FirstRunPlanLoading() bool {
+	if e == nil {
+		return false
+	}
+	e.firstRun.mu.Lock()
+	defer e.firstRun.mu.Unlock()
+	return e.firstRun.planLoading
+}
+
+// FirstRunPlanError returns the error message from the last failed first-run plan attempt, if any.
+func (e *Editor) FirstRunPlanError() string {
+	if e == nil {
+		return ""
+	}
+	e.firstRun.mu.Lock()
+	defer e.firstRun.mu.Unlock()
+	return e.firstRun.planErr
+}
+
+// WaitForFirstRunPlan blocks until any in-flight first-run planning request completes.
+func (e *Editor) WaitForFirstRunPlan() {
+	if e == nil {
+		return
+	}
+	e.firstRun.mu.Lock()
+	done := e.firstRun.planDone
+	e.firstRun.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+}
+
+func (e *Editor) cancelFirstRunPlan() {
+	e.firstRun.mu.Lock()
+	cancel := e.firstRun.planCancel
+	e.firstRun.planCancel = nil
+	e.firstRun.planSeq++
+	e.firstRun.planLoading = false
+	e.firstRun.planning = false
+	e.firstRun.proposedPlan = nil
+	e.firstRun.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (e *Editor) hasFirstRunScope() bool {
+	e.firstRun.mu.Lock()
+	scope := e.firstRun.scope
+	e.firstRun.mu.Unlock()
+	if scope != nil {
+		return true
+	}
+	e.startScreen.mu.Lock()
+	scope = e.startScreen.scope
+	e.startScreen.mu.Unlock()
+	return scope != nil
+}
+
+// resolveFirstRunRunner returns the active AgentRunner, route, and external CLI kind for Start with AI
+// planning and building. It fails when no agent is connected.
+func (e *Editor) resolveFirstRunRunner() (AgentRunner, AgentModelRoute, ExternalAgentKind, error) {
+	if e == nil {
+		return nil, AgentRouteNone, ExternalAgentAuto, errors.New("editor: nil editor")
+	}
+	kind, _, _ := e.FirstRunConnectedAgent()
+	if kind == "apikey" || (kind == "" && e.AgentMode() == AgentModeAPIKey && (e.HasAgentAPIKey(DefaultAgentAPIKeyAccount) || strings.TrimSpace(e.FirstRunAPIKey()) != "")) {
+		r, err := e.newBuiltInAgentRunner()
+		if err != nil {
+			return nil, AgentRouteNone, ExternalAgentAuto, err
+		}
+		return r, AgentRouteBuiltInDefault, ExternalAgentAuto, nil
+	}
+	if kind != "" || e.AgentRunner != nil {
+		runner := e.AgentRunner
+		if runner == nil {
+			runner = defaultCLIAgentRunner()
+		}
+		extKind := ExternalAgentAuto
+		switch kind {
+		case "claude":
+			extKind = ExternalAgentClaudeCode
+		case "codex":
+			extKind = ExternalAgentCodex
+		}
+		return runner, AgentRouteLocal, extKind, nil
+	}
+	return nil, AgentRouteNone, ExternalAgentAuto, errors.New("editor: connect an agent before planning or building")
+}
+
+// RetryFirstRunPlan retries asking the connected agent for the first plan after a planning error.
+func (e *Editor) RetryFirstRunPlan() error {
+	return e.OpenFirstRunPlan()
+}
+
+// OpenFirstRunPlan asks the connected agent (or Editor.FirstRunPlanner when set) for the first plan
+// for the current Start Screen idea and name, and transitions to Step 3 (The first plan).
+// No project folder is created on disk until Approve.
 func (e *Editor) OpenFirstRunPlan() error {
 	if e == nil {
 		return errors.New("editor: nil editor")
@@ -1303,47 +1635,148 @@ func (e *Editor) OpenFirstRunPlan() error {
 		Selected:    e.SelectedProjectTemplate(),
 	}
 
-	planner := e.FirstRunPlanner
-	var plan *FirstRunPlan
-	var err error
-	if planner != nil {
+	finalizePlan := func(plan *FirstRunPlan) (*FirstRunPlan, error) {
+		if plan == nil {
+			return nil, errors.New("editor: agent did not return a plan")
+		}
+		cp := cloneFirstRunPlan(plan)
+		if cp.ProjectName == "" {
+			cp.ProjectName = name
+		}
+		if cp.TargetDir == "" {
+			cp.TargetDir = v.TargetDir
+		} else if filepath.Clean(cp.TargetDir) != filepath.Clean(v.TargetDir) {
+			return nil, fmt.Errorf("editor: planner target directory %q does not match validated path %q", cp.TargetDir, v.TargetDir)
+		}
+		if cp.DisplayPath == "" {
+			cp.DisplayPath = v.DisplayPath
+		}
+		if cp.Module == "" {
+			cp.Module = strings.TrimSpace(module)
+		}
+		if cp.Idea == "" {
+			cp.Idea = idea
+		}
+		if cp.Template == "" {
+			cp.Template, cp.TemplateTitle = pickTemplateForIdea(req.Idea, req.Templates, req.Selected)
+		} else if cp.TemplateTitle == "" {
+			cp.TemplateTitle = templateTitleForName(cp.Template, req.Templates)
+		}
+		if cp.SceneName == "" {
+			cp.SceneName = "level_01"
+		}
+		if err := validateFirstRunSceneName(cp.SceneName); err != nil {
+			return nil, err
+		}
+		if len(cp.Steps) == 0 {
+			return nil, errors.New("editor: agent plan has no steps")
+		}
+		return cp, nil
+	}
+
+	e.cancelFirstRunPlan()
+
+	if planner := e.FirstRunPlanner; planner != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		plan, err = planner(ctx, req)
+		plan, err := planner(ctx, req)
 		cancel()
 		if err != nil {
 			return err
 		}
+		cp, err := finalizePlan(plan)
+		if err != nil {
+			return err
+		}
+		e.firstRun.mu.Lock()
+		e.firstRun.plan = cp
+		e.firstRun.planLoading = false
+		e.firstRun.planErr = ""
+		e.firstRun.stage = FirstRunStagePlan
+		e.firstRun.mu.Unlock()
+
+		e.startScreen.mu.Lock()
+		e.startScreen.open = false
+		e.startScreen.mu.Unlock()
+		e.notify()
+		return nil
 	}
-	if plan == nil {
-		plan = DefaultFirstRunPlan(req)
-	}
-	if plan.ProjectName == "" {
-		plan.ProjectName = name
-	}
-	if plan.TargetDir == "" {
-		plan.TargetDir = v.TargetDir
-	} else if filepath.Clean(plan.TargetDir) != filepath.Clean(v.TargetDir) {
-		return fmt.Errorf("editor: planner target directory %q does not match validated path %q", plan.TargetDir, v.TargetDir)
-	}
-	if plan.DisplayPath == "" {
-		plan.DisplayPath = v.DisplayPath
-	}
-	if plan.Module == "" {
-		plan.Module = strings.TrimSpace(module)
-	}
-	if plan.SceneName == "" {
-		plan.SceneName = "level_01"
-	}
-	if err := validateFirstRunSceneName(plan.SceneName); err != nil {
+
+	// Default path: verify an agent is connected before entering the plan stage.
+	if _, _, _, err := e.resolveFirstRunRunner(); err != nil {
 		return err
 	}
 
+	// When a UI scope is mounted, run the agent off the UI goroutine so editormcp tool calls
+	// (plan_propose) can safely post onto the UI goroutine without deadlocking.
+	if e.hasFirstRunScope() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		done := make(chan struct{})
+		e.firstRun.mu.Lock()
+		e.firstRun.planSeq++
+		seq := e.firstRun.planSeq
+		e.firstRun.planCancel = cancel
+		e.firstRun.planDone = done
+		e.firstRun.plan = nil
+		e.firstRun.planLoading = true
+		e.firstRun.planErr = ""
+		e.firstRun.stage = FirstRunStagePlan
+		e.firstRun.mu.Unlock()
+
+		e.startScreen.mu.Lock()
+		e.startScreen.open = false
+		e.startScreen.mu.Unlock()
+		e.notify()
+
+		go func() {
+			defer cancel()
+			plan, err := e.defaultFirstRunPlan(ctx, req)
+			var cp *FirstRunPlan
+			if err == nil {
+				cp, err = finalizePlan(plan)
+			}
+			e.firstRunPostOrRun(func() {
+				defer close(done)
+				e.firstRun.mu.Lock()
+				if e.firstRun.planSeq != seq || e.firstRun.stage != FirstRunStagePlan {
+					e.firstRun.mu.Unlock()
+					return
+				}
+				e.firstRun.planCancel = nil
+				e.firstRun.planLoading = false
+				if err != nil {
+					if !errors.Is(err, context.Canceled) {
+						e.firstRun.planErr = err.Error()
+					}
+					e.firstRun.mu.Unlock()
+					e.notify()
+					return
+				}
+				e.firstRun.plan = cp
+				e.firstRun.planErr = ""
+				e.firstRun.mu.Unlock()
+				e.notify()
+			})
+		}()
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	plan, err := e.defaultFirstRunPlan(ctx, req)
+	if err != nil {
+		return err
+	}
+	cp, err := finalizePlan(plan)
+	if err != nil {
+		return err
+	}
 	e.firstRun.mu.Lock()
-	e.firstRun.plan = cloneFirstRunPlan(plan)
+	e.firstRun.plan = cp
+	e.firstRun.planLoading = false
+	e.firstRun.planErr = ""
 	e.firstRun.stage = FirstRunStagePlan
 	e.firstRun.mu.Unlock()
 
-	// Leave Start Screen to display the full-window First Plan view.
 	e.startScreen.mu.Lock()
 	e.startScreen.open = false
 	e.startScreen.mu.Unlock()
@@ -1351,40 +1784,187 @@ func (e *Editor) OpenFirstRunPlan() error {
 	return nil
 }
 
-// DefaultFirstRunPlan picks the closest template for req.Idea and returns a deterministic,
-// reviewable first plan matching design/editor/FirstRun.dc.html.
-func DefaultFirstRunPlan(req FirstRunPlanRequest) *FirstRunPlan {
+// defaultFirstRunPlan asks the connected agent to propose a first-run plan using the editor's
+// plan_propose MCP tool (or a structured JSON plan in its reply when MCP tools are not invoked).
+func (e *Editor) defaultFirstRunPlan(ctx context.Context, req FirstRunPlanRequest) (*FirstRunPlan, error) {
+	runner, route, extKind, err := e.resolveFirstRunRunner()
+	if err != nil {
+		return nil, err
+	}
+
+	e.firstRun.mu.Lock()
+	e.firstRun.planning = true
+	e.firstRun.proposedPlan = nil
+	e.firstRun.mu.Unlock()
+	defer func() {
+		e.firstRun.mu.Lock()
+		e.firstRun.planning = false
+		e.firstRun.mu.Unlock()
+	}()
+
+	prompt := buildFirstRunPlanPrompt(req)
+	var replyBuf strings.Builder
+	var streamErr string
+	runErr := runner.Run(ctx, AgentRequest{
+		Prompt:    prompt,
+		AgentKind: extKind,
+		Route:     route,
+		Task:      AgentTaskSceneEdit,
+	}, func(ev AgentEvent) {
+		switch ev.Kind {
+		case AgentEventMessage:
+			if strings.TrimSpace(ev.Text) != "" {
+				if replyBuf.Len() > 0 {
+					replyBuf.WriteByte('\n')
+				}
+				replyBuf.WriteString(ev.Text)
+			}
+		case AgentEventError:
+			if strings.TrimSpace(ev.Err) != "" && streamErr == "" {
+				streamErr = strings.TrimSpace(ev.Err)
+			}
+		}
+	})
+	if runErr != nil {
+		return nil, runErr
+	}
+	if streamErr != "" {
+		return nil, errors.New(streamErr)
+	}
+
+	if ap := e.takeCapturedFirstRunAgentPlan(); ap != nil {
+		return firstRunPlanFromAgentPlan(ap, req), nil
+	}
+	plan, parseErr := parseFirstRunPlanFromText(replyBuf.String(), req)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+	return plan, nil
+}
+
+func buildFirstRunPlanPrompt(req FirstRunPlanRequest) string {
+	var b strings.Builder
+	b.WriteString("You are planning a brand-new NSGo game project before any project folder is created on disk. Do not create or modify any files yet.\n")
+	fmt.Fprintf(&b, "Project name: %s\n", req.ProjectName)
+	fmt.Fprintf(&b, "Target path: %s\n", req.DisplayPath)
+	if strings.TrimSpace(req.Idea) != "" {
+		fmt.Fprintf(&b, "Author's idea: %s\n", strings.TrimSpace(req.Idea))
+	}
+	if len(req.Templates) > 0 {
+		b.WriteString("Available templates:\n")
+		for _, t := range req.Templates {
+			fmt.Fprintf(&b, "- %s (%s): %s\n", t.Name, t.DisplayTitle(), t.Summary)
+		}
+	}
+	b.WriteString("\nPropose a concise first-run plan tailored specifically to the author's idea.\n")
+	b.WriteString("If the plan_propose MCP tool is available, call plan_propose with wait=false, concrete steps, optional clarifying question, and optional viewport ghosts.\n")
+	b.WriteString("Otherwise, reply with a JSON object: {\"template\": \"...\", \"sceneName\": \"...\", \"estimatedFiles\": N, \"estimatedObjects\": N, \"estimatedMinutes\": N, \"question\": {\"prompt\": \"...\", \"options\": [{\"id\": \"...\", \"label\": \"...\", \"note\": \"...\", \"suggested\": true}]}, \"steps\": [{\"number\": 1, \"title\": \"...\", \"filesLabel\": \"...\", \"permission\": \"...\"}], \"ghosts\": [{\"id\": \"...\", \"step\": 2, \"label\": \"...\", \"x\": 40, \"y\": 120, \"w\": 80, \"h\": 40}]}.\n")
+	return b.String()
+}
+
+func firstRunPlanFromAgentPlan(ap *AgentPlan, req FirstRunPlanRequest) *FirstRunPlan {
 	tmplName, tmplTitle := pickTemplateForIdea(req.Idea, req.Templates, req.Selected)
-	verb := "stomp"
-	q := &FirstRunPlanQuestion{
-		Prompt: "How does the Knight beat slimes?",
-		Options: []FirstRunPlanOption{
-			{ID: "jump", Label: "Jump on them", Note: "Suggested", Suggested: true, Verb: "stomp"},
-			{ID: "sword", Label: "Sword swing", Note: "Adds an attack", Verb: "fight"},
-			{ID: "avoid", Label: "Avoid them", Note: "No combat", Verb: "dodge"},
-		},
+	sceneName := "level_01"
+	for _, f := range ap.Files {
+		if sn := extractSceneNameFromPath(f.Path); sn != "" {
+			sceneName = sn
+			break
+		}
 	}
-	steps := []FirstRunPlanStep{
-		{Number: 1, Title: "Copy the " + tmplTitle + " template", FilesLabel: "14 new files"},
-		{Number: 2, Title: "Build level_01: 3 rooms, the Knight, 4 slimes to " + verb + ", 12 coins, a lever", FilesLabel: "level_01 · 31 objects"},
-		{Number: 3, Title: "Run check and a 10 s headless playtest", FilesLabel: "no files", Permission: "Run the game"},
+	if sceneName == "level_01" {
+		for _, st := range ap.Steps {
+			for _, f := range st.Files {
+				if sn := extractSceneNameFromPath(f); sn != "" {
+					sceneName = sn
+					break
+				}
+			}
+			if sceneName != "level_01" {
+				break
+			}
+		}
 	}
-	templateShapes := []FirstRunPreviewShape{
-		{ID: "tpl-room1", Kind: "room", X: 16, Y: 140, W: 88, H: 150},
-		{ID: "tpl-floor1", Kind: "floor", X: 16, Y: 264, W: 88, H: 26},
-		{ID: "tpl-knight", Kind: "knight", X: 36, Y: 242, W: 14, H: 22},
+
+	steps := make([]FirstRunPlanStep, 0, len(ap.Steps))
+	var ghosts []FirstRunGhost
+	estObjects := 0
+	for i, st := range ap.Steps {
+		if st.Removed {
+			continue
+		}
+		num := st.Number
+		if num <= 0 {
+			num = i + 1
+		}
+		filesLabel := strings.TrimSpace(st.FilesLabel)
+		if filesLabel == "" && len(st.Files) > 0 {
+			filesLabel = strings.Join(st.Files, ", ")
+		}
+		if filesLabel == "" && st.Objects > 0 {
+			filesLabel = fmt.Sprintf("%d objects", st.Objects)
+		}
+		steps = append(steps, FirstRunPlanStep{
+			Number:     num,
+			Title:      st.Title,
+			FilesLabel: filesLabel,
+			Permission: st.Permission,
+		})
+		estObjects += max(st.Objects, 0)
+		for gi, g := range st.Ghosts {
+			gid := g.ID
+			if gid == "" {
+				gid = fmt.Sprintf("ghost-%d-%d", num, gi+1)
+			}
+			stepNum := g.Step
+			if stepNum <= 0 {
+				stepNum = num
+			}
+			ghosts = append(ghosts, FirstRunGhost{
+				ID:    gid,
+				Step:  stepNum,
+				Label: g.Label,
+				Kind:  "planned",
+				X:     g.X,
+				Y:     g.Y,
+				W:     g.Width,
+				H:     g.Height,
+			})
+		}
 	}
-	ghosts := []FirstRunGhost{
-		{ID: "ghost-tpl", Step: 1, Label: "template", Kind: "room", X: 14, Y: 138, W: 92, H: 154},
-		{ID: "ghost-rooms", Step: 2, Label: "rooms 2–3", Kind: "room", X: 110, Y: 138, W: 196, H: 154},
-		{ID: "ghost-slime1", Step: 2, Kind: "slime", X: 134, Y: 250, W: 18, H: 12},
-		{ID: "ghost-slime2", Step: 2, Kind: "slime", X: 182, Y: 250, W: 18, H: 12},
-		{ID: "ghost-coin1", Step: 2, Kind: "coin", X: 156, Y: 210, W: 8, H: 8},
-		{ID: "ghost-coin2", Step: 2, Kind: "coin", X: 170, Y: 204, W: 8, H: 8},
-		{ID: "ghost-coin3", Step: 2, Kind: "coin", X: 184, Y: 210, W: 8, H: 8},
-		{ID: "ghost-lever", Step: 2, Kind: "lever", X: 238, Y: 248, W: 6, H: 16},
-		{ID: "ghost-door", Step: 2, Kind: "door", X: 274, Y: 228, W: 18, H: 36},
+
+	var question *FirstRunPlanQuestion
+	if len(ap.Questions) > 0 && len(ap.Questions[0].Options) > 0 {
+		q := ap.Questions[0]
+		opts := make([]FirstRunPlanOption, 0, len(q.Options))
+		for _, o := range q.Options {
+			opts = append(opts, FirstRunPlanOption{
+				ID:                 o.ID,
+				Label:              o.Label,
+				Note:               o.Note,
+				Suggested:          o.Suggested,
+				StepTitleOverrides: maps.Clone(o.StepTitleOverrides),
+			})
+		}
+		question = &FirstRunPlanQuestion{
+			Prompt:  q.Prompt,
+			Options: opts,
+		}
 	}
+
+	estFiles := len(ap.Files)
+	if estFiles == 0 {
+		seen := make(map[string]struct{})
+		for _, st := range ap.Steps {
+			for _, f := range st.Files {
+				if strings.TrimSpace(f) != "" {
+					seen[f] = struct{}{}
+				}
+			}
+		}
+		estFiles = len(seen)
+	}
+	estMinutes := parseDurationMinutes(ap.Estimate.Duration)
+
 	return &FirstRunPlan{
 		ProjectName:      req.ProjectName,
 		TargetDir:        req.TargetDir,
@@ -1393,14 +1973,268 @@ func DefaultFirstRunPlan(req FirstRunPlanRequest) *FirstRunPlan {
 		Idea:             req.Idea,
 		Template:         tmplName,
 		TemplateTitle:    tmplTitle,
-		SceneName:        "level_01",
-		EstimatedFiles:   15,
-		EstimatedObjects: 31,
-		EstimatedMinutes: 3,
-		Question:         q,
+		SceneName:        sceneName,
+		EstimatedFiles:   estFiles,
+		EstimatedObjects: estObjects,
+		EstimatedMinutes: estMinutes,
+		Question:         question,
 		Steps:            steps,
-		TemplateShapes:   templateShapes,
 		Ghosts:           ghosts,
+	}
+}
+
+type firstRunJSONPlan struct {
+	Template         string `json:"template"`
+	TemplateTitle    string `json:"templateTitle"`
+	SceneName        string `json:"sceneName"`
+	EstimatedFiles   int    `json:"estimatedFiles"`
+	EstimatedObjects int    `json:"estimatedObjects"`
+	EstimatedMinutes int    `json:"estimatedMinutes"`
+	Question         *struct {
+		Prompt  string `json:"prompt"`
+		Options []struct {
+			ID                 string         `json:"id"`
+			Label              string         `json:"label"`
+			Note               string         `json:"note"`
+			Suggested          bool           `json:"suggested"`
+			Verb               string         `json:"verb"`
+			StepTitleOverrides map[int]string `json:"stepTitleOverrides"`
+		} `json:"options"`
+	} `json:"question"`
+	Steps []struct {
+		Number     int    `json:"number"`
+		Title      string `json:"title"`
+		FilesLabel string `json:"filesLabel"`
+		Permission string `json:"permission"`
+	} `json:"steps"`
+	Ghosts []struct {
+		ID     string  `json:"id"`
+		Step   int     `json:"step"`
+		Label  string  `json:"label"`
+		Kind   string  `json:"kind"`
+		X      float32 `json:"x"`
+		Y      float32 `json:"y"`
+		W      float32 `json:"w"`
+		Width  float32 `json:"width"`
+		H      float32 `json:"h"`
+		Height float32 `json:"height"`
+	} `json:"ghosts"`
+}
+
+func parseFirstRunPlanFromText(raw string, req FirstRunPlanRequest) (*FirstRunPlan, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, errors.New("editor: agent returned an empty plan response")
+	}
+
+	if jsonBlob := extractJSONObject(trimmed); jsonBlob != "" {
+		var jp firstRunJSONPlan
+		if err := json.Unmarshal([]byte(jsonBlob), &jp); err == nil && len(jp.Steps) > 0 {
+			tmplName := strings.TrimSpace(jp.Template)
+			tmplTitle := strings.TrimSpace(jp.TemplateTitle)
+			if tmplName == "" {
+				tmplName, tmplTitle = pickTemplateForIdea(req.Idea, req.Templates, req.Selected)
+			} else if tmplTitle == "" {
+				tmplTitle = templateTitleForName(tmplName, req.Templates)
+			}
+			sceneName := strings.TrimSpace(jp.SceneName)
+			if sceneName == "" {
+				sceneName = "level_01"
+			}
+			steps := make([]FirstRunPlanStep, 0, len(jp.Steps))
+			for i, st := range jp.Steps {
+				num := st.Number
+				if num <= 0 {
+					num = i + 1
+				}
+				steps = append(steps, FirstRunPlanStep{
+					Number:     num,
+					Title:      strings.TrimSpace(st.Title),
+					FilesLabel: strings.TrimSpace(st.FilesLabel),
+					Permission: strings.TrimSpace(st.Permission),
+				})
+			}
+			var q *FirstRunPlanQuestion
+			if jp.Question != nil && strings.TrimSpace(jp.Question.Prompt) != "" && len(jp.Question.Options) > 0 {
+				opts := make([]FirstRunPlanOption, 0, len(jp.Question.Options))
+				for _, o := range jp.Question.Options {
+					opts = append(opts, FirstRunPlanOption{
+						ID:                 o.ID,
+						Label:              o.Label,
+						Note:               o.Note,
+						Suggested:          o.Suggested,
+						Verb:               o.Verb,
+						StepTitleOverrides: maps.Clone(o.StepTitleOverrides),
+					})
+				}
+				q = &FirstRunPlanQuestion{
+					Prompt:  strings.TrimSpace(jp.Question.Prompt),
+					Options: opts,
+				}
+			}
+			var ghosts []FirstRunGhost
+			for i, g := range jp.Ghosts {
+				gid := strings.TrimSpace(g.ID)
+				if gid == "" {
+					gid = fmt.Sprintf("ghost-%d", i+1)
+				}
+				w := g.W
+				if w <= 0 {
+					w = g.Width
+				}
+				h := g.H
+				if h <= 0 {
+					h = g.Height
+				}
+				kind := strings.TrimSpace(g.Kind)
+				if kind == "" {
+					kind = "planned"
+				}
+				ghosts = append(ghosts, FirstRunGhost{
+					ID:    gid,
+					Step:  max(g.Step, 1),
+					Label: g.Label,
+					Kind:  kind,
+					X:     g.X,
+					Y:     g.Y,
+					W:     w,
+					H:     h,
+				})
+			}
+			return &FirstRunPlan{
+				ProjectName:      req.ProjectName,
+				TargetDir:        req.TargetDir,
+				DisplayPath:      req.DisplayPath,
+				Module:           req.Module,
+				Idea:             req.Idea,
+				Template:         tmplName,
+				TemplateTitle:    tmplTitle,
+				SceneName:        sceneName,
+				EstimatedFiles:   max(jp.EstimatedFiles, 0),
+				EstimatedObjects: max(jp.EstimatedObjects, 0),
+				EstimatedMinutes: max(jp.EstimatedMinutes, 0),
+				Question:         q,
+				Steps:            steps,
+				Ghosts:           ghosts,
+			}, nil
+		}
+	}
+
+	// Plain-text fallback: extract numbered or bulleted lines directly from the agent's own words.
+	var steps []FirstRunPlanStep
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "```") {
+			continue
+		}
+		cleaned := stripListMarker(line)
+		if cleaned == "" {
+			continue
+		}
+		steps = append(steps, FirstRunPlanStep{
+			Number: len(steps) + 1,
+			Title:  cleaned,
+		})
+	}
+	if len(steps) == 0 {
+		return nil, errors.New("editor: could not parse a plan from the agent's response")
+	}
+	tmplName, tmplTitle := pickTemplateForIdea(req.Idea, req.Templates, req.Selected)
+	return &FirstRunPlan{
+		ProjectName:   req.ProjectName,
+		TargetDir:     req.TargetDir,
+		DisplayPath:   req.DisplayPath,
+		Module:        req.Module,
+		Idea:          req.Idea,
+		Template:      tmplName,
+		TemplateTitle: tmplTitle,
+		SceneName:     "level_01",
+		Steps:         steps,
+	}, nil
+}
+
+func extractJSONObject(s string) string {
+	start := strings.IndexByte(s, '{')
+	end := strings.LastIndexByte(s, '}')
+	if start < 0 || end <= start {
+		return ""
+	}
+	return s[start : end+1]
+}
+
+func stripListMarker(line string) string {
+	if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
+		return strings.TrimSpace(line[2:])
+	}
+	i := 0
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	if i > 0 && i < len(line) && (line[i] == '.' || line[i] == ')') {
+		return strings.TrimSpace(line[i+1:])
+	}
+	return line
+}
+
+func extractSceneNameFromPath(p string) string {
+	norm := strings.ReplaceAll(strings.TrimSpace(p), `\`, "/")
+	base := filepath.Base(norm)
+	for _, suf := range []string{".scene.yaml", ".scene.yml"} {
+		if strings.HasSuffix(base, suf) {
+			name := strings.TrimSuffix(base, suf)
+			if validateFirstRunSceneName(name) == nil {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+func parseDurationMinutes(raw string) int {
+	for _, field := range strings.Fields(raw) {
+		field = strings.Trim(field, "~.,()")
+		if n, err := strconv.Atoi(field); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+func templateTitleForName(name string, tmpls []ProjectTemplate) string {
+	for _, t := range tmpls {
+		if strings.EqualFold(t.Name, name) {
+			return t.DisplayTitle()
+		}
+	}
+	if name == "" {
+		return "Starter"
+	}
+	return name
+}
+
+// DefaultFirstRunPlan builds a minimal, neutral template-derived skeleton plan from req without
+// any hardcoded game content. OpenFirstRunPlan asks the connected agent instead of calling this.
+func DefaultFirstRunPlan(req FirstRunPlanRequest) *FirstRunPlan {
+	tmplName, tmplTitle := pickTemplateForIdea(req.Idea, req.Templates, req.Selected)
+	buildTitle := "Build level_01"
+	if idea := strings.TrimSpace(req.Idea); idea != "" {
+		buildTitle = "Build level_01 for: " + truncateRunes(idea, 80)
+	}
+	steps := []FirstRunPlanStep{
+		{Number: 1, Title: "Create project from the " + tmplTitle + " template"},
+		{Number: 2, Title: buildTitle, FilesLabel: "scenes/level_01.scene.yaml"},
+		{Number: 3, Title: "Run game check", FilesLabel: "no files"},
+	}
+	return &FirstRunPlan{
+		ProjectName:   req.ProjectName,
+		TargetDir:     req.TargetDir,
+		DisplayPath:   req.DisplayPath,
+		Module:        req.Module,
+		Idea:          req.Idea,
+		Template:      tmplName,
+		TemplateTitle: tmplTitle,
+		SceneName:     "level_01",
+		Steps:         steps,
 	}
 }
 
@@ -1459,7 +2293,14 @@ func cloneFirstRunPlan(p *FirstRunPlan) *FirstRunPlan {
 	cp := *p
 	if p.Question != nil {
 		q := *p.Question
-		q.Options = slices.Clone(p.Question.Options)
+		q.Options = make([]FirstRunPlanOption, len(p.Question.Options))
+		for i, opt := range p.Question.Options {
+			oc := opt
+			if opt.StepTitleOverrides != nil {
+				oc.StepTitleOverrides = maps.Clone(opt.StepTitleOverrides)
+			}
+			q.Options[i] = oc
+		}
 		cp.Question = &q
 	}
 	cp.Steps = slices.Clone(p.Steps)
@@ -1503,7 +2344,17 @@ func (e *Editor) SelectFirstRunPlanAnswer(optionID string) bool {
 		return false
 	}
 	plan.SelectedAnswer = picked.ID
-	if picked.Verb != "" && len(plan.Steps) >= 2 {
+	if len(picked.StepTitleOverrides) > 0 {
+		for i := range plan.Steps {
+			num := plan.Steps[i].Number
+			if num <= 0 {
+				num = i + 1
+			}
+			if title, ok := picked.StepTitleOverrides[num]; ok && strings.TrimSpace(title) != "" {
+				plan.Steps[i].Title = title
+			}
+		}
+	} else if picked.Verb != "" && len(plan.Steps) >= 2 {
 		for _, opt := range plan.Question.Options {
 			if opt.Verb != "" && strings.Contains(plan.Steps[1].Title, " to "+opt.Verb+",") {
 				plan.Steps[1].Title = strings.Replace(plan.Steps[1].Title, " to "+opt.Verb+",", " to "+picked.Verb+",", 1)
@@ -1523,7 +2374,7 @@ func (e *Editor) FirstRunPlanCanApprove() bool {
 	}
 	e.firstRun.mu.Lock()
 	defer e.firstRun.mu.Unlock()
-	if e.firstRun.stage != FirstRunStagePlan || e.firstRun.plan == nil || e.firstRun.plan.Approved {
+	if e.firstRun.stage != FirstRunStagePlan || e.firstRun.planLoading || e.firstRun.plan == nil || e.firstRun.plan.Approved {
 		return false
 	}
 	if e.firstRun.plan.Question != nil && len(e.firstRun.plan.Question.Options) > 0 && e.firstRun.plan.SelectedAnswer == "" {
@@ -1537,9 +2388,11 @@ func (e *Editor) BackToStartFromPlan() {
 	if e == nil {
 		return
 	}
+	e.cancelFirstRunPlan()
 	e.firstRun.mu.Lock()
 	e.firstRun.stage = FirstRunStageNone
 	e.firstRun.plan = nil
+	e.firstRun.planErr = ""
 	e.firstRun.mu.Unlock()
 	e.SetStartScreenOpen(true)
 }
@@ -1631,12 +2484,20 @@ func (e *Editor) ApproveFirstRunPlan() error {
 		FirstRunBuildStageTodo,
 		FirstRunBuildStageTodo,
 	}
+	stage1Sub := "scaffolding project files"
+	if plan.EstimatedFiles > 1 {
+		stage1Sub = fmt.Sprintf("%d files from %s", plan.EstimatedFiles-1, plan.TemplateTitle)
+	}
+	stage2Sub := "waiting for agent"
+	if plan.EstimatedObjects > 0 {
+		stage2Sub = fmt.Sprintf("0 of %d objects", plan.EstimatedObjects)
+	}
 	initialLog := []FirstRunBuildLogEntry{
-		{StageIndex: 0, Status: FirstRunBuildStageDone, Title: "Picked " + plan.TemplateTitle, Subtitle: "closest template for your game"},
-		{StageIndex: 1, Status: FirstRunBuildStageActive, Title: "Creating " + plan.DisplayPath, Subtitle: fmt.Sprintf("%d files from the template", max(plan.EstimatedFiles-1, 1))},
-		{StageIndex: 2, Status: FirstRunBuildStageTodo, Title: "Build " + plan.SceneName, Subtitle: fmt.Sprintf("0 of %d objects", max(plan.EstimatedObjects, 1)), TotalCount: max(plan.EstimatedObjects, 1)},
+		{StageIndex: 0, Status: FirstRunBuildStageDone, Title: "Picked " + plan.TemplateTitle, Subtitle: "template for your game"},
+		{StageIndex: 1, Status: FirstRunBuildStageActive, Title: "Creating " + plan.DisplayPath, Subtitle: stage1Sub},
+		{StageIndex: 2, Status: FirstRunBuildStageTodo, Title: "Build " + plan.SceneName, Subtitle: stage2Sub, TotalCount: plan.EstimatedObjects},
 		{StageIndex: 3, Status: FirstRunBuildStageTodo, Title: "check", Subtitle: "runs by itself"},
-		{StageIndex: 4, Status: FirstRunBuildStageTodo, Title: "10 s playtest", Subtitle: "allowed in the plan"},
+		{StageIndex: 4, Status: FirstRunBuildStageTodo, Title: "Playtest", Subtitle: "runs after check"},
 	}
 
 	e.firstRun.mu.Lock()
@@ -1648,7 +2509,7 @@ func (e *Editor) ApproveFirstRunPlan() error {
 	e.firstRun.buildStages = initialStages
 	e.firstRun.buildLog = initialLog
 	e.firstRun.buildObjectsDone = 0
-	e.firstRun.buildObjectsTotal = max(plan.EstimatedObjects, 1)
+	e.firstRun.buildObjectsTotal = plan.EstimatedObjects
 	e.firstRun.buildPlacingLabel = ""
 	e.firstRun.buildShapes = slices.Clone(plan.TemplateShapes)
 	e.firstRun.buildStartedAt = now
@@ -1764,7 +2625,7 @@ func (e *Editor) finishFirstRunBuild(run *firstRunBuildRun, plan *FirstRunPlan, 
 		return
 	}
 	if res == nil {
-		res = defaultFirstRunBuildResult(plan)
+		res = buildFirstRunResultFromProject(projectDir, "scenes/"+plan.SceneName+".scene.yaml", plan, nil, nil, 0, nil)
 	}
 	if res.CheckFailure != nil {
 		e.firstRun.buildOutcome = FirstRunBuildCheckFailed
@@ -1781,11 +2642,12 @@ func (e *Editor) finishFirstRunBuild(run *firstRunBuildRun, plan *FirstRunPlan, 
 			e.firstRun.buildShapes = slices.Clone(res.Shapes)
 		}
 		if len(e.firstRun.buildLog) >= 5 {
+			builtCount := max(e.firstRun.buildObjectsDone, countFirstRunReviewObjects(res))
 			e.firstRun.buildLog[0].Status = FirstRunBuildStageDone
 			e.firstRun.buildLog[1].Status = FirstRunBuildStageDone
 			e.firstRun.buildLog[2].Status = FirstRunBuildStageDone
 			e.firstRun.buildLog[2].Title = "Built " + plan.SceneName
-			e.firstRun.buildLog[2].Subtitle = fmt.Sprintf("%d objects in 3 rooms", max(plan.EstimatedObjects, 1))
+			e.firstRun.buildLog[2].Subtitle = fmt.Sprintf("%d objects", builtCount)
 			e.firstRun.buildLog[3].Status = FirstRunBuildStageFail
 			e.firstRun.buildLog[3].Title = "check: 1 problem"
 			e.firstRun.buildLog[3].Subtitle = res.CheckFailure.ProblemSummary
@@ -1796,12 +2658,16 @@ func (e *Editor) finishFirstRunBuild(run *firstRunBuildRun, plan *FirstRunPlan, 
 		e.notify()
 		return
 	}
+	stage4 := e.firstRun.buildStages[4]
+	if stage4 != FirstRunBuildStageFail {
+		stage4 = FirstRunBuildStageDone
+	}
 	e.firstRun.buildStages = [5]FirstRunBuildStageStatus{
 		FirstRunBuildStageDone,
 		FirstRunBuildStageDone,
 		FirstRunBuildStageDone,
 		FirstRunBuildStageDone,
-		FirstRunBuildStageDone,
+		stage4,
 	}
 	e.firstRun.mu.Unlock()
 
@@ -1810,11 +2676,24 @@ func (e *Editor) finishFirstRunBuild(run *firstRunBuildRun, plan *FirstRunPlan, 
 
 func (e *Editor) enterFirstRunReview(plan *FirstRunPlan, projectDir string, res *FirstRunBuildResult) {
 	if res == nil {
-		res = defaultFirstRunBuildResult(plan)
+		res = buildFirstRunResultFromProject(projectDir, "scenes/"+plan.SceneName+".scene.yaml", plan, nil, nil, 0, nil)
 	}
-	// Open the newly created project cleanly in the editor workspace if game.yaml exists.
+	// Open the newly created project and built scene cleanly in the editor workspace if game.yaml exists.
+	sceneRel := res.SceneRelPath
+	if sceneRel == "" {
+		sceneRel = "scenes/" + plan.SceneName + ".scene.yaml"
+	}
 	if _, err := os.Stat(filepath.Join(projectDir, project.FileName)); err == nil {
-		_ = e.OpenProject(projectDir)
+		absScene, joinErr := safeJoinUnderDir(projectDir, filepath.FromSlash(sceneRel))
+		if joinErr == nil {
+			if _, stErr := os.Stat(absScene); stErr == nil {
+				_ = e.OpenProjectScene(projectDir, absScene)
+			} else {
+				_ = e.OpenProject(projectDir)
+			}
+		} else {
+			_ = e.OpenProject(projectDir)
+		}
 	}
 
 	nextTip := e.nextUnseenFirstRunTipIndex()
@@ -1823,10 +2702,7 @@ func (e *Editor) enterFirstRunReview(plan *FirstRunPlan, projectDir string, res 
 	e.firstRun.stage = FirstRunStageReview
 	e.firstRun.reviewProjectName = plan.ProjectName
 	e.firstRun.reviewProjectDir = projectDir
-	e.firstRun.reviewScenePath = res.SceneRelPath
-	if e.firstRun.reviewScenePath == "" {
-		e.firstRun.reviewScenePath = "scenes/" + plan.SceneName + ".scene.yaml"
-	}
+	e.firstRun.reviewScenePath = sceneRel
 	e.firstRun.reviewPlanDone = res.PlanStepsDone
 	if e.firstRun.reviewPlanDone <= 0 {
 		e.firstRun.reviewPlanDone = len(plan.Steps)
@@ -1845,12 +2721,20 @@ func (e *Editor) enterFirstRunReview(plan *FirstRunPlan, projectDir string, res 
 	e.notify()
 }
 
-// defaultFirstRunBuilder scaffolds the project folder created after Approve, builds the first scene,
-// checks it with project.Check / assetcheck, and returns the first review result.
+// defaultFirstRunBuilder scaffolds the project folder created after Approve, opens it in the editor,
+// asks the connected agent to build the first scene via scene_edit, checks it with project.Check / assetcheck,
+// runs game playtest (or skips it honestly when playtest.yaml is absent), and derives the first review
+// from the actual scene and files written on disk.
 func (e *Editor) defaultFirstRunBuilder(ctx context.Context, req FirstRunBuildRequest, emit func(FirstRunBuildEvent)) (*FirstRunBuildResult, error) {
 	if err := req.WaitIfPaused(ctx); err != nil {
 		return nil, err
 	}
+	sceneRel := "scenes/" + req.Plan.SceneName + ".scene.yaml"
+	absScene, err := safeJoinUnderDir(req.ProjectDir, filepath.FromSlash(sceneRel))
+	if err != nil {
+		return nil, err
+	}
+
 	// Stage 1: Project scaffold.
 	if e.CreateProject != nil {
 		createReq := CreateProjectRequest{
@@ -1859,28 +2743,25 @@ func (e *Editor) defaultFirstRunBuilder(ctx context.Context, req FirstRunBuildRe
 			Module:   req.Plan.Module,
 			Template: req.Plan.Template,
 		}
-		err := e.CreateProject(ctx, createReq, io.Discard, io.Discard)
-		if err != nil && ctx.Err() == nil {
+		createErr := e.CreateProject(ctx, createReq, io.Discard, io.Discard)
+		if createErr != nil && ctx.Err() == nil {
 			// ApproveFirstRunPlan atomically reserved req.ProjectDir as an empty directory;
 			// if game new refused an existing empty folder, release the empty dir and retry once.
 			if entries, readErr := os.ReadDir(req.ProjectDir); readErr == nil && len(entries) == 0 {
 				if rmErr := os.Remove(req.ProjectDir); rmErr == nil {
-					err = e.CreateProject(ctx, createReq, io.Discard, io.Discard)
+					createErr = e.CreateProject(ctx, createReq, io.Discard, io.Discard)
 					if _, statErr := os.Stat(req.ProjectDir); errors.Is(statErr, os.ErrNotExist) {
 						_ = os.Mkdir(req.ProjectDir, 0o755)
 					}
 				}
 			}
 		}
-		if err != nil {
-			// Fall back to minimal pure-Go scaffold only if game.yaml wasn't written yet and ctx isn't cancelled.
+		if createErr != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 			if _, statErr := os.Stat(filepath.Join(req.ProjectDir, project.FileName)); statErr != nil {
-				if scaffoldErr := scaffoldFirstRunProject(req.ProjectDir, req.Plan); scaffoldErr != nil {
-					return nil, err
-				}
+				return nil, createErr
 			}
 		}
 	} else {
@@ -1888,43 +2769,161 @@ func (e *Editor) defaultFirstRunBuilder(ctx context.Context, req FirstRunBuildRe
 			return nil, err
 		}
 	}
+
+	// Ensure the target scene file exists before opening it so scene_edit always targets it.
+	if _, statErr := os.Stat(absScene); errors.Is(statErr, os.ErrNotExist) {
+		if err := writeEmptyFirstRunScene(req.ProjectDir, sceneRel, req.Plan.SceneName); err != nil {
+			return nil, err
+		}
+	}
+
+	scaffoldFiles := countProjectFilesExcluding(req.ProjectDir, sceneRel)
+
+	// Write .mcp.json when SyncMCPConfig is wired so CLI agents can discover the editor's MCP server.
+	if e.SyncMCPConfig != nil {
+		_ = e.SyncMCPConfig(req.ProjectDir, nil, nil)
+	}
+
+	// Open the scaffolded project & target scene in the editor so MCP scene_edit edits it live.
+	if err := e.firstRunRunOnEditor(ctx, func() error {
+		return e.OpenProjectScene(req.ProjectDir, absScene)
+	}); err != nil {
+		return nil, err
+	}
+	baselineDoc := e.firstRunSnapshotDoc(ctx)
+
 	emit(FirstRunBuildEvent{
 		StageIndex:  1,
 		StageStatus: FirstRunBuildStageDone,
 		LogTitle:    "Created " + req.Plan.DisplayPath,
-		LogSubtitle: fmt.Sprintf("%d files from the template", max(req.Plan.EstimatedFiles-1, 1)),
+		LogSubtitle: formatFirstRunFileCount(scaffoldFiles, req.Plan.TemplateTitle),
 	})
 
-	// Stage 2: Build first scene with concrete object counts (never a bare spinner).
-	total := max(req.Plan.EstimatedObjects, 1)
-	res := defaultFirstRunBuildResult(&req.Plan)
-	sceneRel := res.SceneRelPath
-	if sceneRel == "" {
-		sceneRel = "scenes/" + req.Plan.SceneName + ".scene.yaml"
+	// Stage 2: Ask the connected agent to build the first scene via MCP tools (scene_edit).
+	if err := req.WaitIfPaused(ctx); err != nil {
+		return nil, err
+	}
+	runner, route, extKind, err := e.resolveFirstRunRunner()
+	if err != nil {
+		return nil, err
+	}
+	estTotal := max(req.Plan.EstimatedObjects, 0)
+	stage2InitSub := "waiting for agent"
+	if estTotal > 0 {
+		stage2InitSub = fmt.Sprintf("0 of %d objects", estTotal)
 	}
 	emit(FirstRunBuildEvent{
 		StageIndex:   2,
 		StageStatus:  FirstRunBuildStageActive,
 		LogTitle:     "Building " + req.Plan.SceneName,
-		LogSubtitle:  fmt.Sprintf("19 of %d objects", total),
-		ObjectsDone:  min(19, total),
-		ObjectsTotal: total,
-		PlacingLabel: "placing slime_03",
-		PlacedShapes: res.Shapes[:min(len(res.Shapes), 6)],
+		LogSubtitle:  stage2InitSub,
+		ObjectsDone:  0,
+		ObjectsTotal: estTotal,
 	})
+
+	baselineIDs := sceneObjectIDSet(baselineDoc)
+	prevAddedCount := 0
+	var streamErr string
+	buildPrompt := buildFirstRunBuildPrompt(req, sceneRel)
+	runErr := runner.Run(ctx, AgentRequest{
+		Prompt:      buildPrompt,
+		ProjectRoot: req.ProjectDir,
+		ScenePath:   sceneRel,
+		AgentKind:   extKind,
+		Route:       route,
+		Task:        AgentTaskSceneEdit,
+		Permissions: e.AgentPermissions(),
+	}, func(ev AgentEvent) {
+		if ev.Kind == AgentEventError && strings.TrimSpace(ev.Err) != "" && streamErr == "" {
+			streamErr = strings.TrimSpace(ev.Err)
+			return
+		}
+		if ev.Kind != AgentEventStep {
+			return
+		}
+		if err := req.WaitIfPaused(ctx); err != nil {
+			return
+		}
+		curDoc := e.firstRunSnapshotDoc(ctx)
+		addedObjs := diffFirstRunAddedObjects(baselineIDs, curDoc)
+		done := len(addedObjs)
+		total := max(estTotal, done)
+		label := strings.TrimSpace(ev.StepTitle)
+		if done > prevAddedCount {
+			label = "placed " + addedObjs[done-1].obj.ID
+			prevAddedCount = done
+		}
+		sub := fmt.Sprintf("%d objects", done)
+		if total > 0 && done < total {
+			sub = fmt.Sprintf("%d of %d objects", done, total)
+		}
+		shapes := firstRunShapesFromScene(curDoc, addedObjs)
+		emit(FirstRunBuildEvent{
+			StageIndex:   2,
+			StageStatus:  FirstRunBuildStageActive,
+			LogTitle:     "Building " + req.Plan.SceneName,
+			LogSubtitle:  sub,
+			ObjectsDone:  done,
+			ObjectsTotal: total,
+			PlacingLabel: label,
+			PlacedShapes: shapes,
+		})
+	})
+	if runErr != nil {
+		return nil, runErr
+	}
+	if streamErr != "" {
+		return nil, errors.New(streamErr)
+	}
 	if err := req.WaitIfPaused(ctx); err != nil {
 		return nil, err
 	}
-	if err := writeFirstRunScene(req.ProjectDir, sceneRel, req.Plan); err != nil {
+
+	// Persist in-memory scene_edit changes to disk, or reload disk edits made by a CLI agent.
+	var finalDoc *sceneformat.SceneDoc
+	if err := e.firstRunRunOnEditor(ctx, func() error {
+		if e.Doc != nil && !sceneDocsEqual(baselineDoc, e.Doc) {
+			if err := e.SaveFile(absScene); err != nil {
+				return err
+			}
+			finalDoc = e.Doc.Clone()
+			return nil
+		}
+		// Reload from disk in case the agent edited the scene file directly.
+		if raw, rerr := os.ReadFile(absScene); rerr == nil {
+			if parsed, perr := sceneformat.ParseWith(raw, sceneformat.ParseOptions{
+				File:       absScene,
+				Components: e.components,
+			}); perr == nil {
+				finalDoc = parsed
+				_ = e.OpenProjectScene(req.ProjectDir, absScene)
+				return nil
+			}
+		}
+		if e.Doc != nil {
+			finalDoc = e.Doc.Clone()
+		}
+		return nil
+	}); err != nil {
 		return nil, err
+	}
+
+	var deviations []FirstRunPlanDeviation
+	res := buildFirstRunResultFromProject(req.ProjectDir, sceneRel, &req.Plan, baselineDoc, finalDoc, scaffoldFiles, nil)
+	builtObjects := countFirstRunReviewObjects(res)
+	if req.Plan.EstimatedObjects > 0 && builtObjects != req.Plan.EstimatedObjects {
+		deviations = append(deviations, FirstRunPlanDeviation{
+			Summary: fmt.Sprintf("%d objects built (plan estimated %d)", builtObjects, req.Plan.EstimatedObjects),
+		})
+		res.Deviations = append(res.Deviations, deviations...)
 	}
 	emit(FirstRunBuildEvent{
 		StageIndex:   2,
 		StageStatus:  FirstRunBuildStageDone,
 		LogTitle:     "Built " + req.Plan.SceneName,
-		LogSubtitle:  fmt.Sprintf("%d of %d objects", total, total),
-		ObjectsDone:  total,
-		ObjectsTotal: total,
+		LogSubtitle:  fmt.Sprintf("%d objects", builtObjects),
+		ObjectsDone:  builtObjects,
+		ObjectsTotal: max(builtObjects, 1),
 		PlacedShapes: res.Shapes,
 	})
 
@@ -1943,16 +2942,16 @@ func (e *Editor) defaultFirstRunBuilder(ctx context.Context, req FirstRunBuildRe
 			ProblemSummary: err.Error(),
 			FixDescription: "I can repair game.yaml so the project check passes.",
 			ApplyFix: func(context.Context, string) error {
-				return scaffoldFirstRunProject(req.ProjectDir, req.Plan)
+				return repairFirstRunProjectFile(req.ProjectDir, req.Plan)
 			},
 		}
 		return res, nil
 	}
-	if report, err := assetcheck.Check(os.DirFS(req.ProjectDir)); err == nil && report != nil && !report.OK() && len(report.Problems) > 0 {
+	if report, err := assetcheck.CheckWith(os.DirFS(req.ProjectDir), assetcheck.Options{Components: e.components}); err == nil && report != nil && !report.OK() && len(report.Problems) > 0 {
 		pr := report.Problems[0]
 		res.CheckFailure = &FirstRunBuildFixProposal{
 			ProblemSummary: pr.Message,
-			FixDescription: "I'll fix " + pr.File + " so check passes.",
+			FixDescription: "Fix " + pr.File + " so check passes.",
 		}
 		return res, nil
 	}
@@ -1963,17 +2962,121 @@ func (e *Editor) defaultFirstRunBuilder(ctx context.Context, req FirstRunBuildRe
 		LogSubtitle: "0 problems",
 	})
 
-	// Stage 4: Headless playtest smoke validation.
+	// Stage 4: Headless playtest via `game playtest`, or honest skip when the project has no playtest.yaml.
 	if err := req.WaitIfPaused(ctx); err != nil {
 		return nil, err
 	}
+	playtestCfgPath := filepath.Join(req.ProjectDir, playtest.FileName)
+	if _, statErr := os.Stat(playtestCfgPath); statErr != nil {
+		emit(FirstRunBuildEvent{
+			StageIndex:  4,
+			StageStatus: FirstRunBuildStageDone,
+			LogTitle:    "Playtest",
+			LogSubtitle: "Skipped · template has no playtest.yaml",
+		})
+		return res, nil
+	}
+
 	emit(FirstRunBuildEvent{
 		StageIndex:  4,
-		StageStatus: FirstRunBuildStageDone,
-		LogTitle:    "10 s playtest",
-		LogSubtitle: "passed · 0 errors",
+		StageStatus: FirstRunBuildStageActive,
+		LogTitle:    "Playtest",
+		LogSubtitle: "running game playtest",
 	})
+	playtestRunner := e.FirstRunPlaytest
+	if playtestRunner == nil {
+		playtestRunner = runFirstRunPlaytestCommand
+	}
+	rep, ptErr := playtestRunner(ctx, req.ProjectDir)
+	switch {
+	case errors.Is(ptErr, errFirstRunPlaytestUnsupported):
+		emit(FirstRunBuildEvent{
+			StageIndex:  4,
+			StageStatus: FirstRunBuildStageDone,
+			LogTitle:    "Playtest",
+			LogSubtitle: "Skipped · headless playtest requires desktop",
+		})
+	case ptErr == nil && rep != nil && rep.Passed:
+		runs := max(len(rep.Runs), 1)
+		emit(FirstRunBuildEvent{
+			StageIndex:  4,
+			StageStatus: FirstRunBuildStageDone,
+			LogTitle:    "Playtest",
+			LogSubtitle: fmt.Sprintf("passed · %d runs · 0 missed goals", runs),
+		})
+	default:
+		reason := "playtest failed"
+		if rep != nil && !rep.Passed {
+			missed := rep.MissedMetrics()
+			reason = fmt.Sprintf("failed · %d missed goal(s)", len(missed))
+		} else if ptErr != nil {
+			reason = truncateRunes(strings.TrimSpace(ptErr.Error()), 120)
+		}
+		emit(FirstRunBuildEvent{
+			StageIndex:  4,
+			StageStatus: FirstRunBuildStageFail,
+			LogTitle:    "Playtest",
+			LogSubtitle: reason,
+		})
+		res.Deviations = append(res.Deviations, FirstRunPlanDeviation{
+			Summary: "Playtest: " + reason,
+		})
+	}
 	return res, nil
+}
+
+func buildFirstRunBuildPrompt(req FirstRunBuildRequest, sceneRel string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Build the first scene %s for the new NSGo game project %q.\n", sceneRel, req.Plan.ProjectName)
+	if strings.TrimSpace(req.Plan.Idea) != "" {
+		fmt.Fprintf(&b, "Author's idea: %s\n", strings.TrimSpace(req.Plan.Idea))
+	}
+	fmt.Fprintf(&b, "Template: %s (%s)\n", req.Plan.Template, req.Plan.TemplateTitle)
+	if req.Plan.Question != nil && req.Answer != "" {
+		ansLabel := req.Answer
+		for _, opt := range req.Plan.Question.Options {
+			if opt.ID == req.Answer {
+				ansLabel = opt.Label + " (" + opt.ID + ")"
+				break
+			}
+		}
+		fmt.Fprintf(&b, "Author's answer to %q: %s\n", req.Plan.Question.Prompt, ansLabel)
+	}
+	if len(req.Plan.Steps) > 0 {
+		b.WriteString("Approved plan:\n")
+		for _, st := range req.Plan.Steps {
+			fmt.Fprintf(&b, "%d. %s\n", st.Number, st.Title)
+		}
+	}
+	fmt.Fprintf(&b, "\nUse the editor's scene_edit MCP tool to place all planned objects and components into %s. Do not leave placeholder content from unrelated genres.", sceneRel)
+	return b.String()
+}
+
+func (e *Editor) firstRunRunOnEditor(ctx context.Context, fn func() error) error {
+	if fn == nil {
+		return nil
+	}
+	errCh := make(chan error, 1)
+	e.firstRunPostOrRun(func() {
+		errCh <- fn()
+	})
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (e *Editor) firstRunSnapshotDoc(ctx context.Context) *sceneformat.SceneDoc {
+	var snap *sceneformat.SceneDoc
+	_ = e.firstRunRunOnEditor(ctx, func() error {
+		if e.Doc != nil {
+			snap = e.Doc.Clone()
+		}
+		return nil
+	})
+	return snap
 }
 
 func validateFirstRunSceneName(name string) error {
@@ -2004,14 +3107,7 @@ func safeJoinUnderDir(baseDir, rel string) (string, error) {
 	return full, nil
 }
 
-func scaffoldFirstRunProject(dir string, plan FirstRunPlan) error {
-	if err := validateFirstRunSceneName(plan.SceneName); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
-		return err
-	}
-	sceneRel := "scenes/" + plan.SceneName + ".scene.yaml"
+func repairFirstRunProjectFile(dir string, plan FirstRunPlan) error {
 	idSlug := strings.ReplaceAll(plan.ProjectName, "-", "")
 	if idSlug == "" {
 		idSlug = "mygame"
@@ -2030,14 +3126,25 @@ func scaffoldFirstRunProject(dir string, plan FirstRunPlan) error {
 	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(dir, project.FileName), gameYAML); err != nil {
-		return err
-	}
-	return writeFirstRunScene(dir, sceneRel, plan)
+	return writeFileAtomic(filepath.Join(dir, project.FileName), gameYAML)
 }
 
-func writeFirstRunScene(dir, sceneRel string, plan FirstRunPlan) error {
+func scaffoldFirstRunProject(dir string, plan FirstRunPlan) error {
 	if err := validateFirstRunSceneName(plan.SceneName); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+		return err
+	}
+	if err := repairFirstRunProjectFile(dir, plan); err != nil {
+		return err
+	}
+	sceneRel := "scenes/" + plan.SceneName + ".scene.yaml"
+	return writeEmptyFirstRunScene(dir, sceneRel, plan.SceneName)
+}
+
+func writeEmptyFirstRunScene(dir, sceneRel, sceneName string) error {
+	if err := validateFirstRunSceneName(sceneName); err != nil {
 		return err
 	}
 	full, err := safeJoinUnderDir(dir, filepath.FromSlash(sceneRel))
@@ -2046,7 +3153,7 @@ func writeFirstRunScene(dir, sceneRel string, plan FirstRunPlan) error {
 	}
 	doc := &sceneformat.SceneDoc{
 		Version:         sceneformat.CurrentVersion,
-		Name:            plan.SceneName,
+		Name:            sceneName,
 		VirtualWidth:    640,
 		VirtualHeight:   360,
 		BackgroundColor: "#15181d",
@@ -2055,26 +3162,11 @@ func writeFirstRunScene(dir, sceneRel string, plan FirstRunPlan) error {
 				Name:  "world",
 				Space: sceneformat.SpaceWorld,
 				Order: 0,
-				Objects: []sceneformat.ObjectDoc{
-					{ID: "world_tiles", X: 0, Y: 300},
-				},
 			},
 			{
 				Name:  "actors",
 				Space: sceneformat.SpaceWorld,
 				Order: 1,
-				Objects: []sceneformat.ObjectDoc{
-					{ID: "knight", X: 64, Y: 280},
-					{ID: "slime_01", X: 140, Y: 292},
-					{ID: "slime_02", X: 220, Y: 292},
-					{ID: "slime_03", X: 310, Y: 292},
-					{ID: "slime_04", X: 400, Y: 292},
-					{ID: "coin_01", X: 180, Y: 230},
-					{ID: "coin_02", X: 204, Y: 220},
-					{ID: "coin_03", X: 228, Y: 230},
-					{ID: "lever_01", X: 450, Y: 286},
-					{ID: "door_exit", X: 540, Y: 268},
-				},
 			},
 		},
 	}
@@ -2088,50 +3180,283 @@ func writeFirstRunScene(dir, sceneRel string, plan FirstRunPlan) error {
 	return writeFileAtomic(full, data)
 }
 
-func defaultFirstRunBuildResult(plan *FirstRunPlan) *FirstRunBuildResult {
+type firstRunSceneEntry struct {
+	layer string
+	obj   sceneformat.ObjectDoc
+}
+
+func flattenFirstRunSceneEntries(doc *sceneformat.SceneDoc) []firstRunSceneEntry {
+	if doc == nil {
+		return nil
+	}
+	var out []firstRunSceneEntry
+	var walk func(layer string, objs []sceneformat.ObjectDoc)
+	walk = func(layer string, objs []sceneformat.ObjectDoc) {
+		for _, o := range objs {
+			cp := o.Clone()
+			cp.Children = nil
+			out = append(out, firstRunSceneEntry{layer: layer, obj: cp})
+			if len(o.Children) > 0 {
+				walk(layer, o.Children)
+			}
+		}
+	}
+	for _, l := range doc.Layers {
+		walk(l.Name, l.Objects)
+	}
+	return out
+}
+
+func sceneObjectIDSet(doc *sceneformat.SceneDoc) map[string]struct{} {
+	entries := flattenFirstRunSceneEntries(doc)
+	set := make(map[string]struct{}, len(entries))
+	for _, e := range entries {
+		set[e.obj.ID] = struct{}{}
+	}
+	return set
+}
+
+func diffFirstRunAddedObjects(baselineIDs map[string]struct{}, doc *sceneformat.SceneDoc) []firstRunSceneEntry {
+	all := flattenFirstRunSceneEntries(doc)
+	if len(baselineIDs) == 0 {
+		return all
+	}
+	var added []firstRunSceneEntry
+	for _, e := range all {
+		if _, existed := baselineIDs[e.obj.ID]; !existed {
+			added = append(added, e)
+		}
+	}
+	return added
+}
+
+func sceneDocsEqual(a, b *sceneformat.SceneDoc) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	ba, errA := sceneformat.Encode(a)
+	bb, errB := sceneformat.Encode(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return bytes.Equal(ba, bb)
+}
+
+func countProjectFilesExcluding(projectDir, excludeRel string) int {
+	if projectDir == "" {
+		return 0
+	}
+	normExclude := filepath.ToSlash(filepath.Clean(excludeRel))
+	count := 0
+	_ = filepath.WalkDir(projectDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == ".git" || name == ".nsgo" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, rerr := filepath.Rel(projectDir, p)
+		if rerr != nil {
+			return nil
+		}
+		slash := filepath.ToSlash(filepath.Clean(rel))
+		if slash == normExclude || slash == ".mcp.json" {
+			return nil
+		}
+		count++
+		return nil
+	})
+	return count
+}
+
+func formatFirstRunFileCount(n int, templateTitle string) string {
+	unit := "files"
+	if n == 1 {
+		unit = "file"
+	}
+	if strings.TrimSpace(templateTitle) != "" {
+		return fmt.Sprintf("%d %s from %s", n, unit, templateTitle)
+	}
+	return fmt.Sprintf("%d %s", n, unit)
+}
+
+func sanitizeFirstRunChangeID(id string) string {
+	var b strings.Builder
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	if b.Len() == 0 {
+		return "object"
+	}
+	return b.String()
+}
+
+func formatFirstRunObjectDetail(entry firstRunSceneEntry) string {
+	var parts []string
+	if strings.TrimSpace(entry.obj.Name) != "" && entry.obj.Name != entry.obj.ID {
+		parts = append(parts, entry.obj.Name)
+	}
+	if entry.layer != "" {
+		parts = append(parts, entry.layer)
+	}
+	parts = append(parts, fmt.Sprintf("(%s, %s)", turnFormatFloat(entry.obj.X), turnFormatFloat(entry.obj.Y)))
+	if len(entry.obj.Components) > 0 {
+		compNames := slices.Sorted(maps.Keys(entry.obj.Components))
+		if len(compNames) > 0 {
+			parts = append(parts, strings.Join(compNames, ", "))
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func firstRunShapesFromScene(doc *sceneformat.SceneDoc, entries []firstRunSceneEntry) []FirstRunPreviewShape {
+	if len(entries) == 0 {
+		return nil
+	}
+	vw := float32(640)
+	vh := float32(360)
+	if doc != nil {
+		if doc.VirtualWidth > 0 {
+			vw = float32(doc.VirtualWidth)
+		}
+		if doc.VirtualHeight > 0 {
+			vh = float32(doc.VirtualHeight)
+		}
+	}
+	// Expand bounds if objects sit outside the virtual frame so every placed object is visible inside (16, 68, 340, 220).
+	minX, minY := float32(0), float32(0)
+	maxX, maxY := vw, vh
+	for _, e := range entries {
+		if e.obj.X < minX {
+			minX = e.obj.X
+		}
+		if e.obj.Y < minY {
+			minY = e.obj.Y
+		}
+		if e.obj.X > maxX {
+			maxX = e.obj.X
+		}
+		if e.obj.Y > maxY {
+			maxY = e.obj.Y
+		}
+	}
+	spanX := maxX - minX
+	if spanX < 1 {
+		spanX = 1
+	}
+	spanY := maxY - minY
+	if spanY < 1 {
+		spanY = 1
+	}
+
+	const (
+		canvasX = float32(28)
+		canvasY = float32(80)
+		canvasW = float32(316)
+		canvasH = float32(196)
+		boxW    = float32(16)
+		boxH    = float32(16)
+	)
+	shapes := make([]FirstRunPreviewShape, 0, len(entries))
+	for _, e := range entries {
+		nx := (e.obj.X - minX) / spanX
+		ny := (e.obj.Y - minY) / spanY
+		px := canvasX + float32(math.Round(float64(nx*(canvasW-boxW))))
+		py := canvasY + float32(math.Round(float64(ny*(canvasH-boxH))))
+		shapes = append(shapes, FirstRunPreviewShape{
+			ID:       "sh-" + sanitizeFirstRunChangeID(e.obj.ID),
+			ChangeID: "obj-" + sanitizeFirstRunChangeID(e.obj.ID),
+			Kind:     "object",
+			X:        px,
+			Y:        py,
+			W:        boxW,
+			H:        boxH,
+			Outline:  "added",
+			Badge:    e.obj.ID,
+		})
+	}
+	return shapes
+}
+
+func buildFirstRunResultFromProject(projectDir, sceneRel string, plan *FirstRunPlan, baselineDoc, finalDoc *sceneformat.SceneDoc, scaffoldFileCount int, deviations []FirstRunPlanDeviation) *FirstRunBuildResult {
 	sceneName := "level_01"
-	stepsCount := 3
+	stepsCount := 0
+	tmplTitle := ""
 	if plan != nil {
 		if plan.SceneName != "" {
 			sceneName = plan.SceneName
 		}
-		if len(plan.Steps) > 0 {
-			stepsCount = len(plan.Steps)
+		stepsCount = len(plan.Steps)
+		tmplTitle = plan.TemplateTitle
+	}
+	if sceneRel == "" {
+		sceneRel = "scenes/" + sceneName + ".scene.yaml"
+	}
+	if finalDoc == nil && projectDir != "" {
+		if full, err := safeJoinUnderDir(projectDir, filepath.FromSlash(sceneRel)); err == nil {
+			if raw, rerr := os.ReadFile(full); rerr == nil {
+				if parsed, perr := sceneformat.Parse(raw); perr == nil {
+					finalDoc = parsed
+				}
+			}
 		}
 	}
-	changes := []FirstRunReviewChange{
-		{ID: "tpl", Sign: "+", Title: "Template files", Detail: "game.yaml, prefabs, logic · 14"},
-		{ID: "tiles", Sign: "+", Title: "World tiles", Detail: "3 rooms · 612 tiles", ObjectIDs: []string{"world_tiles"}},
-		{ID: "knight", Sign: "+", Title: "Knight", Detail: "player · spawn x 64", ObjectIDs: []string{"knight"}},
-		{ID: "slimes", Sign: "+", Title: "slime_01 … 04", Detail: "patrol · stomp to defeat", ObjectIDs: []string{"slime_01", "slime_02", "slime_03", "slime_04"}},
-		{ID: "coins", Sign: "+", Title: "coin_01 … 11", Detail: "pickup · value 1", ObjectIDs: []string{"coin_01", "coin_02", "coin_03"}},
-		{ID: "lever", Sign: "+", Title: "lever_01, door_exit", Detail: "pull to open the exit", ObjectIDs: []string{"lever_01", "door_exit"}},
+	if scaffoldFileCount <= 0 && projectDir != "" {
+		scaffoldFileCount = countProjectFilesExcluding(projectDir, sceneRel)
 	}
-	shapes := []FirstRunPreviewShape{
-		{ID: "sh-floor", ChangeID: "tiles", Kind: "floor", X: 16, Y: 248, W: 340, H: 40, Outline: "added"},
-		{ID: "sh-plat", ChangeID: "tiles", Kind: "platform", X: 128, Y: 184, W: 76, H: 10},
-		{ID: "sh-div1", ChangeID: "tiles", Kind: "divider", X: 128, Y: 68, W: 1, H: 180},
-		{ID: "sh-div2", ChangeID: "tiles", Kind: "divider", X: 240, Y: 68, W: 1, H: 180},
-		{ID: "sh-knight", ChangeID: "knight", Kind: "knight", X: 54, Y: 218, W: 16, H: 30, Outline: "added"},
-		{ID: "sh-slime1", ChangeID: "slimes", Kind: "slime", X: 94, Y: 234, W: 22, H: 14, Outline: "added"},
-		{ID: "sh-slime2", ChangeID: "slimes", Kind: "slime", X: 152, Y: 234, W: 22, H: 14, Outline: "added"},
-		{ID: "sh-slime3", ChangeID: "slimes", Kind: "slime", X: 214, Y: 234, W: 22, H: 14, Outline: "added"},
-		{ID: "sh-slime4", ChangeID: "slimes", Kind: "slime", X: 278, Y: 234, W: 22, H: 14, Outline: "added"},
-		{ID: "sh-coin1", ChangeID: "coins", Kind: "coin", X: 140, Y: 164, W: 9, H: 9, Outline: "added"},
-		{ID: "sh-coin2", ChangeID: "coins", Kind: "coin", X: 156, Y: 164, W: 9, H: 9, Outline: "added"},
-		{ID: "sh-coin3", ChangeID: "coins", Kind: "coin", X: 172, Y: 164, W: 9, H: 9, Outline: "added"},
-		{ID: "sh-coin4", ChangeID: "coins", Kind: "coin", X: 256, Y: 204, W: 9, H: 9, Outline: "added"},
-		{ID: "sh-coin5", ChangeID: "coins", Kind: "coin", X: 272, Y: 204, W: 9, H: 9, Outline: "added"},
-		{ID: "sh-lever", ChangeID: "lever", Kind: "lever", X: 254, Y: 232, W: 6, H: 16, Outline: "added"},
-		{ID: "sh-door", ChangeID: "lever", Kind: "door", X: 318, Y: 208, W: 18, H: 40, Outline: "added"},
+
+	var changes []FirstRunReviewChange
+	if scaffoldFileCount > 0 {
+		changes = append(changes, FirstRunReviewChange{
+			ID:     "tpl",
+			Sign:   "+",
+			Title:  "Template files",
+			Detail: formatFirstRunFileCount(scaffoldFileCount, tmplTitle),
+		})
 	}
+
+	entries := diffFirstRunAddedObjects(sceneObjectIDSet(baselineDoc), finalDoc)
+	for _, entry := range entries {
+		changes = append(changes, FirstRunReviewChange{
+			ID:        "obj-" + sanitizeFirstRunChangeID(entry.obj.ID),
+			Sign:      "+",
+			Title:     entry.obj.ID,
+			Detail:    formatFirstRunObjectDetail(entry),
+			ObjectIDs: []string{entry.obj.ID},
+		})
+	}
+
+	shapes := firstRunShapesFromScene(finalDoc, entries)
 	return &FirstRunBuildResult{
-		SceneRelPath:   "scenes/" + sceneName + ".scene.yaml",
+		SceneRelPath:   sceneRel,
 		PlanStepsDone:  stepsCount,
 		PlanStepsTotal: stepsCount,
+		Deviations:     slices.Clone(deviations),
 		Changes:        changes,
 		Shapes:         shapes,
 	}
+}
+
+func countFirstRunReviewObjects(res *FirstRunBuildResult) int {
+	if res == nil {
+		return 0
+	}
+	total := 0
+	for _, c := range res.Changes {
+		total += len(c.ObjectIDs)
+	}
+	return total
 }
 
 // WaitForFirstRunBuild blocks until any active first-run build goroutine finishes or stops.
@@ -2325,12 +3650,11 @@ func (e *Editor) OpenFirstRunReviewFromStopped() {
 	if plan == nil {
 		return
 	}
-	res := defaultFirstRunBuildResult(plan)
-	res.PlanStepsDone = 2
-	res.Deviations = []FirstRunPlanDeviation{
+	res := buildFirstRunResultFromProject(projectDir, "scenes/"+plan.SceneName+".scene.yaml", plan, nil, nil, 0, []FirstRunPlanDeviation{
 		{Summary: fmt.Sprintf("Stopped early: %d objects kept", doneObjs)},
-	}
-	if len(shapes) > 0 {
+	})
+	res.PlanStepsDone = min(2, len(plan.Steps))
+	if len(shapes) > 0 && len(res.Shapes) == 0 {
 		res.Shapes = shapes
 	}
 	e.enterFirstRunReview(plan, projectDir, res)
@@ -2441,7 +3765,7 @@ func (e *Editor) ApplyFirstRunFix() error {
 		}
 	}
 	if res == nil {
-		res = defaultFirstRunBuildResult(plan)
+		res = buildFirstRunResultFromProject(projectDir, "scenes/"+plan.SceneName+".scene.yaml", plan, nil, nil, 0, nil)
 	}
 	res.CheckFailure = nil
 
@@ -2692,6 +4016,7 @@ func (e *Editor) cancelFirstRunOps() {
 		return
 	}
 	e.cancelFirstRunConnect()
+	e.cancelFirstRunPlan()
 	e.firstRun.mu.Lock()
 	run := e.firstRun.buildRun
 	e.firstRun.buildRun = nil
