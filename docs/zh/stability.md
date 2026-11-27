@@ -95,7 +95,7 @@
 | `game/pkg/flow` | 稳定 | [flow](flow.md) |
 | `game/pkg/fog` | 实验性 | [fog](fog.md) |
 | `game/pkg/framedata` | 实验性 | [framedata](framedata.md) |
-| `game/pkg/gametest` | 实验性 | |
+| `game/pkg/gametest` | 实验性 | [gametest](gametest.md) |
 | `game/pkg/gameui` | 实验性 | [gameui](gameui.md) |
 | `game/pkg/gltf` | 实验性 | [从 Blender 导入 3D 模型](3d-models-blender.md) |
 | `game/pkg/idle` | 实验性 | [idle](idle.md) |

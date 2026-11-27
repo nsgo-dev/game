@@ -41,6 +41,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'determinism',
       'playtest',
       'statedump',
+      'gametest',
     ],
   },
   {

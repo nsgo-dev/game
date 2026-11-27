@@ -203,4 +203,4 @@ chain := effects.MustCompile(effects.Effect{Source: invert, Reference: invertRef
 got, err := chain.Reference(frame, 640, 360, []core.Uniforms{{"Amount": 0.6}, {"Offset": 1}})
 ```
 
-有效果缺少 `Reference`、uniform 不是该效果声明的、或 uniform 设为动画节点（例如 `Clock` 的返回值，其值只有平台知道）时，`Reference` 返回错误；这时请传入要绘制的具体数值。PNG 存储的是非预乘颜色，因此图中有半透明像素时，先把预乘的图转换为 `*image.NRGBA` 再交给 `gametest.AssertGolden`。
+有效果缺少 `Reference`、uniform 不是该效果声明的、或 uniform 设为动画节点（例如 `Clock` 的返回值，其值只有平台知道）时，`Reference` 返回错误；这时请传入要绘制的具体数值。
