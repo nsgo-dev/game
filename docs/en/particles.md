@@ -162,6 +162,7 @@ fire.ReloadConfig(cfg) // frameNames resolve against fire.Atlas
 - Durations are strings in Go's `time.Duration` form, such as `500ms` or `1m30s`; a bare number is refused because its unit would be ambiguous.
 - Colors are quoted `"#rrggbb"` (opaque) or `"#rrggbbaa"` strings. Quote them: an unquoted `#` starts a YAML comment, and loading reports the key as having no value.
 - `shape.kind` is `point`, `circle`, `ring` or `rect`; `space` is `world` or `local`; `collision.mode` is `none`, `stop`, `bounce` or `kill`; a sub-emitter's `trigger` is `birth`, `death` or `collision`.
+- In a sub-emitter's `config`, `space: world` spawns child particles directly in world coordinates at the trigger point, while `space: local` anchors each child burst's local frame at its own trigger point so later triggers never drag already-live children, and rotates inherited parent velocity into that local frame.
 - A runtime `Collider` is not part of the file, and a trail texture is saved by its URI (`trail.textureURI`).
 - `MarshalConfigJSON` and `UnmarshalConfigJSON` encode the same schema as JSON for programs that exchange definitions as JSON; files people write are YAML.
 - Its JSON Schema is published at `https://game.nsgo.dev/schemas/particles.v1.json` (`particles.SchemaURL`; see [Schemas for YAML files](schemas.md)). Emitter files (`*.particles.yaml` / `*.emitter.yaml`) can also be authored interactively with live preview in the [Particle emitter editor](editor.md#particle-emitter-editor-883) and placed directly on objects in version 2 scenes (`ObjectDoc.Particles`).

@@ -162,6 +162,7 @@ fire.ReloadConfig(cfg) // frameNames 按 fire.Atlas 解析
 - 时长写成 Go `time.Duration` 形式的字符串，例如 `500ms` 或 `1m30s`；不带单位的数字会被拒绝，因为单位有歧义。
 - 颜色写成带引号的 `"#rrggbb"`（不透明）或 `"#rrggbbaa"` 字符串。一定要加引号：不带引号的 `#` 会开始一段 YAML 注释，读取时会报告该键没有值。
 - `shape.kind` 取 `point`、`circle`、`ring` 或 `rect`；`space` 取 `world` 或 `local`；`collision.mode` 取 `none`、`stop`、`bounce` 或 `kill`；子发射器的 `trigger` 取 `birth`、`death` 或 `collision`。
+- 在子发射器的 `config` 中，`space: world` 直接在触发点的世界坐标下生成子粒子；`space: local` 将每次子爆发的局部坐标系锚定在各自的触发点上，后续触发不会拖走先前存活的子粒子，并将继承的父粒子速度旋转到该局部坐标系中。
 - 运行时的 `Collider` 不写入文件，拖尾纹理按 URI 保存（`trail.textureURI`）。
 - `MarshalConfigJSON` 和 `UnmarshalConfigJSON` 以 JSON 编码同一套结构，供以 JSON 交换定义的程序使用；人编写的文件用 YAML。
 - 其 JSON Schema 发布在 `https://game.nsgo.dev/schemas/particles.v1.json`（`particles.SchemaURL`，见 [YAML 文件的 Schema](schemas.md)）。发射器文件（`*.particles.yaml` / `*.emitter.yaml`）也可以在[粒子发射器编辑器](editor.md#粒子发射器编辑器883)中带实时预览交互式编辑，并直接放置到版本 2 场景的对象上（`ObjectDoc.Particles`）。
