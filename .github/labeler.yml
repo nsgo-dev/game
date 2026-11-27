@@ -3,7 +3,9 @@
 pkg/game:
   - changed-files:
       - any-glob-to-any-file:
-          - *.go
+          - "*.go"
+          - go.mod
+          - go.sum
 
 pkg/a11y:
   - changed-files:
