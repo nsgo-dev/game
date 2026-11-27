@@ -42,7 +42,7 @@ func WithReadAsset(fn func(ctx context.Context, uri string) ([]byte, error)) Opt
 }
 
 // WithFS sets the file system that the default ReadAsset reads "asset:" URIs
-// from, such as an embed.FS or os.DirFS.
+// from, such as an embed.FS or os.DirFS, overriding the app's resources.
 func WithFS(fsys fs.FS) Option {
 	return func(m *Manager) { m.fs = fsys }
 }
@@ -51,11 +51,12 @@ func WithFS(fsys fs.FS) Option {
 // with reactive progress, and releases them when a group or the scope ends.
 //
 // ReadAsset may be replaced before loading starts; when nil, Manager reads
-// "asset:" URIs from the FS given to WithFS, or from the local "assets"
-// directory on disk.
+// "asset:" URIs from the FS given to WithFS, or from the app's resources
+// through core.Scope.ReadAsset (the same resources/ files images and sounds
+// resolve on every target, fetched on demand on the web).
 type Manager struct {
 	// ReadAsset reads raw bytes for uri off the engine goroutine. When nil,
-	// Manager falls back to WithFS or local files under "assets/".
+	// Manager falls back to WithFS or the app's resources via core.Scope.ReadAsset.
 	ReadAsset func(ctx context.Context, uri string) ([]byte, error)
 
 	cx     *core.Scope
@@ -457,39 +458,107 @@ func (m *Manager) readAssetFunc() func(context.Context, string) ([]byte, error) 
 	if m.ReadAsset != nil {
 		return m.ReadAsset
 	}
-	fsys := m.fs
+	if m.fs != nil {
+		fsys := m.fs
+		return func(ctx context.Context, uri string) ([]byte, error) {
+			return fsReadAsset(fsys, ctx, uri)
+		}
+	}
 	return func(ctx context.Context, uri string) ([]byte, error) {
-		return defaultReadAsset(fsys, ctx, uri)
+		return m.defaultReadAsset(ctx, uri)
 	}
 }
 
-func defaultReadAsset(fsys fs.FS, ctx context.Context, uri string) ([]byte, error) {
+func (m *Manager) defaultReadAsset(ctx context.Context, uri string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(uri, "asset:") {
+		return m.readScopeAsset(ctx, uri)
+	}
+	if p, ok := strings.CutPrefix(uri, "file://"); ok {
+		return os.ReadFile(filepath.FromSlash(p))
+	}
+	return os.ReadFile(uri)
+}
+
+// readScopeAsset reads an "asset:" URI from the app's resources through
+// core.Scope.ReadAsset, honouring ctx and m.ctx cancellation by disposing the
+// temporary child scope so in-flight platform reads (such as browser fetch)
+// abort promptly.
+func (m *Manager) readScopeAsset(ctx context.Context, uri string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := m.ctx.Err(); err != nil {
+		return nil, err
+	}
+	if m.isDisposed() {
+		return nil, context.Canceled
+	}
+	type result struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan result, 1)
+	var (
+		mu       sync.Mutex
+		child    *core.Scope
+		canceled bool
+	)
+	m.cx.Post(func() {
+		mu.Lock()
+		if canceled || m.isDisposed() || ctx.Err() != nil {
+			mu.Unlock()
+			return
+		}
+		var sub *core.Scope
+		m.cx.Run(func() {
+			sub = m.cx.Child()
+		})
+		child = sub
+		mu.Unlock()
+		sub.Run(func() {
+			sub.ReadAsset(uri, func(data []byte, err error) {
+				sub.Dispose()
+				ch <- result{data: data, err: err}
+			})
+		})
+	})
+	select {
+	case r := <-ch:
+		return r.data, r.err
+	case <-ctx.Done():
+		mu.Lock()
+		canceled = true
+		sub := child
+		mu.Unlock()
+		if sub != nil {
+			m.cx.Post(func() {
+				if !sub.Disposed() {
+					sub.Dispose()
+				}
+			})
+		}
+		return nil, ctx.Err()
+	case <-m.ctx.Done():
+		return nil, m.ctx.Err()
+	}
+}
+
+func fsReadAsset(fsys fs.FS, ctx context.Context, uri string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if rel, ok := strings.CutPrefix(uri, "asset:"); ok {
 		rel = strings.TrimPrefix(rel, "/")
-		if fsys != nil {
-			return fs.ReadFile(fsys, rel)
-		}
-		// The default store is rooted at assets/: refuse anything that escapes
-		// it, such as "asset:../secret" or an absolute path.
-		if !fs.ValidPath(rel) {
-			return nil, fmt.Errorf("assets: asset path %q is not inside the assets directory", uri)
-		}
-		return fs.ReadFile(os.DirFS("assets"), rel)
+		return fs.ReadFile(fsys, rel)
 	}
-	if p, ok := strings.CutPrefix(uri, "file://"); ok {
+	if strings.HasPrefix(uri, "file://") {
 		// A mounted pack may only read its own files; file:// is about the host.
-		if fsys != nil {
-			return nil, fmt.Errorf("assets: file:// URI %q is not allowed from a mounted pack", uri)
-		}
-		return os.ReadFile(filepath.FromSlash(p))
+		return nil, fmt.Errorf("assets: file:// URI %q is not allowed from a mounted pack", uri)
 	}
-	if fsys != nil {
-		return fs.ReadFile(fsys, strings.TrimPrefix(uri, "/"))
-	}
-	return os.ReadFile(uri)
+	return fs.ReadFile(fsys, strings.TrimPrefix(uri, "/"))
 }
 
 func needsPrefetch(img core.ImageSource) bool {

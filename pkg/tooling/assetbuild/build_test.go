@@ -748,3 +748,56 @@ func TestFormatsMatchTheEncoders(t *testing.T) {
 		}
 	}
 }
+
+func TestResourcesDirRedirectsOutputsAndManifestToURIs(t *testing.T) {
+	dir := newProject(t)
+	// Enable embed: true in game.yaml so we verify ResourcesDir turns it off.
+	editProject(t, dir, "    out: gen/assets_gen.go\n", "    out: gen/assets_gen.go\n    embed: true\n")
+
+	r := build(t, dir, assetbuild.Builder{ResourcesDir: "resources"})
+	for _, tgt := range r.Targets {
+		if tgt.Status != assetbuild.Built {
+			t.Fatalf("target %s status = %q, want built", tgt.ID, tgt.Status)
+		}
+	}
+	for _, wantFile := range []string{
+		"resources/atlases/ui.png",
+		"resources/atlases/ui.json",
+		"resources/albedo.ktx2",
+		"resources/jump.wav",
+		"gen/assets_gen.go",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(wantFile))); err != nil {
+			t.Fatalf("expected output %s: %v", wantFile, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "assets")); !os.IsNotExist(err) {
+		t.Fatalf("expected assets/ not to be created when ResourcesDir=resources (%v)", err)
+	}
+	genSrc, err := os.ReadFile(filepath.Join(dir, "gen/assets_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(genSrc), "//go:embed") {
+		t.Fatalf("manifest generated with ResourcesDir must not emit //go:embed:\n%s", genSrc)
+	}
+	for _, want := range []string{`"asset:atlases/ui.png"`, `"asset:atlases/ui.json"`, `"asset:albedo.ktx2"`, `"asset:jump.wav"`} {
+		if !strings.Contains(string(genSrc), want) {
+			t.Fatalf("manifest missing %s:\n%s", want, genSrc)
+		}
+	}
+
+	// Second build and check with ResourcesDir report everything up to date.
+	r2 := build(t, dir, assetbuild.Builder{ResourcesDir: "resources"})
+	for _, tgt := range r2.Targets {
+		if tgt.Status != assetbuild.UpToDate {
+			t.Fatalf("second build target %s status = %q, want up to date", tgt.ID, tgt.Status)
+		}
+	}
+	r3 := build(t, dir, assetbuild.Builder{ResourcesDir: "resources", Check: true})
+	for _, tgt := range r3.Targets {
+		if tgt.Status != assetbuild.UpToDate {
+			t.Fatalf("check target %s status = %q, want up to date", tgt.ID, tgt.Status)
+		}
+	}
+}

@@ -28,7 +28,7 @@ audio:
 autoload:
   resources:
     - name: level1
-      path: assets/level1.tmj
+      path: resources/level1.tmj
 export:
   output: dist
   presets:

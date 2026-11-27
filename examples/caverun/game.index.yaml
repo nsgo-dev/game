@@ -1,9 +1,9 @@
 # The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
 version: 1
 files:
-  - path: assets/level1.tmj
+  - path: resources/level1.tmj
     sha256: 72e1dbbc1f28efd505b6da975fcf7acbd8eab6dd102ddcb56c19d0baf4a629a1
-  - path: assets/sprites.png
+  - path: resources/sprites.png
     sha256: 38d862ae601c7b7825f5e84f09e6a43a26b67082455f26adde22f4624ab9e149
-  - path: assets/tileset.png
+  - path: resources/tileset.png
     sha256: 5f335a0a036aedcbea3ea0da5bc8a7a4a73bd1cf3710bc081a0b10160df7fae4

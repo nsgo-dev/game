@@ -201,10 +201,14 @@ func TestSettingsMenuOpensFromTitleAndPauseButtons(t *testing.T) {
 	var g *caveRun
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return rootWithHook(cx, func(c *caveRun) { g = c })
-	}, nsgotest.Size(960, 540), nsgotest.ManualFrames(), nsgotest.Environment(core.Environment{
+	}, nsgotest.Size(960, 540), nsgotest.ManualFrames(), caveRunTestMediaOptions(), nsgotest.Environment(core.Environment{
 		OS:    core.OSMacOS,
 		Audio: true,
 	}))
+	app.WaitUntil(2*time.Second, func() bool { return g.levelLoaded.Get() || g.levelErr.Get() != nil })
+	if err := g.levelErr.Get(); err != nil {
+		t.Fatalf("level group failed to load: %v", err)
+	}
 	app.Advance(3 * testFrame)
 
 	// Open from title screen button.
@@ -233,7 +237,7 @@ func TestSettingsMenuOpensFromTitleAndPauseButtons(t *testing.T) {
 
 func TestSavedSettingsRestoreOnStartup(t *testing.T) {
 	var g *caveRun
-	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		saved := caveRunDefaultSettings()
 		saved.Audio.Master = 0.65
 		saved.Audio.Groups[soundGroupMusic] = 0.40
@@ -247,10 +251,14 @@ func TestSavedSettingsRestoreOnStartup(t *testing.T) {
 			t.Fatal(err)
 		}
 		return rootWithHook(cx, func(c *caveRun) { g = c })
-	}, nsgotest.Size(960, 540), nsgotest.ManualFrames())
+	}, nsgotest.Size(960, 540), nsgotest.ManualFrames(), caveRunTestMediaOptions())
 
 	if g == nil {
 		t.Fatal("caveRun did not initialize")
+	}
+	app.WaitUntil(2*time.Second, func() bool { return g.levelLoaded.Get() || g.levelErr.Get() != nil })
+	if err := g.levelErr.Get(); err != nil {
+		t.Fatalf("level group failed to load: %v", err)
 	}
 	if math.Abs(float64(g.mixer.Master())-0.65) > 1e-3 || math.Abs(float64(g.mixer.Volume(soundGroupMusic))-0.40) > 1e-3 {
 		t.Fatalf("restored audio = master:%v music:%v", g.mixer.Master(), g.mixer.Volume(soundGroupMusic))

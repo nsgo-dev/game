@@ -1,7 +1,10 @@
 package main
 
 import (
+	"image"
 	"image/color"
+	_ "image/png"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -78,7 +81,7 @@ func TestFireflySwarmDraws1000MovingSpritesInOneAtlasCall(t *testing.T) {
 
 func TestFireflySwarmIsDeterministic(t *testing.T) {
 	run := func() [][2]float32 {
-		assets, err := loadGameAssets()
+		assets, err := loadGameAssetsFromFS(os.DirFS("resources"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,7 +109,7 @@ func TestFireflySwarmIsDeterministic(t *testing.T) {
 // newSwarmLevel returns a level with the firefly swarm on, stepped and drawn past any first-use growth, and a drawing to draw it into.
 func newSwarmLevel(tb testing.TB) (*levelState, *core.Drawing, screen.Viewport) {
 	tb.Helper()
-	assets, err := loadGameAssets()
+	assets, err := loadGameAssetsFromFS(os.DirFS("resources"))
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -199,7 +202,10 @@ func TestScreenshot(t *testing.T) {
 
 	canvas := app.Find("id:game-canvas")
 	w, h := int(canvas.Frame.Size.Width), int(canvas.Frame.Size.Height)
-	img := gametest.RenderOps(w, h, canvas.Ops, gametest.RenderOptions{Background: color.RGBA{R: 0x0b, G: 0x0d, B: 0x17, A: 0xff}})
+	img := gametest.RenderOps(w, h, canvas.Ops, gametest.RenderOptions{
+		Background: color.RGBA{R: 0x0b, G: 0x0d, B: 0x17, A: 0xff},
+		Images:     loadResourceImages(t),
+	})
 	c.jump(false)
 
 	diff, mismatched, err := gametest.CompareGolden(img, "screenshot.png", gametest.ShouldUpdateGolden())
@@ -213,4 +219,25 @@ func TestScreenshot(t *testing.T) {
 		_ = gametest.WritePNG(dir+"/screenshot.diff.png", diff)
 		t.Fatalf("screenshot differs from screenshot.png in %d pixels, more than %d (got and diff in %s); rerun with -update-golden if the change is intended", mismatched, limit, dir)
 	}
+}
+
+func loadResourceImages(t *testing.T) map[string]image.Image {
+	t.Helper()
+	out := map[string]image.Image{}
+	for uri, path := range map[string]string{
+		"asset:sprites.png": "resources/sprites.png",
+		"asset:tileset.png": "resources/tileset.png",
+	} {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatalf("open %s: %v", path, err)
+		}
+		img, _, err := image.Decode(f)
+		_ = f.Close()
+		if err != nil {
+			t.Fatalf("decode %s: %v", path, err)
+		}
+		out[uri] = img
+	}
+	return out
 }

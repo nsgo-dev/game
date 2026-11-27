@@ -23,6 +23,7 @@ func defineAssets(a *app, fs *flag.FlagSet) func() error {
 	inPath := inFlag(fs, project.FileName, "project file whose assets section declares the targets")
 	force := fs.Bool("force", false, "rebuild every target, even those the cache says are up to date")
 	check := fs.Bool("check", false, "list the targets that are out of date without building them, and fail if there are any")
+	resources := fs.Bool("resources", false, "write asset outputs into resources/ and emit \"asset:\" URIs in the manifest instead of //go:embed")
 
 	return func() error {
 		if *inPath == "" {
@@ -51,6 +52,9 @@ func defineAssets(a *app, fs *flag.FlagSet) func() error {
 			Version: assetsToolVersion(),
 			Force:   *force,
 			Check:   *check,
+		}
+		if *resources {
+			b.ResourcesDir = "resources"
 		}
 		r, err := b.Build(context.Background(), f.Assets)
 		if r != nil {
