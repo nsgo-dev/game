@@ -1,17 +1,10 @@
 package main
 
 import (
-	"cmp"
-	"slices"
-
 	"github.com/nsgo-dev/game/pkg/fighting"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/gamepad"
 )
-
-// noGamepad is a controller ID no controller has, for an Actions that should read none.
-const noGamepad = -1
 
 // prefixed reads one player's actions from an input.Actions whose action names start with the player's prefix, such as "p1_", so a move set names "light" and "left" for whichever player it plays.
 type prefixed struct {
@@ -40,27 +33,23 @@ func (e either) Axis(name string) float64 {
 	return a
 }
 
-// controls are the game's input devices. Each player has an input.Actions with every binding of game.yaml's input map, so both hear the keyboard, and each reads its own game controller once two are connected. The first player's also hears touch and the mouse: an on-screen stick and the touch regions game.yaml gives its buttons.
+// controls are the game's input devices, coordinated through input.Players so each connected game controller stays bound to its player slot across steps and screen changes, while both players share the keyboard on disjoint keys. The first player's slot also hears touch and the mouse: an on-screen stick and the touch regions game.yaml gives its buttons.
 type controls struct {
-	// cx is the scope the controllers are read in.
-	cx      *core.Scope
-	actions [2]*input.Actions
+	players *input.Players
 	pad     *input.VirtualPad
 	stick   *input.VirtualStick
 	// touched is set by the first touch, which shows the touch controls on a device with a mouse too.
 	touched bool
 }
 
-func newControls(cx *core.Scope, mapPoint func(core.Point) (core.Point, bool)) *controls {
-	c := &controls{cx: cx}
-	for i := range c.actions {
-		a := input.NewActions()
-		Project.BindInput(a)
-		a.WatchKeys(cx)
-		a.WatchGamepads(cx)
-		c.actions[i] = a
+func newControls(cx *core.Scope, mapPoint func(core.Point) (core.Point, bool), policy input.DisconnectPolicy) *controls {
+	c := &controls{players: input.NewPlayers(2)}
+	for i := range 2 {
+		Project.BindInput(c.players.Player(i).Actions())
+		c.players.AssignKeyboard(i)
 	}
-	c.actions[0].MapPoint = mapPoint
+	c.players.AssignPointer(0)
+	c.players.Player(0).Actions().MapPoint = mapPoint
 	c.pad = input.NewVirtualPad()
 	c.pad.MapPoint = mapPoint
 	c.stick = c.pad.AddStick(&input.VirtualStick{
@@ -72,74 +61,108 @@ func newControls(cx *core.Scope, mapPoint func(core.Point) (core.Point, bool)) *
 		DeadZone:  0.25,
 		Floating:  true,
 	})
-	c.actions[0].BindVirtualPad(c.pad)
+	c.players.Player(0).Actions().BindVirtualPad(c.pad)
+	c.players.WatchKeys(cx)
+	c.players.WatchGamepads(cx)
+	c.players.SetDisconnectPolicy(policy)
 	return c
 }
 
-// attach wires touch, the mouse and focused keys on v into the first player's actions and the on-screen stick.
+// attach wires touch, the mouse and focused keys on v into Players and the on-screen stick.
 func (c *controls) attach(v *core.View) {
 	v.OnTouch = func(core.TouchEvent) { c.touched = true }
-	c.actions[0].Attach(v)
+	c.players.Attach(v)
 	c.pad.Attach(v)
 }
 
-// step samples both players' input for this fixed step. With two sides of the keyboard in play (versus, and the title screen where a second player joins) the connected controllers go to the players in ID order; against the CPU the player reads every controller.
-//
-// The controllers are read here rather than from Actions.Gamepads, which holds the previous step's poll and is empty after reset, so the first step on a new screen already gives each player its own controller.
-func (c *controls) step(split bool) {
-	pads := c.gamepads()
-	switch {
-	case !split:
-		c.actions[0].SelectAnyGamepad()
-		c.actions[1].SelectGamepad(noGamepad)
-	case len(pads) >= 2:
-		c.actions[0].SelectGamepad(pads[0].ID)
-		c.actions[1].SelectGamepad(pads[1].ID)
-	case len(pads) == 1:
-		c.actions[0].SelectGamepad(pads[0].ID)
-		c.actions[1].SelectGamepad(noGamepad)
-	default:
-		c.actions[0].SelectAnyGamepad()
-		c.actions[1].SelectGamepad(noGamepad)
+// setDisconnectPolicy updates the controller disconnect and reconnect rules on Players.
+func (c *controls) setDisconnectPolicy(policy input.DisconnectPolicy) {
+	c.players.SetDisconnectPolicy(policy)
+}
+
+// assignFreePads polls live controllers, drops disconnected assignments when dropDisconnected is set, and assigns each unassigned connected controller in ID order to the first player slot that does not already have one.
+func (c *controls) assignFreePads(dropDisconnected bool) {
+	c.players.PollGamepads()
+	if dropDisconnected {
+		for i := range 2 {
+			if c.players.Player(i).GamepadDisconnected() {
+				c.players.UnassignGamepad(i)
+			}
+		}
 	}
-	for _, a := range c.actions {
-		a.Step()
+	for _, pad := range c.players.UnassignedGamepads() {
+		for i := range 2 {
+			if _, ok := c.players.Player(i).GamepadID(); !ok {
+				c.players.AssignGamepad(i, pad.ID)
+				break
+			}
+		}
 	}
 }
 
-// gamepads returns the connected controllers sorted by ID, read untracked as Actions.Step reads them so the caller is not subscribed to connections.
-func (c *controls) gamepads() []gamepad.Pad {
-	if c.cx == nil || c.cx.Disposed() {
-		return nil
+// step samples both players' input for this fixed step. When assignFree is true (the title screen), open slots claim newly connected controllers while existing assignments stay put; during a match each fighter keeps its assigned controller and DisconnectPolicy handles disconnects and recovery.
+func (c *controls) step(assignFree bool) {
+	if assignFree {
+		c.assignFreePads(true)
 	}
-	pads := core.Untracked(c.cx, func() []gamepad.Pad { return gamepad.Pads(c.cx) })
-	return slices.SortedStableFunc(slices.Values(pads), func(x, y gamepad.Pad) int { return cmp.Compare(x.ID, y.ID) })
+	c.players.Step()
 }
 
 // source returns player i's input as a fighting.Source: its own prefix of its own actions in versus, and both sides of the keyboard for a player alone.
 func (c *controls) source(i int, split bool) fighting.Source {
-	own := prefixed{c.actions[i], playerPrefix(i)}
+	a := c.players.Player(i).Actions()
+	own := prefixed{a, playerPrefix(i)}
 	if split {
 		return own
 	}
-	return either{own, prefixed{c.actions[i], playerPrefix(1 - i)}}
+	return either{own, prefixed{a, playerPrefix(1 - i)}}
+}
+
+// pressed reports whether player i holds action name on this step.
+func (c *controls) pressed(i int, name string) bool {
+	return c.players.Player(i).Pressed(name)
 }
 
 // justPressed reports whether either player's actions pressed name on this step.
 func (c *controls) justPressed(name string) bool {
-	return c.actions[0].JustPressed(name) || c.actions[1].JustPressed(name)
+	return c.players.Player(0).JustPressed(name) || c.players.Player(1).JustPressed(name)
 }
 
 // playerJustPressed reports whether player i pressed its action name, such as "start", on this step.
 func (c *controls) playerJustPressed(i int, name string) bool {
-	return c.actions[i].JustPressed(playerPrefix(i) + name)
+	return c.players.Player(i).JustPressed(playerPrefix(i) + name)
 }
 
-// reset releases everything held, as the screen changes, so a key held into a new round does not act until it is pressed again.
-func (c *controls) reset() {
-	for _, a := range c.actions {
-		a.Reset()
+// playerDisconnected reports whether player i's assigned controller disconnected and is awaiting recovery.
+func (c *controls) playerDisconnected(i int) bool {
+	return c.players.Player(i).GamepadDisconnected()
+}
+
+// disconnected returns which players currently have a disconnected assigned controller.
+func (c *controls) disconnected() [2]bool {
+	return [2]bool{c.playerDisconnected(0), c.playerDisconnected(1)}
+}
+
+// pausedByDisconnect reports whether Players is currently requesting a disconnect pause.
+func (c *controls) pausedByDisconnect() bool {
+	return c.players.PausedByDisconnect()
+}
+
+// unassignGamepad detaches player i's controller assignment so player i continues on the keyboard.
+func (c *controls) unassignGamepad(i int) {
+	c.players.UnassignGamepad(i)
+}
+
+// unassignDisconnected detaches every currently disconnected controller assignment.
+func (c *controls) unassignDisconnected() {
+	for _, p := range c.players.DisconnectedPlayers() {
+		c.players.UnassignGamepad(p.Index())
 	}
+}
+
+// reset releases everything held, as the screen changes, so a key or controller button held into a new round does not act until it is pressed again, while keeping each player's assigned controller.
+func (c *controls) reset() {
+	c.players.Reset()
 	c.pad.Reset()
 }
 

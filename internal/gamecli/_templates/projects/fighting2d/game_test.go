@@ -349,10 +349,299 @@ func TestScreenChangeKeepsEachPadToItsPlayer(t *testing.T) {
 	untilFight(t, app, g)
 	g.setScreen(screenFight)
 	app.SetGamepadButton(2, gamepad.ButtonWest, 1)
-	g.controls.step(true)
+	g.controls.step(false)
 	app.SetGamepadButton(2, gamepad.ButtonWest, 0)
-	if g.controls.actions[0].Pressed("p1_light") || !g.controls.actions[1].Pressed("p2_light") {
-		t.Fatalf("pad two's light after a screen change: player 1 %v, player 2 %v, want only player 2", g.controls.actions[0].Pressed("p1_light"), g.controls.actions[1].Pressed("p2_light"))
+	if g.controls.pressed(0, "p1_light") || !g.controls.pressed(1, "p2_light") {
+		t.Fatalf("pad two's light after a screen change: player 1 %v, player 2 %v, want only player 2", g.controls.pressed(0, "p1_light"), g.controls.pressed(1, "p2_light"))
+	}
+}
+
+// TestVersusDisconnectPausesAndReconnectRestoresPlayer checks that disconnecting player 1's controller in a versus match releases held input, keeps pad 2 on player 2, pauses with the reconnect panel, and resumes with pad 1 back on player 1 once it reconnects.
+func TestVersusDisconnectPausesAndReconnectRestoresPlayer(t *testing.T) {
+	app, g := startGame(t)
+	app.ConnectGamepad(1, "Pad one")
+	app.ConnectGamepad(2, "Pad two")
+	app.Advance(2 * frame)
+	tapPad(app, 2, gamepad.ButtonStart)
+	untilFight(t, app, g)
+	a, b := g.m.players[0], g.m.players[1]
+
+	// Hold D-pad right on pad 1, then drop pad 1 mid-round.
+	app.SetGamepadButton(1, gamepad.ButtonDPadRight, 1)
+	app.Advance(4 * frame)
+	app.DisconnectGamepad(1)
+	app.Advance(2 * frame)
+	if g.scr != screenReconnect || !app.Exists("id:reconnect-menu") {
+		t.Fatalf("after disconnecting pad 1: screen %v reconnect-menu=%v, want screenReconnect with panel", g.scr, app.Exists("id:reconnect-menu"))
+	}
+	if got := app.Find("id:reconnect-title").Text; got != "Player 1: reconnect your controller" {
+		t.Fatalf("reconnect title %q, want %q", got, "Player 1: reconnect your controller")
+	}
+	if g.controls.pressed(0, "p1_right") {
+		t.Fatal("player 1 kept p1_right held after pad 1 disconnected")
+	}
+
+	// While paused, pad 2 stays on player 2 and does not move player 1 or advance the match.
+	ax, bx, steps := a.f.X, b.f.X, g.m.steps
+	app.SetGamepadButton(2, gamepad.ButtonDPadRight, 1)
+	app.Advance(20 * frame)
+	app.SetGamepadButton(2, gamepad.ButtonDPadRight, 0)
+	if a.f.X != ax || b.f.X != bx || g.m.steps != steps || g.scr != screenReconnect {
+		t.Fatalf("pad 2 during pad 1 disconnect: p1 %.1f->%.1f, p2 %.1f->%.1f, steps %d->%d, screen %v", ax, a.f.X, bx, b.f.X, steps, g.m.steps, g.scr)
+	}
+
+	// Reconnecting pad 1 closes the panel and puts pad 1 back on player 1.
+	app.ConnectGamepad(1, "Pad one")
+	app.Advance(2 * frame)
+	if g.scr != screenFight || app.Exists("id:reconnect-menu") {
+		t.Fatalf("after reconnecting pad 1: screen %v reconnect-menu=%v, want screenFight without panel", g.scr, app.Exists("id:reconnect-menu"))
+	}
+	app.SetGamepadButton(1, gamepad.ButtonDPadRight, 1)
+	app.Advance(20 * frame)
+	app.SetGamepadButton(1, gamepad.ButtonDPadRight, 0)
+	if a.f.X <= ax || b.f.X != bx {
+		t.Fatalf("reconnected pad 1 moved fighters %.1f->%.1f and %.1f->%.1f, want only player 1 forward", ax, a.f.X, bx, b.f.X)
+	}
+	app.SetGamepadAxis(2, gamepad.AxisLeftX, -1)
+	app.Advance(20 * frame)
+	app.SetGamepadAxis(2, gamepad.AxisLeftX, 0)
+	if b.f.X >= bx {
+		t.Fatalf("pad 2 no longer moved player 2 after pad 1 reconnected: %.1f->%.1f", bx, b.f.X)
+	}
+}
+
+// TestVersusDisconnectReassignsFreePadAndContinuesOnKeyboard checks recovery from a versus controller disconnect by pressing a button on an unassigned controller, continuing on the keyboard via the panel button or Enter, and recovering from a simultaneous two-pad disconnect.
+func TestVersusDisconnectReassignsFreePadAndContinuesOnKeyboard(t *testing.T) {
+	app, g := startGame(t)
+	app.ConnectGamepad(1, "Pad one")
+	app.ConnectGamepad(2, "Pad two")
+	app.ConnectGamepad(3, "Pad three")
+	app.SetGamepadButton(3, gamepad.ButtonWest, 1)
+	app.Advance(2 * frame)
+	tapPad(app, 2, gamepad.ButtonStart)
+	untilFight(t, app, g)
+	a, b := g.m.players[0], g.m.players[1]
+
+	// Disconnect pad 1; pad 3's already-held button must not steal player 1's slot.
+	app.DisconnectGamepad(1)
+	app.Advance(5 * frame)
+	if g.scr != screenReconnect {
+		t.Fatalf("already-held button on pad 3 stole player 1's slot: screen %v", g.scr)
+	}
+
+	// Newly pressing Start on free pad 3 claims player 1 and resumes without immediately opening the pause menu.
+	app.SetGamepadButton(3, gamepad.ButtonStart, 1)
+	app.Advance(2 * frame)
+	app.SetGamepadButton(3, gamepad.ButtonStart, 0)
+	app.SetGamepadButton(3, gamepad.ButtonWest, 0)
+	app.Advance(2 * frame)
+	if g.scr != screenFight {
+		t.Fatalf("pressing Start on free pad 3: screen %v, want screenFight", g.scr)
+	}
+	ax, bx := a.f.X, b.f.X
+	app.SetGamepadButton(3, gamepad.ButtonDPadRight, 1)
+	app.Advance(20 * frame)
+	app.SetGamepadButton(3, gamepad.ButtonDPadRight, 0)
+	if a.f.X <= ax || b.f.X != bx {
+		t.Fatalf("reassigned pad 3 moved fighters %.1f->%.1f and %.1f->%.1f, want only player 1", ax, a.f.X, bx, b.f.X)
+	}
+
+	// Disconnect pad 2: player 1's pad cannot dismiss player 2's prompt, and Continue on keyboard resumes with player 2 on arrow keys.
+	app.DisconnectGamepad(2)
+	app.Advance(2 * frame)
+	if g.scr != screenReconnect || app.Find("id:reconnect-title").Text != "Player 2: reconnect your controller" {
+		t.Fatalf("after disconnecting pad 2: screen %v title %q", g.scr, app.Find("id:reconnect-title").Text)
+	}
+	tapPad(app, 3, gamepad.ButtonStart)
+	if g.scr != screenReconnect {
+		t.Fatalf("player 1's Start dismissed player 2's reconnect panel: screen %v", g.scr)
+	}
+	app.Press("id:continue-keyboard-btn")
+	app.Advance(2 * frame)
+	if g.scr != screenFight {
+		t.Fatalf("Continue on keyboard did not resume: screen %v", g.scr)
+	}
+	bx = b.f.X
+	app.KeyDown("left")
+	app.Advance(20 * frame)
+	app.KeyUp("left")
+	if b.f.X >= bx {
+		t.Fatalf("player 2 could not move on keyboard after continuing on keyboard: %.1f->%.1f", bx, b.f.X)
+	}
+
+	// Simultaneous disconnect: start fresh with pads 1 and 2, drop both, recover pad 2 first, then let player 1 continue on keyboard with Enter.
+	app.Press("id:pause-btn")
+	app.Press("id:quit-btn")
+	app.DisconnectGamepad(3)
+	app.ConnectGamepad(1, "Pad one")
+	app.ConnectGamepad(2, "Pad two")
+	app.Advance(2 * frame)
+	tapPad(app, 2, gamepad.ButtonStart)
+	untilFight(t, app, g)
+	a, b = g.m.players[0], g.m.players[1]
+
+	app.DisconnectGamepad(1)
+	app.DisconnectGamepad(2)
+	app.Advance(2 * frame)
+	if g.scr != screenReconnect || app.Find("id:reconnect-title").Text != "Players 1 & 2: reconnect your controllers" {
+		t.Fatalf("both pads disconnected: screen %v title %q", g.scr, app.Find("id:reconnect-title").Text)
+	}
+	app.ConnectGamepad(2, "Pad two")
+	app.Advance(2 * frame)
+	if g.scr != screenReconnect || app.Find("id:reconnect-title").Text != "Player 1: reconnect your controller" {
+		t.Fatalf("after pad 2 returned while pad 1 still out: screen %v title %q", g.scr, app.Find("id:reconnect-title").Text)
+	}
+	tap(app, "enter")
+	if g.scr != screenFight {
+		t.Fatalf("Enter on player 1 reconnect panel did not continue on keyboard: screen %v", g.scr)
+	}
+	ax, bx = a.f.X, b.f.X
+	app.KeyDown("d")
+	app.Advance(20 * frame)
+	app.KeyUp("d")
+	if a.f.X <= ax || b.f.X != bx {
+		t.Fatalf("player 1 keyboard after Enter: p1 %.1f->%.1f p2 %.1f->%.1f", ax, a.f.X, bx, b.f.X)
+	}
+}
+
+// TestMidMatchControllerConnectDoesNotStealSlot checks that a controller connecting mid-match, even with a lower ID than an assigned controller, is never handed to a fighter that already has one.
+func TestMidMatchControllerConnectDoesNotStealSlot(t *testing.T) {
+	t.Run("two_pads_lower_id_connects", func(t *testing.T) {
+		app, g := startGame(t)
+		app.ConnectGamepad(2, "Pad two")
+		app.ConnectGamepad(3, "Pad three")
+		app.Advance(2 * frame)
+		tapPad(app, 3, gamepad.ButtonStart)
+		untilFight(t, app, g)
+		a, b := g.m.players[0], g.m.players[1]
+
+		// Connect pad 1 (lower ID than both 2 and 3) mid-match.
+		app.ConnectGamepad(1, "Pad one")
+		app.Advance(2 * frame)
+		ax, bx := a.f.X, b.f.X
+		app.SetGamepadButton(1, gamepad.ButtonDPadRight, 1)
+		app.Advance(20 * frame)
+		app.SetGamepadButton(1, gamepad.ButtonDPadRight, 0)
+		if a.f.X != ax || b.f.X != bx {
+			t.Fatalf("mid-match pad 1 moved fighters: p1 %.1f->%.1f p2 %.1f->%.1f", ax, a.f.X, bx, b.f.X)
+		}
+
+		// Pads 2 and 3 still drive players 1 and 2 respectively.
+		app.SetGamepadButton(2, gamepad.ButtonDPadRight, 1)
+		app.Advance(20 * frame)
+		app.SetGamepadButton(2, gamepad.ButtonDPadRight, 0)
+		if a.f.X <= ax || b.f.X != bx {
+			t.Fatalf("pad 2 after mid-match pad 1 connect: p1 %.1f->%.1f p2 %.1f->%.1f", ax, a.f.X, bx, b.f.X)
+		}
+		ax = a.f.X
+		app.SetGamepadButton(3, gamepad.ButtonDPadLeft, 1)
+		app.Advance(20 * frame)
+		app.SetGamepadButton(3, gamepad.ButtonDPadLeft, 0)
+		if b.f.X >= bx || a.f.X != ax {
+			t.Fatalf("pad 3 after mid-match pad 1 connect: p1 %.1f->%.1f p2 %.1f->%.1f", ax, a.f.X, bx, b.f.X)
+		}
+	})
+
+	t.Run("one_pad_lower_id_connects", func(t *testing.T) {
+		app, g := startGame(t)
+		app.ConnectGamepad(2, "Pad two")
+		app.Advance(2 * frame)
+		app.Press("id:vs-player")
+		untilFight(t, app, g)
+		a, b := g.m.players[0], g.m.players[1]
+
+		// Connect pad 1 (lower ID than player 1's pad 2) mid-match.
+		app.ConnectGamepad(1, "Pad one")
+		app.Advance(2 * frame)
+		ax, bx := a.f.X, b.f.X
+		app.SetGamepadButton(1, gamepad.ButtonDPadRight, 1)
+		app.Advance(20 * frame)
+		app.SetGamepadButton(1, gamepad.ButtonDPadRight, 0)
+		if a.f.X != ax || b.f.X != bx {
+			t.Fatalf("mid-match pad 1 took over a fighter: p1 %.1f->%.1f p2 %.1f->%.1f", ax, a.f.X, bx, b.f.X)
+		}
+
+		// Player 1 still uses pad 2.
+		app.SetGamepadButton(2, gamepad.ButtonDPadRight, 1)
+		app.Advance(20 * frame)
+		app.SetGamepadButton(2, gamepad.ButtonDPadRight, 0)
+		if a.f.X <= ax || b.f.X != bx {
+			t.Fatalf("pad 2 lost player 1 after mid-match pad 1 connect: p1 %.1f->%.1f p2 %.1f->%.1f", ax, a.f.X, bx, b.f.X)
+		}
+	})
+}
+
+// TestManualPauseDuringDisconnectDoesNotAutoUnpause checks that reconnecting while manually paused stays on the pause menu, and resuming while a controller is still disconnected opens the reconnect panel.
+func TestManualPauseDuringDisconnectDoesNotAutoUnpause(t *testing.T) {
+	app, g := startGame(t)
+	app.ConnectGamepad(1, "Pad one")
+	app.ConnectGamepad(2, "Pad two")
+	app.Advance(2 * frame)
+	tapPad(app, 2, gamepad.ButtonStart)
+	untilFight(t, app, g)
+
+	tapPad(app, 1, gamepad.ButtonStart)
+	if g.scr != screenPaused {
+		t.Fatalf("Start did not open pause menu: screen %v", g.scr)
+	}
+	app.DisconnectGamepad(1)
+	app.Advance(2 * frame)
+	if g.scr != screenPaused {
+		t.Fatalf("disconnect while manually paused changed screen to %v", g.scr)
+	}
+	app.ConnectGamepad(1, "Pad one")
+	app.Advance(2 * frame)
+	if g.scr != screenPaused {
+		t.Fatalf("reconnecting while manually paused auto-unpaused to %v", g.scr)
+	}
+
+	app.DisconnectGamepad(1)
+	app.Advance(2 * frame)
+	app.Press("id:resume-btn")
+	if g.scr != screenReconnect {
+		t.Fatalf("Resume while pad 1 still disconnected: screen %v, want screenReconnect", g.scr)
+	}
+	app.ConnectGamepad(1, "Pad one")
+	app.Advance(2 * frame)
+	if g.scr != screenFight {
+		t.Fatalf("reconnecting pad 1 from reconnect panel: screen %v, want screenFight", g.scr)
+	}
+}
+
+// TestReconnectPanelRendersOnTarget triggers a versus controller disconnect through Players.OnGamepads so the reconnect panel can be verified and screenshotted on real targets as well as headless.
+func TestReconnectPanelRendersOnTarget(t *testing.T) {
+	app, g := startGame(t)
+	app.Press("id:vs-player")
+	app.Post(func() {
+		for range g.roster.file.Rules.IntroSteps + 45 {
+			g.fightStep()
+		}
+		g.frame.Update(func(n uint64) uint64 { return n + 1 })
+	})
+	app.Settle()
+	if g.scr != screenFight || g.mode != modeVersus {
+		t.Fatalf("Versus player button: screen %v mode %v, want versus screenFight", g.scr, g.mode)
+	}
+	app.Screenshot("fighting2d/before-disconnect")
+
+	app.Post(func() {
+		g.controls.players.AssignGamepad(0, 1)
+		g.controls.players.OnGamepads([]gamepad.Pad{{ID: 1, Name: "Pad one"}})
+		g.controls.players.OnGamepads(nil)
+	})
+	app.Settle()
+	if g.scr != screenReconnect || !app.Exists("id:reconnect-menu") {
+		t.Fatalf("after simulated disconnect: screen %v reconnect-menu=%v, want screenReconnect", g.scr, app.Exists("id:reconnect-menu"))
+	}
+	if got := app.Find("id:reconnect-title").Text; got != "Player 1: reconnect your controller" {
+		t.Fatalf("reconnect title %q, want %q", got, "Player 1: reconnect your controller")
+	}
+	app.Screenshot("fighting2d/after-reconnect-panel")
+
+	app.Press("id:continue-keyboard-btn")
+	app.Settle()
+	if g.scr != screenFight || app.Exists("id:reconnect-menu") {
+		t.Fatalf("Continue on keyboard did not dismiss panel: screen %v", g.scr)
 	}
 }
 

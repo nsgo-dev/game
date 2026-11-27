@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/placeholder"
 	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/game/pkg/sound"
@@ -21,6 +22,7 @@ const (
 	screenTitle screenKind = iota
 	screenFight
 	screenPaused
+	screenReconnect
 	screenResult
 )
 
@@ -77,6 +79,8 @@ type fightingGame struct {
 	comboLeft  [2]int
 
 	screen *core.Signal[screenKind]
+	// disconnected tracks which players' controllers are awaiting reconnect in versus.
+	disconnected *core.Signal[[2]bool]
 	// picks are the roster indexes of the two fighters.
 	picks  *core.Signal[[2]int]
 	hud    *core.Signal[hudState]
@@ -104,18 +108,19 @@ func newFightingGame(cx *core.Scope) *fightingGame {
 		panic(fmt.Errorf("fighting2d: %w", err))
 	}
 	g := &fightingGame{
-		cx:     cx,
-		roster: r,
-		picks:  core.NewSignal(cx, [2]int{0, 1 % len(r.fighters)}),
-		screen: core.NewSignal(cx, screenTitle),
-		hud:    core.NewSignal(cx, hudState{}),
-		result: core.NewSignal(cx, ""),
-		frame:  core.NewSignal(cx, uint64(0)),
-		mixer:  sound.NewMixer(cx, "fighting2d.sound"),
-		sounds: map[eventKind]*sound.Effect{},
+		cx:           cx,
+		roster:       r,
+		picks:        core.NewSignal(cx, [2]int{0, 1 % len(r.fighters)}),
+		screen:       core.NewSignal(cx, screenTitle),
+		disconnected: core.NewSignal(cx, [2]bool{}),
+		hud:          core.NewSignal(cx, hudState{}),
+		result:       core.NewSignal(cx, ""),
+		frame:        core.NewSignal(cx, uint64(0)),
+		mixer:        sound.NewMixer(cx, "fighting2d.sound"),
+		sounds:       map[eventKind]*sound.Effect{},
 	}
 	g.viewport, _ = Project.Viewport()
-	g.controls = newControls(cx, func(p core.Point) (core.Point, bool) { return g.viewport.ViewToGame(g.viewSize, p) })
+	g.controls = newControls(cx, func(p core.Point) (core.Point, bool) { return g.viewport.ViewToGame(g.viewSize, p) }, g.disconnectPolicy(false))
 	Project.ConfigureMixer(g.mixer)
 	for kind, name := range sfx {
 		src, err := placeholder.Sound(name)
@@ -133,11 +138,54 @@ func newFightingGame(cx *core.Scope) *fightingGame {
 		Rate:   stepRate,
 		Update: func(time.Duration) { g.update() },
 		Draw:   func(float64) { g.frame.Update(func(n uint64) uint64 { return n + 1 }) },
-		// The loop pauses in the background; the sound stays paused on return while the pause menu is open.
-		OnPause: func(paused bool) { g.mixer.SetPaused(paused || g.scr == screenPaused) },
+		// The loop pauses in the background; the sound stays paused on return while a pause or reconnect menu is open.
+		OnPause: func(paused bool) {
+			g.mixer.SetPaused(paused || g.scr == screenPaused || g.scr == screenReconnect)
+		},
 	}
 	g.loop.Run(cx)
 	return g
+}
+
+// disconnectPolicy returns the controller disconnect rules: in versus, losing an assigned controller pauses the fight until it returns, a free controller presses a button, or the player continues on the keyboard.
+func (g *fightingGame) disconnectPolicy(versus bool) input.DisconnectPolicy {
+	return input.DisconnectPolicy{
+		PauseOnDisconnect:    versus,
+		AllowReassignOnPress: true,
+		OnPause:              g.onDisconnectPause,
+		OnDisconnect:         func(input.DisconnectEvent) { g.syncDisconnected() },
+		OnReconnect:          func(input.ReconnectEvent) { g.syncDisconnected() },
+	}
+}
+
+func (g *fightingGame) onDisconnectPause(paused bool) {
+	g.syncDisconnected()
+	if paused && g.scr == screenFight {
+		g.setScreen(screenReconnect)
+		g.mixer.SetPaused(true)
+	} else if !paused && g.scr == screenReconnect {
+		g.setScreen(screenFight)
+		g.mixer.SetPaused(false)
+	}
+}
+
+func (g *fightingGame) syncDisconnected() {
+	d := g.controls.disconnected()
+	if d != g.disconnected.GetUntracked() {
+		g.disconnected.Set(d)
+	}
+}
+
+// continueOnKeyboard unassigns every disconnected controller so those players keep fighting on the keyboard.
+func (g *fightingGame) continueOnKeyboard() {
+	g.controls.unassignDisconnected()
+	g.syncDisconnected()
+}
+
+// continuePlayerOnKeyboard unassigns player i's disconnected controller so player i keeps fighting on the keyboard.
+func (g *fightingGame) continuePlayerOnKeyboard(i int) {
+	g.controls.unassignGamepad(i)
+	g.syncDisconnected()
 }
 
 // setScreen switches what the game shows and releases the input held into it.
@@ -149,6 +197,8 @@ func (g *fightingGame) setScreen(s screenKind) {
 
 // startMatch starts a match in mode with the picked fighters.
 func (g *fightingGame) startMatch(md mode) {
+	g.controls.setDisconnectPolicy(g.disconnectPolicy(false))
+	g.controls.assignFreePads(true)
 	g.mode = md
 	picks := g.picks.GetUntracked()
 	g.m = newMatch(g.roster, g.roster.fighters[picks[0]], g.roster.fighters[picks[1]])
@@ -159,6 +209,8 @@ func (g *fightingGame) startMatch(md mode) {
 	g.bannerLeft, g.comboLeft = 0, [2]int{}
 	g.result.Set("")
 	g.setScreen(screenFight)
+	g.controls.setDisconnectPolicy(g.disconnectPolicy(md == modeVersus))
+	g.syncDisconnected()
 	g.handle(g.m.events)
 	g.syncHUD()
 }
@@ -177,6 +229,11 @@ func (g *fightingGame) pause(paused bool) {
 		g.setScreen(screenPaused)
 		g.mixer.SetPaused(true)
 	} else if !paused && g.scr == screenPaused {
+		if g.controls.pausedByDisconnect() {
+			g.syncDisconnected()
+			g.setScreen(screenReconnect)
+			return
+		}
 		g.setScreen(screenFight)
 		g.mixer.SetPaused(false)
 	}
@@ -187,15 +244,22 @@ func (g *fightingGame) quit() {
 	g.mixer.SetPaused(false)
 	g.m, g.cpu = nil, nil
 	g.setScreen(screenTitle)
+	g.controls.setDisconnectPolicy(g.disconnectPolicy(false))
+	g.controls.assignFreePads(true)
+	g.syncDisconnected()
 	g.syncHUD()
 }
 
 // update is one fixed step.
 func (g *fightingGame) update() {
 	c := g.controls
-	c.step(g.scr == screenTitle || g.mode == modeVersus)
+	was := g.scr
+	c.step(was == screenTitle)
 	if c.justPressed("hitboxes") {
 		g.hitboxes = !g.hitboxes
+	}
+	if was == screenReconnect && g.scr == screenFight {
+		return
 	}
 	switch g.scr {
 	case screenTitle:
@@ -209,6 +273,12 @@ func (g *fightingGame) update() {
 	case screenPaused:
 		if c.justPressed("pause") || c.playerJustPressed(0, "start") || c.playerJustPressed(1, "start") {
 			g.pause(false)
+		}
+	case screenReconnect:
+		for i := range 2 {
+			if c.playerDisconnected(i) && c.playerJustPressed(i, "start") {
+				g.continuePlayerOnKeyboard(i)
+			}
 		}
 	case screenResult:
 		switch {
@@ -283,6 +353,8 @@ func (g *fightingGame) handle(events []event) {
 		case evMatchOver:
 			g.result.Set(g.resultText(e.player))
 			g.setScreen(screenResult)
+			g.controls.setDisconnectPolicy(g.disconnectPolicy(false))
+			g.syncDisconnected()
 		}
 	}
 }
