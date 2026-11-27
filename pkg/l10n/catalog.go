@@ -26,10 +26,11 @@ func Param(name string, value any) Arg {
 	return Arg{Name: name, Value: value}
 }
 
-// PluralForms holds localized message templates keyed by CLDR plural category.
+// PluralForms holds localized message templates keyed by CLDR cardinal plural category.
 // Any unset category falls back to Other (or One if Other is empty).
+// When count is 0 and Zero is non-empty, Plural always selects Zero regardless of locale.
 type PluralForms struct {
-	// Zero is the template used when count is 0 (if provided) or matches the CLDR zero category.
+	// Zero is the template used when count is 0 (if non-empty, for any locale) or matches the CLDR zero category.
 	Zero string `yaml:"zero,omitempty"`
 	// One is the template used for the CLDR one plural category.
 	One string `yaml:"one,omitempty"`
@@ -178,8 +179,14 @@ func (c *Catalog) T(locale, key string, args ...Arg) string {
 	return interpolate(tmpl, args)
 }
 
-// Plural resolves key for locale, selects the plural form matching count for
-// the matched locale's plural rules, and interpolates named placeholders.
+// Plural resolves key for locale, selects the plural form matching integer count
+// under the matched locale's CLDR cardinal plural rules (CLDRVersion), and
+// interpolates named placeholders.
+//
+// When count is 0 and the matched entry provides a non-empty Zero form, Zero is
+// always selected regardless of whether the locale has a CLDR zero category.
+// Otherwise PluralCategoryFor(matchedLocale, count) chooses the category, and
+// any omitted category falls back to Other (or One if Other is empty).
 //
 // The "{count}" placeholder is automatically populated with count unless args
 // explicitly provides a Param("count", ...). If key is not found, key itself is
@@ -510,12 +517,8 @@ func asPluralObject(m map[string]any) (PluralForms, bool) {
 }
 
 func selectPluralForm(locale string, count int, forms PluralForms) string {
-	n := count
-	if n < 0 {
-		n = -n
-	}
-	// Honor an explicit zero form when provided.
-	if n == 0 && forms.Zero != "" {
+	// Honor an explicit zero form when provided for any locale.
+	if count == 0 && forms.Zero != "" {
 		return forms.Zero
 	}
 
@@ -529,62 +532,18 @@ func selectPluralForm(locale string, count int, forms PluralForms) string {
 		return forms.One
 	}
 
-	switch primaryLanguage(locale) {
-	case "ja", "zh", "ko", "th", "vi", "id", "ms":
-		return pick(forms.Other)
-	case "fr", "pt", "hi":
-		if n == 0 || n == 1 {
-			return pick(forms.One)
-		}
-		return pick(forms.Other)
-	case "ar":
-		switch {
-		case n == 0:
-			return pick(forms.Zero)
-		case n == 1:
-			return pick(forms.One)
-		case n == 2:
-			return pick(forms.Two)
-		case n%100 >= 3 && n%100 <= 10:
-			return pick(forms.Few)
-		case n%100 >= 11 && n%100 <= 99:
-			return pick(forms.Many)
-		default:
-			return pick(forms.Other)
-		}
-	case "ru", "uk", "sr", "hr", "be":
-		mod10, mod100 := n%10, n%100
-		switch {
-		case mod10 == 1 && mod100 != 11:
-			return pick(forms.One)
-		case mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14):
-			return pick(forms.Few)
-		default:
-			return pick(forms.Many)
-		}
-	case "pl":
-		mod10, mod100 := n%10, n%100
-		switch {
-		case n == 1:
-			return pick(forms.One)
-		case mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14):
-			return pick(forms.Few)
-		default:
-			return pick(forms.Many)
-		}
-	case "he", "iw":
-		switch n {
-		case 1:
-			return pick(forms.One)
-		case 2:
-			return pick(forms.Two)
-		default:
-			return pick(forms.Other)
-		}
+	switch PluralCategoryFor(locale, count) {
+	case PluralZero:
+		return pick(forms.Zero)
+	case PluralOne:
+		return pick(forms.One)
+	case PluralTwo:
+		return pick(forms.Two)
+	case PluralFew:
+		return pick(forms.Few)
+	case PluralMany:
+		return pick(forms.Many)
 	default:
-		if n == 1 {
-			return pick(forms.One)
-		}
 		return pick(forms.Other)
 	}
 }

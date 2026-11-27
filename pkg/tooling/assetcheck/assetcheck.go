@@ -212,11 +212,11 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	for _, p := range cutscenes {
 		c.checkCutscene(p)
 	}
-	if len(screens) > 0 {
+	if len(otherYAMLs) > 0 {
 		c.loadLocaleTables(otherYAMLs)
-		for _, p := range screens {
-			c.checkScreen(p)
-		}
+	}
+	for _, p := range screens {
+		c.checkScreen(p)
 	}
 	for _, p := range gridMaps {
 		c.checkGridMap(p)
