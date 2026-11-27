@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/tooling/hotreload"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -147,6 +148,11 @@ func (e *Editor) RunGameWith(opts RunGameOptions) error {
 		return ErrNoProject
 	}
 
+	if err := e.goToolchainError(); err != nil {
+		e.reportStatusError(err.Error())
+		return err
+	}
+
 	e.gameRun.mu.Lock()
 	if e.gameRun.active != nil {
 		e.gameRun.mu.Unlock()
@@ -164,7 +170,7 @@ func (e *Editor) RunGameWith(opts RunGameOptions) error {
 
 	projectDir := filepath.Dir(e.ProjectPath)
 	args := []string{"tool", "game", "dev"}
-	env := slices.Clone(os.Environ())
+	env := gotoolchain.Env(slices.Clone(os.Environ()))
 	var scenePath string
 	if opts.StartAtOpenScene {
 		scenePath = e.openRunSceneRelPath()

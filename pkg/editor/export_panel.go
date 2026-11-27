@@ -18,6 +18,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -1258,8 +1259,8 @@ func (e *Editor) postExportUI(scope *core.Scope, fn func()) {
 }
 
 func newExportCommand(ctx context.Context, args, baseEnv []string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "go", args...)
-	cmd.Env = releaseplan.WithReleaseEnv(baseEnv)
+	cmd := gotoolchain.CommandContext(ctx, args...)
+	cmd.Env = releaseplan.WithReleaseEnv(gotoolchain.Env(baseEnv))
 	return cmd
 }
 

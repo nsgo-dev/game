@@ -473,6 +473,8 @@ type Editor struct {
 	WebBridgeHandler func(ctx context.Context, method string, params json.RawMessage) (any, error)
 	// RunGameCommand starts the child game process for RunGame / RunGameWith, streaming output to stdout and stderr; when nil the editor launches `go tool game dev` in the open project directory in its own process group on desktop.
 	RunGameCommand func(spec RunGameSpec, stdout, stderr io.Writer) (GameProcess, error)
+	// GoToolchainProbe optionally overrides Go toolchain discovery for Start Screen and Play/Create gating (used in tests).
+	GoToolchainProbe func(minVersion string) GoToolchainStatus
 	// RemoteTransport, when set, supplies the MCP client transport used to connect to a running game launched with RunGameOptions.Automation; when nil the editor spawns `go tool nsgo mcp` in the project directory on desktop.
 	RemoteTransport func(ctx context.Context, spec RunGameSpec) (mcp.Transport, error)
 	// RemoteRefreshInterval controls how often the remote scene tree and inspector poll the running game while unpaused (defaults to 250ms when <= 0).
@@ -808,6 +810,8 @@ type Editor struct {
 	profiler profilerState
 	// gameRun tracks the live `go tool game dev` child process started by RunGame / RunGameWith.
 	gameRun gameRunState
+	// goToolchain caches Go toolchain discovery and version check results for the Start Screen and Play/Create actions.
+	goToolchain goToolchainState
 	// selectedIDs holds the ordered set of selected object IDs; SelectedID is the primary object within it.
 	selectedIDs []string
 	// drag2D is the 2D viewport's drag of an object or a gizmo handle in progress (BeginDrag2D).

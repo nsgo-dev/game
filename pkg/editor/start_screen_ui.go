@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -393,6 +394,7 @@ func startMainPaneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					return core.View{
 						Style: core.Style{Gap: 20},
 						Children: []core.Node{
+							startGoToolchainNoticeView(cx, ed, rev),
 							startIdeaSectionView(cx, ed, rev),
 							startTemplatesSectionView(cx, ed, rev),
 							startCreateFormView(cx, ed, rev),
@@ -401,6 +403,163 @@ func startMainPaneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					}
 				},
 			},
+		},
+	}
+}
+
+func startGoToolchainNoticeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
+	return core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			return !ed.GoToolchainOK()
+		},
+		Then: func(cx *core.Scope) core.Node {
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = rev.Get()
+				st := ed.GoToolchainStatus()
+				minVer := st.MinVersion
+				if minVer == "" {
+					minVer = ed.MinGoVersion()
+				}
+				title := ed.T("start.goToolchain.title", l10n.Param("version", minVer))
+				var detail string
+				switch {
+				case st.TooOld && st.Version != "":
+					detail = ed.T("start.goToolchain.tooOldDetail",
+						l10n.Param("found", st.Version),
+						l10n.Param("path", st.Binary),
+					)
+				case st.Err != "":
+					detail = ed.T("start.goToolchain.errorDetail",
+						l10n.Param("path", st.Binary),
+						l10n.Param("err", st.Err),
+					)
+				default:
+					detail = ed.T("start.goToolchain.missingDetail")
+				}
+				return core.View{
+					TestID: "start-go-notice",
+					Style: core.Style{
+						Direction:      core.Row,
+						Wrap:           core.Wrap,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifySpaceBetween,
+						Gap:            12,
+						Background:     p.Warning.Fill,
+						BorderWidth:    1,
+						BorderColor:    p.Warning.Edge,
+						CornerRadius:   10,
+						Padding:        core.Symmetric(12, 16),
+					},
+					Children: []core.Node{
+						core.View{
+							Style: core.Style{
+								Direction:  core.Row,
+								AlignItems: core.AlignCenter,
+								Gap:        10,
+								FlexGrow:   1,
+								FlexBasis:  core.Pt(260),
+							},
+							Children: []core.Node{
+								core.Icon{
+									SVG: lucide.TriangleAlert(),
+									Style: core.Style{
+										Width:      core.Pt(18),
+										Height:     core.Pt(18),
+										Color:      p.Warning.Fg,
+										FlexShrink: 0,
+									},
+								},
+								core.View{
+									Style: core.Style{
+										FlexGrow:  1,
+										FlexBasis: core.Pt(0),
+										Gap:       2,
+									},
+									Children: []core.Node{
+										core.Text{
+											TestID:  "start-go-notice-title",
+											Content: title,
+											Style: core.Style{
+												FontSize:   13,
+												FontWeight: 600,
+												Color:      p.TextPrimary,
+											},
+										},
+										core.Text{
+											TestID:  "start-go-notice-detail",
+											Content: detail,
+											Style: core.Style{
+												FontSize: 12,
+												Color:    p.TextSecondary,
+											},
+										},
+									},
+								},
+							},
+						},
+						core.View{
+							Style: core.Style{
+								Direction:  core.Row,
+								AlignItems: core.AlignCenter,
+								Gap:        8,
+								FlexShrink: 0,
+							},
+							Children: []core.Node{
+								ui.Button{
+									TestID:  "start-go-download",
+									Text:    ed.T("start.goToolchain.download"),
+									Label:   ed.T("start.goToolchain.downloadLabel"),
+									Icon:    lucide.ExternalLink,
+									Variant: ui.ButtonPrimary,
+									Size:    ui.SizeSmall,
+									Color:   func() core.Color { return p.TextPrimary },
+									Tint:    func() core.Color { return p.Bg },
+									TextStyle: core.Style{
+										FontSize:   12,
+										FontWeight: 600,
+										Color:      p.Bg,
+									},
+									Style: core.Style{
+										Height:       core.Pt(28),
+										CornerRadius: 6,
+										Padding:      core.Symmetric(0, 10),
+									},
+									OnPress: func() {
+										ed.report(ed.OpenGoDownloadPage())
+									},
+								},
+								ui.Button{
+									TestID:  "start-go-retry",
+									Text:    ed.T("start.goToolchain.retry"),
+									Label:   ed.T("start.goToolchain.retryLabel"),
+									Icon:    lucide.RefreshCw,
+									Variant: ui.ButtonSecondary,
+									Size:    ui.SizeSmall,
+									Color:   func() core.Color { return p.Raised },
+									Tint:    func() core.Color { return p.TextPrimary },
+									TextStyle: core.Style{
+										FontSize:   12,
+										FontWeight: 500,
+										Color:      p.TextPrimary,
+									},
+									Style: core.Style{
+										Height:       core.Pt(28),
+										CornerRadius: 6,
+										Padding:      core.Symmetric(0, 10),
+										BorderWidth:  1,
+										BorderColor:  p.LineRaised,
+									},
+									OnPress: func() {
+										ed.RetryGoToolchainCheck()
+									},
+								},
+							},
+						},
+					},
+				}
+			})
 		},
 	}
 }
@@ -505,7 +664,7 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 								Variant: specBtnAccent,
 								Disabled: func() bool {
 									_ = rev.Get()
-									return ed.CreatingProject() || !ed.StartNameStatus().OK
+									return ed.CreatingProject() || !ed.StartNameStatus().OK || !ed.GoToolchainOK()
 								},
 								OnPress: func() {
 									ed.report(ed.StartWithAI())
@@ -1021,7 +1180,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								},
 								Disabled: func() bool {
 									_ = rev.Get()
-									return ed.CreatingProject() || !ed.StartNameStatus().OK
+									return ed.CreatingProject() || !ed.StartNameStatus().OK || !ed.GoToolchainOK()
 								},
 								OnPress: func() {
 									ed.report(ed.CreateProjectFromStartScreen())

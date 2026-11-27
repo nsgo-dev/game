@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/refs"
 	"github.com/nsgo-dev/game/pkg/resource"
@@ -2261,9 +2262,10 @@ func runDefaultChangesChecksCtx(ctx context.Context, dir string, now time.Time) 
 		Ran:   true,
 		RanAt: now,
 	}
-	checkCmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "check", "./...")
+	env := gotoolchain.Env(gitBaseEnv(nil))
+	checkCmd := gotoolchain.CommandContext(ctx, "tool", "nsgo", "check", "./...")
 	checkCmd.Dir = dir
-	checkCmd.Env = gitBaseEnv(nil)
+	checkCmd.Env = env
 	checkCmd.Stdin = nil
 	checkOut, checkErr := checkCmd.CombinedOutput()
 	status.CheckOutput = strings.TrimSpace(string(checkOut))
@@ -2275,9 +2277,9 @@ func runDefaultChangesChecksCtx(ctx context.Context, dir string, now time.Time) 
 		status.CheckSummary = "nsgo check failed"
 	}
 
-	testCmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "test", "./...")
+	testCmd := gotoolchain.CommandContext(ctx, "tool", "nsgo", "test", "./...")
 	testCmd.Dir = dir
-	testCmd.Env = gitBaseEnv(nil)
+	testCmd.Env = env
 	testCmd.Stdin = nil
 	testOut, testErr := testCmd.CombinedOutput()
 	status.TestOutput = strings.TrimSpace(string(testOut))

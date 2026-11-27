@@ -256,6 +256,7 @@ func commonLocalAgentBinDirs(env localAgentSearchEnv) []string {
 		}
 		if env.programFiles != "" {
 			add(env.programFiles, "nodejs")
+			add(env.programFiles, "Go", "bin")
 		}
 		return dirs
 	}
@@ -287,11 +288,11 @@ func commonLocalAgentBinDirs(env localAgentSearchEnv) []string {
 		add(env.homeDir, ".cargo", "bin")
 	}
 
-	// Standard Homebrew / system-local directories (not in macOS launchd default PATH).
+	// Standard Homebrew / system-local / Go installer directories (not in macOS launchd default PATH).
 	if env.goos == "darwin" {
 		dirs = append(dirs, "/opt/homebrew/bin", "/opt/homebrew/sbin")
 	}
-	dirs = append(dirs, "/usr/local/bin", "/usr/local/sbin")
+	dirs = append(dirs, "/usr/local/go/bin", "/usr/local/bin", "/usr/local/sbin")
 	return dirs
 }
 

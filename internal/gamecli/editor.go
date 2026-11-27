@@ -10,11 +10,11 @@ import (
 	"go/token"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/editor/editorcmd"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -99,6 +99,7 @@ const gameEditorTag = "gameeditor"
 // configureEditorStartScreen populates ed's Start Screen template list from `game new`'s template registry,
 // connects project creation to `game new`, and loads the per-user recent projects file.
 func configureEditorStartScreen(ed *editor.Editor, a *app) {
+	ed.SetMinGoVersion(templateMinGoVersion())
 	ed.SetProjectTemplates(editorTemplatesFromRegistry())
 	ed.CreateProject = func(_ context.Context, req editor.CreateProjectRequest, stdout, stderr io.Writer) error {
 		return createProject(createProjectOptions{
@@ -232,7 +233,7 @@ func runOwnEditor(a *app, root string, run []string, lib string, args []string) 
 
 // runGoIn runs the go command with args in dir, with the terminal's standard input, for the editor command a project has of its own.
 func runGoIn(dir string, args []string, stdout, stderr io.Writer) error {
-	cmd := exec.Command("go", args...)
+	cmd := gotoolchain.Command(args...)
 	cmd.Dir = dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
 	return cmd.Run()

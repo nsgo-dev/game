@@ -1700,7 +1700,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"run", "launch", "start", "game"},
 			Scope:       ScopePlay,
 			Shortcut:    "mod+r",
-			Enabled:     inEditor,
+			Enabled:     func() bool { return inEditor() && (e.OnRunGame != nil || e.GoToolchainOK()) },
 			Run:         func() error { return e.runGameCommand() },
 		},
 		{

@@ -9,7 +9,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/debug"
 	"github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/nsgo/automation"
@@ -171,7 +171,7 @@ func ConnectProfilerCommand(ctx context.Context, dir string, args ...string) (Pr
 	if len(cmdArgs) == 0 {
 		cmdArgs = []string{"tool", "nsgo", "mcp"}
 	}
-	cmd := exec.Command("go", cmdArgs...)
+	cmd := gotoolchain.Command(cmdArgs...)
 	if dir != "" {
 		cmd.Dir = dir
 	}

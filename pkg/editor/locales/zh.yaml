@@ -1561,6 +1561,14 @@ strings:
   snap.scaleStep: 缩放步进
   snap.showGrid: 显示 2D 网格叠加层
   snap.title: 吸附设置
+  start.goToolchain.download: go.dev/dl
+  start.goToolchain.downloadLabel: 打开 go.dev/dl 下载 Go
+  start.goToolchain.errorDetail: 在 {path} 检测到 go，但检查版本失败：{err}。
+  start.goToolchain.missingDetail: 安装 Go 后即可创建项目、运行游戏与导出构建。
+  start.goToolchain.retry: 重试
+  start.goToolchain.retryLabel: 重新检测 Go 工具链
+  start.goToolchain.title: NSGo 游戏编辑器需要 Go {version} 或更高版本
+  start.goToolchain.tooOldDetail: 在 {path} 检测到 Go {found}。请升级 Go 后再创建项目或运行游戏。
   status.activeLayerLabel: 当前图层：{layer}
   status.buildError: 构建错误：{error}
   status.changes: 变更
@@ -1718,6 +1726,7 @@ strings:
   toolbar.pick: 吸取
   toolbar.place: 放置
   toolbar.play: 播放
+  toolbar.playNeedsGo: 需要 Go {version} 或更高版本
   toolbar.projectSettings: 项目设置
   toolbar.projectSettingsLabel: 切换项目设置面板
   toolbar.redo: 重做
