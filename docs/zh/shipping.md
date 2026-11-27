@@ -62,7 +62,7 @@ go tool nsgo doctor
 go tool nsgo check -target all
 ```
 
-或者显式检查全部 6 个游戏平台：
+或者显式检查全部 6 个主要构建目标：
 
 ```sh
 go tool nsgo check -target macos,windows,linux,web,ios,android
@@ -102,6 +102,8 @@ go tool nsgo build -channel store -target macos,windows,linux,ios,android
 资源采用的多数许可证（包括知识共享署名许可和 SIL 开放字体许可证）都要求随游戏附上作者和许可证。把它们记录在每个资源旁边导入设置附属文件（`hero.png.import.yaml`）的 `credit` 部分；为每个平台运行 `nsgo build` 的 `nsgo game release` 随后会在各个包旁边写出 `CREDITS.md`，供商店页面或下载页面使用，并且只要 `game.yaml` 的 `assets` 部分里有资源缺少署名就拒绝构建。`nsgo game credits` 不构建，只检查署名并打印该文件；在发布之前运行 `nsgo game credits -out resources/CREDITS.md` 还能让每个包内都带上它，因为 `nsgo build` 会把 `resources` 文件夹复制进每个包（见[命令行](cli.md#credits)）。游戏从 `assets` 部分之外加载的资源不会被列出，需要自行署名。
 
 ## 各目标平台说明
+
+下表说明六个主要构建目标的打包与商店分发格式；各平台具体的运行时功能支持情况、实验性目标（鸿蒙、tvOS、watchOS 与小程序）状态及上游缺口见[平台支持](platforms.md)。
 
 | 平台 | 目标名 | 直接分发（`-channel direct`） | 商店发布（`-channel store`） | 构建主机要求 |
 | --- | --- | --- | --- | --- |
