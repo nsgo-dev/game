@@ -1,0 +1,86 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: wire
+order: be
+imports:
+  - rollback.wire.yaml
+enums:
+  - name: MemberChangeKind
+    doc: MemberChangeKind identifies whether a membership announcement adds or removes a peer.
+    type: u8
+    values:
+      - name: join
+        value: 1
+        doc: Peer joins at tick.
+      - name: leave
+        value: 2
+        doc: Peer leaves at tick with declared inputs.
+messages:
+  - name: MatchMember
+    doc: MatchMember is a 13-byte record describing one peer's active tick window inside an assembled JoinState.
+    fields:
+      - name: id
+        type: u32
+      - name: from
+        type: u32
+      - name: has_leave
+        type: bool
+      - name: until
+        type: u32
+  - name: MemberChange
+    doc: MemberChange is a host-issued membership announcement following tag 13.
+    fields:
+      - name: kind
+        type: MemberChangeKind
+      - name: peer
+        type: u32
+      - name: tick
+        type: u32
+      - name: inputs
+        type: array
+        array:
+          length: u16
+          of: InputFrame
+  - name: JoinStatePart
+    doc: JoinStatePart is one fragment of a serialized JoinState following tag 14.
+    fields:
+      - name: part
+        type: u16
+      - name: parts
+        type: u16
+      - name: data
+        type: bytes
+        length: rest
+  - name: JoinState
+    doc: JoinState is the reassembled blob sent by the host to a joining peer at its join tick.
+    fields:
+      - name: tick
+        type: u32
+      - name: members
+        type: array
+        array:
+          length: u16
+          of: MatchMember
+      - name: inputs
+        type: array
+        array:
+          length: u32
+          of: InputFrame
+          maxLength: 65536
+      - name: state
+        type: bytes
+        length: rest
+unions:
+  - name: MembershipMessage
+    doc: MembershipMessage is a tag-discriminated mid-match membership control packet.
+    discriminator:
+      type: u8
+    cases:
+      - name: change
+        tag: 13
+        message: MemberChange
+        doc: Join or leave announcement (tag 13).
+      - name: join_state_part
+        tag: 14
+        message: JoinStatePart
+        doc: Join state fragment (tag 14).

@@ -118,6 +118,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | --- | --- | --- |
 | `game/pkg/save` | Stable | Versioned JSON save slots, schema migrations, player settings and atomic backup recovery |
 | `game/pkg/online/netplay` | Experimental | Cross-target WebSocket/UDP/loopback transports, snapshot replication, lockstep/rollback |
+| `game/pkg/online/netplay/wire` | Experimental | YAML wire message schemas (`*.wire.yaml`), integer-only `qfloat`/`fixed` quantization, bit packing and zero-allocation Go codec generation |
 | `game/pkg/online/server` | Experimental | Headless fixed-step `Runner` for dedicated game servers with multiple match loops |
 | `game/pkg/online/liveops` | Experimental | Cloud sync interfaces (`CloudSync`), conflict handling and liveops helpers |
 | `game/pkg/online/accounts` | Experimental | Self-hosted player accounts, guest upgrades, OAuth/email, argon2id passwords |
@@ -162,6 +163,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/cmd/editor` | Experimental | Standalone desktop application entrypoint for the NSGo Game Editor |
 | `game/cmd/game` | Experimental | The `nsgo game` CLI |
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |
+| `game/cmd/gamewire` | Experimental | Generates and checks deterministic zero-allocation Go codecs from `*.wire.yaml` wire message schemas |
 | `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for running `nsgo game` outside a module |
 | `game/cmd/sizecheck` | Experimental | Verifies WebAssembly and mobile package size budgets |
 | `game/pkg/datatable` | Experimental | Typed YAML/CSV/JSON data tables with cell-level errors and hot reload |

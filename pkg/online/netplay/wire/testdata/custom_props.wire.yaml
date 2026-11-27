@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: props
+order: le
+enums:
+  - name: Stance
+    doc: Stance is a compact fighter posture state.
+    type: u8
+    values:
+      - name: idle
+        value: 0
+      - name: running
+        value: 1
+      - name: jumping
+        value: 2
+messages:
+  - name: FighterProps
+    doc: FighterProps is an example game-defined EntityState.Props payload using bit-packed fields, qfloat, fixed-point numbers, zigzag varints, and delta masking.
+    fields:
+      - name: team
+        type: bits
+        bits: 4
+      - name: combo
+        type: bits
+        bits: 4
+      - name: aim_x
+        type: qfloat
+        qfloat:
+          min: -1
+          max: 1
+          bits: 12
+      - name: aim_y
+        type: qfloat
+        qfloat:
+          min: -1
+          max: 1
+          bits: 12
+      - name: stance
+        type: Stance
+      - name: hp_delta
+        type: svarint
+        bits: 32
+      - name: stamina
+        type: fixed
+        fixed:
+          scale: 100
+          type: u16
+      - name: state
+        type: mask
+        mask:
+          type: u8
+          delta: true
+          fields:
+            - name: shield
+              type: qfloat
+              qfloat:
+                min: 0
+                max: 100
+                bits: 10
+            - name: tag
+              type: string
+            - name: emote
+              type: u8

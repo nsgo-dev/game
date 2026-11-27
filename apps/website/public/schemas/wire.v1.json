@@ -1,0 +1,541 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/wire.v1.json",
+  "title": "NSGo game netplay wire message schema (version 1)",
+  "description": "Schema is the root of a versioned *.wire.yaml document describing binary wire enums, messages, and discriminated unions.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema format version; it must equal CurrentVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "package": {
+      "description": "Package is the Go package name emitted by cmd/gamewire when -pkg is not specified.",
+      "type": "string",
+      "minLength": 1
+    },
+    "order": {
+      "description": "Order is the default byte order for multi-byte fields in this file (\"be\" or \"le\"; defaults to \"be\" when omitted).",
+      "type": "string",
+      "enum": [
+        "be",
+        "le"
+      ]
+    },
+    "imports": {
+      "description": "Imports lists relative paths to sibling *.wire.yaml files in the same package whose enums and messages this schema references.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enums": {
+      "description": "Enums declares named integer enumerations validated on decode.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Enum"
+      }
+    },
+    "messages": {
+      "description": "Messages declares binary wire message layouts.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Message"
+      }
+    },
+    "unions": {
+      "description": "Unions declares tag- or nibble-discriminated message envelopes.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Union"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "package"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "ArraySpec": {
+      "description": "ArraySpec configures a fixed-count ([N]T) or length-prefixed ([]T) array field.",
+      "type": "object",
+      "properties": {
+        "count": {
+          "description": "Count fixes the array length to a compile-time constant [Count]T; omit or set 0 for a variable-length slice.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "length": {
+          "description": "Length sets the element-count prefix for variable-length arrays (\"uvarint\", \"u8\", \"u16\", or \"u32\"; defaults to \"uvarint\").",
+          "type": "string",
+          "enum": [
+            "uvarint",
+            "u8",
+            "u16",
+            "u32"
+          ]
+        },
+        "order": {
+          "description": "Order overrides the byte order for a multi-byte Length prefix (and as default for elements when OfOrder is omitted).",
+          "type": "string",
+          "enum": [
+            "be",
+            "le"
+          ]
+        },
+        "of": {
+          "description": "Of is the element wire type: a primitive (\"u8\", \"u16\", \"u32\", \"u64\", \"i8\", \"i16\", \"i32\", \"i64\", \"uvarint\", \"svarint\", \"bool\", \"f32\") or the name of a declared Enum or Message.",
+          "type": "string",
+          "minLength": 1
+        },
+        "ofOrder": {
+          "description": "OfOrder overrides the byte order of multi-byte primitive elements (\"be\" or \"le\").",
+          "type": "string",
+          "enum": [
+            "be",
+            "le"
+          ]
+        },
+        "ofBits": {
+          "description": "OfBits sets the Go integer bit width (8, 16, 32, or 64) when Of is \"uvarint\" or \"svarint\".",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "maxLength": {
+          "description": "MaxLength bounds the decoded element count of variable-length arrays (0 means unbounded).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        }
+      },
+      "required": [
+        "of"
+      ],
+      "additionalProperties": false
+    },
+    "Discriminator": {
+      "description": "Discriminator configures the leading tag encoding of a Union.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "Type selects the discriminator wire encoding: \"u8\", \"u16\", \"uvarint\", or \"nibble\" (a 1-byte high/low bit split).",
+          "type": "string",
+          "enum": [
+            "u8",
+            "u16",
+            "uvarint",
+            "nibble"
+          ]
+        },
+        "order": {
+          "description": "Order overrides the byte order when Type is \"u16\" (\"be\" or \"le\").",
+          "type": "string",
+          "enum": [
+            "be",
+            "le"
+          ]
+        },
+        "highBits": {
+          "description": "HighBits is the width in bits (1..7) of the high field when Type is \"nibble\" (defaults to 4).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 7
+        },
+        "highName": {
+          "description": "HighName is the Go field name for the high bits when Type is \"nibble\" (defaults to \"version\").",
+          "type": "string"
+        },
+        "highValue": {
+          "description": "HighValue is the expected constant value of the high bits when Type is \"nibble\" (for example, 2 for replication v2).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "lowName": {
+          "description": "LowName is the logical name of the low tag bits when Type is \"nibble\" (defaults to \"type\").",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "Enum": {
+      "description": "Enum defines a named integer enumeration on the wire.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the Go type name of the enum, in PascalCase.",
+          "type": "string",
+          "minLength": 1
+        },
+        "doc": {
+          "description": "Doc is an optional comment emitted on the generated Go type.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type is the underlying integer wire type (\"u8\", \"u16\", \"u32\", \"u64\", or \"uvarint\").",
+          "type": "string",
+          "enum": [
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "uvarint"
+          ]
+        },
+        "order": {
+          "description": "Order overrides the schema byte order for multi-byte enum types (\"be\" or \"le\").",
+          "type": "string",
+          "enum": [
+            "be",
+            "le"
+          ]
+        },
+        "values": {
+          "description": "Values lists the enum's named members and their wire integers.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/EnumValue"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "values"
+      ],
+      "additionalProperties": false
+    },
+    "EnumValue": {
+      "description": "EnumValue is one named member of an Enum.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the member name, appended to the enum type name to form the Go constant.",
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "description": "Value is the unsigned wire integer value of the member.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        },
+        "doc": {
+          "description": "Doc is an optional comment emitted on the generated Go constant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "Field": {
+      "description": "Field defines one field of a Message or MaskSpec.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the field name (snake_case or lowerCamelCase); codegen converts it to an exported Go field name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "doc": {
+          "description": "Doc is an optional comment emitted on the generated Go struct field.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type is a built-in wire type (\"u8\", \"u16\", \"u32\", \"u64\", \"i8\", \"i16\", \"i32\", \"i64\", \"uvarint\", \"svarint\", \"bool\", \"f32\", \"qfloat\", \"fixed\", \"bytes\", \"string\", \"array\", \"bits\", \"mask\") or the name of a declared Enum or Message.",
+          "type": "string",
+          "minLength": 1
+        },
+        "order": {
+          "description": "Order overrides the message/schema byte order for multi-byte primitives, length prefixes, or mask integers (\"be\" or \"le\").",
+          "type": "string",
+          "enum": [
+            "be",
+            "le"
+          ]
+        },
+        "bits": {
+          "description": "Bits specifies the bit width for \"bits\" fields (1..64) or the Go integer width (8, 16, 32, or 64) for \"uvarint\"/\"svarint\" fields.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "const": {
+          "description": "Const fixes an unsigned integer, bits, or enum wire field to a single constant value written on encode and verified on decode.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        },
+        "qfloat": {
+          "description": "QFloat configures an integer-quantized float32 field when Type is \"qfloat\".",
+          "allOf": [
+            {
+              "$ref": "#/definitions/QFloatSpec"
+            }
+          ]
+        },
+        "fixed": {
+          "description": "Fixed configures an integer-scaled fixed-point float64 field when Type is \"fixed\".",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FixedSpec"
+            }
+          ]
+        },
+        "length": {
+          "description": "Length configures the length encoding for \"bytes\" and \"string\" fields (\"uvarint\", \"u8\", \"u16\", \"u32\", or \"rest\"; defaults to \"uvarint\").",
+          "type": "string",
+          "enum": [
+            "uvarint",
+            "u8",
+            "u16",
+            "u32",
+            "rest"
+          ]
+        },
+        "maxLength": {
+          "description": "MaxLength bounds the decoded byte length of variable-length \"bytes\" and \"string\" fields (0 means unbounded).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "array": {
+          "description": "Array configures a fixed-size or length-prefixed array field when Type is \"array\".",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ArraySpec"
+            }
+          ]
+        },
+        "mask": {
+          "description": "Mask configures a presence-bitmask group of optional fields when Type is \"mask\".",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MaskSpec"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "FixedSpec": {
+      "description": "FixedSpec configures a fixed-point number stored as an integer scaled by Scale.",
+      "type": "object",
+      "properties": {
+        "scale": {
+          "description": "Scale is the positive integer scale factor (wire integer equals round(value * Scale)).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854776000
+        },
+        "type": {
+          "description": "Type is the underlying integer wire type (\"i8\", \"i16\", \"i32\", \"i64\", \"u8\", \"u16\", \"u32\", \"u64\", \"uvarint\", or \"svarint\").",
+          "type": "string",
+          "enum": [
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "uvarint",
+            "svarint"
+          ]
+        },
+        "order": {
+          "description": "Order overrides the byte order for multi-byte integer wire types (\"be\" or \"le\").",
+          "type": "string",
+          "enum": [
+            "be",
+            "le"
+          ]
+        }
+      },
+      "required": [
+        "scale",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "MaskSpec": {
+      "description": "MaskSpec configures a presence-bitmask group that gates its fields in bit order (bit 0, bit 1, ...).",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "Type is the mask integer wire type (\"u8\", \"u16\", \"u32\", or \"u64\"; defaults to \"u8\").",
+          "type": "string",
+          "enum": [
+            "u8",
+            "u16",
+            "u32",
+            "u64"
+          ]
+        },
+        "order": {
+          "description": "Order overrides the byte order for multi-byte mask types (\"be\" or \"le\").",
+          "type": "string",
+          "enum": [
+            "be",
+            "le"
+          ]
+        },
+        "delta": {
+          "description": "Delta, when true, generates Diff<Message>(base, cur) and Apply<Message>(dst, delta) helpers comparing float bit patterns and byte slices directly.",
+          "type": "boolean"
+        },
+        "fields": {
+          "description": "Fields lists the gated fields in bit order (index i corresponds to bit 1<<i).",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/Field"
+          }
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "additionalProperties": false
+    },
+    "Message": {
+      "description": "Message defines one binary wire message struct and its ordered sequence of fields.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the Go struct name of the message, in PascalCase.",
+          "type": "string",
+          "minLength": 1
+        },
+        "doc": {
+          "description": "Doc is an optional comment emitted on the generated Go struct.",
+          "type": "string"
+        },
+        "order": {
+          "description": "Order overrides the schema default byte order for fields of this message (\"be\" or \"le\").",
+          "type": "string",
+          "enum": [
+            "be",
+            "le"
+          ]
+        },
+        "fields": {
+          "description": "Fields lists the wire fields in exact on-the-wire order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Field"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "QFloatSpec": {
+      "description": "QFloatSpec configures integer-only quantization of a float32 across [Min, Max] into Bits unsigned bits.",
+      "type": "object",
+      "properties": {
+        "min": {
+          "description": "Min is the finite lower bound mapped to 0.",
+          "type": "number"
+        },
+        "max": {
+          "description": "Max is the finite upper bound mapped to (1<<Bits)-1; it must be strictly greater than Min.",
+          "type": "number"
+        },
+        "bits": {
+          "description": "Bits is the quantized bit width, from 1 to 32.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        }
+      },
+      "required": [
+        "bits"
+      ],
+      "additionalProperties": false
+    },
+    "Union": {
+      "description": "Union defines a discriminated message envelope selecting one of Cases by a leading tag or nibble-split header byte.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the Go struct name of the union envelope, in PascalCase.",
+          "type": "string",
+          "minLength": 1
+        },
+        "doc": {
+          "description": "Doc is an optional comment emitted on the generated Go struct.",
+          "type": "string"
+        },
+        "discriminator": {
+          "description": "Discriminator configures how the leading tag (and optional nibble-split version) is encoded on the wire.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Discriminator"
+            }
+          ]
+        },
+        "cases": {
+          "description": "Cases maps discriminator tags to member messages.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/UnionCase"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "discriminator",
+        "cases"
+      ],
+      "additionalProperties": false
+    },
+    "UnionCase": {
+      "description": "UnionCase binds one discriminator tag value to a Message inside a Union.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the Go field name inside the union struct (defaults to Message when omitted).",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Tag is the discriminator tag value selecting this case.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        },
+        "message": {
+          "description": "Message is the name of the Message encoded after the discriminator.",
+          "type": "string",
+          "minLength": 1
+        },
+        "doc": {
+          "description": "Doc is an optional comment emitted on the generated tag constant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

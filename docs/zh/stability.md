@@ -67,6 +67,7 @@
 | `game/cmd/editor` | 实验性 | [场景编辑器](editor.md) |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
+| `game/cmd/gamewire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
@@ -124,6 +125,7 @@
 | `game/pkg/online/leaderboard/selfhost` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/pkg/online/liveops` | 实验性 | [liveops](liveops.md) |
 | `game/pkg/online/netplay` | 实验性 | [netplay](netplay.md) |
+| `game/pkg/online/netplay/wire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | 实验性 | [presence](presence.md) |
 | `game/pkg/online/server` | 实验性 | [server](server.md) |
 | `game/pkg/particles` | 实验性 | [particles](particles.md) |

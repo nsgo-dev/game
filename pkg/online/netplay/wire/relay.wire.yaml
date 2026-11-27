@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: wire
+order: be
+messages:
+  - name: RelayFrame
+    doc: RelayFrame is the version 1 outer frame exchanged between a RelayTransport and a Relay server.
+    fields:
+      - name: version
+        type: u8
+        const: 1
+      - name: peer
+        type: u32
+      - name: body
+        type: bytes
+        length: rest
+  - name: RelayMembers
+    doc: RelayMembers is the control body (when RelayFrame.Peer is 0) announcing the sorted members of a relay session.
+    fields:
+      - name: kind
+        type: u8
+        const: 1
+      - name: epoch
+        type: u32
+      - name: peers
+        type: array
+        array:
+          length: u16
+          of: u32
+  - name: RelayUnreliable
+    doc: RelayUnreliable is a peer-to-peer unreliable body following tag 0x01.
+    fields:
+      - name: seq
+        type: u32
+      - name: payload
+        type: bytes
+        length: rest
+  - name: RelayReliable
+    doc: RelayReliable is a peer-to-peer reliable body following tag 0x02.
+    fields:
+      - name: seq
+        type: u32
+      - name: payload
+        type: bytes
+        length: rest
+  - name: RelayAck
+    doc: RelayAck is a cumulative plus selective acknowledgment body following tag 0x03.
+    fields:
+      - name: next
+        type: u32
+      - name: mask
+        type: u64
+unions:
+  - name: RelayBody
+    doc: RelayBody is the tag-discriminated end-to-end body carried inside a peer-addressed RelayFrame.
+    discriminator:
+      type: u8
+    cases:
+      - name: unreliable
+        tag: 1
+        message: RelayUnreliable
+        doc: Unreliable peer datagram (0x01).
+      - name: reliable
+        tag: 2
+        message: RelayReliable
+        doc: Reliable ordered peer segment (0x02).
+      - name: ack
+        tag: 3
+        message: RelayAck
+        doc: Cumulative + 64-bit SACK acknowledgment (0x03).

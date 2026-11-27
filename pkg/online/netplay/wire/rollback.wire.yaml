@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: wire
+order: be
+messages:
+  - name: InputFrame
+    doc: InputFrame is a 20-byte deterministic per-tick player input sample exchanged by lockstep and rollback sessions.
+    fields:
+      - name: tick
+        type: u32
+      - name: peer
+        type: u32
+      - name: bits
+        type: u64
+      - name: axes
+        type: array
+        array:
+          count: 2
+          of: i16
+  - name: SingleInput
+    doc: SingleInput carries one InputFrame following tag 10.
+    fields:
+      - name: input
+        type: InputFrame
+  - name: InputBundle
+    doc: InputBundle carries a 1-byte counted list of redundant InputFrames following tag 11.
+    fields:
+      - name: inputs
+        type: array
+        array:
+          length: u8
+          of: InputFrame
+  - name: ChecksumMsg
+    doc: ChecksumMsg carries a peer's 64-bit simulation state checksum for tick following tag 12.
+    fields:
+      - name: tick
+        type: u32
+      - name: peer
+        type: u32
+      - name: checksum
+        type: u64
+unions:
+  - name: RollbackMessage
+    doc: RollbackMessage is a tag-discriminated lockstep or rollback input/checksum packet.
+    discriminator:
+      type: u8
+    cases:
+      - name: single_input
+        tag: 10
+        message: SingleInput
+        doc: Single input sample (tag 10).
+      - name: input_bundle
+        tag: 11
+        message: InputBundle
+        doc: Redundant input bundle (tag 11).
+      - name: checksum
+        tag: 12
+        message: ChecksumMsg
+        doc: Periodic desync checksum (tag 12).

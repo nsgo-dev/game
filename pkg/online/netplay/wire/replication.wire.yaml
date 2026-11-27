@@ -1,0 +1,128 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: wire
+order: le
+messages:
+  - name: EntityRecord
+    doc: EntityRecord encodes one entity ID and its presence-masked ComponentState fields in replication v2.
+    fields:
+      - name: id
+        type: uvarint
+        bits: 32
+      - name: fields
+        type: mask
+        mask:
+          type: u8
+          delta: true
+          fields:
+            - name: kind
+              type: uvarint
+              bits: 16
+            - name: x
+              type: f32
+            - name: "y"
+              type: f32
+            - name: vx
+              type: f32
+            - name: vy
+              type: f32
+            - name: rotation
+              type: f32
+            - name: flags
+              type: uvarint
+              bits: 32
+            - name: props
+              type: bytes
+  - name: SnapshotFull
+    doc: SnapshotFull is a full replication v2 world snapshot following the nibble header byte.
+    fields:
+      - name: epoch
+        type: u32
+      - name: tick
+        type: uvarint
+        bits: 32
+      - name: entities
+        type: array
+        array:
+          of: EntityRecord
+  - name: SnapshotDelta
+    doc: SnapshotDelta is a delta replication v2 world snapshot relative to baseline_tick.
+    fields:
+      - name: epoch
+        type: u32
+      - name: tick
+        type: uvarint
+        bits: 32
+      - name: baseline_tick
+        type: uvarint
+        bits: 32
+      - name: despawns
+        type: array
+        array:
+          of: uvarint
+          ofBits: 32
+      - name: updates
+        type: array
+        array:
+          of: EntityRecord
+  - name: SnapshotAck
+    doc: SnapshotAck acknowledges receipt of a replication v2 snapshot tick for epoch.
+    fields:
+      - name: epoch
+        type: u32
+      - name: tick
+        type: uvarint
+        bits: 32
+  - name: ResyncRequest
+    doc: ResyncRequest asks the server for a full replication v2 snapshot in epoch.
+    fields:
+      - name: epoch
+        type: u32
+  - name: SnapshotFullPart
+    doc: SnapshotFullPart carries one fragment of a split full replication v2 snapshot.
+    fields:
+      - name: epoch
+        type: u32
+      - name: tick
+        type: uvarint
+        bits: 32
+      - name: index
+        type: uvarint
+        bits: 32
+      - name: total
+        type: uvarint
+        bits: 32
+      - name: entities
+        type: array
+        array:
+          of: EntityRecord
+unions:
+  - name: ReplicationMessage
+    doc: ReplicationMessage is a version 2 replication packet whose leading byte packs protocol version (high nibble = 2) and message type (low nibble = 1..5).
+    discriminator:
+      type: nibble
+      highBits: 4
+      highName: version
+      highValue: 2
+      lowName: type
+    cases:
+      - name: full
+        tag: 1
+        message: SnapshotFull
+        doc: Full snapshot (type 1).
+      - name: delta
+        tag: 2
+        message: SnapshotDelta
+        doc: Delta snapshot (type 2).
+      - name: ack
+        tag: 3
+        message: SnapshotAck
+        doc: Snapshot acknowledgment (type 3).
+      - name: resync
+        tag: 4
+        message: ResyncRequest
+        doc: Full snapshot resync request (type 4).
+      - name: full_part
+        tag: 5
+        message: SnapshotFullPart
+        doc: Split full snapshot part (type 5).
