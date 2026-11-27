@@ -201,6 +201,24 @@ return postfx.View{
 - 把 `Amount` 或 `Row` 设为 `core.AnimatedNode`，即可随平台帧时钟平滑淡入或在调色板之间过渡，无需重新上传纹理。
 - 如需在视图上动态更换效果纹理而不重新编译效果链，可设置 `View.Textures` 或 `View.TexturesFunc`（自建 `core.Shader` 时用 `Chain.Images`，无头测试中用 `Chain.ReferenceWithTextures`）。
 
+## 色觉滤镜
+
+`ColorVisionEffect(mode, severity, correct)` 返回一个现成的帧后处理效果：当 `correct == false` 时按与 `a11y.Simulate` 相同的线性 RGB Viénot/Brettel/Machado 矩阵模拟色觉缺陷；当 `correct == true` 时执行达尔顿矫正（daltonization），将缺失的色度对比转移到玩家可分辨的通道。支持 `ColorVisionNone`、`ColorVisionProtanopia`、`ColorVisionDeuteranopia`、`ColorVisionTritanopia` 与 `ColorVisionHighContrast`（矫正时围绕中灰增强 sRGB 明暗对比，模拟时原样透传）。
+
+```go
+// 直接从 a11y.Assist 读取玩家的色盲模式与强度：
+var passes []postfx.Effect
+passes = append(passes, postfx.Bloom())
+if cvd, ok := assist.ColorVisionFilter(); ok {
+	passes = append(passes, cvd)
+}
+post := postfx.MustCompile(passes...)
+```
+
+- `severity` 裁剪到 `[0, 1]`（NaN 视作 `0`）。当 `mode` 为 `ColorVisionNone` 或 `severity <= 0` 时，效果原样透传输入。
+- `ColorVisionMatrix(mode, severity, correct)` 直接返回 3×3 线性 RGB 矩阵；中性灰在所有缺陷模式下保持不变，像素的预乘 alpha 完整保留。
+- 每个输出点仅读取一次输入，因此 `ColorVisionEffect` 可以放在 `Bloom` 等多次采样通道之后而不会放大采样次数，并自带与 `a11y.Simulate` 一致的 CPU `Reference` 供无头测试验证。
+
 ## 参考图
 
 无头测试没有 GPU，因此 `Chain.Reference(frame, width, height, uniforms)` 用各效果的 `Reference` 函数在 CPU 上绘制效果链，使用 `View` 会设置的各效果 uniform，并像 GPU 一样把每个输出像素的中心映射到画面上。`Float` 读取数值 uniform，未给出的 uniform 为 0，与 GPU 一致。将结果与 `gametest` 的 golden PNG 比较：

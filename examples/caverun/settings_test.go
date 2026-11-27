@@ -110,7 +110,7 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	pressPad(app, gamepad.ButtonSouth)    // select zh-Hans
 
 	// --- 5. Accessibility tab (switch with RB) ---
-	// Controls: [0] Captions, [1] SFXCaptions, [2] TextScale, [3] HighContrast, [4] ReduceMotion, [5] ScreenShake, [6] ReduceFlashes, [7] ColorBlind, [8] GameSpeed, [9] Invincibility, [10] AutoAim, [11] HoldToToggle
+	// Controls: [0] Captions, [1] SFXCaptions, [2] TextScale, [3] HighContrast, [4] ReduceMotion, [5] ScreenShake, [6] ReduceFlashes, [7] ColorBlind, [8] ColorBlindSeverity, [9] GameSpeed, [10] Invincibility, [11] AutoAim, [12] HoldToToggle
 	pressPad(app, gamepad.ButtonRB)
 	if g.settingsMenu.Tab() != gameui.SettingsTabAccessibility {
 		t.Fatalf("tab = %v, want accessibility", g.settingsMenu.Tab())
@@ -132,6 +132,9 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	pressPad(app, gamepad.ButtonSouth)
 	pressPad(app, gamepad.ButtonDPadDown) // ColorBlind -> protanopia
 	pressPad(app, gamepad.ButtonDPadRight)
+	pressPad(app, gamepad.ButtonDPadDown) // ColorBlindSeverity -> 0.8
+	pressPad(app, gamepad.ButtonDPadLeft)
+	pressPad(app, gamepad.ButtonDPadLeft)
 	pressPad(app, gamepad.ButtonDPadDown) // GameSpeed -> 0.75
 	pressPad(app, gamepad.ButtonDPadLeft)
 	pressPad(app, gamepad.ButtonDPadDown) // Invincibility = true

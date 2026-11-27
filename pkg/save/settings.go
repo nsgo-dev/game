@@ -194,7 +194,12 @@ type AccessibilitySettings struct {
 	// ColorBlindMode is the canonical color-vision mode ("none", "protanopia", "deuteranopia", "tritanopia", or "high-contrast").
 	// "normal" is accepted on load and normalized to "none".
 	ColorBlindMode string `json:"color_blind_mode,omitempty"`
-	ReduceMotion   bool   `json:"reduce_motion"`
+	// ColorBlindSeverity scales the color-vision frame filter intensity in [0, 1] (1.0 by default).
+	// When ColorBlindSeveritySet is false and ColorBlindSeverity is 0, EffectiveColorBlindSeverity returns 1.0.
+	ColorBlindSeverity float64 `json:"color_blind_severity"`
+	// ColorBlindSeveritySet reports whether ColorBlindSeverity was set explicitly (including 0.0).
+	ColorBlindSeveritySet bool `json:"color_blind_severity_set,omitempty"`
+	ReduceMotion          bool `json:"reduce_motion"`
 	// ReduceMotionSet reports whether ReduceMotion was chosen explicitly (including false) rather than following core.Env.ReduceMotion.
 	ReduceMotionSet bool `json:"reduce_motion_set,omitempty"`
 	HighContrast    bool `json:"high_contrast"`
@@ -240,8 +245,34 @@ func NormalizeColorBlindMode(mode string) string {
 func (a *AccessibilitySettings) Validate() {
 	a.CaptionScale = clampPositiveRange(a.CaptionScale, MinCaptionScale, MaxCaptionScale, 1.0)
 	a.ColorBlindMode = NormalizeColorBlindMode(a.ColorBlindMode)
+	if a.ColorBlindSeveritySet || a.ColorBlindSeverity != 0 {
+		a.ColorBlindSeverity = clampUnit(a.ColorBlindSeverity, 1.0)
+	}
 	a.ScreenShake = clampUnit(a.ScreenShake, 1.0)
 	a.GameSpeed = clampPositiveRange(a.GameSpeed, MinGameSpeed, MaxGameSpeed, 1.0)
+}
+
+// SetColorBlindSeverity clamps v into [0, 1] (defaulting NaN to 1.0) and marks
+// ColorBlindSeveritySet so explicit 0.0 is preserved instead of defaulting to 1.0.
+func (a *AccessibilitySettings) SetColorBlindSeverity(v float64) {
+	a.ColorBlindSeverity = clampUnit(v, 1.0)
+	a.ColorBlindSeveritySet = true
+}
+
+// ClearColorBlindSeverity clears the explicit severity flag and restores the default 1.0.
+func (a *AccessibilitySettings) ClearColorBlindSeverity() {
+	a.ColorBlindSeverity = 1.0
+	a.ColorBlindSeveritySet = false
+}
+
+// EffectiveColorBlindSeverity returns the color-vision filter strength in [0, 1].
+// When ColorBlindSeveritySet is false and ColorBlindSeverity is 0, it defaults to 1.0
+// so structs that set only ColorBlindMode get a full-strength filter.
+func (a AccessibilitySettings) EffectiveColorBlindSeverity() float64 {
+	if a.ColorBlindSeveritySet || a.ColorBlindSeverity != 0 {
+		return clampUnit(a.ColorBlindSeverity, 1.0)
+	}
+	return 1.0
 }
 
 // SetReduceMotion records an explicit reduced-motion preference so it overrides
@@ -477,13 +508,14 @@ func DefaultSettings() Settings {
 		Camera: CameraSettings{FieldOfView: 90, CameraBob: 1, CameraSway: 1},
 		Locale: "",
 		Accessibility: AccessibilitySettings{
-			Captions:       false,
-			CaptionScale:   1.0,
-			ColorBlindMode: "none",
-			ReduceMotion:   false,
-			HighContrast:   false,
-			ScreenShake:    1.0,
-			GameSpeed:      1.0,
+			Captions:           false,
+			CaptionScale:       1.0,
+			ColorBlindMode:     "none",
+			ColorBlindSeverity: 1.0,
+			ReduceMotion:       false,
+			HighContrast:       false,
+			ScreenShake:        1.0,
+			GameSpeed:          1.0,
 		},
 	}
 }
