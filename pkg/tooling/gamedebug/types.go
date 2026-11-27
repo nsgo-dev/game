@@ -334,3 +334,15 @@ type NetSnapshot struct {
 	// Recent holds the most recent N decoded message events, oldest to newest.
 	Recent []NetMessageEvent
 }
+
+// PanicRecord holds a recovered panic recorded by gamedebug.RecordPanic, gamedebug.Recover or gamedebug.RecoverFunc.
+type PanicRecord struct {
+	// Time is when the panic was recorded (UTC).
+	Time time.Time `json:"time"`
+	// Value is the formatted panic value (fmt.Sprint(r)).
+	Value string `json:"value"`
+	// Stack is the goroutine stack trace captured when the panic was recorded.
+	Stack string `json:"stack"`
+	// Context optionally names where the panic was recovered (such as "loop.Update" or "scene.Draw").
+	Context string `json:"context,omitempty"`
+}

@@ -267,6 +267,22 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	if dbg.Console() == nil || dbg.Profiler() == nil || dbg.Memory() == nil || dbg.GC() == nil {
 		t.Fatal("Overlay release accessors returned nil")
 	}
+
+	// Panic recorder release stubs.
+	if rec := gamedebug.RecordPanic("boom", []byte("stack"), "ctx"); rec != (gamedebug.PanicRecord{}) {
+		t.Fatalf("RecordPanic in release = %+v, want zero", rec)
+	}
+	if rec, ok := gamedebug.Recover("ctx"); ok || rec != (gamedebug.PanicRecord{}) {
+		t.Fatalf("Recover in release = (%+v, %v), want zero/false", rec, ok)
+	}
+	ran := false
+	if rec, panicked := gamedebug.RecoverFunc("ctx", func() { ran = true }); !ran || panicked || rec != (gamedebug.PanicRecord{}) {
+		t.Fatalf("RecoverFunc in release ran=%v panicked=%v rec=%+v", ran, panicked, rec)
+	}
+	if rec, ok := gamedebug.LastPanic(); ok || rec != (gamedebug.PanicRecord{}) {
+		t.Fatalf("LastPanic in release = (%+v, %v), want zero/false", rec, ok)
+	}
+	gamedebug.ClearPanic()
 }
 
 func TestReleaseBuildLinksNoOverlayCode(t *testing.T) {

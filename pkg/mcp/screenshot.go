@@ -121,14 +121,16 @@ type OverlaysDrawn struct {
 
 // ScreenshotResult is the JSON result of game_screenshot.
 type ScreenshotResult struct {
-	Width         int           `json:"width"`
-	Height        int           `json:"height"`
-	Format        string        `json:"format"`
-	Scene         string        `json:"scene,omitempty"`
-	Path          string        `json:"path,omitempty"`
-	Bytes         int           `json:"bytes"`
-	PNGBase64     string        `json:"png_base64,omitempty"`
-	OverlaysDrawn OverlaysDrawn `json:"overlays_drawn"`
+	Width         int                      `json:"width"`
+	Height        int                      `json:"height"`
+	Format        string                   `json:"format"`
+	Scene         string                   `json:"scene,omitempty"`
+	Path          string                   `json:"path,omitempty"`
+	Bytes         int                      `json:"bytes"`
+	PNGBase64     string                   `json:"png_base64,omitempty"`
+	Baseline      string                   `json:"baseline,omitempty"`
+	Comparison    *ScreenshotCompareResult `json:"comparison,omitempty"`
+	OverlaysDrawn OverlaysDrawn            `json:"overlays_drawn"`
 	// SkippedOps counts, by draw operation kind (such as "DrawFillText" or "DrawEllipse"), what the software rasterizer did not draw when the frame was rendered rather than captured. A non-empty map means the image is partial.
 	SkippedOps map[string]int `json:"skipped_ops,omitempty"`
 	// SkippedImages counts image and atlas draws the software rasterizer left out because their source is not in memory (a URI, an "asset:" file or an Offscreen canvas) or could not be decoded. Use CaptureFrame to see them.
@@ -204,6 +206,42 @@ var schemaScreenshot = json.RawMessage(`{
 			"type": "string",
 			"description": "Relative .png file path inside Config.ScreenshotDir to write the PNG to instead of returning png_base64. Prefer it: png_base64 reaches an agent as text, not as an image."
 		},
+		"baseline": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 128,
+			"description": "Optional name to store this captured screenshot under in memory for later comparison with compare_to."
+		},
+		"compare_to": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Optional baseline name (previously saved via baseline) or project-relative .png file path to diff against."
+		},
+		"tolerance": {
+			"type": "integer",
+			"minimum": 0,
+			"maximum": 255,
+			"description": "Optional per-channel 8-bit tolerance (0..255, default 0 for exact gametest comparison) when compare_to is set."
+		},
+		"max_mismatched_pixels": {
+			"type": "integer",
+			"minimum": 0,
+			"description": "Optional maximum changed pixel count allowed for within_tolerance=true when compare_to is set."
+		},
+		"max_mismatched_percent": {
+			"type": "number",
+			"minimum": 0,
+			"maximum": 100,
+			"description": "Optional maximum changed pixel percentage (0..100) allowed for within_tolerance=true when compare_to is set."
+		},
+		"diff_path": {
+			"type": "string",
+			"description": "Optional relative .png path inside Config.ScreenshotDir to write the visual diff PNG to when compare_to is set."
+		},
+		"include_diff_image": {
+			"type": "boolean",
+			"description": "Optional: include diff_png_base64 in the comparison result when compare_to is set and diff_path is omitted (default false)."
+		},
 		"bounds": {
 			"type": "boolean",
 			"description": "Draw sprite bounding rectangles aligned with visible sprites in the scene."
@@ -276,7 +314,7 @@ func (b *Bridge) screenshotTools() []automation.Tool {
 	return []automation.Tool{
 		{
 			Name:        ToolScreenshot,
-			Description: "Capture the game view as a PNG image (returned as base64 or written inside ScreenshotDir), optionally with sprite bounds, physics collision shapes, grid, camera frame and labels aligned with sprites.",
+			Description: "Capture the game view as a PNG image (returned as base64 or written inside ScreenshotDir), optionally with sprite bounds, physics collision shapes, grid, camera frame and labels aligned with sprites, save a named baseline, or compare against a named baseline or project-relative PNG.",
 			InputSchema: schemaScreenshot,
 			Handler:     b.handleScreenshot,
 		},
@@ -284,19 +322,26 @@ func (b *Bridge) screenshotTools() []automation.Tool {
 }
 
 type screenshotArgs struct {
-	Scene           string              `json:"scene"`
-	Width           int                 `json:"width"`
-	Height          int                 `json:"height"`
-	Format          string              `json:"format"`
-	Path            string              `json:"path"`
-	Bounds          bool                `json:"bounds"`
-	CollisionShapes bool                `json:"collision_shapes"`
-	Physics         bool                `json:"physics"`
-	Grid            bool                `json:"grid"`
-	GridStep        float32             `json:"grid_step"`
-	Camera          bool                `json:"camera"`
-	Labels          bool                `json:"labels"`
-	Overlays        *ScreenshotOverlays `json:"overlays"`
+	Scene                string              `json:"scene"`
+	Width                int                 `json:"width"`
+	Height               int                 `json:"height"`
+	Format               string              `json:"format"`
+	Path                 string              `json:"path"`
+	Baseline             string              `json:"baseline"`
+	CompareTo            string              `json:"compare_to"`
+	Tolerance            int                 `json:"tolerance"`
+	MaxMismatchedPixels  int                 `json:"max_mismatched_pixels"`
+	MaxMismatchedPercent float64             `json:"max_mismatched_percent"`
+	DiffPath             string              `json:"diff_path"`
+	IncludeDiffImage     bool                `json:"include_diff_image"`
+	Bounds               bool                `json:"bounds"`
+	CollisionShapes      bool                `json:"collision_shapes"`
+	Physics              bool                `json:"physics"`
+	Grid                 bool                `json:"grid"`
+	GridStep             float32             `json:"grid_step"`
+	Camera               bool                `json:"camera"`
+	Labels               bool                `json:"labels"`
+	Overlays             *ScreenshotOverlays `json:"overlays"`
 }
 
 func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -348,6 +393,48 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 			return nil, errors.New("mcp: screenshot path requested but Config.ScreenshotDir is not configured")
 		}
 		cleanRelPath, err = sanitizeScreenshotPath(args.Path)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var baselineName string
+	if args.Baseline != "" {
+		baselineName, err = validateCaptureName("screenshot baseline", args.Baseline)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var (
+		compareImg   image.Image
+		compareSrc   string
+		cleanDiffRel string
+	)
+	if args.CompareTo == "" {
+		if args.Tolerance != 0 || args.MaxMismatchedPixels != 0 || args.MaxMismatchedPercent != 0 || args.DiffPath != "" || args.IncludeDiffImage {
+			return nil, errors.New("mcp: tolerance, max_mismatched_pixels, max_mismatched_percent, diff_path, and include_diff_image require compare_to")
+		}
+	} else {
+		if args.Tolerance < 0 || args.Tolerance > 255 {
+			return nil, fmt.Errorf("mcp: tolerance must be between 0 and 255 (got %d)", args.Tolerance)
+		}
+		if args.MaxMismatchedPixels < 0 {
+			return nil, fmt.Errorf("mcp: max_mismatched_pixels must be non-negative (got %d)", args.MaxMismatchedPixels)
+		}
+		if math.IsNaN(args.MaxMismatchedPercent) || math.IsInf(args.MaxMismatchedPercent, 0) || args.MaxMismatchedPercent < 0 || args.MaxMismatchedPercent > 100 {
+			return nil, fmt.Errorf("mcp: max_mismatched_percent must be between 0 and 100 (got %v)", args.MaxMismatchedPercent)
+		}
+		if args.DiffPath != "" {
+			if strings.TrimSpace(b.cfg.ScreenshotDir) == "" {
+				return nil, errors.New("mcp: screenshot diff_path requested but Config.ScreenshotDir is not configured")
+			}
+			cleanDiffRel, err = sanitizeScreenshotPath(args.DiffPath)
+			if err != nil {
+				return nil, err
+			}
+		}
+		compareImg, compareSrc, err = b.resolveCompareTarget(args.CompareTo)
 		if err != nil {
 			return nil, err
 		}
@@ -461,12 +548,45 @@ func (b *Bridge) handleScreenshot(ctx context.Context, raw json.RawMessage) (any
 	}
 	pngBytes := buf.Bytes()
 
+	var decodedPNG image.Image
+	if compareImg != nil || baselineName != "" {
+		decodedPNG, err = png.Decode(bytes.NewReader(pngBytes))
+		if err != nil {
+			return nil, fmt.Errorf("mcp: decode encoded screenshot png: %w", err)
+		}
+	}
+
+	var comparison *ScreenshotCompareResult
+	if compareImg != nil {
+		comparison, err = compareScreenshotImages(decodedPNG, compareImg, screenshotDiffOptions{
+			compareTo:            args.CompareTo,
+			source:               compareSrc,
+			channelTolerance:     uint8(args.Tolerance),
+			maxMismatchedPixels:  args.MaxMismatchedPixels,
+			maxMismatchedPercent: args.MaxMismatchedPercent,
+			buildDiffImage:       cleanDiffRel != "" || args.IncludeDiffImage,
+			diffDir:              b.cfg.ScreenshotDir,
+			diffRelPath:          cleanDiffRel,
+			includeDiffBase64:    args.IncludeDiffImage && cleanDiffRel == "",
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	if baselineName != "" {
+		if _, err := b.ensureScreenshotBaselineStore().put(baselineName, decodedPNG); err != nil {
+			return nil, err
+		}
+	}
+
 	res := ScreenshotResult{
 		Width:         width,
 		Height:        height,
 		Format:        format,
 		Scene:         sceneName,
 		Bytes:         len(pngBytes),
+		Baseline:      baselineName,
+		Comparison:    comparison,
 		OverlaysDrawn: drawn,
 		SkippedOps:    skippedOps,
 		SkippedImages: skippedImages,

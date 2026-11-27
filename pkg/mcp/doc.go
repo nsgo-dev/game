@@ -8,6 +8,8 @@
 //   - game_entity_inspect: inspect a single live entity by its stable reference, returning metadata, hierarchy links and all readable component values.
 //   - game_component_get: read one component's value on a live entity by reference and component name.
 //   - game_state_dump: capture a deterministic snapshot of entities, codec components, scene state, loop counters and StateValues as structured JSON and canonical statedump YAML.
+//   - game_state_capture: capture a deterministic snapshot via statedump.Capture and store it in memory under a name (bounded count and size).
+//   - game_state_diff: diff two named state captures (or one capture against current live state) using statedump.Diff, returning unified YAML diff lines, changed entity refs and structured field diffs.
 //   - game_loop_status: report the game loop's paused state, effective time scale, fixed step rate, total steps, simulated game time and whether random seeding is configured.
 //   - game_loop_pause: pause the game loop without accumulating a catch-up backlog.
 //   - game_loop_resume: resume a paused game loop.
@@ -40,7 +42,8 @@
 //   - game_assets_list: list loaded asset groups, asset keys/types, load states, and estimated memory usage in bytes.
 //   - game_asset_reload: reload a named asset, URI, or path (or all loaded assets) in place and report structured reload diagnostics.
 //   - game_assets_reload_group: reload every loaded asset in a named asset group in place.
-//   - game_screenshot: capture the game view as PNG, optionally with aligned sprite bounds, physics collision shapes, reference grid, camera frame and labels drawn on top.
+//   - game_screenshot: capture the game view as PNG, optionally with aligned sprite bounds, physics collision shapes, reference grid, camera frame and labels drawn on top, save a named baseline, or diff against a named baseline or relative PNG with changed-region boxes, tolerance checks and optional diff PNG.
+//   - game_log_read: read recent structured log entries from the Bridge's bounded slog ring buffer (with cursor, level, substring and limit filtering) plus the last panic recorded by pkg/tooling/gamedebug.
 //
 // Components registered on an [entities.World] with [entities.RegisterCodec] are readable and editable automatically. Transient or non-saved components can also be exposed with [RegisterComponent], [RegisterComponentFunc], [RegisterMutableComponent] or [RegisterComponentEditor], and built-in [entities.Transform2D], [entities.WorldTransform2D] and [sceneformat.ObjectRef] components are surfaced automatically when present and not already registered under another name. Prefabs can be registered via [Config.Prefabs], [Bridge.RegisterPrefab], [Bridge.RegisterEntityPrefab] or [Bridge.RegisterScenePrefab].
 //
