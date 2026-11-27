@@ -1,9 +1,11 @@
 package main
 
 import (
+	"math"
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/gametest"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -262,19 +264,125 @@ func TestTouchControlsStayInsideTheSafeArea(t *testing.T) {
 }
 
 func TestTouchControlsLeaveTheExplorerAtSpawnUncovered(t *testing.T) {
-	// A landscape iPhone, where the letterboxed canvas puts the spawn close to the d-pad.
-	app, g := startCaveRun(t, nsgotest.Size(844, 390), nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: core.Edges{Left: 47, Right: 47, Bottom: 21}}))
-	startPlaying(t, app, g)
-	size := g.currentViewSize()
-	b := g.level.playerBody.Bounds()
-	topLeft := g.viewport.GameToView(size, g.level.cam.WorldToView(core.Point{X: core.Points(b.X), Y: core.Points(b.Y)}))
-	bottomRight := g.viewport.GameToView(size, g.level.cam.WorldToView(core.Point{X: core.Points(b.X + b.W), Y: core.Points(b.Y + b.H)}))
-	explorer := core.Bounds{Origin: topLeft, Size: core.Size{Width: bottomRight.X - topLeft.X, Height: bottomRight.Y - topLeft.Y}}
-	for _, id := range []string{"move", "jump"} {
-		if f := controlFrame(t, g, id); overlaps(f, explorer) {
-			t.Fatalf("the %s control %+v covers the explorer at spawn %+v", id, f, explorer)
-		}
+	safe := core.Edges{Left: 47, Right: 47, Bottom: 21}
+	for _, tc := range []struct {
+		name string
+		w, h core.Points
+	}{
+		{name: "iphone14_landscape", w: 844, h: 390},
+		{name: "landscape_browser_340", w: 750, h: 340},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, g := startCaveRun(t, nsgotest.Size(tc.w, tc.h), nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: safe}))
+			startPlaying(t, app, g)
+			size := g.currentViewSize()
+			vp := g.effectiveViewport(size)
+			// Check the full 16x16 explorer sprite (which encloses the 10x14 hitbox).
+			b := g.level.playerBody.Bounds()
+			sx, sy := b.X+playerSpriteOX, b.Y+playerSpriteOY
+			topLeft := vp.GameToView(size, g.level.cam.WorldToView(core.Point{X: core.Points(sx), Y: core.Points(sy)}))
+			bottomRight := vp.GameToView(size, g.level.cam.WorldToView(core.Point{X: core.Points(sx + 16), Y: core.Points(sy + 16)}))
+			explorer := core.Bounds{Origin: topLeft, Size: core.Size{Width: bottomRight.X - topLeft.X, Height: bottomRight.Y - topLeft.Y}}
+			for _, id := range []string{"move", "jump"} {
+				if f := controlFrame(t, g, id); overlaps(f, explorer) {
+					t.Fatalf("the %s control %+v covers the explorer at spawn %+v", id, f, explorer)
+				}
+			}
+		})
 	}
+}
+
+func TestLandscapePhonePlayfieldFillsViewHeight(t *testing.T) {
+	safe := core.Edges{Left: 47, Right: 47, Bottom: 21}
+
+	t.Run("iphone14_844x390_fills_height_at_over_2x", func(t *testing.T) {
+		app, g := startCaveRun(t, nsgotest.Size(844, 390), nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: safe}))
+		startPlaying(t, app, g)
+
+		// The HUD overlays the canvas rather than taking a row above it, so the canvas gets the full view.
+		canvas := app.Find("id:game-canvas")
+		if got := canvas.Bounds().Size; got.Width != 844 || got.Height != 390 {
+			t.Fatalf("game-canvas size = %+v, want 844x390", got)
+		}
+
+		size := g.currentViewSize()
+		pl := g.effectiveViewport(size).Layout(size)
+		if pl.ScaleX < 2 || pl.ScaleY < 2 {
+			t.Fatalf("landscape phone viewport scale = (%v, %v), want >= 2", pl.ScaleX, pl.ScaleY)
+		}
+		if math.Abs(float64(pl.Rect.Size.Height-size.Height)) > 0.5 {
+			t.Fatalf("playfield height = %v, want full view height %v", pl.Rect.Size.Height, size.Height)
+		}
+		coverage := float64(pl.Rect.Size.Width*pl.Rect.Size.Height) / float64(size.Width*size.Height)
+		if coverage < 0.75 {
+			t.Fatalf("playfield coverage = %.2f, want >= 0.75 (rect=%+v)", coverage, pl.Rect)
+		}
+
+		// Verify the recorded canvas operations actually scale by >= 2 and sample pixel art with nearest-neighbor.
+		var sawViewportScale bool
+		for _, op := range canvas.Ops {
+			if op.Kind == core.DrawScale && op.X >= 2 && op.Y >= 2 {
+				sawViewportScale = true
+				break
+			}
+		}
+		if !sawViewportScale {
+			t.Fatal("expected game-canvas draw ops to apply a >= 2x viewport scale")
+		}
+		draws := gametest.ImageDraws(canvas.Ops)
+		if len(draws) == 0 {
+			t.Fatal("expected game-canvas to draw tiles and sprites")
+		}
+		for i, img := range draws {
+			if img.Sampling != core.ImageSamplingNearest {
+				t.Fatalf("image draw %d sampling = %v, want ImageSamplingNearest", i, img.Sampling)
+			}
+		}
+	})
+
+	t.Run("shorter_landscape_phone_750x340_never_drops_to_1x", func(t *testing.T) {
+		app, g := startCaveRun(t, nsgotest.Size(750, 340), nsgotest.Environment(core.Environment{Idiom: core.IdiomPhone, SafeArea: safe}))
+		startPlaying(t, app, g)
+
+		size := g.currentViewSize()
+		pl := g.effectiveViewport(size).Layout(size)
+		if pl.ScaleX < 1.8 || pl.ScaleY < 1.8 {
+			t.Fatalf("750x340 viewport scale = (%v, %v), want fractional scale > 1.8 instead of 1x", pl.ScaleX, pl.ScaleY)
+		}
+		if math.Abs(float64(pl.Rect.Size.Height-size.Height)) > 0.5 {
+			t.Fatalf("playfield height = %v, want full view height %v", pl.Rect.Size.Height, size.Height)
+		}
+		coverage := float64(pl.Rect.Size.Width*pl.Rect.Size.Height) / float64(size.Width*size.Height)
+		if coverage < 0.75 {
+			t.Fatalf("playfield coverage = %.2f, want >= 0.75 (rect=%+v)", coverage, pl.Rect)
+		}
+	})
+
+	t.Run("desktop_keeps_integer_scaling_at_2x_or_higher", func(t *testing.T) {
+		app, g := startCaveRun(t, nsgotest.Size(1000, 600), nsgotest.Environment(core.Environment{Idiom: core.IdiomDesktop, Pointer: core.PointerFine}))
+		startPlaying(t, app, g)
+
+		size := g.currentViewSize()
+		vp := g.effectiveViewport(size)
+		if !vp.IntegerScale {
+			t.Fatal("desktop 1000x600 unexpectedly relaxed IntegerScale")
+		}
+		pl := vp.Layout(size)
+		if pl.ScaleX != 3 || pl.ScaleY != 3 {
+			t.Fatalf("desktop 1000x600 scale = (%v, %v), want exact integer 3x", pl.ScaleX, pl.ScaleY)
+		}
+	})
+
+	t.Run("compact_desktop_window_below_2x_avoids_1x_fallback", func(t *testing.T) {
+		app, g := startCaveRun(t, nsgotest.Size(750, 340), nsgotest.Environment(core.Environment{Idiom: core.IdiomDesktop, Pointer: core.PointerFine}))
+		startPlaying(t, app, g)
+
+		size := g.currentViewSize()
+		pl := g.effectiveViewport(size).Layout(size)
+		if pl.ScaleX < 1.8 || math.Abs(float64(pl.Rect.Size.Height-size.Height)) > 0.5 {
+			t.Fatalf("compact desktop 750x340 placement = %+v, want fractional fill of 340pt height", pl)
+		}
+	})
 }
 
 func overlaps(a, b core.Bounds) bool {

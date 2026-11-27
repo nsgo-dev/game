@@ -140,7 +140,8 @@ func newCaveRun(cx *core.Scope) (*caveRun, error) {
 
 	// Map view pointer coordinates into 320x180 virtual canvas coordinates.
 	g.actions.MapPoint = func(p core.Point) (core.Point, bool) {
-		return g.viewport.ViewToGame(g.currentViewSize(), p)
+		size := g.currentViewSize()
+		return g.effectiveViewport(size).ViewToGame(size, p)
 	}
 	bindControls(g.actions)
 	touch, err := input.NewTouchControls(cx, touchLayout)
@@ -428,10 +429,28 @@ func (g *caveRun) onLoopDraw(alpha float64) {
 	g.frameTick.Update(func(n int) int { return n + 1 })
 }
 
+// effectiveViewport returns the viewport used to render and hit-test a view of size. On touch-first devices (phones or coarse pointers) or whenever whole-integer scaling would drop below 2x (such as a landscape phone browser whose height is under 360 pt), it relaxes IntegerScale to fractional ModeFit so the playfield fills the view height instead of shrinking to 1x; drawCanvas disables image smoothing so pixel art stays crisp.
+func (g *caveRun) effectiveViewport(size core.Size) screen.Viewport {
+	vp := g.viewport
+	if !vp.IntegerScale || vp.Width <= 0 || vp.Height <= 0 || size.Width <= 0 || size.Height <= 0 {
+		return vp
+	}
+	touchFirst := g.env != nil && (g.env.Idiom() == core.IdiomPhone || g.env.Pointer() == core.PointerCoarse)
+	sx := float64(size.Width) / float64(vp.Width)
+	sy := float64(size.Height) / float64(vp.Height)
+	if touchFirst || min(sx, sy) < 2 {
+		vp.IntegerScale = false
+	}
+	return vp
+}
+
 func (g *caveRun) drawCanvas(d *core.Drawing, size core.Size) {
 	// Subscribe canvas redraws to the fixed-step game loop frames.
 	_ = g.frameTick.Get()
-	g.viewport.Draw(d, size, func(d *core.Drawing, vsize core.Size) {
+	vp := g.effectiveViewport(size)
+	vp.Draw(d, size, func(d *core.Drawing, vsize core.Size) {
+		// Nearest-neighbor sampling keeps pixel-art tiles, sprites and bitmap text sharp at both integer and fractional scales, and avoids atlas edge bleeding.
+		d.SetImageSmoothing(false)
 		// Clear background to deep cave indigo.
 		d.SetFillColor(core.RGB(0x131628)).FillRect(0, 0, float32(vsize.Width), float32(vsize.Height))
 		g.scenes.Draw(d, vsize, g.alpha)
