@@ -98,6 +98,12 @@ describe('copy and showcase completeness', () => {
       assert.ok(copy.playground.exampleTitle('Cave Run').includes('Cave Run'))
       assert.ok(copy.playground.running('Cave Run').includes('Cave Run'))
       assert.ok(copy.playground.download('2.4').includes('2.4'))
+      assert.ok(copy.playground.playFullscreen.length > 0, `${lang} playground.playFullscreen`)
+      assert.ok(copy.playground.exitFullscreen.length > 0, `${lang} playground.exitFullscreen`)
+      assert.ok(copy.playground.touchHint.length > 0, `${lang} playground.touchHint`)
+      assert.ok(copy.playground.rotateLandscape.length > 0, `${lang} playground.rotateLandscape`)
+      assert.ok(copy.playground.rotatePortrait.length > 0, `${lang} playground.rotatePortrait`)
+      assert.ok(copy.playground.continueAnyway.length > 0, `${lang} playground.continueAnyway`)
     }
   })
 

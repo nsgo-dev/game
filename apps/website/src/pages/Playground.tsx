@@ -1,14 +1,30 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { examples, sources } from 'virtual:playground'
 import { CopyCommand } from '../components/CopyCommand'
 import { Icon } from '../components/Icon'
 import { LocaleLink } from '../components/LocaleLink'
-import { PLAYGROUND_BUILDS, type PlaygroundId } from '../content/playground'
+import { PLAYGROUND_BUILDS, type PlaygroundId, playgroundEntry } from '../content/playground'
 import { SHOWCASE_ENTRIES, type ShowcaseEntry } from '../content/showcase'
 import type { PlaygroundExample, PlaygroundSource } from '../content/types'
 import { type Copy, copies } from '../copy'
 import { type Lang, pageHead, useLang } from '../i18n'
 import { GITHUB_URL } from '../links'
+import {
+  createMobilePlayState,
+  enterMobilePlay,
+  exitStageFullscreen,
+  fullscreenElementOf,
+  hintKind,
+  isMobilePlayActive,
+  lockFrameTouch,
+  lockPageScroll,
+  mobilePlayReducer,
+  readCoarsePointer,
+  readScreenOrientation,
+  shouldLockPageScroll,
+  shouldShowRotatePrompt,
+  tryUnlockOrientation,
+} from './playgroundMobile'
 
 // The playground runs each example's web build, made ahead by scripts/build-playground.ts, in a frame beside its source. Nothing is compiled in the browser: to change an example, its page shows how to run it with the dev server, which rebuilds and reloads it on each save.
 
@@ -125,30 +141,177 @@ export function PlaygroundExamplePage({ example }: { example: PlaygroundExample 
   )
 }
 
-// Stage loads the game only when asked, since its WebAssembly is megabytes, and restarts it by loading its frame again.
+// Stage loads the game only when asked, since its WebAssembly is megabytes, and restarts it by loading its frame again. On coarse pointers it offers a mobile play mode that uses native fullscreen when available and falls back to a fixed full-viewport overlay where element fullscreen is unavailable, locking page scroll while playing and prompting to rotate when the example expects another orientation.
 function Stage({ example, name, copy }: { example: PlaygroundExample; name: string; copy: PlaygroundCopy }) {
   // run counts the starts, 0 before the first; each remounts the frame.
   const [run, setRun] = useState(0)
+  const orientation = playgroundEntry(example.id).orientation
+  const [mobile, dispatch] = useReducer(mobilePlayReducer, orientation, (pref) => createMobilePlayState(pref))
+  const stage = useRef<HTMLElement>(null)
   const frame = useRef<HTMLIFrameElement>(null)
+  const frameTouchUnlock = useRef<(() => void) | null>(null)
   const url = buildUrl(example.id)
   const megabytes = (example.wasm / 1_000_000).toFixed(1)
+  const active = isMobilePlayActive(mobile)
+  const showRotate = shouldShowRotatePrompt(mobile)
+  const hint = hintKind(mobile)
+
   // A game reads the keyboard only while its frame has the focus.
-  const focus = () => {
+  const focus = useCallback(() => {
     frame.current?.focus()
     frame.current?.contentWindow?.focus()
+  }, [])
+
+  const applyFrameTouchLock = useCallback(() => {
+    frameTouchUnlock.current?.()
+    frameTouchUnlock.current = active ? lockFrameTouch(frame.current?.contentDocument) : null
+  }, [active])
+
+  const onFrameLoad = useCallback(() => {
+    focus()
+    applyFrameTouchLock()
+  }, [focus, applyFrameTouchLock])
+
+  const startInline = () => {
+    setRun((n) => (n === 0 ? 1 : n))
+    dispatch({ type: 'started' })
   }
 
+  const enterPlay = () => {
+    setRun((n) => (n === 0 ? 1 : n))
+    void enterMobilePlay(stage.current, document, window.screen, orientation).then(({ mode, orientationLocked }) => {
+      dispatch({ type: 'enteredMode', mode, orientationLocked })
+    })
+  }
+
+  const exitPlay = useCallback(() => {
+    tryUnlockOrientation(window.screen)
+    void exitStageFullscreen(document)
+    dispatch({ type: 'exitedMode' })
+  }, [])
+
+  // Track coarse pointer and screen orientation on the client.
+  useEffect(() => {
+    const syncCoarse = () => dispatch({ type: 'coarseChanged', coarse: readCoarsePointer(window) })
+    const syncOrientation = () => dispatch({ type: 'screenOrientationChanged', screenOrientation: readScreenOrientation(window) })
+    syncCoarse()
+    syncOrientation()
+    const coarseQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(pointer: coarse)') : undefined
+    const landscapeQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(orientation: landscape)') : undefined
+    coarseQuery?.addEventListener?.('change', syncCoarse)
+    landscapeQuery?.addEventListener?.('change', syncOrientation)
+    window.addEventListener('resize', syncOrientation)
+    window.addEventListener('orientationchange', syncOrientation)
+    window.screen?.orientation?.addEventListener?.('change', syncOrientation)
+    return () => {
+      coarseQuery?.removeEventListener?.('change', syncCoarse)
+      landscapeQuery?.removeEventListener?.('change', syncOrientation)
+      window.removeEventListener('resize', syncOrientation)
+      window.removeEventListener('orientationchange', syncOrientation)
+      window.screen?.orientation?.removeEventListener?.('change', syncOrientation)
+    }
+  }, [])
+
+  // Sync state when the user exits native fullscreen via the browser or back gesture.
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (mobile.mode === 'fullscreen' && fullscreenElementOf(document) !== stage.current) {
+        tryUnlockOrientation(window.screen)
+        dispatch({ type: 'exitedMode' })
+      }
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange)
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+    }
+  }, [mobile.mode])
+
+  // Escape leaves the fixed-viewport fallback overlay.
+  useEffect(() => {
+    if (mobile.mode !== 'overlay') return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') exitPlay()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobile.mode, exitPlay])
+
+  // Lock page scroll while mobile play mode is active.
+  useEffect(() => {
+    if (!shouldLockPageScroll(mobile)) return
+    return lockPageScroll(document, window)
+  }, [mobile])
+
+  // Lock touch-action and overscroll inside the same-origin iframe while playing on mobile.
+  useEffect(() => {
+    applyFrameTouchLock()
+    return () => {
+      frameTouchUnlock.current?.()
+      frameTouchUnlock.current = null
+    }
+  }, [applyFrameTouchLock])
+
+  // Release fullscreen and orientation lock if the page unmounts while playing.
+  useEffect(() => {
+    return () => {
+      tryUnlockOrientation(window.screen)
+      void exitStageFullscreen(document)
+    }
+  }, [])
+
+  const stageClasses = [
+    'playground__stage',
+    'hud',
+    mobile.coarse ? 'playground__stage--coarse' : '',
+    active ? 'playground__stage--mobile' : '',
+    mobile.mode === 'overlay' ? 'playground__stage--overlay' : '',
+    mobile.mode === 'fullscreen' ? 'playground__stage--fullscreen' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <section className="playground__stage hud" aria-label={name}>
+    <section ref={stage} className={stageClasses} aria-label={name} data-play-mode={mobile.mode} data-orientation={orientation}>
+      {active && (
+        <div className="playground__mobile-bar">
+          <span className="playground__mobile-title">{name}</span>
+          <div className="playground__mobile-actions">
+            {run > 0 && (
+              <button type="button" className="btn btn--secondary playground__mobile-btn" onClick={() => setRun((n) => n + 1)}>
+                {copy.restart}
+              </button>
+            )}
+            <button type="button" className="btn btn--secondary playground__mobile-btn" onClick={exitPlay}>
+              <Icon name="close" size={14} />
+              {copy.exitFullscreen}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="playground__screen">
         {run > 0 ? (
-          <iframe key={run} ref={frame} className="playground__frame" src={url} title={copy.running(name)} allow="autoplay; fullscreen; gamepad" onLoad={focus} />
+          <iframe key={run} ref={frame} className="playground__frame" src={url} title={copy.running(name)} allow="autoplay; fullscreen; gamepad" onLoad={onFrameLoad} />
         ) : example.built ? (
           <div className="playground__poster">
-            <button type="button" className="btn btn--primary btn--large" onClick={() => setRun(1)}>
-              <Icon name="play" size={14} />
-              {copy.run}
-            </button>
+            {mobile.coarse ? (
+              <div className="playground__poster-actions">
+                <button type="button" className="btn btn--primary btn--large" onClick={enterPlay}>
+                  <Icon name="maximize" size={14} />
+                  {copy.playFullscreen}
+                </button>
+                <button type="button" className="btn btn--secondary" onClick={startInline}>
+                  <Icon name="play" size={14} />
+                  {copy.run}
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="btn btn--primary btn--large" onClick={startInline}>
+                <Icon name="play" size={14} />
+                {copy.run}
+              </button>
+            )}
             <span className="playground__size">{copy.download(megabytes)}</span>
           </div>
         ) : (
@@ -157,10 +320,25 @@ function Stage({ example, name, copy }: { example: PlaygroundExample; name: stri
             <CopyCommand command={`bun run playground ${example.id}`} />
           </div>
         )}
+        {showRotate && (
+          <div className="playground__rotate" role="status" aria-live="polite">
+            <Icon name="rotate" size={32} className={`playground__rotate-icon playground__rotate-icon--${orientation}`} />
+            <p className="playground__rotate-text">{orientation === 'portrait' ? copy.rotatePortrait : copy.rotateLandscape}</p>
+            <button type="button" className="btn btn--secondary playground__mobile-btn" onClick={() => dispatch({ type: 'dismissedRotate' })}>
+              {copy.continueAnyway}
+            </button>
+          </div>
+        )}
       </div>
       <div className="playground__bar">
-        <span className="playground__hint">{run > 0 ? copy.focus : ''}</span>
+        <span className="playground__hint">{hint === 'touch' ? copy.touchHint : hint === 'keyboard' ? copy.focus : ''}</span>
         <div className="playground__actions">
+          {mobile.coarse && example.built && (
+            <button type="button" className="btn btn--primary" onClick={enterPlay}>
+              <Icon name="maximize" size={14} />
+              {copy.playFullscreen}
+            </button>
+          )}
           {run > 0 && (
             <button type="button" className="btn btn--secondary" onClick={() => setRun((n) => n + 1)}>
               {copy.restart}

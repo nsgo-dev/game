@@ -20,6 +20,8 @@ const paths = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   play: '<path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/>',
   lock: '<rect x="4.5" y="11" width="15" height="10" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>',
+  maximize: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+  rotate: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
 } as const
 
 export type IconName = keyof typeof paths

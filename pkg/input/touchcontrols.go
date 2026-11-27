@@ -382,7 +382,7 @@ func (t *TouchControls) Tracker() *DeviceTracker {
 	return t.tracker
 }
 
-// Attach wires t's device tracking onto v, chaining v's existing callbacks, so a touch anywhere on v shows the controls and a key v hears hides them. Call it after Actions.Attach. It hears touches and keys alone: a press synthesized from a touch can report Keyboard when a key was the last input, which must not hide the controls the finger is using.
+// Attach wires t's device tracking and touch responder onto v, chaining v's existing callbacks, so a touch anywhere on v shows the controls, a touch on one of t's controls claims the responder without LetNative (blocking native page/scroll-view drags while the finger is down), and a key v hears hides them. Call it after Actions.Attach. It hears touches and keys alone: a press synthesized from a touch can report Keyboard when a key was the last input, which must not hide the controls the finger is using.
 func (t *TouchControls) Attach(v *core.View) {
 	if v == nil {
 		return
@@ -397,6 +397,53 @@ func (t *TouchControls) Attach(v *core.View) {
 	} else {
 		v.OnKeyDown = func(ev core.KeyEvent) bool { t.tracker.OnKey(ev); return false }
 	}
+	ask := func(ev core.ResponderEvent) bool {
+		return t.claimsTouch(ev.Position)
+	}
+	claims := []core.TouchClaim{
+		{Ask: ask},
+		{OnMove: true, Ask: ask},
+	}
+	if v.Responder == nil {
+		v.Responder = &core.Responder{
+			Claims: claims,
+			OnTerminationRequest: func(core.ResponderEvent) bool {
+				return !t.pad.active()
+			},
+		}
+		return
+	}
+	r := *v.Responder
+	r.Claims = append(slices.Clone(r.Claims), claims...)
+	if !r.Keep {
+		prevTerm := r.OnTerminationRequest
+		r.OnTerminationRequest = func(ev core.ResponderEvent) bool {
+			if t.pad.active() {
+				return false
+			}
+			if prevTerm != nil {
+				return prevTerm(ev)
+			}
+			return true
+		}
+	}
+	v.Responder = &r
+}
+
+// claimsTouch reports whether one of t's controls owns a finger or covers p.
+func (t *TouchControls) claimsTouch(p core.Point) bool {
+	if t.pad.active() {
+		return true
+	}
+	if t.actions != nil {
+		return false
+	}
+	for _, e := range t.entries {
+		if e.frame.Contains(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Resize places the controls on a view of size whose edges system UI covers by safe, such as Env.SafeArea or core.Insets of the view's scope. Calling it again with the same values does nothing.
