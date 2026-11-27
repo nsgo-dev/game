@@ -1079,8 +1079,8 @@ func (f *PathFollower) Tween() *Tween {
 	}
 	prevU := 0.0
 	tw := &Tween{
-		dur:   dur,
-		curve: core.Linear,
+		dur:  dur,
+		ease: core.Linear.At,
 		apply: func(t float64) {
 			u := clamp01(t)
 			forward := true
@@ -1118,8 +1118,8 @@ func Follow(curve Curve, d time.Duration, ease core.Curve, set func(pos core.Poi
 		d = 0
 	}
 	return &Tween{
-		dur:   d,
-		curve: ease,
+		dur:  d,
+		ease: ease.At,
 		apply: func(t float64) {
 			if set == nil {
 				return

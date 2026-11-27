@@ -2,6 +2,7 @@ package tween
 
 import (
 	"cmp"
+	"math"
 	"slices"
 	"time"
 )
@@ -26,7 +27,9 @@ type Timeline struct {
 	pos       time.Duration
 	playing   bool
 	reverse   bool
-	loop      bool
+	loops     int // 0 = plays once, -1 wraps forever, N>0 = runs remaining counting the current pass
+	speed     float64
+	speedSet  bool
 	done      bool
 	edgeFired bool
 	seekGen   uint64
@@ -100,7 +103,7 @@ func (tl *Timeline) Done() bool { return tl.done }
 // Play starts or resumes playback in the current direction.
 func (tl *Timeline) Play() {
 	dur := tl.Duration()
-	if !tl.loop && tl.done {
+	if tl.loops >= 0 && tl.loops <= 1 && tl.done {
 		if !tl.reverse && tl.pos >= dur {
 			return
 		}
@@ -130,10 +133,37 @@ func (tl *Timeline) Reverse(reverse bool) {
 
 // SetLoop sets whether playback wraps around on reaching the end.
 func (tl *Timeline) SetLoop(loop bool) {
-	tl.loop = loop
 	if loop {
+		tl.SetLoops(0)
+	} else {
+		tl.SetLoops(1)
+	}
+}
+
+// SetLoops sets how many runs the timeline plays: n <= 0 wraps around forever (the same
+// as SetLoop(true)), n == 1 plays once (the same as SetLoop(false)), and larger n wraps
+// n-1 more times. Calling it while playing counts the remaining runs, including the
+// current pass. Unless n is 1, setting loops clears a finished timeline's done state.
+func (tl *Timeline) SetLoops(n int) {
+	if n <= 0 {
+		tl.loops = -1
+		tl.done = false
+		return
+	}
+	tl.loops = n
+	if n > 1 {
 		tl.done = false
 	}
+}
+
+// SetSpeed scales every step by s, so the timeline runs in slow motion (0.25) or fast
+// forward. A scale of 0 stops advancement; negative values and NaN are treated as 1.
+func (tl *Timeline) SetSpeed(s float64) {
+	if math.IsNaN(s) || s < 0 {
+		s = 1
+	}
+	tl.speed = s
+	tl.speedSet = true
 }
 
 // Restart jumps to the start of the current playback direction (0 forward, Duration in reverse), applies all tracks, and starts playing.
@@ -160,7 +190,7 @@ func (tl *Timeline) Seek(at time.Duration) {
 	tl.seekGen++
 	tl.applyAt(at)
 
-	if tl.loop {
+	if tl.loops < 0 || tl.loops > 1 {
 		tl.done = false
 	} else if tl.reverse {
 		tl.done = dur > 0 && at <= 0
@@ -175,6 +205,12 @@ func (tl *Timeline) Seek(at time.Duration) {
 // Update advances the timeline by dt when playing, updating tracks and firing any cues crossed during the step.
 func (tl *Timeline) Update(dt time.Duration) {
 	if !tl.playing || dt <= 0 {
+		return
+	}
+	if tl.speedSet {
+		dt = time.Duration(float64(dt) * tl.speed)
+	}
+	if dt <= 0 {
 		return
 	}
 	if tl.done {
@@ -198,7 +234,8 @@ func (tl *Timeline) Update(dt time.Duration) {
 		if tl.seekGen != gen || !tl.playing {
 			return
 		}
-		if !tl.loop {
+		if tl.loops == 0 || tl.loops == 1 {
+			tl.loops = 0
 			tl.done = true
 			tl.playing = false
 		}
@@ -231,13 +268,17 @@ func (tl *Timeline) Update(dt time.Duration) {
 				continue
 			}
 			if next >= dur {
-				if tl.loop {
+				if tl.loops < 0 || tl.loops > 1 {
+					if tl.loops > 1 {
+						tl.loops--
+					}
 					tl.pos = 0
 					tl.edgeFired = false
 					if rem == 0 {
 						tl.applyAt(0)
 					}
 				} else {
+					tl.loops = 0
 					tl.done = true
 					tl.playing = false
 				}
@@ -262,13 +303,17 @@ func (tl *Timeline) Update(dt time.Duration) {
 				continue
 			}
 			if next <= 0 {
-				if tl.loop {
+				if tl.loops < 0 || tl.loops > 1 {
+					if tl.loops > 1 {
+						tl.loops--
+					}
 					tl.pos = dur
 					tl.edgeFired = false
 					if rem == 0 {
 						tl.applyAt(dur)
 					}
 				} else {
+					tl.loops = 0
 					tl.done = true
 					tl.playing = false
 				}

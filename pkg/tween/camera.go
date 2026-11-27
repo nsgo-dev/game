@@ -20,12 +20,12 @@ func CameraPan(cam *tilemap.Camera, toX, toY float32, d time.Duration, curve cor
 		d = 0
 	}
 	if cam == nil {
-		return &Tween{dur: d, curve: curve}
+		return &Tween{dur: d, ease: curve.At}
 	}
 	var fromX, fromY float32
 	return &Tween{
-		dur:   d,
-		curve: curve,
+		dur:  d,
+		ease: curve.At,
 		onStart: func() {
 			fromX, fromY = cam.X, cam.Y
 		},
@@ -43,12 +43,12 @@ func CameraZoom(cam *tilemap.Camera, toZoom float32, d time.Duration, curve core
 		d = 0
 	}
 	if cam == nil {
-		return &Tween{dur: d, curve: curve}
+		return &Tween{dur: d, ease: curve.At}
 	}
 	var fromZoom float32
 	return &Tween{
-		dur:   d,
-		curve: curve,
+		dur:  d,
+		ease: curve.At,
 		onStart: func() {
 			fromZoom = effectiveZoom(cam.Zoom)
 		},
@@ -65,12 +65,12 @@ func CameraRotate(cam *tilemap.Camera, toRot float32, d time.Duration, curve cor
 		d = 0
 	}
 	if cam == nil {
-		return &Tween{dur: d, curve: curve}
+		return &Tween{dur: d, ease: curve.At}
 	}
 	var fromRot float32
 	return &Tween{
-		dur:   d,
-		curve: curve,
+		dur:  d,
+		ease: curve.At,
 		onStart: func() {
 			fromRot = cam.Rotation
 		},
@@ -87,12 +87,12 @@ func CameraMove(cam *tilemap.Camera, toX, toY, toZoom, toRot float32, d time.Dur
 		d = 0
 	}
 	if cam == nil {
-		return &Tween{dur: d, curve: curve}
+		return &Tween{dur: d, ease: curve.At}
 	}
 	var fromX, fromY, fromZoom, fromRot float32
 	return &Tween{
-		dur:   d,
-		curve: curve,
+		dur:  d,
+		ease: curve.At,
 		onStart: func() {
 			fromX, fromY = cam.X, cam.Y
 			fromZoom = effectiveZoom(cam.Zoom)
@@ -114,12 +114,12 @@ func CameraFollowTransition(cam *tilemap.Camera, target func() core.Point, d tim
 		d = 0
 	}
 	if cam == nil {
-		return &Tween{dur: d, curve: curve}
+		return &Tween{dur: d, ease: curve.At}
 	}
 	var fromX, fromY float32
 	return &Tween{
-		dur:   d,
-		curve: curve,
+		dur:  d,
+		ease: curve.At,
 		onStart: func() {
 			fromX, fromY = cam.X, cam.Y
 		},
