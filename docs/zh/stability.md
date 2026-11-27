@@ -129,6 +129,7 @@
 | `game/pkg/online/netplay/wire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | 实验性 | [presence](presence.md) |
 | `game/pkg/online/server` | 实验性 | [server](server.md) |
+| `game/pkg/online/wsclient` | 实验性 | [wsclient](wsclient.md) |
 | `game/pkg/particles` | 实验性 | [particles](particles.md) |
 | `game/pkg/perf` | 实验性 | [perf](perf.md) |
 | `game/pkg/physics` | 稳定 | [physics](physics.md) |

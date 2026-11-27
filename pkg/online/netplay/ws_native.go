@@ -4,11 +4,7 @@ package netplay
 
 import (
 	"bufio"
-	"bytes"
-	"crypto/rand"
-	"crypto/sha1"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -21,18 +17,16 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/nsgo-dev/game/pkg/online/internal/wsproto"
 )
 
 const (
-	wsMagicGUID        = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-	maxWSMessageSize   = 4 << 20 // 4 MiB safety cap
 	maxWSHandshakeSize = 1 << 20 // 1 MiB cap on the HTTP upgrade request's headers
 	wsWriteTimeout     = 10 * time.Second
 	wsDialTimeout      = 10 * time.Second
 	wsHandshakeTimeout = 10 * time.Second
 
-	// wsEagerAlloc is the largest payload readWSFrame allocates before its bytes arrive. A larger payload grows with the bytes actually received, so a peer that announces a 4 MiB frame and then trickles it (a slow-loris attack) holds memory only for what it has sent (#546).
-	wsEagerAlloc = 64 << 10
 	// wsMaxHelloFrame bounds the first frame a server reads from a client, which is the hello: its header and a token of at most MaxTokenSize bytes.
 	wsMaxHelloFrame = hsHelloHeader + MaxTokenSize
 	// wsMaxReplyFrame bounds the welcome or reject a client reads in the handshake.
@@ -43,40 +37,27 @@ const (
 	// wsClientPing is how often a native client pings the server, and wsClientIdle how long it waits for any frame before it counts the server as gone. Pinging much more often than the idle timeout keeps a healthy connection alive whatever interval the server pings at.
 	wsClientPing = 2 * time.Second
 	wsClientIdle = 10 * time.Second
-
-	wsOpContinuation    = 0x0
-	wsOpText            = 0x1
-	wsOpBinary          = 0x2
-	wsOpClose           = 0x8
-	wsOpPing            = 0x9
-	wsOpPong            = 0xA
-	wsMaxControlPayload = 125 // RFC 6455 §5.5
 )
 
-// readWSPayload reads exactly n payload bytes. Up to wsEagerAlloc it allocates them at once; past that the buffer grows as bytes arrive instead of trusting the length the peer announced.
-func readWSPayload(r io.Reader, n uint64) ([]byte, error) {
-	if n <= wsEagerAlloc {
-		buf := make([]byte, n)
-		_, err := io.ReadFull(r, buf)
-		return buf, err
-	}
-	var buf bytes.Buffer
-	buf.Grow(wsEagerAlloc)
-	if _, err := io.CopyN(&buf, r, int64(n)); err != nil {
-		if errors.Is(err, io.EOF) {
-			err = io.ErrUnexpectedEOF
-		}
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
+// The RFC 6455 framing lives in wsproto, shared with pkg/online/wsclient; these aliases keep the netplay call sites, and the frame-level internal tests, unchanged.
+const (
+	wsOpContinuation    = wsproto.OpContinuation
+	wsOpText            = wsproto.OpText
+	wsOpBinary          = wsproto.OpBinary
+	wsOpClose           = wsproto.OpClose
+	wsOpPing            = wsproto.OpPing
+	wsOpPong            = wsproto.OpPong
+	wsMaxControlPayload = wsproto.MaxControlPayload
+	maxWSMessageSize    = wsproto.MaxMessageSize
+	wsEagerAlloc        = wsproto.EagerAlloc
+)
 
-func wsAcceptKey(key string) string {
-	h := sha1.New()
-	h.Write([]byte(strings.TrimSpace(key)))
-	h.Write([]byte(wsMagicGUID))
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
-}
+var (
+	wsAcceptKey      = wsproto.AcceptKey
+	readWSFrame      = wsproto.ReadFrame
+	readWSFrameLimit = wsproto.ReadFrameLimit
+	writeWSFrame     = wsproto.WriteFrame
+)
 
 // writeWSFrameDeadline writes one frame with wsWriteTimeout as its deadline, unless closing is set. Close sets closing before it breaks pending writes with a deadline of now, and this checks closing after setting its own deadline, so a writer that takes the lock after Close began either sees closing or set its deadline before Close's: it can never push the deadline past Close's and hold Close up for wsWriteTimeout.
 func writeWSFrameDeadline(conn stdnet.Conn, closing *atomic.Bool, opcode byte, masked bool, payload []byte) error {
@@ -88,59 +69,6 @@ func writeWSFrameDeadline(conn stdnet.Conn, closing *atomic.Bool, opcode byte, m
 	err := writeWSFrame(conn, opcode, masked, payload)
 	_ = conn.SetWriteDeadline(time.Time{})
 	return err
-}
-
-func writeWSFrame(w io.Writer, opcode byte, masked bool, payload []byte) error {
-	if len(payload) > maxWSMessageSize {
-		return ErrPayloadTooLarge
-	}
-	var header [14]byte
-	header[0] = 0x80 | (opcode & 0x0F) // FIN=1
-
-	var maskBit byte
-	if masked {
-		maskBit = 0x80
-	}
-
-	n := 2
-	plen := len(payload)
-	switch {
-	case plen < 126:
-		header[1] = maskBit | byte(plen)
-	case plen <= 0xFFFF:
-		header[1] = maskBit | 126
-		binary.BigEndian.PutUint16(header[2:4], uint16(plen))
-		n = 4
-	default:
-		header[1] = maskBit | 127
-		binary.BigEndian.PutUint64(header[2:10], uint64(plen))
-		n = 10
-	}
-
-	if masked {
-		var maskKey [4]byte
-		if _, err := rand.Read(maskKey[:]); err != nil {
-			return err
-		}
-		copy(header[n:n+4], maskKey[:])
-		n += 4
-		buf := make([]byte, n+plen)
-		copy(buf[:n], header[:n])
-		for i := range plen {
-			buf[n+i] = payload[i] ^ maskKey[i&3]
-		}
-		_, err := w.Write(buf)
-		return err
-	}
-
-	if _, err := w.Write(header[:n]); err != nil {
-		return err
-	}
-	if plen > 0 {
-		_, err := w.Write(payload)
-		return err
-	}
-	return nil
 }
 
 // wsKeepAlive is how often a WebSocket endpoint pings its peer, and how long it waits for any frame, a pong included, before it counts the connection as dropped. Without it a peer whose network vanished without a FIN or RST, a half-open connection, would keep its session forever (#546).
@@ -198,67 +126,6 @@ func (r *wsIdleReader) Read(p []byte) (int, error) {
 	return r.conn.Read(p)
 }
 
-// readWSFrame reads one frame of at most maxWSMessageSize bytes.
-func readWSFrame(r *bufio.Reader) (fin bool, opcode byte, payload []byte, masked bool, err error) {
-	return readWSFrameLimit(r, maxWSMessageSize)
-}
-
-// readWSFrameLimit reads one frame whose payload is at most limit bytes.
-func readWSFrameLimit(r *bufio.Reader, limit uint64) (fin bool, opcode byte, payload []byte, masked bool, err error) {
-	var hdr [2]byte
-	if _, err = io.ReadFull(r, hdr[:]); err != nil {
-		return false, 0, nil, false, err
-	}
-	fin = (hdr[0] & 0x80) != 0
-	opcode = hdr[0] & 0x0F
-	masked = (hdr[1] & 0x80) != 0
-	plen := uint64(hdr[1] & 0x7F)
-
-	// RFC 6455 §5.5: control frames (opcodes 0x8-0xF) must not be fragmented,
-	// must carry at most 125 payload bytes, and opcodes 0xB-0xF are reserved.
-	if opcode >= wsOpClose {
-		if opcode > wsOpPong || !fin || plen > wsMaxControlPayload {
-			return false, 0, nil, false, ErrInvalidPacket
-		}
-	}
-
-	switch plen {
-	case 126:
-		var ext [2]byte
-		if _, err = io.ReadFull(r, ext[:]); err != nil {
-			return false, 0, nil, false, err
-		}
-		plen = uint64(binary.BigEndian.Uint16(ext[:]))
-	case 127:
-		var ext [8]byte
-		if _, err = io.ReadFull(r, ext[:]); err != nil {
-			return false, 0, nil, false, err
-		}
-		plen = binary.BigEndian.Uint64(ext[:])
-	}
-
-	if plen > limit {
-		return false, 0, nil, false, ErrPayloadTooLarge
-	}
-
-	var maskKey [4]byte
-	if masked {
-		if _, err = io.ReadFull(r, maskKey[:]); err != nil {
-			return false, 0, nil, false, err
-		}
-	}
-
-	if payload, err = readWSPayload(r, plen); err != nil {
-		return false, 0, nil, false, err
-	}
-	if masked {
-		for i := range payload {
-			payload[i] ^= maskKey[i&3]
-		}
-	}
-	return fin, opcode, payload, masked, nil
-}
-
 // WebSocketTransport is a client-side RFC 6455 WebSocket Transport. Binary WebSocket frames carry the 5-byte channel+seq wire header.
 //
 // The first message each way is the connection handshake: the client presents its token and the server answers with the ID it assigned, or a reason for refusing. A dropped client keeps its session on the server for Auth.GracePeriod, and Reconnect resumes it with the same ID.
@@ -288,26 +155,9 @@ type WebSocketTransport struct {
 	admissions uint64
 }
 
-// webSocketHostPort joins the URL's host and port, defaulting by scheme and
-// keeping IPv6 literals bracketed; checking for a colon cannot tell a port from
-// an IPv6 address (#546).
+// webSocketHostPort joins the URL's host and port, defaulting by scheme; see wsproto.HostPort.
 func webSocketHostPort(u *url.URL) (string, error) {
-	host := u.Hostname()
-	if host == "" {
-		return "", errors.New("net: websocket url has no host")
-	}
-	port := u.Port()
-	if port == "" {
-		switch u.Scheme {
-		case "ws":
-			port = "80"
-		case "wss":
-			port = "443"
-		default:
-			return "", fmt.Errorf("net: unsupported websocket scheme %q", u.Scheme)
-		}
-	}
-	return stdnet.JoinHostPort(host, port), nil
+	return wsproto.HostPort(u)
 }
 
 // DialWebSocket opens an RFC 6455 WebSocket connection to rawURL (ws:// or wss://), presents token in the connection handshake and returns a Transport ready for non-blocking Send/Recv once the server accepts it. The server assigns the client's ID, which LocalID reports. A refusal returns a *RejectError that matches ErrRejected.
@@ -450,44 +300,11 @@ func dialWebSocketConn(rawURL string) (stdnet.Conn, *bufio.Reader, *wsIdleReader
 	}
 	_ = conn.SetDeadline(time.Now().Add(wsHandshakeTimeout))
 
-	var keyBytes [16]byte
-	_, _ = rand.Read(keyBytes[:]) // crypto/rand.Read never fails since Go 1.24
-	secKey := base64.StdEncoding.EncodeToString(keyBytes[:])
-
-	path := u.RequestURI()
-	if path == "" {
-		path = "/"
-	}
-
-	var reqBuf strings.Builder
-	fmt.Fprintf(&reqBuf, "GET %s HTTP/1.1\r\n", path)
-	fmt.Fprintf(&reqBuf, "Host: %s\r\n", u.Host)
-	reqBuf.WriteString("Upgrade: websocket\r\n")
-	reqBuf.WriteString("Connection: Upgrade\r\n")
-	fmt.Fprintf(&reqBuf, "Sec-WebSocket-Key: %s\r\n", secKey)
-	reqBuf.WriteString("Sec-WebSocket-Version: 13\r\n")
-	reqBuf.WriteString("\r\n")
-
-	if _, err := io.WriteString(conn, reqBuf.String()); err != nil {
-		_ = conn.Close()
-		return nil, nil, nil, err
-	}
-
 	ir := &wsIdleReader{conn: conn}
 	br := bufio.NewReader(ir)
-	resp, err := http.ReadResponse(br, &http.Request{Method: http.MethodGet})
-	if err != nil {
+	if _, err := wsproto.ClientUpgrade(conn, br, u, nil, nil); err != nil {
 		_ = conn.Close()
-		return nil, nil, nil, fmt.Errorf("net: websocket handshake read: %w", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		_ = conn.Close()
-		return nil, nil, nil, fmt.Errorf("net: websocket upgrade rejected with status %d", resp.StatusCode)
-	}
-	if strings.TrimSpace(resp.Header.Get("Sec-WebSocket-Accept")) != wsAcceptKey(secKey) {
-		_ = conn.Close()
-		return nil, nil, nil, errors.New("net: websocket invalid Sec-WebSocket-Accept")
+		return nil, nil, nil, err
 	}
 	return conn, br, ir, nil
 }
