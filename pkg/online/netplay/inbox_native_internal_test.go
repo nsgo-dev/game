@@ -139,7 +139,7 @@ func TestWebSocketServerInboxLimitsPerClient(t *testing.T) {
 			break // the server may already have closed the connection
 		}
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, flood.LocalID()}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerLeft, Peer: flood.LocalID()}) {
 		t.Fatalf("event = %+v, want the flooding client to leave", ev)
 	}
 	if st := srv.InboxStats(); st.Reliable != 5 || st.ReliableRefused != 1 {

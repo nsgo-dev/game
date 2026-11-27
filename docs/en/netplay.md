@@ -88,7 +88,7 @@ for ev, ok := srv.NextEvent(); ok; ev, ok = srv.NextEvent() {
 	case netplay.PeerJoined: // new ID
 	case netplay.PeerDropped: // connection lost; ID and state kept for GracePeriod
 	case netplay.PeerResumed: // same ID back within GracePeriod
-	case netplay.PeerLeft: // closed, or GracePeriod ran out
+	case netplay.PeerLeft: // closed, GracePeriod ran out, or Kick removed it (then ev.Reason says why)
 		rooms.Leave(roomOf(ev.Peer), ev.Peer)
 		guard.Reset(ev.Peer)
 	}
@@ -108,6 +108,7 @@ _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 
 - `NextEvent` checks grace periods and idle timeouts when it is called, so a server polls it every tick alongside `Recv`. Queued lifecycle events (`PeerJoined`, `PeerDropped`, `PeerResumed`, `PeerLeft`) drain in FIFO order in constant amortized time per event without silently dropping any. While a peer is inside its grace period, `Send` to it returns `ErrDisconnected` and `Peers` leaves it out.
 - `Close` on a client is a goodbye: the server reports `PeerLeft` at once instead of holding the session. `Reconnect` is not, even while the connection is still open: the browser closes its old socket with a code the server counts as a drop.
+- `WebSocketServer.Kick(peer, reason)` and `UDPServer.Kick(peer, reason)` end one peer's session now and report `PeerLeft` with the reason in `PeerEvent.Reason`: the session's resume secret is gone, so the client's `Reconnect` cannot resume it and joins as a new peer only if `Verify` accepts its token again. A connected WebSocket client receives a close frame with the application close code 4001 and the reason, a connected UDP client an encrypted kick datagram sent three times (UDP may drop one); both then report a `*KickError`, matching `netplay.ErrKicked`, from `Err` — in the browser too. A peer inside its grace period gets no message; its next handshake simply cannot resume. `Kick` returns `ErrUnknownPeer` for an ID with no session.
 - A server holds at most `Auth.MaxPeers` sessions (1024 by default), counting peers inside their grace period; past it, clients are rejected with the reason `server full`. Without `Verify` anyone may join, so set it on any server reachable from the internet.
 - A resume proves itself with a secret from the previous welcome, which the server replaces on every handshake; an ID alone cannot take over a session. Past the grace period, `Reconnect` joins again as a new peer when the token is still valid.
 - In the browser, `DialWebSocket` returns at once: `State` is `ConnConnecting` and `LocalID` is 0 until the welcome arrives, and packets sent before then are queued. A refusal moves it to `ConnDisconnected` with the `*RejectError` in `Err`.

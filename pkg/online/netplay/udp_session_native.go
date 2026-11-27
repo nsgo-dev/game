@@ -19,6 +19,8 @@ const (
 	udpHelloRetry       = 250 * time.Millisecond
 	udpKeepAlive        = time.Second
 	udpClientIdle       = 10 * time.Second
+	// udpKickCopies is how many times a kick datagram is sent, since UDP may drop one; each copy uses a fresh sequence number so the client's replay window does not refuse it.
+	udpKickCopies = 3
 )
 
 // udpLink binds a UDP session to the address and directional AEAD ciphers established by its Noise NK handshake.
@@ -395,6 +397,42 @@ func (s *UDPServer) Send(to PeerID, ch Channel, payload []byte) error {
 	return firstErr
 }
 
+// Kick ends peer's session now: a connected client receives the reason in an encrypted kick datagram, sent udpKickCopies times since UDP may drop it, and the session's resume secret is gone, so the client's Reconnect cannot resume it and joins as a new peer only if Auth.Verify accepts its token again. NextEvent reports PeerLeft with the reason. It returns ErrUnknownPeer for an ID with no session (including a handshake still in Verify) and ErrClosed once the server is closed. A peer inside its grace period gets no datagram; its next datagram simply finds no session.
+func (s *UDPServer) Kick(peer PeerID, reason string) error {
+	reason = truncateReason(reason, hsMaxReason)
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrClosed
+	}
+	sess := s.table.sessions[peer]
+	if sess == nil || sess.pending {
+		s.mu.Unlock()
+		return ErrUnknownPeer
+	}
+	var addr stdnet.Addr
+	var dgrams [][]byte
+	if link, ok := sess.link.(*udpLink); ok && sess.connected {
+		delete(s.byNonce, link.nonce)
+		addr = link.addr
+		payload := []byte(reason)
+		for range udpKickCopies {
+			seq, ok := nextSeq(&link.sendSeq)
+			if !ok {
+				break
+			}
+			dgrams = append(dgrams, link.sendCipher.seal(nil, udpDirServerToClient, udpKick, sess.id, seq, ChannelUnreliable, payload))
+		}
+	}
+	s.table.leaveReason(sess, reason)
+	s.mu.Unlock()
+	for _, dgram := range dgrams {
+		_, _ = s.conn.WriteTo(dgram, addr)
+	}
+	s.notify()
+	return nil
+}
+
 // SetInboxLimits bounds the packets the server keeps until Recv takes them (see InboxLimits).
 func (s *UDPServer) SetInboxLimits(l InboxLimits) {
 	s.mu.Lock()
@@ -669,7 +707,7 @@ func (c *UDPClient) readLoop(conn stdnet.Conn) {
 		}
 		b := buf[:n]
 		hdr, ok := parseSealed(b)
-		if !ok || (hdr.typ != udpServerData && hdr.typ != udpPong) {
+		if !ok || (hdr.typ != udpServerData && hdr.typ != udpPong && hdr.typ != udpKick) {
 			continue
 		}
 		c.mu.Lock()
@@ -684,6 +722,12 @@ func (c *UDPClient) readLoop(conn stdnet.Conn) {
 		}
 		c.recv.accept(hdr.seq)
 		c.lastRecv = time.Now()
+		if hdr.typ == udpKick {
+			c.mu.Unlock()
+			// The server removed the session: the kick's reason replaces the idle timeout as the cause.
+			c.lost(conn, &KickError{Reason: string(pt)})
+			return
+		}
 		if hdr.typ == udpServerData && hdr.ch == ChannelUnreliable {
 			c.inbox.push(Packet{
 				From:    c.serverID,

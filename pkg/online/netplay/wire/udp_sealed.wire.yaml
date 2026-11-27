@@ -27,6 +27,9 @@ enums:
       - name: peer_data
         value: 182
         doc: UDPTransport pre-shared key peer datagram (0xB6).
+      - name: kick
+        value: 183
+        doc: Server-to-client session removal whose payload is the reason (0xB7).
 messages:
   - name: UDPSealedDatagram
     doc: UDPSealedDatagram is a ChaCha20-Poly1305 AEAD UDP datagram with a 10-byte cleartext header (type, peer, seq, channel) authenticated as associated data followed by ciphertext and a 16-byte Poly1305 tag.

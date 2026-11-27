@@ -22,12 +22,14 @@ const (
 	UDPDatagramTypeBye UDPDatagramType = 181
 	// UDPTransport pre-shared key peer datagram (0xB6).
 	UDPDatagramTypePeerData UDPDatagramType = 182
+	// Server-to-client session removal whose payload is the reason (0xB7).
+	UDPDatagramTypeKick UDPDatagramType = 183
 )
 
 // Valid reports whether v is a declared UDPDatagramType value.
 func (v UDPDatagramType) Valid() bool {
 	switch v {
-	case UDPDatagramTypeData, UDPDatagramTypeServerData, UDPDatagramTypePing, UDPDatagramTypePong, UDPDatagramTypeBye, UDPDatagramTypePeerData:
+	case UDPDatagramTypeData, UDPDatagramTypeServerData, UDPDatagramTypePing, UDPDatagramTypePong, UDPDatagramTypeBye, UDPDatagramTypePeerData, UDPDatagramTypeKick:
 		return true
 	default:
 		return false

@@ -16,7 +16,7 @@ func FuzzWireUDPSealedDatagram(f *testing.F) {
 	f.Add(uint8(2), uint32(99), uint32(12345), uint8(ChannelUnreliable), []byte{0, 255})
 	f.Add(uint8(5), uint32(7), uint32(42), uint8(ChannelUnreliable), []byte("peer-data"))
 
-	types := []byte{udpData, udpServerData, udpPing, udpPong, udpBye, udpPeerData}
+	types := []byte{udpData, udpServerData, udpPing, udpPong, udpBye, udpPeerData, udpKick}
 
 	f.Fuzz(func(t *testing.T, typIdx uint8, peer, seq uint32, rawCh uint8, payload []byte) {
 		typ := types[int(typIdx)%len(types)]
@@ -27,7 +27,7 @@ func FuzzWireUDPSealedDatagram(f *testing.F) {
 		}
 		dir := udpDirClientToServer
 		switch typ {
-		case udpServerData, udpPong:
+		case udpServerData, udpPong, udpKick:
 			dir = udpDirServerToClient
 		case udpPeerData:
 			dir = peer + 1

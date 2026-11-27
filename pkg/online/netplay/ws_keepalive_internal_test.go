@@ -35,11 +35,11 @@ func TestWebSocketServerDropsASilentClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want joined", ev)
 	}
 	// The raw client never reads, so it never answers the server's pings.
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerLeft, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want the silent client to leave (no grace period)", ev)
 	}
 	if got := srv.Peers(); len(got) != 0 {
@@ -55,7 +55,7 @@ func TestWebSocketServerKeepsAClientThatAnswersPings(t *testing.T) {
 		t.Fatalf("handshake: %v", err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want joined", ev)
 	}
 	// Answer pings, and nothing else, for longer than the idle timeout.
@@ -239,7 +239,7 @@ func TestWebSocketServerReadsAFrameThatArrivesSlowlyButSteadily(t *testing.T) {
 		t.Fatalf("handshake: %v", err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want joined", ev)
 	}
 
@@ -410,7 +410,7 @@ func TestReadWSFrameControlFrameChecks(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want joined", ev)
 	}
 	if _, err := conn.Write(rawWSControlFrame(true, wsOpPing, true, ping125)); err != nil {
@@ -423,7 +423,7 @@ func TestReadWSFrameControlFrameChecks(t *testing.T) {
 	if _, err := conn.Write(rawWSControlFrame(false, wsOpPing, true, []byte("frag"))); err != nil {
 		t.Fatalf("write fragmented ping: %v", err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerLeft, Peer: w.peer}) {
 		t.Fatalf("event after fragmented ping = %+v, want left", ev)
 	}
 }

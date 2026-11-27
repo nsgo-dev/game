@@ -204,12 +204,12 @@ func TestWebSocketResumesWithinTheGracePeriod(t *testing.T) {
 	}
 	defer func() { _ = cli.Close() }()
 	id := cli.LocalID()
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: id}) {
 		t.Fatalf("event = %+v, want joined", ev)
 	}
 
 	cutWS(cli)
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerDropped, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerDropped, Peer: id}) {
 		t.Fatalf("event = %+v, want dropped", ev)
 	}
 	awaitChange(t, cli.changed, "the client to notice the drop", func() bool { return cli.State() == ConnDisconnected })
@@ -230,7 +230,7 @@ func TestWebSocketResumesWithinTheGracePeriod(t *testing.T) {
 	if cli.LocalID() != id || !cli.Resumed() {
 		t.Fatalf("after reconnect ID=%d resumed=%v, want %d resumed", cli.LocalID(), cli.Resumed(), id)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerResumed, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerResumed, Peer: id}) {
 		t.Fatalf("event = %+v, want resumed", ev)
 	}
 	if err := srv.Send(id, ChannelReliableOrdered, []byte("welcome back")); err != nil {
@@ -242,11 +242,11 @@ func TestWebSocketResumesWithinTheGracePeriod(t *testing.T) {
 
 	// Past the grace period the session ends, and a reconnect is a new peer.
 	cutWS(cli)
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerDropped, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerDropped, Peer: id}) {
 		t.Fatalf("event = %+v, want dropped", ev)
 	}
 	clock.Advance(5 * time.Second)
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerLeft, Peer: id}) {
 		t.Fatalf("event = %+v, want left after the grace period", ev)
 	}
 	if err := srv.Send(id, ChannelReliableOrdered, []byte("x")); !errors.Is(err, ErrUnknownPeer) {
@@ -259,7 +259,7 @@ func TestWebSocketResumesWithinTheGracePeriod(t *testing.T) {
 	if cli.LocalID() == id || cli.Resumed() {
 		t.Fatalf("late reconnect kept ID %d (resumed=%v)", cli.LocalID(), cli.Resumed())
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, cli.LocalID()}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: cli.LocalID()}) {
 		t.Fatalf("event = %+v, want a new join", ev)
 	}
 }
@@ -276,7 +276,7 @@ func TestWebSocketCloseLeavesAtOnce(t *testing.T) {
 	if err := cli.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerLeft, Peer: id}) {
 		t.Fatalf("event = %+v, want left without waiting for the grace period", ev)
 	}
 	if err := cli.Reconnect(); !errors.Is(err, ErrClosed) {
@@ -391,7 +391,7 @@ func TestUDPServerRejectsAnInvalidToken(t *testing.T) {
 	if pkt := recvOn(t, srv, srv.changed); pkt.From != good.LocalID() || string(pkt.Payload) != "hi" {
 		t.Fatalf("first packet = %+v, want the good client's", pkt)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, good.LocalID()}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: good.LocalID()}) {
 		t.Fatalf("event = %+v, want only the good client joining", ev)
 	}
 	expectNoEvent(t, srv)
@@ -496,14 +496,14 @@ func TestUDPClientResumesWithinTheGracePeriod(t *testing.T) {
 	}
 	defer func() { _ = cli.Close() }()
 	id := cli.LocalID()
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: id}) {
 		t.Fatalf("event = %+v, want joined", ev)
 	}
 
 	// A silent client counts as dropped once the idle timeout passes.
 	cutUDP(cli)
 	clock.Advance(3 * time.Second)
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerDropped, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerDropped, Peer: id}) {
 		t.Fatalf("event = %+v, want dropped after the idle timeout", ev)
 	}
 	if err := srv.Send(id, ChannelUnreliable, []byte("x")); !errors.Is(err, ErrDisconnected) {
@@ -517,7 +517,7 @@ func TestUDPClientResumesWithinTheGracePeriod(t *testing.T) {
 	if cli.LocalID() != id || !cli.Resumed() {
 		t.Fatalf("after reconnect ID=%d resumed=%v, want %d resumed", cli.LocalID(), cli.Resumed(), id)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerResumed, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerResumed, Peer: id}) {
 		t.Fatalf("event = %+v, want resumed", ev)
 	}
 	if err := cli.Send(PeerBroadcast, ChannelUnreliable, []byte("back")); err != nil {
@@ -530,11 +530,11 @@ func TestUDPClientResumesWithinTheGracePeriod(t *testing.T) {
 	// Past the grace period the server reports a leave.
 	cutUDP(cli)
 	clock.Advance(3 * time.Second)
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerDropped, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerDropped, Peer: id}) {
 		t.Fatalf("event = %+v, want dropped", ev)
 	}
 	clock.Advance(5 * time.Second)
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerLeft, Peer: id}) {
 		t.Fatalf("event = %+v, want left after the grace period", ev)
 	}
 	if err := cli.Reconnect(); err != nil {
@@ -557,7 +557,7 @@ func TestUDPClientCloseLeavesAtOnce(t *testing.T) {
 	if err := cli.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, id}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerLeft, Peer: id}) {
 		t.Fatalf("event = %+v, want left without waiting for the grace period", ev)
 	}
 	if err := cli.Send(PeerBroadcast, ChannelUnreliable, nil); !errors.Is(err, ErrClosed) {
@@ -711,13 +711,13 @@ func TestWebSocketReconnectCloseCodeKeepsTheSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want joined", ev)
 	}
 	if err := writeWSFrame(conn, wsOpClose, true, closePayload(wsCloseReconnect)); err != nil {
 		t.Fatalf("write close: %v", err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerDropped, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerDropped, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want dropped, not left", ev)
 	}
 	_, _, _, _, _ = readWSFrame(br)
@@ -727,7 +727,7 @@ func TestWebSocketReconnectCloseCodeKeepsTheSession(t *testing.T) {
 	if err != nil || w2.peer != w.peer || !w2.resumed {
 		t.Fatalf("resume after a reconnect close = %+v, %v", w2, err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerResumed, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerResumed, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want resumed", ev)
 	}
 
@@ -735,7 +735,7 @@ func TestWebSocketReconnectCloseCodeKeepsTheSession(t *testing.T) {
 	if err := writeWSFrame(conn, wsOpClose, true, closePayload(1000)); err != nil {
 		t.Fatalf("write close: %v", err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerLeft, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerLeft, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want left", ev)
 	}
 }
@@ -872,7 +872,7 @@ func TestUDPServerResendsTheWelcomeForARetransmittedHello(t *testing.T) {
 	if err != nil {
 		t.Fatalf("welcome: %v", err)
 	}
-	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{PeerJoined, w.peer}) {
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: w.peer}) {
 		t.Fatalf("event = %+v, want one join", ev)
 	}
 	expectNoEvent(t, srv)
