@@ -855,7 +855,7 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 			sourceSidecars[p[:len(p)-len(".source.yml")]] = true
 			return nil
 		}
-		if !refs.IsAssetPath(p) {
+		if !scan.IsAsset(p) {
 			return nil
 		}
 		if outputRoot || outputSet[p] {

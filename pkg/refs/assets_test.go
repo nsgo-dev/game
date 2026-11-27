@@ -149,3 +149,100 @@ assets:
 		t.Fatalf("UnreferencedAssets() = %v, want empty when root dir ref \".\" covers project", unused)
 	}
 }
+
+func TestTSXClassificationModScriptsVsTiledTilesets(t *testing.T) {
+	if refs.IsAssetPath("mods/x/mod.tsx") {
+		t.Fatal("IsAssetPath(mods/x/mod.tsx) = true, want false")
+	}
+	if refs.IsAssetPath("maps/tiles.tsx") {
+		t.Fatal("IsAssetPath(maps/tiles.tsx) = true, want false (ambiguous without project context)")
+	}
+	if !refs.IsAssetPath("maps/tiles.tsj") || !refs.IsAssetPath("art/hero.png") {
+		t.Fatal("IsAssetPath should still accept unambiguous asset extensions")
+	}
+	var nilProj *refs.Project
+	if nilProj.IsAsset("mods/x/mod.tsx") || !nilProj.IsAsset("art/hero.png") {
+		t.Fatal("nil Project.IsAsset should fall back to IsAssetPath")
+	}
+
+	const tiledXML = `<?xml version="1.0" encoding="UTF-8"?>
+<tileset version="1.10" name="cave" tilewidth="16" tileheight="16" tilecount="4" columns="2">
+ <image source="cave.png" width="32" height="32"/>
+</tileset>
+`
+	const modScript = `import { Text, View } from "nsgo";
+import { onStep } from "game";
+
+onStep(() => {});
+export default function () { return <View><Text>hi</Text></View>; }
+`
+
+	fsys := fstest.MapFS{
+		"game.yaml": {Data: []byte(`version: 1
+name: ModTSX
+id: dev.nsgo.modtsx
+appVersion: 0.1.0
+window:
+  width: 640
+  height: 360
+`)},
+		// Mod with mod.yaml naming mod.tsx as its entry.
+		"mods/x/mod.yaml": {Data: []byte(`manifestVersion: 1
+id: com.example.x
+name: X
+version: 1.0.0
+entry: mod.tsx
+`)},
+		"mods/x/mod.tsx":   {Data: []byte(modScript)},
+		"mods/x/panel.tsx": {Data: []byte(modScript)},
+		// Even if a mod entry's file looks like XML or is named by a map, mod.yaml entry wins.
+		"mods/tricky/mod.yaml": {Data: []byte(`manifestVersion: 1
+id: com.example.tricky
+name: Tricky
+version: 1.0.0
+entry: ./mod.tsx
+`)},
+		"mods/tricky/mod.tsx": {Data: []byte(tiledXML)},
+		// Standalone Tiled XML tileset (unreferenced -> must be reported as an unreferenced asset).
+		"maps/unused_tiles.tsx": {Data: []byte(tiledXML)},
+		// Tiled XML tileset with UTF-8 BOM and no XML declaration.
+		"maps/bom_tiles.tsx": {Data: append([]byte{0xEF, 0xBB, 0xBF}, []byte(`<tileset name="bom" tilewidth="16" tileheight="16"/>`)...)},
+		// Tiled XML tileset referenced by a .tmj map (and another missing .tsx referenced by .tmj).
+		"maps/level.tmj":      {Data: []byte(`{"type":"map","tilesets":[{"firstgid":1,"source":"used_tiles.tsx"},{"firstgid":10,"source":"missing_tiles.tsx"}]}`)},
+		"maps/used_tiles.tsx": {Data: []byte(tiledXML)},
+		// Non-XML stub .tsx referenced by a .tmx map still classifies as a tileset via map reference.
+		"maps/cave.tmx": {Data: []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" width="2" height="2" tilewidth="16" tileheight="16">
+ <tileset firstgid="1" source="from_tmx.tsx"/>
+</map>`)},
+		"maps/from_tmx.tsx": {Data: []byte("stub")},
+	}
+
+	proj, err := refs.Scan(fsys)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	for _, notAsset := range []string{"mods/x/mod.tsx", "mods/x/panel.tsx", "mods/tricky/mod.tsx"} {
+		if proj.IsAsset(notAsset) {
+			t.Errorf("IsAsset(%q) = true, want false", notAsset)
+		}
+	}
+	for _, wantAsset := range []string{"maps/unused_tiles.tsx", "maps/bom_tiles.tsx", "maps/used_tiles.tsx", "maps/missing_tiles.tsx", "maps/from_tmx.tsx"} {
+		if !proj.IsAsset(wantAsset) {
+			t.Errorf("IsAsset(%q) = false, want true", wantAsset)
+		}
+	}
+
+	gotUnused := proj.UnreferencedAssets()
+	wantUnused := []string{"maps/bom_tiles.tsx", "maps/from_tmx.tsx", "maps/unused_tiles.tsx"}
+	if !slices.Equal(gotUnused, wantUnused) {
+		t.Fatalf("UnreferencedAssets() = %v, want %v", gotUnused, wantUnused)
+	}
+
+	gotMissing := proj.MissingAssets()
+	wantMissing := []string{"maps/missing_tiles.tsx"}
+	if !slices.Equal(gotMissing, wantMissing) {
+		t.Fatalf("MissingAssets() = %v, want %v", gotMissing, wantMissing)
+	}
+}

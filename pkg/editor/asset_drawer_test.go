@@ -818,3 +818,57 @@ func TestAssetDrawerLifecycleResetsNaNAndLocale(t *testing.T) {
 		t.Fatalf("ZH CmdToggleAssetsMode = %+v (ok=%v)", zhCmd, ok)
 	}
 }
+
+func TestAssetDrawerExcludesModTSXAndKeepsTiledTSX(t *testing.T) {
+	dir := writeAssetDrawerFixture(t)
+	writeFile := func(rel, body string) {
+		t.Helper()
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("mods/boss/mod.yaml", `manifestVersion: 1
+id: com.example.boss
+name: Boss
+version: 1.0.0
+entry: mod.tsx
+`)
+	writeFile("mods/boss/mod.tsx", `import { Text, View } from "nsgo";
+export default function () { return <View><Text>Boss</Text></View>; }
+`)
+	writeFile("maps/dungeon.tsx", `<?xml version="1.0" encoding="UTF-8"?>
+<tileset version="1.10" name="dungeon" tilewidth="16" tileheight="16" tilecount="4" columns="2">
+ <image source="dungeon.png" width="32" height="32"/>
+</tileset>
+`)
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ProjectAssets = true
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	snap := ed.AssetDrawerSnapshot()
+	var sawTiledTSX bool
+	for _, it := range snap.AllItems {
+		if it.Path == "mods/boss/mod.tsx" {
+			t.Fatalf("asset drawer listed mod script %q as an asset", it.Path)
+		}
+		if it.Path == "maps/dungeon.tsx" {
+			sawTiledTSX = true
+			if it.Kind != editor.AssetKindTiles {
+				t.Fatalf("maps/dungeon.tsx kind = %v, want AssetKindTiles", it.Kind)
+			}
+		}
+	}
+	if !sawTiledTSX {
+		t.Fatal("asset drawer did not list Tiled XML tileset maps/dungeon.tsx")
+	}
+}
