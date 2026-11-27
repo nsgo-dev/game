@@ -14,3 +14,4 @@ export:
     - platform: linux
     - platform: android
     - platform: web
+    - platform: ios

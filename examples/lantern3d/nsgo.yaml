@@ -8,4 +8,4 @@ dev:
 
 build:
   output: dist
-  targets: [macos, windows, linux, android, web]
+  targets: [macos, windows, linux, android, web, ios]
