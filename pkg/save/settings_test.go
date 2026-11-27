@@ -232,6 +232,7 @@ func TestStartupLoadAndApplyAllTargets(t *testing.T) {
 		want.Locale = "ja"
 		want.Accessibility = save.AccessibilitySettings{
 			Captions:           true,
+			Caption:            save.DefaultCaptionSettings(),
 			CaptionScale:       1.5,
 			ColorBlindMode:     "deuteranopia",
 			ColorBlindSeverity: 0.8,
@@ -240,6 +241,11 @@ func TestStartupLoadAndApplyAllTargets(t *testing.T) {
 			ScreenShake:        0.25,
 			GameSpeed:          0.75,
 		}
+		want.Accessibility.Caption.Background = save.CaptionBackgroundBlue
+		want.Accessibility.Caption.SetBackgroundOpacity(0.5)
+		want.Accessibility.Caption.TextColor = save.CaptionTextYellow
+		want.Accessibility.Caption.Chatter = true
+		want.Accessibility.Caption.Size = save.CaptionSizeLarge
 		want.Custom = map[string]json.RawMessage{
 			"tutorial_seen": json.RawMessage(`true`),
 			"cursor_size":   json.RawMessage(`2`),
@@ -1507,5 +1513,122 @@ func TestInputAssistSettingsPersistenceValidateAndApply(t *testing.T) {
 	clamped.Validate()
 	if clamped.MinPressMs != 0 || clamped.AcceptDelayMs != save.MaxAcceptDelayMs {
 		t.Fatalf("clamped = %+v, want (0, %d)", clamped, save.MaxAcceptDelayMs)
+	}
+}
+
+func TestCaptionSettingsNormalizeValidateAndRoundTrip(t *testing.T) {
+	// Background normalization (presets, aliases, hex, invalid).
+	bgCases := []struct{ in, want string }{
+		{"", save.CaptionBackgroundBlack},
+		{"BLACK", save.CaptionBackgroundBlack},
+		{"charcoal", save.CaptionBackgroundGray},
+		{"grey", save.CaptionBackgroundGray},
+		{"navy", save.CaptionBackgroundBlue},
+		{"light", save.CaptionBackgroundWhite},
+		{" #1A2B3C ", "#1a2b3c"},
+		{"#xyz", save.CaptionBackgroundBlack},
+		{"unknown", save.CaptionBackgroundBlack},
+	}
+	for _, tc := range bgCases {
+		if got := save.NormalizeCaptionBackground(tc.in); got != tc.want {
+			t.Errorf("NormalizeCaptionBackground(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// TextColor normalization.
+	fgCases := []struct{ in, want string }{
+		{"", save.CaptionTextWhite},
+		{"YELLOW", save.CaptionTextYellow},
+		{"cyan", save.CaptionTextCyan},
+		{"green", save.CaptionTextGreen},
+		{"black", save.CaptionTextBlack},
+		{"#AABBCC", "#aabbcc"},
+		{"invalid", save.CaptionTextWhite},
+	}
+	for _, tc := range fgCases {
+		if got := save.NormalizeCaptionTextColor(tc.in); got != tc.want {
+			t.Errorf("NormalizeCaptionTextColor(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// Size preset normalization and scales.
+	sizeCases := []struct {
+		in    string
+		want  string
+		scale float64
+	}{
+		{"", save.CaptionSizeMedium, 1.0},
+		{"sm", save.CaptionSizeSmall, 0.75},
+		{"Small", save.CaptionSizeSmall, 0.75},
+		{"normal", save.CaptionSizeMedium, 1.0},
+		{"lg", save.CaptionSizeLarge, 1.25},
+		{"extra-large", save.CaptionSizeXLarge, 1.5},
+		{"XL", save.CaptionSizeXLarge, 1.5},
+		{"giant", save.CaptionSizeMedium, 1.0},
+	}
+	for _, tc := range sizeCases {
+		if got := save.NormalizeCaptionSize(tc.in); got != tc.want {
+			t.Errorf("NormalizeCaptionSize(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if got := save.CaptionSizeScale(tc.in); !near64(got, tc.scale) {
+			t.Errorf("CaptionSizeScale(%q) = %v, want %v", tc.in, got, tc.scale)
+		}
+	}
+
+	// Zero-value CaptionSettings defaults to 0.9 opacity, SpeakerColors=true, Dialogue=true.
+	var zero save.CaptionSettings
+	if !near64(zero.EffectiveBackgroundOpacity(), save.DefaultCaptionBackgroundOpacity) ||
+		!zero.EffectiveSpeakerColors() || !zero.EffectiveDialogue() {
+		t.Fatalf("zero CaptionSettings effective defaults = (op:%v spk:%v dlg:%v)",
+			zero.EffectiveBackgroundOpacity(), zero.EffectiveSpeakerColors(), zero.EffectiveDialogue())
+	}
+
+	// Explicit 0 opacity, SpeakerColors=false, Dialogue=false persist through Validate and JSON round-trip.
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+	s := save.DefaultSettings()
+	s.Accessibility.SetCaptions(true)
+	s.Accessibility.SetSoundCaptions(true)
+	s.Accessibility.Caption.Background = "#102030"
+	s.Accessibility.Caption.SetBackgroundOpacity(0)
+	s.Accessibility.Caption.TextColor = save.CaptionTextCyan
+	s.Accessibility.Caption.SetSpeakerColors(false)
+	s.Accessibility.Caption.SetDialogue(false)
+	s.Accessibility.Caption.Chatter = true
+	s.Accessibility.Caption.Size = save.CaptionSizeXLarge
+
+	if err := store.Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cs := reloaded.Accessibility.Caption
+	if cs.Background != "#102030" || !near64(cs.EffectiveBackgroundOpacity(), 0) || !cs.BackgroundOpacitySet ||
+		cs.TextColor != save.CaptionTextCyan || cs.EffectiveSpeakerColors() || !cs.SpeakerColorsSet ||
+		cs.EffectiveDialogue() || !cs.DialogueSet || !cs.Chatter ||
+		!reloaded.Accessibility.EffectiveSoundCaptions() || !reloaded.Accessibility.SFXCaptions ||
+		cs.Size != save.CaptionSizeXLarge {
+		t.Fatalf("reloaded CaptionSettings = %+v (acc=%+v)", cs, reloaded.Accessibility)
+	}
+
+	// Raw JSON with explicit background_opacity=0, speaker_colors=false, dialogue=false preserves overrides.
+	raw := `{"background":"white","background_opacity":0,"speaker_colors":false,"dialogue":false,"chatter":true,"sounds":true,"size":"small"}`
+	parsed := save.DefaultCaptionSettings()
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		t.Fatalf("Unmarshal CaptionSettings: %v", err)
+	}
+	parsed.Validate()
+	if parsed.Background != save.CaptionBackgroundWhite || !near64(parsed.EffectiveBackgroundOpacity(), 0) ||
+		parsed.EffectiveSpeakerColors() || parsed.EffectiveDialogue() || !parsed.Chatter || !parsed.Sounds ||
+		parsed.Size != save.CaptionSizeSmall {
+		t.Fatalf("parsed CaptionSettings = %+v", parsed)
+	}
+
+	// Explicit SetSoundCaptions(false) turns off both SFXCaptions and Caption.Sounds.
+	reloaded.Accessibility.SetSoundCaptions(false)
+	if reloaded.Accessibility.EffectiveSoundCaptions() || reloaded.Accessibility.SFXCaptions {
+		t.Fatalf("SetSoundCaptions(false) did not turn off sound captions: %+v", reloaded.Accessibility)
 	}
 }

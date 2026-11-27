@@ -33,6 +33,28 @@ const (
 	MaxMinPressMs = 2000
 	// MaxAcceptDelayMs is the maximum allowed InputAssistSettings.AcceptDelayMs in milliseconds.
 	MaxAcceptDelayMs = 2000
+
+	// DefaultCaptionBackgroundOpacity is the default caption pill backdrop opacity (90%).
+	DefaultCaptionBackgroundOpacity = 0.9
+
+	// Canonical caption background color presets accepted by NormalizeCaptionBackground.
+	CaptionBackgroundBlack = "black"
+	CaptionBackgroundGray  = "gray"
+	CaptionBackgroundBlue  = "blue"
+	CaptionBackgroundWhite = "white"
+
+	// Canonical caption text color presets accepted by NormalizeCaptionTextColor.
+	CaptionTextWhite  = "white"
+	CaptionTextYellow = "yellow"
+	CaptionTextCyan   = "cyan"
+	CaptionTextGreen  = "green"
+	CaptionTextBlack  = "black"
+
+	// Canonical caption size presets accepted by NormalizeCaptionSize.
+	CaptionSizeSmall  = "small"
+	CaptionSizeMedium = "medium"
+	CaptionSizeLarge  = "large"
+	CaptionSizeXLarge = "xlarge"
 )
 
 // AudioSettings holds player audio preferences stored independently of save slots.
@@ -181,11 +203,297 @@ func (c *CameraSettings) Validate() {
 	c.CameraSway = clampUnit(c.CameraSway, 1)
 }
 
+// CaptionSettings holds player-customizable presentation and per-kind filtering
+// preferences for live captions.
+type CaptionSettings struct {
+	// Background is a canonical backdrop color name ("black", "gray", "blue", "white")
+	// or a 6-digit hex color ("#rrggbb"). Empty defaults to "black".
+	Background string `json:"background,omitempty"`
+	// BackgroundOpacity is the backdrop opacity in [0, 1] (0.9 by default; 0 is transparent).
+	// Use SetBackgroundOpacity(0) to distinguish an explicit transparent backdrop from a zero-value struct.
+	BackgroundOpacity float64 `json:"background_opacity"`
+	// BackgroundOpacitySet reports whether BackgroundOpacity was set explicitly (including 0).
+	BackgroundOpacitySet bool `json:"background_opacity_set,omitempty"`
+	// TextColor is a canonical text color name ("white", "yellow", "cyan", "green", "black")
+	// or a 6-digit hex color ("#rrggbb"). Empty defaults to "white".
+	TextColor string `json:"text_color,omitempty"`
+	// SpeakerColors tints speaker names with distinct per-speaker colors (true by default).
+	// Use SetSpeakerColors(false) to distinguish an explicit off choice from a zero-value struct.
+	SpeakerColors bool `json:"speaker_colors"`
+	// SpeakerColorsSet reports whether SpeakerColors was set explicitly (including false).
+	SpeakerColorsSet bool `json:"speaker_colors_set,omitempty"`
+	// Dialogue enables main spoken dialogue captions when Captions is enabled (true by default).
+	// Use SetDialogue(false) to distinguish an explicit off choice from a zero-value struct.
+	Dialogue bool `json:"dialogue"`
+	// DialogueSet reports whether Dialogue was set explicitly (including false).
+	DialogueSet bool `json:"dialogue_set,omitempty"`
+	// Chatter enables ambient / background NPC chatter captions when Captions is enabled.
+	Chatter bool `json:"chatter,omitempty"`
+	// Sounds enables non-speech sound-effect and music captions (paired with AccessibilitySettings.SFXCaptions).
+	Sounds bool `json:"sounds,omitempty"`
+	// SoundsSet reports whether Sounds was set explicitly (including false).
+	SoundsSet bool `json:"sounds_set,omitempty"`
+	// Size selects a caption text size preset ("small", "medium", "large", "xlarge"; default "medium").
+	Size string `json:"size,omitempty"`
+}
+
+// DefaultCaptionSettings returns a CaptionSettings populated with readable defaults.
+func DefaultCaptionSettings() CaptionSettings {
+	return CaptionSettings{
+		Background:        CaptionBackgroundBlack,
+		BackgroundOpacity: DefaultCaptionBackgroundOpacity,
+		TextColor:         CaptionTextWhite,
+		SpeakerColors:     true,
+		Dialogue:          true,
+		Chatter:           false,
+		Sounds:            false,
+		Size:              CaptionSizeMedium,
+	}
+}
+
+// UnmarshalJSON decodes CaptionSettings while preserving defaults for omitted
+// fields and recording explicit false/0 overrides when present in JSON.
+func (c *CaptionSettings) UnmarshalJSON(data []byte) error {
+	type rawCaption struct {
+		Background           *string  `json:"background"`
+		BackgroundOpacity    *float64 `json:"background_opacity"`
+		BackgroundOpacitySet *bool    `json:"background_opacity_set"`
+		TextColor            *string  `json:"text_color"`
+		SpeakerColors        *bool    `json:"speaker_colors"`
+		SpeakerColorsSet     *bool    `json:"speaker_colors_set"`
+		Dialogue             *bool    `json:"dialogue"`
+		DialogueSet          *bool    `json:"dialogue_set"`
+		Chatter              *bool    `json:"chatter"`
+		Sounds               *bool    `json:"sounds"`
+		SoundsSet            *bool    `json:"sounds_set"`
+		Size                 *string  `json:"size"`
+	}
+	var raw rawCaption
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Background != nil {
+		c.Background = *raw.Background
+	}
+	if raw.BackgroundOpacity != nil {
+		c.BackgroundOpacity = *raw.BackgroundOpacity
+		if *raw.BackgroundOpacity == 0 {
+			c.BackgroundOpacitySet = true
+		}
+	}
+	if raw.BackgroundOpacitySet != nil {
+		c.BackgroundOpacitySet = *raw.BackgroundOpacitySet
+	}
+	if raw.TextColor != nil {
+		c.TextColor = *raw.TextColor
+	}
+	if raw.SpeakerColors != nil {
+		c.SpeakerColors = *raw.SpeakerColors
+		if !*raw.SpeakerColors {
+			c.SpeakerColorsSet = true
+		}
+	}
+	if raw.SpeakerColorsSet != nil {
+		c.SpeakerColorsSet = *raw.SpeakerColorsSet
+	}
+	if raw.Dialogue != nil {
+		c.Dialogue = *raw.Dialogue
+		if !*raw.Dialogue {
+			c.DialogueSet = true
+		}
+	}
+	if raw.DialogueSet != nil {
+		c.DialogueSet = *raw.DialogueSet
+	}
+	if raw.Chatter != nil {
+		c.Chatter = *raw.Chatter
+	}
+	if raw.Sounds != nil {
+		c.Sounds = *raw.Sounds
+		if !*raw.Sounds {
+			c.SoundsSet = true
+		}
+	}
+	if raw.SoundsSet != nil {
+		c.SoundsSet = *raw.SoundsSet
+	}
+	if raw.Size != nil {
+		c.Size = *raw.Size
+	}
+	return nil
+}
+
+// NormalizeCaptionBackground returns the canonical background color name or
+// lowercase "#rrggbb" hex string, defaulting unrecognized/empty inputs to "black".
+func NormalizeCaptionBackground(s string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(s))
+	switch trimmed {
+	case "", CaptionBackgroundBlack:
+		return CaptionBackgroundBlack
+	case CaptionBackgroundGray, "grey", "dark", "charcoal":
+		return CaptionBackgroundGray
+	case CaptionBackgroundBlue, "navy":
+		return CaptionBackgroundBlue
+	case CaptionBackgroundWhite, "light":
+		return CaptionBackgroundWhite
+	default:
+		if isHexRGB(trimmed) {
+			return trimmed
+		}
+		return CaptionBackgroundBlack
+	}
+}
+
+// NormalizeCaptionTextColor returns the canonical text color name or lowercase
+// "#rrggbb" hex string, defaulting unrecognized/empty inputs to "white".
+func NormalizeCaptionTextColor(s string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(s))
+	switch trimmed {
+	case "", CaptionTextWhite:
+		return CaptionTextWhite
+	case CaptionTextYellow, CaptionTextCyan, CaptionTextGreen, CaptionTextBlack:
+		return trimmed
+	default:
+		if isHexRGB(trimmed) {
+			return trimmed
+		}
+		return CaptionTextWhite
+	}
+}
+
+// NormalizeCaptionSize returns the canonical caption size preset ("small",
+// "medium", "large", or "xlarge"), defaulting unrecognized/empty inputs to "medium".
+func NormalizeCaptionSize(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case CaptionSizeSmall, "sm":
+		return CaptionSizeSmall
+	case "", CaptionSizeMedium, "normal", "default":
+		return CaptionSizeMedium
+	case CaptionSizeLarge, "lg":
+		return CaptionSizeLarge
+	case CaptionSizeXLarge, "extra-large", "extra_large", "xl":
+		return CaptionSizeXLarge
+	default:
+		return CaptionSizeMedium
+	}
+}
+
+// CaptionSizeScale returns the text size multiplier for a caption size preset
+// ("small" = 0.75, "medium" = 1.0, "large" = 1.25, "xlarge" = 1.5).
+func CaptionSizeScale(size string) float64 {
+	switch NormalizeCaptionSize(size) {
+	case CaptionSizeSmall:
+		return 0.75
+	case CaptionSizeLarge:
+		return 1.25
+	case CaptionSizeXLarge:
+		return 1.5
+	default:
+		return 1.0
+	}
+}
+
+func isHexRGB(s string) bool {
+	if len(s) != 7 || s[0] != '#' {
+		return false
+	}
+	for i := 1; i < 7; i++ {
+		ch := s[i]
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// Validate normalizes preset names and clamps BackgroundOpacity into [0, 1] in place.
+func (c *CaptionSettings) Validate() {
+	c.Background = NormalizeCaptionBackground(c.Background)
+	c.TextColor = NormalizeCaptionTextColor(c.TextColor)
+	c.Size = NormalizeCaptionSize(c.Size)
+	if !c.BackgroundOpacitySet && c.BackgroundOpacity == 0 {
+		c.BackgroundOpacity = DefaultCaptionBackgroundOpacity
+	} else {
+		if math.IsNaN(c.BackgroundOpacity) {
+			c.BackgroundOpacity = DefaultCaptionBackgroundOpacity
+		} else {
+			if c.BackgroundOpacity < 0 {
+				c.BackgroundOpacity = 0
+				c.BackgroundOpacitySet = true
+			} else if c.BackgroundOpacity > 1 {
+				c.BackgroundOpacity = 1
+			}
+		}
+	}
+	if !c.SpeakerColorsSet && !c.SpeakerColors {
+		c.SpeakerColors = true
+	}
+	if !c.DialogueSet && !c.Dialogue {
+		c.Dialogue = true
+	}
+}
+
+// SetBackgroundOpacity clamps v into [0, 1] and marks BackgroundOpacitySet so an
+// explicit 0 (transparent background) is preserved across Validate and JSON saves.
+func (c *CaptionSettings) SetBackgroundOpacity(v float64) {
+	if math.IsNaN(v) {
+		v = DefaultCaptionBackgroundOpacity
+	}
+	c.BackgroundOpacity = clampUnit(v, DefaultCaptionBackgroundOpacity)
+	c.BackgroundOpacitySet = true
+}
+
+// EffectiveBackgroundOpacity returns the active caption backdrop opacity in [0, 1].
+func (c CaptionSettings) EffectiveBackgroundOpacity() float64 {
+	if !c.BackgroundOpacitySet && c.BackgroundOpacity == 0 {
+		return DefaultCaptionBackgroundOpacity
+	}
+	return clampUnit(c.BackgroundOpacity, DefaultCaptionBackgroundOpacity)
+}
+
+// SetSpeakerColors records an explicit speaker-color preference (including false).
+func (c *CaptionSettings) SetSpeakerColors(v bool) {
+	c.SpeakerColors = v
+	c.SpeakerColorsSet = true
+}
+
+// EffectiveSpeakerColors reports whether distinct per-speaker colors are enabled.
+func (c CaptionSettings) EffectiveSpeakerColors() bool {
+	if c.SpeakerColorsSet || c.SpeakerColors {
+		return c.SpeakerColors
+	}
+	return true
+}
+
+// SetDialogue records an explicit main-dialogue caption toggle (including false).
+func (c *CaptionSettings) SetDialogue(v bool) {
+	c.Dialogue = v
+	c.DialogueSet = true
+}
+
+// EffectiveDialogue reports whether main spoken dialogue captions are enabled.
+func (c CaptionSettings) EffectiveDialogue() bool {
+	if c.DialogueSet || c.Dialogue {
+		return c.Dialogue
+	}
+	return true
+}
+
+// SetSounds records an explicit sound-effects/music caption toggle (including false).
+func (c *CaptionSettings) SetSounds(v bool) {
+	c.Sounds = v
+	c.SoundsSet = true
+}
+
 // AccessibilitySettings holds player accessibility and gameplay-assist preferences.
 type AccessibilitySettings struct {
 	Captions bool `json:"captions"`
+	// CaptionsSet reports whether Captions was chosen explicitly (including false) rather than following a platform caption preference.
+	CaptionsSet bool `json:"captions_set,omitempty"`
 	// SFXCaptions enables captions for non-speech sound effects (footsteps, explosions, directional cues).
 	SFXCaptions bool `json:"sfx_captions,omitempty"`
+	// Caption holds player-chosen caption presentation (background, opacity, text color, speaker colors, size) and per-kind toggles (dialogue, chatter, sounds).
+	Caption CaptionSettings `json:"caption"`
 	// CaptionScale is the subtitle/UI text scale factor in [MinCaptionScale, MaxCaptionScale] (1.0 by default).
 	// When CaptionScaleSet is false and CaptionScale is 0 or 1.0, EffectiveCaptionScale follows core.Env.FontScale.
 	CaptionScale float64 `json:"caption_scale"`
@@ -241,8 +549,9 @@ func NormalizeColorBlindMode(mode string) string {
 	}
 }
 
-// Validate clamps out-of-range numeric fields and normalizes ColorBlindMode in place.
+// Validate clamps out-of-range numeric fields and normalizes ColorBlindMode and Caption in place.
 func (a *AccessibilitySettings) Validate() {
+	a.Caption.Validate()
 	a.CaptionScale = clampPositiveRange(a.CaptionScale, MinCaptionScale, MaxCaptionScale, 1.0)
 	a.ColorBlindMode = NormalizeColorBlindMode(a.ColorBlindMode)
 	if a.ColorBlindSeveritySet || a.ColorBlindSeverity != 0 {
@@ -273,6 +582,55 @@ func (a AccessibilitySettings) EffectiveColorBlindSeverity() float64 {
 		return clampUnit(a.ColorBlindSeverity, 1.0)
 	}
 	return 1.0
+}
+
+// SetCaptions records an explicit captions preference so it overrides any
+// platform caption preference even when v is false.
+func (a *AccessibilitySettings) SetCaptions(v bool) {
+	a.Captions = v
+	a.CaptionsSet = true
+}
+
+// ClearCaptions clears the explicit captions override so EffectiveCaptions
+// follows the platform caption preference when supported.
+func (a *AccessibilitySettings) ClearCaptions() {
+	a.Captions = false
+	a.CaptionsSet = false
+}
+
+// EffectiveCaptions reports whether captions are enabled, using the player's
+// explicit choice when Captions or CaptionsSet is true and otherwise checking
+// the platform caption preference when exposed by env (nsgo-dev/nsgo#2677).
+func (a AccessibilitySettings) EffectiveCaptions(env *core.Env) bool {
+	if a.Captions || a.CaptionsSet {
+		return a.Captions
+	}
+	if env != nil {
+		if p, ok := any(env).(interface{ ClosedCaptions() bool }); ok {
+			return p.ClosedCaptions()
+		}
+		if p, ok := any(env).(interface{ Captions() bool }); ok {
+			return p.Captions()
+		}
+	}
+	return false
+}
+
+// SetSoundCaptions updates both SFXCaptions and Caption.Sounds together so
+// legacy and structured sound-caption toggles stay synchronized.
+func (a *AccessibilitySettings) SetSoundCaptions(v bool) {
+	a.SFXCaptions = v
+	a.Caption.SetSounds(v)
+}
+
+// EffectiveSoundCaptions reports whether non-speech sound and music captions
+// are enabled, respecting an explicit Caption.SetSounds call and otherwise
+// honoring either SFXCaptions or Caption.Sounds.
+func (a AccessibilitySettings) EffectiveSoundCaptions() bool {
+	if a.Caption.SoundsSet {
+		return a.Caption.Sounds
+	}
+	return a.SFXCaptions || a.Caption.Sounds
 }
 
 // SetReduceMotion records an explicit reduced-motion preference so it overrides
@@ -509,6 +867,7 @@ func DefaultSettings() Settings {
 		Locale: "",
 		Accessibility: AccessibilitySettings{
 			Captions:           false,
+			Caption:            DefaultCaptionSettings(),
 			CaptionScale:       1.0,
 			ColorBlindMode:     "none",
 			ColorBlindSeverity: 1.0,

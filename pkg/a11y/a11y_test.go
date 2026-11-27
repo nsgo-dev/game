@@ -56,7 +56,9 @@ func TestCaptionsAppearExpireOnGameLoopAndRenderWithLiveRegion(t *testing.T) {
 		loop.Run(cx)
 		return core.View{
 			Children: []core.Node{
-				a11y.CaptionsView(cx, track, a11y.CaptionStyle{}),
+				// Set MaxLines: 4 so all three simultaneous cues render while testing expiration and LiveRegion;
+				// default MaxLines (2) is verified in TestCaptionsWrappingAndTwoLineLimit.
+				a11y.CaptionsView(cx, track, a11y.CaptionStyle{MaxLines: 4}),
 			},
 		}
 	})
@@ -876,4 +878,333 @@ func TestAssistInputAssistsAndHoldToToggleExpansion(t *testing.T) {
 			t.Fatalf("player %d Toggle = %v, want [sprint]", p.Index(), p.Assists().Toggle)
 		}
 	}
+}
+
+func TestCaptionsOpacityBackgroundTextColorAndSpeakerColors(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+
+	var assist *a11y.Assist
+	var track *a11y.CaptionTrack
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		assist = a11y.NewAssistFromSettings(cx, store)
+		track = a11y.NewCaptionTrack(cx)
+		return a11y.CaptionsView(cx, track, a11y.CaptionStyle{
+			FontSize: 16,
+			Assist:   assist,
+			SpeakerColors: map[string]core.Color{
+				"Ada": core.RGB(0x56B4E9),
+				"Bob": core.RGB(0xF5D042),
+			},
+		})
+	})
+
+	var idAda, idBob uint64
+	app.Post(func() {
+		_ = assist.SetCaptionsEnabled(true)
+		_ = assist.SetCaptionBackground(save.CaptionBackgroundWhite)
+		_ = assist.SetCaptionBackgroundOpacity(0.5)
+		_ = assist.SetCaptionTextColor(save.CaptionTextBlack)
+		_ = assist.SetCaptionSize(save.CaptionSizeLarge) // 1.25x -> 20pt
+		idAda = track.ShowDialogueWithQualifier("Ada", "on radio", "Bridge ahead.", 5*time.Second)
+		idBob = track.ShowDialogue("Bob", "Copy that.", 5*time.Second)
+	})
+	app.Settle()
+
+	// Qualifier formats as "Ada (on radio): Bridge ahead."
+	adaText := app.Find("text:Ada (on radio): Bridge ahead.")
+	if adaText.TextStyle.Font.Size != 20 {
+		t.Fatalf("large caption Font.Size = %v, want 20 (16 * 1.25)", adaText.TextStyle.Font.Size)
+	}
+	app.Find("text:Bob: Copy that.")
+
+	// Check background color (#F8FAFC) with 50% opacity (alpha ~ 0x80).
+	adaRow := app.Find(fmt.Sprintf("id:a11y-captions-item-%d", idAda))
+	gotBg := adaRow.Style.Background
+	wantBg := a11y.ResolveCaptionBackground(save.CaptionBackgroundWhite, 0.5)
+	if gotBg != wantBg {
+		t.Fatalf("row Background at 50%% opacity = %08x, want %08x", uint32(gotBg), uint32(wantBg))
+	}
+	_ = idBob
+
+	// Setting opacity to 0 makes the pill background fully transparent (alpha 0).
+	app.Post(func() {
+		_ = assist.SetCaptionBackgroundOpacity(0)
+	})
+	app.Settle()
+	adaRow = app.Find(fmt.Sprintf("id:a11y-captions-item-%d", idAda))
+	if alpha := adaRow.Style.Background & 0xff; alpha != 0 {
+		t.Fatalf("row Background alpha at 0%% opacity = %02x, want 00", alpha)
+	}
+
+	// Setting opacity to 1.0 makes the pill background opaque (alpha 0xff).
+	app.Post(func() {
+		_ = assist.SetCaptionBackground(save.CaptionBackgroundBlue)
+		_ = assist.SetCaptionBackgroundOpacity(1.0)
+		_ = assist.SetCaptionTextColor(save.CaptionTextYellow)
+		_ = assist.SetCaptionSize(save.CaptionSizeSmall) // 0.75x -> 12pt
+	})
+	app.Settle()
+	adaRow = app.Find(fmt.Sprintf("id:a11y-captions-item-%d", idAda))
+	if alpha := adaRow.Style.Background & 0xff; alpha != 0xff {
+		t.Fatalf("row Background alpha at 100%% opacity = %02x, want ff", alpha)
+	}
+	if sz := app.Find("text:Ada (on radio): Bridge ahead.").TextStyle.Font.Size; sz != 12 {
+		t.Fatalf("small caption Font.Size = %v, want 12 (16 * 0.75)", sz)
+	}
+
+	// Deterministic speaker colors differ across distinct names and respect overrides.
+	c1 := a11y.SpeakerColor("Ada", a11y.VisionNormal, nil)
+	c2 := a11y.SpeakerColor("ada", a11y.VisionNormal, nil)
+	if c1 != c2 {
+		t.Fatalf("SpeakerColor not case-insensitive deterministic: %08x vs %08x", uint32(c1), uint32(c2))
+	}
+	override := a11y.SpeakerColor("Ada", a11y.VisionNormal, map[string]core.Color{"Ada": core.RGB(0x123456)})
+	if override != core.RGB(0x123456) {
+		t.Fatalf("SpeakerColor override = %08x, want 123456ff", uint32(override))
+	}
+
+	// Toggling speaker colors off persists and keeps captions rendered cleanly.
+	app.Post(func() { _ = assist.SetCaptionSpeakerColors(false) })
+	app.Settle()
+	if assist.CaptionSpeakerColors() {
+		t.Fatal("CaptionSpeakerColors() = true, want false")
+	}
+	app.Find("text:Ada (on radio): Bridge ahead.")
+
+	// Pre-parenthesized qualifier is not double-wrapped.
+	if got := (a11y.Caption{Speaker: "Ada", Qualifier: "(whispering)", Text: "Shh."}).Format(); got != "Ada (whispering): Shh." {
+		t.Fatalf("Format with parenthesized qualifier = %q", got)
+	}
+}
+
+func TestCaptionsPerKindFiltering(t *testing.T) {
+	dir := t.TempDir()
+	store := save.NewFileSettingsStore(dir)
+
+	var assist *a11y.Assist
+	var track *a11y.CaptionTrack
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		assist = a11y.NewAssistFromSettings(cx, store)
+		track = a11y.NewCaptionTrack(cx)
+		track.MaxVisible = 6
+		return a11y.CaptionsView(cx, track, a11y.CaptionStyle{
+			Assist:   assist,
+			MaxLines: 6,
+		})
+	})
+
+	app.Post(func() {
+		track.ShowDialogue("Guide", "Main line", 10*time.Second)
+		track.ShowChatter("Guard", "Ambient talk", 10*time.Second)
+		track.ShowSFX("Thunder", 10*time.Second)
+		track.Show(a11y.Caption{Kind: a11y.CaptionMusic, Text: "Boss theme", Duration: 10 * time.Second})
+		track.ShowImportant("Alarm!", 10*time.Second)
+	})
+	app.Settle()
+
+	// All off by default -> nothing shown.
+	if app.Exists("text:Main line") || app.Exists("text:Ambient talk") ||
+		app.Exists("text:Thunder") || app.Exists("text:Boss theme") || app.Exists("text:Alarm!") {
+		t.Fatal("captions rendered while all kinds are disabled")
+	}
+
+	// Master Captions on (Dialogue defaults true, Chatter false, Sounds false) -> Dialogue + Important only.
+	app.Post(func() { _ = assist.SetCaptionsEnabled(true) })
+	app.Settle()
+	app.Find("text:Guide: Main line")
+	app.Find("text:! Alarm!")
+	if app.Exists("text:Ambient talk") || app.Exists("text:Thunder") || app.Exists("text:Boss theme") {
+		t.Fatal("chatter/sfx/music rendered while their toggles are false")
+	}
+
+	// Disable Dialogue, enable Chatter -> Chatter + Important only.
+	app.Post(func() {
+		_ = assist.SetDialogueCaptionsEnabled(false)
+		_ = assist.SetChatterCaptionsEnabled(true)
+	})
+	app.Settle()
+	if app.Exists("text:Main line") {
+		t.Fatal("dialogue rendered while DialogueCaptionsEnabled is false")
+	}
+	app.Find("text:Guard: Ambient talk")
+	app.Find("text:! Alarm!")
+
+	// Enable Sounds -> SFX + Music also appear.
+	app.Post(func() { _ = assist.SetSFXCaptionsEnabled(true) })
+	app.Settle()
+	app.Find("text:[Thunder]")
+	app.Find("text:♪ Boss theme")
+
+	// Turning master Captions off hides Dialogue and Chatter while keeping Sounds + Important.
+	app.Post(func() {
+		_ = assist.SetDialogueCaptionsEnabled(true)
+		_ = assist.SetCaptionsEnabled(false)
+	})
+	app.Settle()
+	if app.Exists("text:Main line") || app.Exists("text:Ambient talk") {
+		t.Fatal("speech captions rendered while master CaptionsEnabled is false")
+	}
+	app.Find("text:[Thunder]")
+	app.Find("text:♪ Boss theme")
+	app.Find("text:! Alarm!")
+}
+
+func TestCaptionsSpeakerNameSuppressionAndGap(t *testing.T) {
+	var track *a11y.CaptionTrack
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		track = a11y.NewCaptionTrack(cx)
+		track.SpeakerRepeatGap = 3 * time.Second
+		return a11y.CaptionsView(cx, track, a11y.CaptionStyle{MaxLines: 4})
+	})
+
+	// 1. Consecutive lines by the same speaker suppress the repeated name while preserving Caption.Speaker.
+	app.Post(func() {
+		track.ShowDialogue("Ada", "First line.", 2*time.Second)
+		track.ShowDialogue("Ada", "Second line.", 2*time.Second)
+	})
+	app.Settle()
+
+	active := track.Active()
+	if len(active) != 2 {
+		t.Fatalf("active len = %d, want 2", len(active))
+	}
+	if active[0].OmitSpeaker || active[0].Format() != "Ada: First line." {
+		t.Fatalf("first caption = %+v (%q)", active[0], active[0].Format())
+	}
+	if !active[1].OmitSpeaker || active[1].Speaker != "Ada" || active[1].Format() != "Second line." {
+		t.Fatalf("second caption = %+v (%q), want omitted speaker prefix with Speaker=Ada", active[1], active[1].Format())
+	}
+
+	// 2. Qualifier change re-shows speaker with qualifier.
+	app.Post(func() {
+		track.ShowDialogueWithQualifier("Ada", "on radio", "Radio check.", 2*time.Second)
+	})
+	app.Settle()
+	active = track.Active()
+	if got := active[len(active)-1].Format(); got != "Ada (on radio): Radio check." {
+		t.Fatalf("qualifier change caption = %q, want %q", got, "Ada (on radio): Radio check.")
+	}
+
+	// 3. Another speaker breaks the streak so Ada's name reappears next.
+	app.Post(func() {
+		track.Clear()
+		track.ShowDialogue("Ada", "Hey.", 2*time.Second)
+		track.ShowDialogue("Bob", "Hi.", 2*time.Second)
+		track.ShowDialogue("Ada", "Ready?", 2*time.Second)
+	})
+	app.Settle()
+	active = track.Active()
+	if active[2].Format() != "Ada: Ready?" {
+		t.Fatalf("after speaker switch = %q, want %q", active[2].Format(), "Ada: Ready?")
+	}
+
+	// 4. Short silence (<= gap) still suppresses; long silence (> gap) re-shows speaker name.
+	app.Post(func() {
+		track.Clear()
+		track.ShowDialogue("Ada", "Hold on.", 1*time.Second)
+		track.Update(1 * time.Second) // expires at t=1s
+		track.Update(2 * time.Second) // 2s silence <= 3s gap
+		track.ShowDialogue("Ada", "Almost there.", 1*time.Second)
+	})
+	app.Settle()
+	if got := track.Active()[0].Format(); got != "Almost there." {
+		t.Fatalf("within gap = %q, want suppressed speaker %q", got, "Almost there.")
+	}
+
+	app.Post(func() {
+		track.Update(1 * time.Second) // expires
+		track.Update(4 * time.Second) // 4s silence > 3s gap
+		track.ShowDialogue("Ada", "Back again.", 1*time.Second)
+	})
+	app.Settle()
+	if got := track.Active()[0].Format(); got != "Ada: Back again." {
+		t.Fatalf("after long gap = %q, want %q", got, "Ada: Back again.")
+	}
+
+	// 5. Negative SpeakerRepeatGap disables suppression entirely.
+	app.Post(func() {
+		track.SpeakerRepeatGap = -1
+		track.Clear()
+		track.ShowDialogue("Ada", "One.", 2*time.Second)
+		track.ShowDialogue("Ada", "Two.", 2*time.Second)
+	})
+	app.Settle()
+	active = track.Active()
+	if active[1].Format() != "Ada: Two." {
+		t.Fatalf("with suppression disabled = %q, want %q", active[1].Format(), "Ada: Two.")
+	}
+}
+
+func TestCaptionsWrappingAndTwoLineLimit(t *testing.T) {
+	// Word-boundary wrapping for English at 40 chars.
+	enText := "Watch out for the collapsing wooden bridge ahead near the northern gate!"
+	enLines := a11y.WrapCaptionLines(enText, 40)
+	if len(enLines) != 2 {
+		t.Fatalf("WrapCaptionLines(en, 40) = %q (%d lines), want 2 lines", enLines, len(enLines))
+	}
+	for i, ln := range enLines {
+		if n := len([]rune(ln)); n > 40 {
+			t.Errorf("en line %d length = %d > 40: %q", i, n, ln)
+		}
+	}
+	if enLines[0] != "Watch out for the collapsing wooden" || enLines[1] != "bridge ahead near the northern gate!" {
+		t.Fatalf("unexpected en word wrap = %#v", enLines)
+	}
+
+	// CJK wraps by character boundary without spaces.
+	zhText := "这是一段没有空格的中文实时字幕测试用于验证自动按字换行"
+	zhLines := a11y.WrapCaptionLines(zhText, 10)
+	if len(zhLines) != 3 {
+		t.Fatalf("WrapCaptionLines(zh, 10) = %#v, want 3 lines", zhLines)
+	}
+	for i, ln := range zhLines {
+		if n := len([]rune(ln)); n > 10 {
+			t.Errorf("zh line %d length = %d > 10: %q", i, n, ln)
+		}
+	}
+
+	// Oversized unbroken token splits cleanly at maxChars.
+	tokenLines := a11y.WrapCaptionLines(strings.Repeat("X", 25), 10)
+	if len(tokenLines) != 3 || len(tokenLines[0]) != 10 || len(tokenLines[1]) != 10 || len(tokenLines[2]) != 5 {
+		t.Fatalf("oversized token wrap = %#v", tokenLines)
+	}
+
+	// CaptionsView default MaxLines=2 drops older lines first across multiple captions and long single captions.
+	var track *a11y.CaptionTrack
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		track = a11y.NewCaptionTrack(cx)
+		return a11y.CaptionsView(cx, track, a11y.CaptionStyle{})
+	})
+
+	// Three 1-line captions: oldest leaves, newest two stay.
+	var id1, id2, id3 uint64
+	app.Post(func() {
+		id1 = track.ShowSFX("Oldest cue", 5*time.Second)
+		id2 = track.ShowSFX("Middle cue", 5*time.Second)
+		id3 = track.ShowSFX("Newest cue", 5*time.Second)
+	})
+	app.Settle()
+
+	if app.Exists(fmt.Sprintf("id:a11y-captions-item-%d", id1)) || app.Exists("text:Oldest cue") {
+		t.Fatal("oldest caption should have been dropped by default 2-line limit")
+	}
+	app.Find(fmt.Sprintf("id:a11y-captions-item-%d", id2))
+	app.Find(fmt.Sprintf("id:a11y-captions-item-%d", id3))
+
+	// A single 3-line caption keeps only its newest 2 lines (oldest line leaves first).
+	app.Post(func() {
+		track.Clear()
+		track.Show(a11y.Caption{
+			Kind:     a11y.CaptionDialogue,
+			Text:     "Line one text here\nLine two text here\nLine three text here",
+			Duration: 5 * time.Second,
+		})
+	})
+	app.Settle()
+
+	if app.Exists("text:Line one text here") {
+		t.Fatal("oldest wrapped line of 3-line caption was not dropped")
+	}
+	app.Find("text:Line two text here\nLine three text here")
 }

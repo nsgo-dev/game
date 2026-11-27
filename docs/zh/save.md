@@ -111,8 +111,9 @@ err := store.LoadChecked("slot1", &snap, func() error {
 `AccessibilitySettings` 是无障碍与玩法辅助偏好的唯一数据模型：
 
 - **统一范围与规范名称**：`CaptionScale` 裁剪在 `[MinCaptionScale, MaxCaptionScale]`（`0.5`–`3.0`），`GameSpeed` 裁剪在 `[MinGameSpeed, MaxGameSpeed]`（`0.25`–`2.0`），`ScreenShake` 裁剪在 `[0, 1]`。`NormalizeColorBlindMode` 同时接受 `"none"` 与 `"normal"`（统一规范为 `"none"`），以及 `"protanopia"`、`"deuteranopia"`、`"tritanopia"` 和 `"high-contrast"`（含 `"highcontrast"` / `"high_contrast"`）。
-- **辅助字段与旧文件迁移**：提供 `Captions`、`SFXCaptions`、`ReduceFlashes`、`Invincibility`、`AutoAim` 与 `HoldToToggle` 强类型字段；加载包含旧版 `Custom["reduce_flashes"]` 的设置文件时会自动迁移到 `Accessibility.ReduceFlashes`。
-- **跟随系统默认值**：未显式覆盖时，`EffectiveReduceMotion(env)`、`EffectiveHighContrast(env)` 与 `EffectiveCaptionScale(env)` 会跟随 `env.ReduceMotion()`、`env.IncreaseContrast()` 和 `env.FontScale()`；调用 `SetReduceMotion`、`SetHighContrast` 或 `SetCaptionScale` 可记录显式覆盖值（包括 `false` 或 `1.0`），调用对应的 `Clear*` 方法可恢复跟随系统。
+- **辅助字段与旧文件迁移**：提供 `Captions`、`SFXCaptions`、`Caption`（`CaptionSettings`）、`ReduceFlashes`、`Invincibility`、`AutoAim` 与 `HoldToToggle` 强类型字段；加载包含旧版 `Custom["reduce_flashes"]` 的设置文件时会自动迁移到 `Accessibility.ReduceFlashes`。
+- **字幕样式与分类型开关（`CaptionSettings`）**：配置 `Background`（`black`、`gray`、`blue`、`white` 或 `#rrggbb`）、`BackgroundOpacity`（`0`–`1`，默认 `0.9`；调用 `SetBackgroundOpacity(0)` 可显式设为透明底）、`TextColor`（`white`、`yellow`、`cyan`、`green`、`black` 或 `#rrggbb`）、`SpeakerColors`（默认 `true`）、`Dialogue`（默认 `true`）、`Chatter`、`Sounds`（通过 `SetSoundCaptions` / `EffectiveSoundCaptions` 与 `SFXCaptions` 保持同步）及 `Size`（`small`、`medium`、`large`、`xlarge`）。
+- **跟随系统默认值**：未显式覆盖时，`EffectiveCaptions(env)`、`EffectiveReduceMotion(env)`、`EffectiveHighContrast(env)` 与 `EffectiveCaptionScale(env)` 会跟随系统环境设置；调用 `SetCaptions`、`SetReduceMotion`、`SetHighContrast` 或 `SetCaptionScale` 可记录显式覆盖值（包括 `false` 或 `1.0`），调用对应的 `Clear*` 方法可恢复跟随系统。
 
 ## 整局存档注册表（`save.Game`）
 

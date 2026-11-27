@@ -2,9 +2,28 @@
 version: 1
 locale: zh
 strings:
+  a11y.captions.bgBlack: 黑色
+  a11y.captions.bgBlue: 深蓝
+  a11y.captions.bgGray: 灰色
+  a11y.captions.bgWhite: 白色
   a11y.captions.importantPrefix: ！
   a11y.captions.musicPrefix: '♪ '
+  a11y.captions.previewChatter: 你听到那个声音了吗？
+  a11y.captions.previewChatterSpeaker: 斥候
+  a11y.captions.previewDialogue: 小心前方的吊桥！
+  a11y.captions.previewQualifier: 无线电
+  a11y.captions.previewSFX: 寒风呼啸
+  a11y.captions.previewSpeaker: 向导
   a11y.captions.regionLabel: 字幕
+  a11y.captions.sizeLarge: 大
+  a11y.captions.sizeMedium: 中
+  a11y.captions.sizeSmall: 小
+  a11y.captions.sizeXLarge: 特大
+  a11y.captions.textBlack: 黑色
+  a11y.captions.textCyan: 青色
+  a11y.captions.textGreen: 绿色
+  a11y.captions.textWhite: 白色
+  a11y.captions.textYellow: 黄色
   a11y.menu.checked: 已勾选
   a11y.menu.closed: '{label}已关闭'
   a11y.menu.defaultLabel: 菜单

@@ -45,6 +45,48 @@ const (
 	KeyCaptionsImportantPrefix = "a11y.captions.importantPrefix"
 	// KeyCaptionsMusicPrefix is prepended to speakerless CaptionMusic cues.
 	KeyCaptionsMusicPrefix = "a11y.captions.musicPrefix"
+
+	// KeyCaptionsBgBlack is the localized label for the black caption background preset.
+	KeyCaptionsBgBlack = "a11y.captions.bgBlack"
+	// KeyCaptionsBgGray is the localized label for the gray caption background preset.
+	KeyCaptionsBgGray = "a11y.captions.bgGray"
+	// KeyCaptionsBgBlue is the localized label for the navy/blue caption background preset.
+	KeyCaptionsBgBlue = "a11y.captions.bgBlue"
+	// KeyCaptionsBgWhite is the localized label for the white caption background preset.
+	KeyCaptionsBgWhite = "a11y.captions.bgWhite"
+
+	// KeyCaptionsTextWhite is the localized label for the white caption text preset.
+	KeyCaptionsTextWhite = "a11y.captions.textWhite"
+	// KeyCaptionsTextYellow is the localized label for the yellow caption text preset.
+	KeyCaptionsTextYellow = "a11y.captions.textYellow"
+	// KeyCaptionsTextCyan is the localized label for the cyan caption text preset.
+	KeyCaptionsTextCyan = "a11y.captions.textCyan"
+	// KeyCaptionsTextGreen is the localized label for the green caption text preset.
+	KeyCaptionsTextGreen = "a11y.captions.textGreen"
+	// KeyCaptionsTextBlack is the localized label for the black caption text preset.
+	KeyCaptionsTextBlack = "a11y.captions.textBlack"
+
+	// KeyCaptionsSizeSmall is the localized label for the small caption size preset.
+	KeyCaptionsSizeSmall = "a11y.captions.sizeSmall"
+	// KeyCaptionsSizeMedium is the localized label for the medium caption size preset.
+	KeyCaptionsSizeMedium = "a11y.captions.sizeMedium"
+	// KeyCaptionsSizeLarge is the localized label for the large caption size preset.
+	KeyCaptionsSizeLarge = "a11y.captions.sizeLarge"
+	// KeyCaptionsSizeXLarge is the localized label for the extra-large caption size preset.
+	KeyCaptionsSizeXLarge = "a11y.captions.sizeXLarge"
+
+	// KeyCaptionsPreviewSpeaker is the sample dialogue speaker name used in settings previews.
+	KeyCaptionsPreviewSpeaker = "a11y.captions.previewSpeaker"
+	// KeyCaptionsPreviewQualifier is the sample dialogue qualifier used in settings previews.
+	KeyCaptionsPreviewQualifier = "a11y.captions.previewQualifier"
+	// KeyCaptionsPreviewDialogue is the sample dialogue line used in settings previews.
+	KeyCaptionsPreviewDialogue = "a11y.captions.previewDialogue"
+	// KeyCaptionsPreviewChatterSpeaker is the sample chatter speaker name used in settings previews.
+	KeyCaptionsPreviewChatterSpeaker = "a11y.captions.previewChatterSpeaker"
+	// KeyCaptionsPreviewChatter is the sample chatter line used in settings previews.
+	KeyCaptionsPreviewChatter = "a11y.captions.previewChatter"
+	// KeyCaptionsPreviewSFX is the sample sound-effect label used in settings previews.
+	KeyCaptionsPreviewSFX = "a11y.captions.previewSFX"
 )
 
 const (

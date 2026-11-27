@@ -110,38 +110,53 @@ func TestSettingsMenuGamepadAloneChangesSavesAndReloads(t *testing.T) {
 	pressPad(app, gamepad.ButtonSouth)    // select zh-Hans
 
 	// --- 5. Accessibility tab (switch with RB) ---
-	// Controls: [0] Captions, [1] SFXCaptions, [2] TextScale, [3] HighContrast, [4] ReduceMotion, [5] ScreenShake, [6] ReduceFlashes, [7] ColorBlind, [8] ColorBlindSeverity, [9] GameSpeed, [10] Invincibility, [11] AutoAim, [12] HoldToToggle
+	// Controls: [0] Captions, [1] DialogueCaptions, [2] ChatterCaptions, [3] SFXCaptions,
+	// [4] CaptionSize, [5] CaptionBackground, [6] CaptionOpacity, [7] CaptionTextColor, [8] SpeakerColors,
+	// [9] TextScale, [10] HighContrast, [11] ReduceMotion, [12] ScreenShake, [13] ReduceFlashes,
+	// [14] ColorBlind, [15] ColorBlindSeverity, [16] GameSpeed, [17] Invincibility, [18] AutoAim, [19] HoldToToggle
 	pressPad(app, gamepad.ButtonRB)
 	if g.settingsMenu.Tab() != gameui.SettingsTabAccessibility {
 		t.Fatalf("tab = %v, want accessibility", g.settingsMenu.Tab())
 	}
-	pressPad(app, gamepad.ButtonSouth)    // Captions = true
-	pressPad(app, gamepad.ButtonDPadDown) // SFXCaptions = true
+	pressPad(app, gamepad.ButtonSouth)    // [0] Captions = true
+	pressPad(app, gamepad.ButtonDPadDown) // [1] DialogueCaptions (default true)
+	pressPad(app, gamepad.ButtonDPadDown) // [2] ChatterCaptions = true
 	pressPad(app, gamepad.ButtonSouth)
-	pressPad(app, gamepad.ButtonDPadDown) // TextScale
+	pressPad(app, gamepad.ButtonDPadDown) // [3] SFXCaptions = true
+	pressPad(app, gamepad.ButtonSouth)
+	pressPad(app, gamepad.ButtonDPadDown) // [4] CaptionSize -> large
 	pressPad(app, gamepad.ButtonDPadRight)
-	pressPad(app, gamepad.ButtonDPadDown) // HighContrast = true
+	pressPad(app, gamepad.ButtonDPadDown) // [5] CaptionBackground -> gray
+	pressPad(app, gamepad.ButtonDPadRight)
+	pressPad(app, gamepad.ButtonDPadDown) // [6] CaptionOpacity -> 0.8
+	pressPad(app, gamepad.ButtonDPadLeft)
+	pressPad(app, gamepad.ButtonDPadDown) // [7] CaptionTextColor -> yellow
+	pressPad(app, gamepad.ButtonDPadRight)
+	pressPad(app, gamepad.ButtonDPadDown) // [8] SpeakerColors (default true)
+	pressPad(app, gamepad.ButtonDPadDown) // [9] TextScale
+	pressPad(app, gamepad.ButtonDPadRight)
+	pressPad(app, gamepad.ButtonDPadDown) // [10] HighContrast = true
 	pressPad(app, gamepad.ButtonSouth)
-	pressPad(app, gamepad.ButtonDPadDown) // ReduceMotion = true
+	pressPad(app, gamepad.ButtonDPadDown) // [11] ReduceMotion = true
 	pressPad(app, gamepad.ButtonSouth)
-	pressPad(app, gamepad.ButtonDPadDown) // ScreenShake -> 0.5
+	pressPad(app, gamepad.ButtonDPadDown) // [12] ScreenShake -> 0.5
 	for range 5 {
 		pressPad(app, gamepad.ButtonDPadLeft)
 	}
-	pressPad(app, gamepad.ButtonDPadDown) // ReduceFlashes = true
+	pressPad(app, gamepad.ButtonDPadDown) // [13] ReduceFlashes = true
 	pressPad(app, gamepad.ButtonSouth)
-	pressPad(app, gamepad.ButtonDPadDown) // ColorBlind -> protanopia
+	pressPad(app, gamepad.ButtonDPadDown) // [14] ColorBlind -> protanopia
 	pressPad(app, gamepad.ButtonDPadRight)
-	pressPad(app, gamepad.ButtonDPadDown) // ColorBlindSeverity -> 0.8
+	pressPad(app, gamepad.ButtonDPadDown) // [15] ColorBlindSeverity -> 0.8
 	pressPad(app, gamepad.ButtonDPadLeft)
 	pressPad(app, gamepad.ButtonDPadLeft)
-	pressPad(app, gamepad.ButtonDPadDown) // GameSpeed -> 0.75
+	pressPad(app, gamepad.ButtonDPadDown) // [16] GameSpeed -> 0.75
 	pressPad(app, gamepad.ButtonDPadLeft)
-	pressPad(app, gamepad.ButtonDPadDown) // Invincibility = true
+	pressPad(app, gamepad.ButtonDPadDown) // [17] Invincibility = true
 	pressPad(app, gamepad.ButtonSouth)
-	pressPad(app, gamepad.ButtonDPadDown) // AutoAim = true
+	pressPad(app, gamepad.ButtonDPadDown) // [18] AutoAim = true
 	pressPad(app, gamepad.ButtonSouth)
-	pressPad(app, gamepad.ButtonDPadDown) // HoldToToggle = true
+	pressPad(app, gamepad.ButtonDPadDown) // [19] HoldToToggle = true
 	pressPad(app, gamepad.ButtonSouth)
 
 	// --- Save via footer bar using gamepad alone ---

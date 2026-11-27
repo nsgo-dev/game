@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/a11y"
 	"github.com/nsgo-dev/game/pkg/quality"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/screen"
@@ -168,19 +169,37 @@ type SettingsText struct {
 	LanguageHint  string
 	SystemDefault string
 
-	Subtitles          string
-	SFXCaptions        string
-	TextScale          string
-	HighContrast       string
-	ReduceMotion       string
-	ScreenShake        string
-	ReduceFlashes      string
-	ColorBlind         string
-	ColorBlindSeverity string
-	GameSpeed          string
-	Invincibility      string
-	AutoAim            string
-	HoldToToggle       string
+	CaptionsSection       string
+	AssistSection         string
+	Subtitles             string
+	DialogueCaptions      string
+	ChatterCaptions       string
+	SFXCaptions           string
+	CaptionSize           string
+	CaptionBackground     string
+	CaptionOpacity        string
+	CaptionTextColor      string
+	SpeakerColors         string
+	CaptionsOffPreview    string
+	PreviewLight          string
+	PreviewDark           string
+	PreviewSpeaker        string
+	PreviewQualifier      string
+	PreviewDialogue       string
+	PreviewChatterSpeaker string
+	PreviewChatter        string
+	PreviewSFX            string
+	TextScale             string
+	HighContrast          string
+	ReduceMotion          string
+	ScreenShake           string
+	ReduceFlashes         string
+	ColorBlind            string
+	ColorBlindSeverity    string
+	GameSpeed             string
+	Invincibility         string
+	AutoAim               string
+	HoldToToggle          string
 
 	Apply string
 	Save  string
@@ -250,19 +269,37 @@ func DefaultSettingsText() SettingsText {
 		LanguageHint:  "Choose display language",
 		SystemDefault: "System Default",
 
-		Subtitles:          "Subtitles / Captions",
-		SFXCaptions:        "SFX Captions",
-		TextScale:          "Text Scale",
-		HighContrast:       "High Contrast",
-		ReduceMotion:       "Reduced Motion",
-		ScreenShake:        "Screen Shake",
-		ReduceFlashes:      "Reduce Flashes",
-		ColorBlind:         "Color-Blind Mode",
-		ColorBlindSeverity: "Color-Blind Strength",
-		GameSpeed:          "Game Speed",
-		Invincibility:      "Invincibility",
-		AutoAim:            "Auto-Aim",
-		HoldToToggle:       "Hold to Toggle",
+		CaptionsSection:       "Captions",
+		AssistSection:         "Display & Assist",
+		Subtitles:             "Subtitles / Captions",
+		DialogueCaptions:      "Dialogue Captions",
+		ChatterCaptions:       "Background Chatter",
+		SFXCaptions:           "Sound Captions",
+		CaptionSize:           "Caption Size",
+		CaptionBackground:     "Caption Background",
+		CaptionOpacity:        "Background Opacity",
+		CaptionTextColor:      "Caption Text Color",
+		SpeakerColors:         "Speaker Colors",
+		CaptionsOffPreview:    "Captions Off",
+		PreviewLight:          "Light",
+		PreviewDark:           "Dark",
+		PreviewSpeaker:        "Guide",
+		PreviewQualifier:      "on radio",
+		PreviewDialogue:       "Watch the bridge!",
+		PreviewChatterSpeaker: "Scout",
+		PreviewChatter:        "Did you hear that?",
+		PreviewSFX:            "Wind howling",
+		TextScale:             "Text Scale",
+		HighContrast:          "High Contrast",
+		ReduceMotion:          "Reduced Motion",
+		ScreenShake:           "Screen Shake",
+		ReduceFlashes:         "Reduce Flashes",
+		ColorBlind:            "Color-Blind Mode",
+		ColorBlindSeverity:    "Color-Blind Strength",
+		GameSpeed:             "Game Speed",
+		Invincibility:         "Invincibility",
+		AutoAim:               "Auto-Aim",
+		HoldToToggle:          "Hold to Toggle",
 
 		Apply: "Apply",
 		Save:  "Save",
@@ -331,8 +368,26 @@ func resolveSettingsText(in SettingsText) SettingsText {
 	fill(&in.MotionBlur, def.MotionBlur)
 	fill(&in.LanguageHint, def.LanguageHint)
 	fill(&in.SystemDefault, def.SystemDefault)
+	fill(&in.CaptionsSection, def.CaptionsSection)
+	fill(&in.AssistSection, def.AssistSection)
 	fill(&in.Subtitles, def.Subtitles)
+	fill(&in.DialogueCaptions, def.DialogueCaptions)
+	fill(&in.ChatterCaptions, def.ChatterCaptions)
 	fill(&in.SFXCaptions, def.SFXCaptions)
+	fill(&in.CaptionSize, def.CaptionSize)
+	fill(&in.CaptionBackground, def.CaptionBackground)
+	fill(&in.CaptionOpacity, def.CaptionOpacity)
+	fill(&in.CaptionTextColor, def.CaptionTextColor)
+	fill(&in.SpeakerColors, def.SpeakerColors)
+	fill(&in.CaptionsOffPreview, def.CaptionsOffPreview)
+	fill(&in.PreviewLight, def.PreviewLight)
+	fill(&in.PreviewDark, def.PreviewDark)
+	fill(&in.PreviewSpeaker, def.PreviewSpeaker)
+	fill(&in.PreviewQualifier, def.PreviewQualifier)
+	fill(&in.PreviewDialogue, def.PreviewDialogue)
+	fill(&in.PreviewChatterSpeaker, def.PreviewChatterSpeaker)
+	fill(&in.PreviewChatter, def.PreviewChatter)
+	fill(&in.PreviewSFX, def.PreviewSFX)
 	fill(&in.TextScale, def.TextScale)
 	fill(&in.HighContrast, def.HighContrast)
 	fill(&in.ReduceMotion, def.ReduceMotion)
@@ -523,6 +578,12 @@ type SettingsMenuConfig struct {
 	Locales []SettingsLocale
 	// ColorBlindModes configures color-blind palette modes in the Accessibility tab.
 	ColorBlindModes []SettingsOptionItem
+	// CaptionSizes configures caption size presets in the Accessibility tab (defaults to small, medium, large, xlarge).
+	CaptionSizes []SettingsOptionItem
+	// CaptionBackgrounds configures caption backdrop colors in the Accessibility tab (defaults to black, gray, blue, white).
+	CaptionBackgrounds []SettingsOptionItem
+	// CaptionTextColors configures caption text colors in the Accessibility tab (defaults to white, yellow, cyan, green, black).
+	CaptionTextColors []SettingsOptionItem
 
 	// Text customizes displayed labels; unset fields inherit DefaultSettingsText.
 	Text SettingsText
@@ -568,14 +629,17 @@ type SettingsMenu struct {
 	showVSync      bool
 	showCamera     bool
 
-	audioBuses      []SettingsAudioBus
-	resolutions     []SettingsResolution
-	scaleModes      []SettingsOptionItem
-	qualityPresets  []SettingsOptionItem
-	frameCaps       []int
-	actions         []SettingsAction
-	locales         []SettingsLocale
-	colorBlindModes []SettingsOptionItem
+	audioBuses         []SettingsAudioBus
+	resolutions        []SettingsResolution
+	scaleModes         []SettingsOptionItem
+	qualityPresets     []SettingsOptionItem
+	frameCaps          []int
+	actions            []SettingsAction
+	locales            []SettingsLocale
+	colorBlindModes    []SettingsOptionItem
+	captionSizes       []SettingsOptionItem
+	captionBackgrounds []SettingsOptionItem
+	captionTextColors  []SettingsOptionItem
 
 	text      SettingsText
 	userTheme *Theme
@@ -650,8 +714,18 @@ type SettingsMenu struct {
 	localeButtons     []*Button
 
 	// Accessibility widgets
+	captionsHeaderLabel      *Label
+	assistHeaderLabel        *Label
 	captionsToggle           *Toggle
+	dialogueCaptionsToggle   *Toggle
+	chatterCaptionsToggle    *Toggle
 	sfxCaptionsToggle        *Toggle
+	captionSizeBtn           *Button
+	captionBgBtn             *Button
+	captionOpacitySlider     *Slider
+	captionTextColorBtn      *Button
+	speakerColorsToggle      *Toggle
+	captionPreviewPanel      *Panel
 	textScaleSlider          *Slider
 	highContrastToggle       *Toggle
 	reduceMotionToggle       *Toggle
@@ -719,6 +793,9 @@ func NewSettingsMenu(cfg SettingsMenuConfig) *SettingsMenu {
 	m.frameCaps = defaultFrameCaps(cfg.FrameCaps)
 	m.locales = defaultLocales(cfg.Locales, m.text.SystemDefault)
 	m.colorBlindModes = defaultColorBlindModes(cfg.ColorBlindModes)
+	m.captionSizes = defaultCaptionSizes(cfg.CaptionSizes)
+	m.captionBackgrounds = defaultCaptionBackgrounds(cfg.CaptionBackgrounds)
+	m.captionTextColors = defaultCaptionTextColors(cfg.CaptionTextColors)
 
 	// Resolve baseline defaults.
 	if cfg.Defaults != nil {
@@ -977,6 +1054,43 @@ func defaultColorBlindModes(in []SettingsOptionItem) []SettingsOptionItem {
 			{Value: "protanopia", Label: "Protanopia"},
 			{Value: "deuteranopia", Label: "Deuteranopia"},
 			{Value: "tritanopia", Label: "Tritanopia"},
+		}
+	}
+	return cloneOptionItems(in)
+}
+
+func defaultCaptionSizes(in []SettingsOptionItem) []SettingsOptionItem {
+	if len(in) == 0 {
+		return []SettingsOptionItem{
+			{Value: save.CaptionSizeSmall, Label: "Small"},
+			{Value: save.CaptionSizeMedium, Label: "Medium"},
+			{Value: save.CaptionSizeLarge, Label: "Large"},
+			{Value: save.CaptionSizeXLarge, Label: "Extra Large"},
+		}
+	}
+	return cloneOptionItems(in)
+}
+
+func defaultCaptionBackgrounds(in []SettingsOptionItem) []SettingsOptionItem {
+	if len(in) == 0 {
+		return []SettingsOptionItem{
+			{Value: save.CaptionBackgroundBlack, Label: "Black"},
+			{Value: save.CaptionBackgroundGray, Label: "Gray"},
+			{Value: save.CaptionBackgroundBlue, Label: "Navy"},
+			{Value: save.CaptionBackgroundWhite, Label: "White"},
+		}
+	}
+	return cloneOptionItems(in)
+}
+
+func defaultCaptionTextColors(in []SettingsOptionItem) []SettingsOptionItem {
+	if len(in) == 0 {
+		return []SettingsOptionItem{
+			{Value: save.CaptionTextWhite, Label: "White"},
+			{Value: save.CaptionTextYellow, Label: "Yellow"},
+			{Value: save.CaptionTextCyan, Label: "Cyan"},
+			{Value: save.CaptionTextGreen, Label: "Green"},
+			{Value: save.CaptionTextBlack, Label: "Black"},
 		}
 	}
 	return cloneOptionItems(in)
@@ -1697,37 +1811,157 @@ func (m *SettingsMenu) buildLanguageTab() {
 }
 
 func (m *SettingsMenu) buildAccessibilityTab() {
-	const rowH float32 = 26
+	const (
+		capToggleH float32 = 22
+		capRowH    float32 = 23
+		assistRowH float32 = 26
+	)
+
+	m.captionsHeaderLabel = &Label{
+		Text:      m.text.CaptionsSection,
+		Font:      core.Font{Size: 12, Weight: core.FontWeightBold},
+		TextAlign: core.TextAlignStart,
+		Height:    16,
+	}
+	m.assistHeaderLabel = &Label{
+		Text:      m.text.AssistSection,
+		Font:      core.Font{Size: 12, Weight: core.FontWeightBold},
+		TextAlign: core.TextAlignStart,
+		Height:    16,
+	}
 
 	m.captionsToggle = &Toggle{
 		Label:  m.text.Subtitles,
 		Style:  ToggleSwitch,
-		Height: rowH,
+		Height: capToggleH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
 			}
-			m.settings.Accessibility.Captions = v
+			m.settings.Accessibility.SetCaptions(v)
+			m.onSettingMutated()
+		},
+	}
+	m.dialogueCaptionsToggle = &Toggle{
+		Label:  m.text.DialogueCaptions,
+		Style:  ToggleSwitch,
+		Height: capToggleH,
+		OnChange: func(v bool) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.Caption.SetDialogue(v)
+			m.onSettingMutated()
+		},
+	}
+	m.chatterCaptionsToggle = &Toggle{
+		Label:  m.text.ChatterCaptions,
+		Style:  ToggleSwitch,
+		Height: capToggleH,
+		OnChange: func(v bool) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.Caption.Chatter = v
 			m.onSettingMutated()
 		},
 	}
 	m.sfxCaptionsToggle = &Toggle{
 		Label:  m.text.SFXCaptions,
 		Style:  ToggleSwitch,
-		Height: rowH,
+		Height: capToggleH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
 			}
-			m.settings.Accessibility.SFXCaptions = v
+			m.settings.Accessibility.SetSoundCaptions(v)
 			m.onSettingMutated()
 		},
 	}
+
+	stepCaptionSize := func(delta int) {
+		if len(m.captionSizes) == 0 {
+			return
+		}
+		idx := optionIndex(m.captionSizes, save.NormalizeCaptionSize(m.settings.Accessibility.Caption.Size))
+		next := (idx + delta + len(m.captionSizes)) % len(m.captionSizes)
+		m.settings.Accessibility.Caption.Size = save.NormalizeCaptionSize(m.captionSizes[next].Value)
+		m.onSettingMutated()
+	}
+	m.captionSizeBtn = &Button{
+		Height:  capRowH,
+		OnClick: func() { stepCaptionSize(1) },
+	}
+	m.cycleHandlers[m.captionSizeBtn] = stepCaptionSize
+
+	stepCaptionBg := func(delta int) {
+		if len(m.captionBackgrounds) == 0 {
+			return
+		}
+		idx := optionIndex(m.captionBackgrounds, save.NormalizeCaptionBackground(m.settings.Accessibility.Caption.Background))
+		next := (idx + delta + len(m.captionBackgrounds)) % len(m.captionBackgrounds)
+		m.settings.Accessibility.Caption.Background = save.NormalizeCaptionBackground(m.captionBackgrounds[next].Value)
+		m.onSettingMutated()
+	}
+	m.captionBgBtn = &Button{
+		Height:  capRowH,
+		OnClick: func() { stepCaptionBg(1) },
+	}
+	m.cycleHandlers[m.captionBgBtn] = stepCaptionBg
+
+	m.captionOpacitySlider = &Slider{
+		Min:    0,
+		Max:    1,
+		Step:   0.1,
+		Height: capRowH,
+		OnChange: func(v float32) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.Caption.SetBackgroundOpacity(roundStep(float64(v), 0.05))
+			m.onSettingMutated()
+		},
+	}
+
+	stepCaptionTextColor := func(delta int) {
+		if len(m.captionTextColors) == 0 {
+			return
+		}
+		idx := optionIndex(m.captionTextColors, save.NormalizeCaptionTextColor(m.settings.Accessibility.Caption.TextColor))
+		next := (idx + delta + len(m.captionTextColors)) % len(m.captionTextColors)
+		m.settings.Accessibility.Caption.TextColor = save.NormalizeCaptionTextColor(m.captionTextColors[next].Value)
+		m.onSettingMutated()
+	}
+	m.captionTextColorBtn = &Button{
+		Height:  capRowH,
+		OnClick: func() { stepCaptionTextColor(1) },
+	}
+	m.cycleHandlers[m.captionTextColorBtn] = stepCaptionTextColor
+
+	m.speakerColorsToggle = &Toggle{
+		Label:  m.text.SpeakerColors,
+		Style:  ToggleSwitch,
+		Height: capToggleH,
+		OnChange: func(v bool) {
+			if m.suppressCallbacks {
+				return
+			}
+			m.settings.Accessibility.Caption.SetSpeakerColors(v)
+			m.onSettingMutated()
+		},
+	}
+
+	m.captionPreviewPanel = &Panel{
+		Flex:           1,
+		MinHeight:      72,
+		DrawBackground: m.drawCaptionPreview,
+	}
+
 	m.textScaleSlider = &Slider{
 		Min:    float32(save.MinCaptionScale),
 		Max:    float32(save.MaxCaptionScale),
 		Step:   0.25,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v float32) {
 			if m.suppressCallbacks {
 				return
@@ -1739,7 +1973,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 	m.highContrastToggle = &Toggle{
 		Label:  m.text.HighContrast,
 		Style:  ToggleSwitch,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
@@ -1751,7 +1985,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 	m.reduceMotionToggle = &Toggle{
 		Label:  m.text.ReduceMotion,
 		Style:  ToggleSwitch,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
@@ -1764,7 +1998,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		Min:    0,
 		Max:    1,
 		Step:   0.1,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v float32) {
 			if m.suppressCallbacks {
 				return
@@ -1776,7 +2010,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 	m.reduceFlashesToggle = &Toggle{
 		Label:  m.text.ReduceFlashes,
 		Style:  ToggleSwitch,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
@@ -1795,7 +2029,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		m.onSettingMutated()
 	}
 	m.colorBlindBtn = &Button{
-		Height:  rowH,
+		Height:  assistRowH,
 		OnClick: func() { stepColorBlind(1) },
 	}
 	m.cycleHandlers[m.colorBlindBtn] = stepColorBlind
@@ -1804,7 +2038,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		Min:    0,
 		Max:    1,
 		Step:   0.1,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v float32) {
 			if m.suppressCallbacks {
 				return
@@ -1818,7 +2052,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		Min:    float32(save.MinGameSpeed),
 		Max:    float32(save.MaxGameSpeed),
 		Step:   0.25,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v float32) {
 			if m.suppressCallbacks {
 				return
@@ -1830,7 +2064,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 	m.invincibilityToggle = &Toggle{
 		Label:  m.text.Invincibility,
 		Style:  ToggleSwitch,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
@@ -1842,7 +2076,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 	m.autoAimToggle = &Toggle{
 		Label:  m.text.AutoAim,
 		Style:  ToggleSwitch,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
@@ -1854,7 +2088,7 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 	m.holdToToggleToggle = &Toggle{
 		Label:  m.text.HoldToToggle,
 		Style:  ToggleSwitch,
-		Height: rowH,
+		Height: assistRowH,
 		OnChange: func(v bool) {
 			if m.suppressCallbacks {
 				return
@@ -1864,9 +2098,61 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		},
 	}
 
+	leftCol := &VBox{
+		Spacing: 3,
+		Align:   AlignStretch,
+		Flex:    1,
+		Children: []Widget{
+			m.captionsHeaderLabel,
+			m.captionsToggle,
+			m.dialogueCaptionsToggle,
+			m.chatterCaptionsToggle,
+			m.sfxCaptionsToggle,
+			m.captionSizeBtn,
+			m.captionBgBtn,
+			m.captionOpacitySlider,
+			m.captionTextColorBtn,
+			m.speakerColorsToggle,
+			m.captionPreviewPanel,
+		},
+	}
+	rightCol := &VBox{
+		Spacing: 5,
+		Align:   AlignStretch,
+		Flex:    1,
+		Children: []Widget{
+			m.assistHeaderLabel,
+			m.textScaleSlider,
+			m.highContrastToggle,
+			m.reduceMotionToggle,
+			m.screenShakeSlider,
+			m.reduceFlashesToggle,
+			m.colorBlindBtn,
+			m.colorBlindSeveritySlider,
+			m.gameSpeedSlider,
+			m.invincibilityToggle,
+			m.autoAimToggle,
+			m.holdToToggleToggle,
+		},
+	}
+
+	columns := &HBox{
+		Spacing:  12,
+		Align:    AlignStretch,
+		Flex:     1,
+		Children: []Widget{leftCol, rightCol},
+	}
+
 	controls := []Widget{
 		m.captionsToggle,
+		m.dialogueCaptionsToggle,
+		m.chatterCaptionsToggle,
 		m.sfxCaptionsToggle,
+		m.captionSizeBtn,
+		m.captionBgBtn,
+		m.captionOpacitySlider,
+		m.captionTextColorBtn,
+		m.speakerColorsToggle,
 		m.textScaleSlider,
 		m.highContrastToggle,
 		m.reduceMotionToggle,
@@ -1880,13 +2166,313 @@ func (m *SettingsMenu) buildAccessibilityTab() {
 		m.holdToToggleToggle,
 	}
 	m.tabPanels[SettingsTabAccessibility] = &VBox{
-		Spacing:  4,
+		Spacing:  0,
 		Align:    AlignStretch,
 		Flex:     1,
 		Hidden:   true,
-		Children: controls,
+		Children: []Widget{columns},
 	}
 	m.tabControls[SettingsTabAccessibility] = controls
+}
+
+// CaptionPreviewLine describes one wrapped caption line rendered inside the
+// SettingsMenu Accessibility tab's live preview swatch.
+type CaptionPreviewLine struct {
+	Kind         a11y.CaptionKind
+	Speaker      string
+	Prefix       string
+	SpeakerPart  string
+	Rest         string
+	FullText     string
+	SpeakerColor core.Color
+	TextColor    core.Color
+}
+
+// CaptionPreviewState is a snapshot of the live caption preview currently
+// rendered over the light and dark swatches in SettingsMenu's Accessibility tab.
+type CaptionPreviewState struct {
+	Enabled           bool
+	HighContrast      bool
+	Background        core.Color
+	BackgroundOpacity float64
+	TextColor         core.Color
+	SpeakerColors     bool
+	FontSize          core.Points
+	Lines             []CaptionPreviewLine
+}
+
+// CaptionPreviewPanel returns the non-focusable live caption preview panel
+// inside the Accessibility tab.
+func (m *SettingsMenu) CaptionPreviewPanel() *Panel {
+	return m.captionPreviewPanel
+}
+
+// CaptionPreviewState computes the live preview styling and sample caption lines
+// from the menu's current working Accessibility settings.
+func (m *SettingsMenu) CaptionPreviewState() CaptionPreviewState {
+	acc := m.settings.Accessibility
+	cs := acc.Caption
+	cs.Validate()
+
+	hc := acc.EffectiveHighContrast(m.env)
+	vision := a11y.VisionNormal
+	if hc {
+		vision = a11y.VisionHighContrast
+	} else if parsed, ok := a11y.ParseColorVision(acc.ColorBlindMode); ok {
+		vision = parsed
+	}
+
+	opacity := cs.EffectiveBackgroundOpacity()
+	bg := a11y.ResolveCaptionBackground(cs.Background, opacity)
+	if hc {
+		bg = a11y.PaletteFor(a11y.VisionHighContrast).Background
+		opacity = 1.0
+	}
+
+	fg := a11y.ResolveCaptionTextColor(cs.TextColor)
+	sfxColor := core.RGB(0x9BE7FF)
+	bgAlpha := float64(bg&0xff) / 255.0
+	opaqueBg := bg.Over(core.RGB(0x000000))
+	if hc || bgAlpha >= 0.5 {
+		fg = a11y.EnsureContrast(fg, opaqueBg, 7.0)
+		sfxColor = a11y.EnsureContrast(sfxColor, opaqueBg, 7.0)
+	}
+
+	scale := acc.EffectiveCaptionScale(m.env)
+	sizeScale := save.CaptionSizeScale(cs.Size)
+	fontSize := core.Points(16 * scale * sizeScale)
+
+	showCaptions := acc.EffectiveCaptions(m.env)
+	showDialogue := showCaptions && cs.EffectiveDialogue()
+	showChatter := showCaptions && cs.Chatter
+	showSounds := acc.EffectiveSoundCaptions()
+	speakerColorsOn := cs.EffectiveSpeakerColors()
+
+	var samples []a11y.Caption
+	if showDialogue {
+		samples = append(samples, a11y.Caption{
+			Kind:      a11y.CaptionDialogue,
+			Speaker:   m.text.PreviewSpeaker,
+			Qualifier: m.text.PreviewQualifier,
+			Text:      m.text.PreviewDialogue,
+		})
+	}
+	if showChatter {
+		samples = append(samples, a11y.Caption{
+			Kind:    a11y.CaptionChatter,
+			Speaker: m.text.PreviewChatterSpeaker,
+			Text:    m.text.PreviewChatter,
+		})
+	}
+	if showSounds {
+		samples = append(samples, a11y.Caption{
+			Kind:      a11y.CaptionSFX,
+			Text:      m.text.PreviewSFX,
+			Direction: 0.8,
+		})
+	}
+
+	var lines []CaptionPreviewLine
+	for _, sample := range samples {
+		prefix, speakerPart, body, suffix := a11y.FormatCaptionParts(sample, "", "")
+		full := prefix + speakerPart + body + suffix
+		wrapped := a11y.WrapCaptionLines(full, a11y.DefaultCaptionMaxChars)
+		lineTextColor := fg
+		if sample.Kind == a11y.CaptionSFX {
+			lineTextColor = sfxColor
+		}
+		var spkColor core.Color
+		if speakerColorsOn && sample.Speaker != "" {
+			spkColor = a11y.SpeakerColor(sample.Speaker, vision, nil)
+			if hc || bgAlpha >= 0.5 {
+				spkColor = a11y.EnsureContrast(spkColor, opaqueBg, 4.5)
+			}
+		}
+		for i, ln := range wrapped {
+			pl := CaptionPreviewLine{
+				Kind:         sample.Kind,
+				Speaker:      sample.Speaker,
+				FullText:     ln,
+				SpeakerColor: spkColor,
+				TextColor:    lineTextColor,
+			}
+			if i == 0 && speakerPart != "" && strings.HasPrefix(ln, prefix+speakerPart) {
+				pl.Prefix = prefix
+				pl.SpeakerPart = speakerPart
+				pl.Rest = ln[len(prefix)+len(speakerPart):]
+			}
+			lines = append(lines, pl)
+		}
+	}
+
+	// Enforce the same 2-line limit as CaptionsView (older lines leave first).
+	if len(lines) > a11y.DefaultCaptionMaxLines {
+		lines = lines[len(lines)-a11y.DefaultCaptionMaxLines:]
+	}
+
+	return CaptionPreviewState{
+		Enabled:           len(lines) > 0,
+		HighContrast:      hc,
+		Background:        bg,
+		BackgroundOpacity: opacity,
+		TextColor:         fg,
+		SpeakerColors:     speakerColorsOn,
+		FontSize:          fontSize,
+		Lines:             lines,
+	}
+}
+
+func (m *SettingsMenu) drawCaptionPreview(d *core.Drawing, b core.Bounds) {
+	x, y := float32(b.Origin.X), float32(b.Origin.Y)
+	w, h := float32(b.Size.Width), float32(b.Size.Height)
+	if w <= 0 || h <= 0 {
+		return
+	}
+	th := m.root.theme()
+	radius := resolveRadius(0, th.CornerRadius)
+	outer := rectPath(x, y, w, h, radius)
+
+	d.Save()
+	d.ClipPath(outer, core.NonZero)
+
+	halfW := w / 2
+	// Light scene swatch (left) and dark scene swatch (right).
+	d.SetFillColor(core.RGB(0xE8EEF5)).FillPath(rectPath(x, y, halfW, h, 0), core.NonZero)
+	d.SetFillColor(core.RGB(0x141923)).FillPath(rectPath(x+halfW, y, w-halfW, h, 0), core.NonZero)
+
+	badgeFont := core.Font{Size: 10, Weight: core.FontWeightMedium}
+	drawText(d, nil, &th, TextDrawParams{
+		Text:     m.text.PreviewLight,
+		X:        x + 6,
+		Y:        y + 8,
+		Font:     badgeFont,
+		Color:    core.RGB(0x334155),
+		Align:    core.TextAlignStart,
+		Baseline: core.BaselineMiddle,
+		Bounds:   b,
+	})
+	drawText(d, nil, &th, TextDrawParams{
+		Text:     m.text.PreviewDark,
+		X:        x + w - 6,
+		Y:        y + 8,
+		Font:     badgeFont,
+		Color:    core.RGB(0xCBD5E1),
+		Align:    core.TextAlignEnd,
+		Baseline: core.BaselineMiddle,
+		Bounds:   b,
+	})
+
+	state := m.CaptionPreviewState()
+	cx := x + w/2
+
+	if !state.Enabled {
+		pillH := min(h-24, float32(26))
+		pillW := min(w-24, float32(140))
+		px := cx - pillW/2
+		py := y + (h-pillH)/2
+		d.SetFillColor(core.RGBA(0x0B0D12, 0.72)).FillPath(rectPath(px, py, pillW, pillH, 6), core.NonZero)
+		drawText(d, nil, &th, TextDrawParams{
+			Text:     m.text.CaptionsOffPreview,
+			X:        cx,
+			Y:        py + pillH/2,
+			Font:     core.Font{Size: 12, Weight: core.FontWeightMedium},
+			Color:    core.RGB(0xCBD5E1),
+			Align:    core.TextAlignCenter,
+			Baseline: core.BaselineMiddle,
+			Bounds:   b,
+		})
+	} else {
+		// Fit preview font size cleanly inside the swatch while reflecting relative size changes.
+		fontPt := clampf(float32(state.FontSize)*0.78, 10, 22)
+		availH := max(24, h-20)
+		lineGap := float32(4)
+		maxLineH := (availH - lineGap*float32(len(state.Lines)-1)) / float32(len(state.Lines))
+		if maxLineH > 0 && fontPt+8 > maxLineH {
+			fontPt = max(9, maxLineH-8)
+		}
+		font := core.Font{Size: core.Points(fontPt), Weight: core.FontWeightMedium}
+		boldFont := core.Font{Size: core.Points(fontPt), Weight: core.FontWeightBold}
+		pillH := fontPt + 8
+		totalH := float32(len(state.Lines))*pillH + float32(len(state.Lines)-1)*lineGap
+		startY := y + 10 + max(0, (h-14-totalH)/2)
+
+		for i, ln := range state.Lines {
+			tw, _ := measureText(ln.FullText, font, &th)
+			pillW := min(w-12, max(tw+18, 80))
+			px := cx - pillW/2
+			py := startY + float32(i)*(pillH+lineGap)
+			pill := rectPath(px, py, pillW, pillH, 5)
+			if state.Background&0xff > 0 {
+				d.SetFillColor(state.Background).FillPath(pill, core.NonZero)
+			}
+			if state.HighContrast {
+				d.SetStrokeColor(a11y.PaletteFor(a11y.VisionHighContrast).Foreground).
+					SetLineWidth(1.5).
+					StrokePath(pill)
+			}
+
+			cy := py + pillH/2
+			if state.SpeakerColors && ln.SpeakerPart != "" && ln.SpeakerColor != 0 {
+				preW, _ := measureText(ln.Prefix, font, &th)
+				spkW, _ := measureText(ln.SpeakerPart, boldFont, &th)
+				restW, _ := measureText(ln.Rest, font, &th)
+				runW := preW + spkW + restW
+				tx := max(px+6, cx-runW/2)
+				if ln.Prefix != "" {
+					drawText(d, nil, &th, TextDrawParams{
+						Text:     ln.Prefix,
+						X:        tx,
+						Y:        cy,
+						Font:     font,
+						Color:    ln.TextColor,
+						Align:    core.TextAlignStart,
+						Baseline: core.BaselineMiddle,
+						Bounds:   b,
+					})
+					tx += preW
+				}
+				drawText(d, nil, &th, TextDrawParams{
+					Text:     ln.SpeakerPart,
+					X:        tx,
+					Y:        cy,
+					Font:     boldFont,
+					Color:    ln.SpeakerColor,
+					Align:    core.TextAlignStart,
+					Baseline: core.BaselineMiddle,
+					Bounds:   b,
+				})
+				tx += spkW
+				if ln.Rest != "" {
+					drawText(d, nil, &th, TextDrawParams{
+						Text:     ln.Rest,
+						X:        tx,
+						Y:        cy,
+						Font:     font,
+						Color:    ln.TextColor,
+						Align:    core.TextAlignStart,
+						Baseline: core.BaselineMiddle,
+						Bounds:   b,
+					})
+				}
+			} else {
+				drawText(d, nil, &th, TextDrawParams{
+					Text:     ln.FullText,
+					X:        cx,
+					Y:        cy,
+					Font:     font,
+					Color:    ln.TextColor,
+					Align:    core.TextAlignCenter,
+					Baseline: core.BaselineMiddle,
+					Bounds:   b,
+				})
+			}
+		}
+	}
+
+	d.Restore()
+	if th.Border != 0 && th.Border != core.Transparent && th.BorderWidth > 0 {
+		d.SetStrokeColor(th.Border).SetLineWidth(th.BorderWidth).StrokePath(outer)
+	}
 }
 
 func (m *SettingsMenu) wireNav() {
@@ -2139,10 +2725,25 @@ func (m *SettingsMenu) syncWidgets() {
 
 	// Accessibility
 	effScale := m.settings.Accessibility.EffectiveCaptionScale(m.env)
+	cs := m.settings.Accessibility.Caption
+	effOpacity := cs.EffectiveBackgroundOpacity()
+	m.captionsHeaderLabel.Text = m.text.CaptionsSection
+	m.assistHeaderLabel.Text = m.text.AssistSection
 	m.captionsToggle.Label = m.text.Subtitles
-	m.captionsToggle.Checked = m.settings.Accessibility.Captions
+	m.captionsToggle.Checked = m.settings.Accessibility.EffectiveCaptions(m.env)
+	m.dialogueCaptionsToggle.Label = m.text.DialogueCaptions
+	m.dialogueCaptionsToggle.Checked = cs.EffectiveDialogue()
+	m.chatterCaptionsToggle.Label = m.text.ChatterCaptions
+	m.chatterCaptionsToggle.Checked = cs.Chatter
 	m.sfxCaptionsToggle.Label = m.text.SFXCaptions
-	m.sfxCaptionsToggle.Checked = m.settings.Accessibility.SFXCaptions
+	m.sfxCaptionsToggle.Checked = m.settings.Accessibility.EffectiveSoundCaptions()
+	m.captionSizeBtn.Text = fmt.Sprintf("%s: < %s >", m.text.CaptionSize, optionLabel(m.captionSizes, save.NormalizeCaptionSize(cs.Size)))
+	m.captionBgBtn.Text = fmt.Sprintf("%s: < %s >", m.text.CaptionBackground, optionLabel(m.captionBackgrounds, save.NormalizeCaptionBackground(cs.Background)))
+	m.captionOpacitySlider.Label = fmt.Sprintf("%s: %d%%", m.text.CaptionOpacity, pctInt(effOpacity))
+	m.captionOpacitySlider.Value = float32(effOpacity)
+	m.captionTextColorBtn.Text = fmt.Sprintf("%s: < %s >", m.text.CaptionTextColor, optionLabel(m.captionTextColors, save.NormalizeCaptionTextColor(cs.TextColor)))
+	m.speakerColorsToggle.Label = m.text.SpeakerColors
+	m.speakerColorsToggle.Checked = cs.EffectiveSpeakerColors()
 	m.textScaleSlider.Label = fmt.Sprintf("%s: %d%%", m.text.TextScale, pctInt(effScale))
 	m.textScaleSlider.Value = float32(effScale)
 	m.highContrastToggle.Label = m.text.HighContrast
