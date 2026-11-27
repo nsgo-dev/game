@@ -20,6 +20,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/editor/keychain"
+	"github.com/nsgo-dev/game/pkg/tooling/sizecheck"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/targets"
 )
@@ -1299,7 +1300,7 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 		artifactName := defaultArtifactName(slug, ver, p.Platform)
 		artifactPath := filepath.Join(outDir, artifactName)
 		var sizeBytes int64
-		if p.Result != nil {
+		if p.Result != nil && (p.Result.ArtifactPath != "" || p.Result.SizeMeasured) {
 			if p.Result.ArtifactName != "" {
 				artifactName = p.Result.ArtifactName
 			}
@@ -1307,8 +1308,24 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 				artifactPath = p.Result.ArtifactPath
 			}
 			sizeBytes = p.Result.SizeBytes
-		} else if st, err := os.Stat(artifactPath); err == nil && !st.IsDir() {
-			sizeBytes = st.Size()
+		} else {
+			appName := nsgoCfg.Name
+			appID := nsgoCfg.ID
+			if e.Project != nil {
+				if appName == "" {
+					appName = e.Project.Name
+				}
+				if appID == "" {
+					appID = e.Project.ID
+				}
+			}
+			if art, err := sizecheck.MeasureBuiltArtifact(outDir, appName, appID, ver, p.Platform, p.Targets); err == nil && art.Found {
+				artifactName = art.ArtifactName
+				artifactPath = art.ArtifactPath
+				sizeBytes = art.SizeBytes
+			} else if st, err := os.Stat(artifactPath); err == nil && !st.IsDir() {
+				sizeBytes = st.Size()
+			}
 		}
 		relPath := artifactName
 		if dir != "" && artifactPath != "" {

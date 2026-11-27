@@ -850,6 +850,7 @@ strings:
   buildRelease.budgetFrameTime: Frame time p95
   buildRelease.budgetMet: Met
   buildRelease.budgetMissed: Missed
+  buildRelease.budgetNotMeasuredLimit: Not measured · limit {limit}
   buildRelease.buildFailed: Build failed
   buildRelease.buildNext: Build {name} next
   buildRelease.cancel: Cancel
@@ -869,6 +870,7 @@ strings:
   buildRelease.copyURL: Copy URL
   buildRelease.defaultProjectName: Project
   buildRelease.deltaNew: new
+  buildRelease.deltaNotMeasured: not measured
   buildRelease.deltaToFix: '{count} to fix'
   buildRelease.doneEditing: Done editing
   buildRelease.dryRun: Dry Run
@@ -878,6 +880,7 @@ strings:
   buildRelease.failureStepMeta: step {step} of {total} · {label}
   buildRelease.failureStepMetaAfter: step {step} of {total} · {label} · after {duration}
   buildRelease.fixEditsFile: Edits {file}
+  buildRelease.growthNotMeasured: Not measured — no built package found in output directory.
   buildRelease.headerLabel: Release header
   buildRelease.includePresetLabel: Include {name} in this release
   buildRelease.keyInKeychain: Key in keychain
@@ -896,8 +899,11 @@ strings:
   buildRelease.mcpBridgeDevice: MCP bridge · {device}
   buildRelease.metaLine: from {commit} on {branch} · last release {lastRelease}
   buildRelease.neverInProjectFiles: Never written to project files
+  buildRelease.noBuiltPackage: No built package
   buildRelease.noPresets: No export presets configured yet.
   buildRelease.noUploadsReady: No export presets are ready to upload yet. Build at least one preset first.
+  buildRelease.notMeasured: Not measured
+  buildRelease.notRun: not run
   buildRelease.notesEmpty: (empty)
   buildRelease.notesHeading: RELEASE NOTES
   buildRelease.notesLabel: Release notes
@@ -910,8 +916,9 @@ strings:
   buildRelease.preflightHeading: BEFORE EVERY BUILD
   buildRelease.preflightNotRun: not run yet
   buildRelease.preflightProblems: '{count} problems · {elapsed}'
-  buildRelease.preflightSmokeDefault: 60 s per build, main scene
-  buildRelease.preflightSmokeScene: 60 s per build, {scene}
+  buildRelease.preflightSmokeCustom: custom runner, {scene}
+  buildRelease.preflightSmokeHost: headless {scene} (host only)
+  buildRelease.preflightSmokeNotConfigured: not configured
   buildRelease.preflightSmokeTitle: Smoke playtest
   buildRelease.presetStopped: '{name} stopped'
   buildRelease.presetsHeading: EXPORT PRESETS · export/
@@ -950,7 +957,8 @@ strings:
   buildRelease.setupWithAgent: Set up {name} with the agent
   buildRelease.showInFinder: Show in Finder
   buildRelease.sizeVsVersion: size vs {version}
-  buildRelease.smokePlaytest60s: Smoke playtest · 60 s
+  buildRelease.smokePlaytestNotRun: Smoke playtest · not run
+  buildRelease.smokePlaytestNotRunSummary: Not run — no smoke playtest runner executed for this target.
   buildRelease.startServing: Start serving
   buildRelease.statusBuilding: Building
   buildRelease.statusDone: Done
@@ -964,7 +972,8 @@ strings:
   buildRelease.stepDetailMeasure: size and frame time
   buildRelease.stepDetailPackAssets: atlases, audio, and scenes
   buildRelease.stepDetailSignMacOS: Developer ID · notarized
-  buildRelease.stepDetailSmokeHeadless: 60 s headless
+  buildRelease.stepDetailSmokeHeadless: headless main scene
+  buildRelease.stepDetailSmokeRunner: requires playtest runner
   buildRelease.stepMeasure: Measure
   buildRelease.stepPackAssets: Pack assets
   buildRelease.stepSign: Sign
@@ -986,6 +995,7 @@ strings:
   buildRelease.versionHeading: Version
   buildRelease.versionLabel: Release version
   buildRelease.waitingLog: Waiting for build output…
+  buildRelease.wasmGzip: 'Wasm gzip: {size}.'
   buildRelease.wholeLog: Whole log
   changes.ahead: ahead {count}
   changes.allCommitted: All changes are committed.

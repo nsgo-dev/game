@@ -268,17 +268,22 @@ func InspectMobilePackage(pkgPath string, kind PackageKind) (MobilePackageReport
 	if !isMobileKind(kind) {
 		return MobilePackageReport{}, fmt.Errorf("InspectMobilePackage requires aab, apk, or ipa kind, got %q", kind)
 	}
+	rep, _, err := inspectMobilePackageWithTotals(pkgPath, kind)
+	return rep, err
+}
+
+func inspectMobilePackageWithTotals(pkgPath string, kind PackageKind) (MobilePackageReport, CategoryTotals, error) {
 	f, err := os.Open(pkgPath)
 	if err != nil {
-		return MobilePackageReport{}, err
+		return MobilePackageReport{}, CategoryTotals{}, err
 	}
 	defer f.Close()
 
 	info, err := f.Stat()
 	if err != nil {
-		return MobilePackageReport{}, err
+		return MobilePackageReport{}, CategoryTotals{}, err
 	}
-	return InspectMobileReader(f, info.Size(), pkgPath, kind)
+	return inspectMobileReaderWithTotals(f, info.Size(), pkgPath, kind)
 }
 
 // InspectMobileReader inspects a ZIP-based mobile package from r with total
@@ -287,9 +292,18 @@ func InspectMobileReader(r io.ReaderAt, archiveSize int64, displayPath string, k
 	if !isMobileKind(kind) {
 		return MobilePackageReport{}, fmt.Errorf("InspectMobileReader requires aab, apk, or ipa kind, got %q", kind)
 	}
+	rep, _, err := inspectMobileReaderWithTotals(r, archiveSize, displayPath, kind)
+	return rep, err
+}
+
+// inspectMobileReaderWithTotals is InspectMobileReader that also folds every entry into the code / textures / audio / other totals the editor's Build and Release screen shows.
+func inspectMobileReaderWithTotals(r io.ReaderAt, archiveSize int64, displayPath string, kind PackageKind) (MobilePackageReport, CategoryTotals, error) {
+	if !isMobileKind(kind) {
+		return MobilePackageReport{}, CategoryTotals{}, fmt.Errorf("InspectMobileReader requires aab, apk, or ipa kind, got %q", kind)
+	}
 	zr, err := zip.NewReader(r, archiveSize)
 	if err != nil {
-		return MobilePackageReport{}, fmt.Errorf("open %s zip archive %q: %w", kind, displayPath, err)
+		return MobilePackageReport{}, CategoryTotals{}, fmt.Errorf("open %s zip archive %q: %w", kind, displayPath, err)
 	}
 
 	rep := MobilePackageReport{
@@ -308,6 +322,7 @@ func InspectMobileReader(r io.ReaderAt, archiveSize int64, displayPath string, k
 		iosBundle = detectIOSBundle(zr.File)
 	}
 
+	var totals CategoryTotals
 	entries := make([]FileEntry, 0, len(zr.File))
 	for _, zf := range zr.File {
 		name := normalizeZipPath(zf.Name)
@@ -337,6 +352,7 @@ func InspectMobileReader(r io.ReaderAt, archiveSize int64, displayPath string, k
 		cb.UncompressedBytes += uncomp
 		cb.FileCount++
 		rep.Categories[cat] = cb
+		addMobileEntryToTotals(&totals, cat, name, comp)
 
 		if abi != "" {
 			ab := rep.ABIs[abi]
@@ -369,7 +385,25 @@ func InspectMobileReader(r io.ReaderAt, archiveSize int64, displayPath string, k
 	}
 	rep.LargestFiles = entries
 
-	return rep, nil
+	if overhead := archiveSize - rep.CompressedBytes; overhead > 0 {
+		totals.OtherBytes += overhead
+	}
+
+	return rep, totals, nil
+}
+
+func addMobileEntryToTotals(totals *CategoryTotals, cat, entryPath string, size int64) {
+	switch cat {
+	case CategoryNativeLibs, CategoryDEX, CategoryExecutable, CategoryFrameworks:
+		totals.CodeBytes += size
+	case CategoryAssetsCar:
+		totals.TexturesBytes += size
+	case CategoryManifestMeta, CategoryLproj, CategoryCodeSignature:
+		totals.OtherBytes += size
+	default:
+		// CategoryAssets, CategoryResources, CategoryOther: split by real media extension.
+		classifyFileByPath(totals, entryPath, size)
+	}
 }
 
 // EvaluateMobileBudget evaluates an inspected MobilePackageReport against
