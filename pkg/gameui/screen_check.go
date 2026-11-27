@@ -67,7 +67,7 @@ type ScreenCheckOptions struct {
 type flatScreenNode struct {
 	doc          ScreenNodeDoc
 	path         []string
-	effectiveDC  []DeviceClass
+	effectiveDC  deviceClassFilter
 	inheritedBG  core.Color
 	hasAncBG     bool
 	isRootCanvas bool
@@ -113,8 +113,8 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 
 	// Flatten node tree with YAML paths, inherited device classes, and inherited opaque fill.
 	var nodes []flatScreenNode
-	var walk func(list []ScreenNodeDoc, prefix []string, parentDC []DeviceClass, ancBG core.Color, hasAncBG bool, isRoot bool)
-	walk = func(list []ScreenNodeDoc, prefix []string, parentDC []DeviceClass, ancBG core.Color, hasAncBG bool, isRoot bool) {
+	var walk func(list []ScreenNodeDoc, prefix []string, parentDC deviceClassFilter, ancBG core.Color, hasAncBG bool, isRoot bool)
+	walk = func(list []ScreenNodeDoc, prefix []string, parentDC deviceClassFilter, ancBG core.Color, hasAncBG bool, isRoot bool) {
 		for i, n := range list {
 			p := make([]string, 0, len(prefix)+1)
 			p = append(p, prefix...)
@@ -152,7 +152,7 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 			}
 		}
 	}
-	walk(doc.Nodes, []string{"nodes"}, nil, backdrop, false, true)
+	walk(doc.Nodes, []string{"nodes"}, deviceClassFilter{}, backdrop, false, true)
 
 	var issues []ScreenIssue
 
@@ -161,7 +161,7 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 		n := fn.doc
 		var touchDevices []string
 		for _, dev := range devices {
-			if dev.Touch && deviceClassMatches(fn.effectiveDC, dev.Class) {
+			if dev.Touch && fn.effectiveDC.matches(dev.Class) {
 				touchDevices = append(touchDevices, dev.Name)
 			}
 		}
@@ -269,7 +269,7 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 
 				for _, fn := range nodes {
 					txt, ok := present[fn.doc.ID]
-					if !ok || !deviceClassMatches(fn.effectiveDC, dev.Class) {
+					if !ok || !fn.effectiveDC.matches(dev.Class) {
 						continue
 					}
 					w := built.Widget(fn.doc.ID)

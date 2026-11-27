@@ -154,7 +154,7 @@ type ScreenBuildOptions struct {
 type builtNodeRecord struct {
 	doc            ScreenNodeDoc
 	widget         Widget
-	effectiveClass []DeviceClass
+	effectiveClass deviceClassFilter
 }
 
 // BuiltScreen is the runtime UI tree constructed from a *.screen.yaml document.
@@ -192,14 +192,14 @@ func (s *BuiltScreen) SetSafeArea(insets core.Edges) {
 }
 
 // SetDeviceClass updates conditional visibility for all nodes carrying deviceClasses restrictions.
-// Passing an empty DeviceClass makes all nodes visible.
+// Passing an empty DeviceClass makes all non-disjoint nodes visible.
 func (s *BuiltScreen) SetDeviceClass(class DeviceClass) {
 	if s == nil {
 		return
 	}
 	for i := range s.records {
 		rec := &s.records[i]
-		visible := deviceClassMatches(rec.effectiveClass, class)
+		visible := rec.effectiveClass.matches(class)
 		setWidgetHidden(rec.widget, !visible)
 	}
 }
@@ -270,6 +270,10 @@ func BuildScreen(doc *ScreenDoc, opts ScreenBuildOptions) (*BuiltScreen, error) 
 	if err := ValidateScreen(doc); err != nil {
 		return nil, err
 	}
+	return buildScreen(doc, opts)
+}
+
+func buildScreen(doc *ScreenDoc, opts ScreenBuildOptions) (*BuiltScreen, error) {
 
 	var th Theme
 	if opts.Theme != nil {
@@ -330,10 +334,10 @@ func BuildScreen(doc *ScreenDoc, opts ScreenBuildOptions) (*BuiltScreen, error) 
 	}
 	var focusEntries []focusEntry
 
-	var buildNode func(n ScreenNodeDoc, inherited []DeviceClass, inAnchoredParent bool) (Widget, error)
-	buildNode = func(n ScreenNodeDoc, inherited []DeviceClass, inAnchoredParent bool) (Widget, error) {
+	var buildNode func(n ScreenNodeDoc, inherited deviceClassFilter, inAnchoredParent bool) (Widget, error)
+	buildNode = func(n ScreenNodeDoc, inherited deviceClassFilter, inAnchoredParent bool) (Widget, error) {
 		effClasses := intersectDeviceClasses(inherited, n.DeviceClasses)
-		hidden := !deviceClassMatches(effClasses, opts.DeviceClass)
+		hidden := !effClasses.matches(opts.DeviceClass)
 
 		var bgColor core.Color
 		if n.Background != "" {
@@ -567,7 +571,7 @@ func BuildScreen(doc *ScreenDoc, opts ScreenBuildOptions) (*BuiltScreen, error) 
 	}
 
 	for _, node := range doc.Nodes {
-		w, err := buildNode(node, nil, true)
+		w, err := buildNode(node, deviceClassFilter{}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -627,27 +631,48 @@ func isFocusableKind(t ScreenNodeType) bool {
 	return t == NodeButton || t == NodeTouchButton
 }
 
-func intersectDeviceClasses(parent, child []DeviceClass) []DeviceClass {
-	if len(parent) == 0 {
-		return slices.Clone(child)
+// deviceClassFilter distinguishes an unrestricted node (restricted == false, shown on all devices)
+// from a restricted node whose effective allowed set may be empty (restricted == true, len(allowed) == 0,
+// produced when a child's deviceClasses do not overlap its parent's, shown on no device).
+type deviceClassFilter struct {
+	restricted bool
+	allowed    []DeviceClass
+}
+
+func intersectDeviceClasses(parent deviceClassFilter, child []DeviceClass) deviceClassFilter {
+	if !parent.restricted {
+		if len(child) == 0 {
+			return deviceClassFilter{}
+		}
+		return deviceClassFilter{restricted: true, allowed: slices.Clone(child)}
 	}
 	if len(child) == 0 {
-		return slices.Clone(parent)
+		return deviceClassFilter{restricted: true, allowed: slices.Clone(parent.allowed)}
 	}
 	var out []DeviceClass
 	for _, c := range child {
-		if slices.Contains(parent, c) {
+		if slices.Contains(parent.allowed, c) {
 			out = append(out, c)
 		}
 	}
-	return out
+	return deviceClassFilter{restricted: true, allowed: out}
 }
 
-func deviceClassMatches(allowed []DeviceClass, current DeviceClass) bool {
-	if current == "" || len(allowed) == 0 {
+func (f deviceClassFilter) isEmpty() bool {
+	return f.restricted && len(f.allowed) == 0
+}
+
+func (f deviceClassFilter) matches(current DeviceClass) bool {
+	if !f.restricted {
 		return true
 	}
-	return slices.Contains(allowed, current)
+	if len(f.allowed) == 0 {
+		return false
+	}
+	if current == "" {
+		return true
+	}
+	return slices.Contains(f.allowed, current)
 }
 
 func setWidgetHidden(w Widget, hidden bool) {

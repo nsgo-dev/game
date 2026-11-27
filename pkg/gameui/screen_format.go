@@ -167,27 +167,27 @@ type ScreenNodeDoc struct {
 	Offset *ScreenOffsetDoc `yaml:"offset,omitempty"`
 	// SafeArea keeps the node inside the display safe area (away from notches and home indicators). Nil defaults to true for non-fill anchors and false for fill.
 	SafeArea *bool `yaml:"safeArea,omitempty"`
-	// SizeMode selects whether width is fixed ("fixed", the default) or sizes to fit localized text ("fit_text").
+	// SizeMode selects whether width is fixed ("fixed", the default) or sizes to fit localized text ("fit_text") on label and button nodes.
 	SizeMode SizeMode `yaml:"sizeMode,omitempty" schema:"enum=fixed|fit_text"`
 	// Width is the node's fixed width in virtual points (0 uses intrinsic or container-determined width).
 	Width float32 `yaml:"width,omitempty" schema:"minimum=0"`
 	// Height is the node's fixed height in virtual points (0 uses intrinsic or container-determined height).
 	Height float32 `yaml:"height,omitempty" schema:"minimum=0"`
-	// Padding is the node's inner padding in virtual points.
+	// Padding is the node's inner padding in virtual points (vbox, hbox, label, button).
 	Padding *ScreenPaddingDoc `yaml:"padding,omitempty"`
 	// Spacing is the gap between children of a vbox, hbox, or sprite_row in virtual points.
 	Spacing float32 `yaml:"spacing,omitempty" schema:"minimum=0"`
-	// TextKey names a localized string in the project's l10n tables (such as "hud.hint.lever"). Screen files store localization keys rather than literal text.
+	// TextKey names a localized string in the project's l10n tables (such as "hud.hint.lever") for label, button, and touch_button nodes. Screen files store localization keys rather than literal text.
 	TextKey string `yaml:"textKey,omitempty"`
-	// FocusOrder sets the explicit keyboard/gamepad focus traversal order (1-based; 0 means not explicitly ordered).
+	// FocusOrder sets the explicit keyboard/gamepad focus traversal order (1-based; 0 means not explicitly ordered) on button and touch_button nodes.
 	FocusOrder int `yaml:"focusOrder,omitempty" schema:"minimum=0"`
 	// TouchHitSize is the touch target diameter in virtual points for touch_stick, touch_button, or touch-interactive buttons.
 	TouchHitSize float32 `yaml:"touchHitSize,omitempty" schema:"minimum=0"`
-	// DeviceClasses optionally restricts the node and its subtree to the listed device classes (for example [phone, tablet]). Empty shows on all devices.
+	// DeviceClasses optionally restricts the node and its subtree to the listed device classes (for example [phone, tablet]). Empty shows on all devices; nested nodes must overlap their parent's allowed classes.
 	DeviceClasses []DeviceClass `yaml:"deviceClasses,omitempty"`
-	// Sprite is a project-relative path to a sprite image or atlas file (for example "art/ui/heart.png"), followed by refs and game mv.
+	// Sprite is a project-relative path to a sprite image or atlas file (for example "art/ui/heart.png") for sprite_row nodes, followed by refs and game mv.
 	Sprite string `yaml:"sprite,omitempty"`
-	// SpriteFrame optionally names a frame inside a sprite atlas when Sprite points to an atlas JSON file.
+	// SpriteFrame optionally names a frame inside a sprite atlas when Sprite points to an atlas JSON file on a sprite_row node.
 	SpriteFrame string `yaml:"spriteFrame,omitempty"`
 	// SpriteCount is the number of repeated icons in a sprite_row (defaults to 1 when Sprite is set).
 	SpriteCount int `yaml:"spriteCount,omitempty" schema:"minimum=0"`
@@ -209,13 +209,13 @@ type ScreenNodeDoc struct {
 	Max float32 `yaml:"max,omitempty"`
 	// Value is the image_progress node's initial value; game code updates the widget's Value at runtime.
 	Value float32 `yaml:"value,omitempty"`
-	// FontSize overrides the text font size in virtual points for text-bearing nodes.
+	// FontSize overrides the text font size in virtual points for label, button, and touch_button nodes.
 	FontSize float32 `yaml:"fontSize,omitempty" schema:"minimum=0"`
-	// TextColor is an optional CSS color string parsed with core.ParseColor for text.
+	// TextColor is an optional CSS color string parsed with core.ParseColor for text (label, button, touch_button) or the thumbstick knob (touch_stick).
 	TextColor string `yaml:"textColor,omitempty"`
-	// Background is an optional CSS color string parsed with core.ParseColor for the node's fill.
+	// Background is an optional CSS color string parsed with core.ParseColor for the node's fill (all node types except image_progress; icon fallback tint on sprite_row and ring base on touch_stick).
 	Background string `yaml:"background,omitempty"`
-	// CornerRadius is an optional corner radius in virtual points.
+	// CornerRadius is an optional corner radius in virtual points (vbox, hbox, container, label, button, color_rect).
 	CornerRadius float32 `yaml:"cornerRadius,omitempty" schema:"minimum=0"`
 	// Children are nested child nodes for container types (vbox, hbox, container).
 	Children []ScreenNodeDoc `yaml:"children,omitempty"`
@@ -266,8 +266,9 @@ const (
 )
 
 // ParseScreen decodes and validates a versioned *.screen.yaml document.
-// Unknown fields, trailing YAML documents, YAML anchors/aliases/merge keys, missing or unsupported versions,
-// duplicate node IDs, duplicate focus orders, invalid enums or colors, and non-finite numbers are refused.
+// Unknown fields, fields unsupported by a node's type, disjoint nested deviceClasses, trailing YAML documents,
+// YAML anchors/aliases/merge keys, missing or unsupported versions, duplicate node IDs, duplicate focus orders,
+// invalid enums or colors, and non-finite numbers are refused.
 //
 // Errors are *loaderr.Error values carrying line, column, field path, and fix guidance; callers that read from a file
 // can attach the file path with loaderr.WithFile.
@@ -395,14 +396,14 @@ func ValidateScreen(doc *ScreenDoc) error {
 	seenIDs := make(map[string]bool)
 	seenFocus := make(map[int]string)
 	for i := range doc.Nodes {
-		if err := validateScreenNode(&doc.Nodes[i], []any{"nodes", i}, 0, seenIDs, seenFocus); err != nil {
+		if err := validateScreenNode(&doc.Nodes[i], []any{"nodes", i}, 0, deviceClassFilter{}, seenIDs, seenFocus); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[string]bool, seenFocus map[int]string) error {
+func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, parentClasses deviceClassFilter, seenIDs map[string]bool, seenFocus map[int]string) error {
 	if depth > maxScreenNodeDepth {
 		return loaderr.Errorf(loaderr.Path(path...), "flatten the node hierarchy to stay within the maximum nesting depth", "gameui: node nesting exceeds maximum depth %d", maxScreenNodeDepth)
 	}
@@ -435,8 +436,13 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 			return loaderr.Errorf(fieldPath("offset", "y"), "set offset.y to a finite number", "gameui: node %q offset.y must be finite", n.ID)
 		}
 	}
-	if n.SizeMode != "" && n.SizeMode != SizeFixed && n.SizeMode != SizeFitText {
-		return loaderr.Errorf(fieldPath("sizeMode"), "use fixed or fit_text", "gameui: node %q has unknown sizeMode %q", n.ID, n.SizeMode)
+	if n.SizeMode != "" {
+		if !nodeSupportsSizeMode(n.Type) {
+			return loaderr.Errorf(fieldPath("sizeMode"), "remove sizeMode; only label and button nodes support sizeMode", "gameui: node %q of type %q does not support sizeMode", n.ID, n.Type)
+		}
+		if n.SizeMode != SizeFixed && n.SizeMode != SizeFitText {
+			return loaderr.Errorf(fieldPath("sizeMode"), "use fixed or fit_text", "gameui: node %q has unknown sizeMode %q", n.ID, n.SizeMode)
+		}
 	}
 	if !isNonNegFinite32(n.Width) {
 		return loaderr.Errorf(fieldPath("width"), "set width to a non-negative number", "gameui: node %q width must be non-negative, got %v", n.ID, n.Width)
@@ -445,6 +451,9 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 		return loaderr.Errorf(fieldPath("height"), "set height to a non-negative number", "gameui: node %q height must be non-negative, got %v", n.ID, n.Height)
 	}
 	if n.Padding != nil {
+		if !nodeSupportsPadding(n.Type) {
+			return loaderr.Errorf(fieldPath("padding"), "remove padding; only vbox, hbox, label, and button nodes support padding", "gameui: node %q of type %q does not support padding", n.ID, n.Type)
+		}
 		for _, side := range []struct {
 			name string
 			val  float32
@@ -459,13 +468,22 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 			}
 		}
 	}
+	if n.Spacing != 0 && !nodeSupportsSpacing(n.Type) {
+		return loaderr.Errorf(fieldPath("spacing"), "remove spacing; only vbox, hbox, and sprite_row nodes support spacing", "gameui: node %q of type %q does not support spacing", n.ID, n.Type)
+	}
 	if !isNonNegFinite32(n.Spacing) {
 		return loaderr.Errorf(fieldPath("spacing"), "set spacing to a non-negative number", "gameui: node %q spacing must be non-negative, got %v", n.ID, n.Spacing)
 	}
 	if n.TextKey != "" {
+		if !nodeSupportsText(n.Type) {
+			return loaderr.Errorf(fieldPath("textKey"), "remove textKey; only label, button, and touch_button nodes support textKey", "gameui: node %q of type %q does not support textKey", n.ID, n.Type)
+		}
 		if strings.TrimSpace(n.TextKey) != n.TextKey || strings.IndexFunc(n.TextKey, unicode.IsControl) >= 0 {
 			return loaderr.Errorf(fieldPath("textKey"), "set textKey to a localization key without surrounding spaces or control characters", "gameui: node %q has invalid textKey %q", n.ID, n.TextKey)
 		}
+	}
+	if n.FocusOrder != 0 && !nodeSupportsFocusOrder(n.Type) {
+		return loaderr.Errorf(fieldPath("focusOrder"), "remove focusOrder; only button and touch_button nodes support focusOrder", "gameui: node %q of type %q does not support focusOrder", n.ID, n.Type)
 	}
 	if n.FocusOrder < 0 {
 		return loaderr.Errorf(fieldPath("focusOrder"), "set focusOrder to a positive integer (1, 2, ...) or omit it", "gameui: node %q focusOrder must be non-negative, got %d", n.ID, n.FocusOrder)
@@ -475,6 +493,9 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 			return loaderr.Errorf(fieldPath("focusOrder"), "give each focus-ordered node a distinct positive focusOrder", "gameui: node %q repeats focusOrder %d already used by %q", n.ID, n.FocusOrder, prev)
 		}
 		seenFocus[n.FocusOrder] = n.ID
+	}
+	if n.TouchHitSize != 0 && !nodeSupportsTouchHitSize(n.Type) {
+		return loaderr.Errorf(fieldPath("touchHitSize"), "remove touchHitSize; only button, touch_stick, and touch_button nodes support touchHitSize", "gameui: node %q of type %q does not support touchHitSize", n.ID, n.Type)
 	}
 	if !isNonNegFinite32(n.TouchHitSize) {
 		return loaderr.Errorf(fieldPath("touchHitSize"), "set touchHitSize to a non-negative number (at least 44 pt for touch targets)", "gameui: node %q touchHitSize must be non-negative, got %v", n.ID, n.TouchHitSize)
@@ -489,13 +510,33 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 		}
 		seenClasses[dc] = true
 	}
+	effClasses := intersectDeviceClasses(parentClasses, n.DeviceClasses)
+	if effClasses.isEmpty() {
+		return loaderr.Errorf(
+			fieldPath("deviceClasses"),
+			"remove deviceClasses or include at least one class allowed by the parent node",
+			"gameui: node %q deviceClasses %s do not overlap parent deviceClasses %s",
+			n.ID, formatDeviceClasses(n.DeviceClasses), formatDeviceClasses(parentClasses.allowed),
+		)
+	}
 	if n.Sprite != "" {
+		if !nodeSupportsSprite(n.Type) {
+			return loaderr.Errorf(fieldPath("sprite"), "remove sprite; only sprite_row nodes support sprite", "gameui: node %q of type %q does not support sprite", n.ID, n.Type)
+		}
 		if strings.TrimSpace(n.Sprite) != n.Sprite || strings.IndexFunc(n.Sprite, unicode.IsControl) >= 0 {
 			return loaderr.Errorf(fieldPath("sprite"), "set sprite to a project-relative path such as art/ui/heart.png", "gameui: node %q has invalid sprite path %q", n.ID, n.Sprite)
 		}
 	}
-	if n.SpriteFrame != "" && n.Sprite == "" {
-		return loaderr.Errorf(fieldPath("spriteFrame"), "set sprite to the atlas path when spriteFrame is specified", "gameui: node %q sets spriteFrame %q without sprite", n.ID, n.SpriteFrame)
+	if n.SpriteFrame != "" {
+		if !nodeSupportsSprite(n.Type) {
+			return loaderr.Errorf(fieldPath("spriteFrame"), "remove spriteFrame; only sprite_row nodes support spriteFrame", "gameui: node %q of type %q does not support spriteFrame", n.ID, n.Type)
+		}
+		if n.Sprite == "" {
+			return loaderr.Errorf(fieldPath("spriteFrame"), "set sprite to the atlas path when spriteFrame is specified", "gameui: node %q sets spriteFrame %q without sprite", n.ID, n.SpriteFrame)
+		}
+	}
+	if n.SpriteCount != 0 && !nodeSupportsSprite(n.Type) {
+		return loaderr.Errorf(fieldPath("spriteCount"), "remove spriteCount; only sprite_row nodes support spriteCount", "gameui: node %q of type %q does not support spriteCount", n.ID, n.Type)
 	}
 	if n.SpriteCount < 0 {
 		return loaderr.Errorf(fieldPath("spriteCount"), "set spriteCount to a non-negative integer", "gameui: node %q spriteCount must be non-negative, got %d", n.ID, n.SpriteCount)
@@ -508,42 +549,78 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 		{"over", n.Over},
 		{"progress", n.Progress},
 	} {
-		if layer.path != "" && (strings.TrimSpace(layer.path) != layer.path || strings.IndexFunc(layer.path, unicode.IsControl) >= 0) {
+		if layer.path == "" {
+			continue
+		}
+		if !nodeSupportsImageProgress(n.Type) {
+			return loaderr.Errorf(fieldPath(layer.name), fmt.Sprintf("remove %s; only image_progress nodes support %s", layer.name, layer.name), "gameui: node %q of type %q does not support %s", n.ID, n.Type, layer.name)
+		}
+		if strings.TrimSpace(layer.path) != layer.path || strings.IndexFunc(layer.path, unicode.IsControl) >= 0 {
 			return loaderr.Errorf(fieldPath(layer.name), "set %s to a project-relative path such as art/ui/bar_fill.png", "gameui: node %q has invalid %s path %q", n.ID, layer.name, layer.path)
 		}
 	}
 	if n.Fill != "" {
+		if !nodeSupportsImageProgress(n.Type) {
+			return loaderr.Errorf(fieldPath("fill"), "remove fill; only image_progress nodes support fill", "gameui: node %q of type %q does not support fill", n.ID, n.Type)
+		}
 		if _, ok := ParseFillMode(n.Fill); !ok {
 			return loaderr.Errorf(fieldPath("fill"), "use one of left_to_right, right_to_left, top_to_bottom, bottom_to_top, center_h, center_v, clockwise, or counter_clockwise", "gameui: node %q has unknown fill %q", n.ID, n.Fill)
 		}
 	}
+	if n.StartAngle != 0 && !nodeSupportsImageProgress(n.Type) {
+		return loaderr.Errorf(fieldPath("startAngle"), "remove startAngle; only image_progress nodes support startAngle", "gameui: node %q of type %q does not support startAngle", n.ID, n.Type)
+	}
 	if !isFinite32(n.StartAngle) {
 		return loaderr.Errorf(fieldPath("startAngle"), "set startAngle to a finite angle in degrees", "gameui: node %q startAngle must be finite, got %v", n.ID, n.StartAngle)
+	}
+	if n.Span != 0 && !nodeSupportsImageProgress(n.Type) {
+		return loaderr.Errorf(fieldPath("span"), "remove span; only image_progress nodes support span", "gameui: node %q of type %q does not support span", n.ID, n.Type)
 	}
 	if !isNonNegFinite32(n.Span) || n.Span > 360 {
 		return loaderr.Errorf(fieldPath("span"), "set span to a sweep between 0 (the default 360) and 360 degrees", "gameui: node %q span must be in [0, 360], got %v", n.ID, n.Span)
 	}
+	if n.Min != 0 && !nodeSupportsImageProgress(n.Type) {
+		return loaderr.Errorf(fieldPath("min"), "remove min; only image_progress nodes support min", "gameui: node %q of type %q does not support min", n.ID, n.Type)
+	}
 	if !isFinite32(n.Min) {
 		return loaderr.Errorf(fieldPath("min"), "set min to a finite number", "gameui: node %q min must be finite, got %v", n.ID, n.Min)
+	}
+	if n.Max != 0 && !nodeSupportsImageProgress(n.Type) {
+		return loaderr.Errorf(fieldPath("max"), "remove max; only image_progress nodes support max", "gameui: node %q of type %q does not support max", n.ID, n.Type)
 	}
 	if !isFinite32(n.Max) {
 		return loaderr.Errorf(fieldPath("max"), "set max to a finite number", "gameui: node %q max must be finite, got %v", n.ID, n.Max)
 	}
+	if n.Value != 0 && !nodeSupportsImageProgress(n.Type) {
+		return loaderr.Errorf(fieldPath("value"), "remove value; only image_progress nodes support value", "gameui: node %q of type %q does not support value", n.ID, n.Type)
+	}
 	if !isFinite32(n.Value) {
 		return loaderr.Errorf(fieldPath("value"), "set value to a finite number", "gameui: node %q value must be finite, got %v", n.ID, n.Value)
+	}
+	if n.FontSize != 0 && !nodeSupportsText(n.Type) {
+		return loaderr.Errorf(fieldPath("fontSize"), "remove fontSize; only label, button, and touch_button nodes support fontSize", "gameui: node %q of type %q does not support fontSize", n.ID, n.Type)
 	}
 	if !isNonNegFinite32(n.FontSize) {
 		return loaderr.Errorf(fieldPath("fontSize"), "set fontSize to a non-negative number", "gameui: node %q fontSize must be non-negative, got %v", n.ID, n.FontSize)
 	}
 	if n.TextColor != "" {
+		if !nodeSupportsTextColor(n.Type) {
+			return loaderr.Errorf(fieldPath("textColor"), "remove textColor; only label, button, touch_button, and touch_stick nodes support textColor", "gameui: node %q of type %q does not support textColor", n.ID, n.Type)
+		}
 		if _, err := core.ParseColor(n.TextColor); err != nil {
 			return loaderr.Errorf(fieldPath("textColor"), "write textColor as a CSS color such as #ffffff or rgba(255,255,255,0.9)", "gameui: node %q invalid textColor %q: %v", n.ID, n.TextColor, err)
 		}
 	}
 	if n.Background != "" {
+		if !nodeSupportsBackground(n.Type) {
+			return loaderr.Errorf(fieldPath("background"), "remove background; image_progress uses under, progress, and over image layers instead of background", "gameui: node %q of type %q does not support background", n.ID, n.Type)
+		}
 		if _, err := core.ParseColor(n.Background); err != nil {
 			return loaderr.Errorf(fieldPath("background"), "write background as a CSS color such as #101216 or rgba(16,18,22,0.78)", "gameui: node %q invalid background %q: %v", n.ID, n.Background, err)
 		}
+	}
+	if n.CornerRadius != 0 && !nodeSupportsCornerRadius(n.Type) {
+		return loaderr.Errorf(fieldPath("cornerRadius"), "remove cornerRadius; only vbox, hbox, container, label, button, and color_rect nodes support cornerRadius", "gameui: node %q of type %q does not support cornerRadius", n.ID, n.Type)
 	}
 	if !isNonNegFinite32(n.CornerRadius) {
 		return loaderr.Errorf(fieldPath("cornerRadius"), "set cornerRadius to a non-negative number", "gameui: node %q cornerRadius must be non-negative, got %v", n.ID, n.CornerRadius)
@@ -555,11 +632,63 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, seenIDs map[str
 		childPath := make([]any, 0, len(path)+2)
 		childPath = append(childPath, path...)
 		childPath = append(childPath, "children", i)
-		if err := validateScreenNode(&n.Children[i], childPath, depth+1, seenIDs, seenFocus); err != nil {
+		if err := validateScreenNode(&n.Children[i], childPath, depth+1, effClasses, seenIDs, seenFocus); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func nodeSupportsSizeMode(t ScreenNodeType) bool {
+	return t == NodeLabel || t == NodeButton
+}
+
+func nodeSupportsPadding(t ScreenNodeType) bool {
+	return t == NodeVBox || t == NodeHBox || t == NodeLabel || t == NodeButton
+}
+
+func nodeSupportsSpacing(t ScreenNodeType) bool {
+	return t == NodeVBox || t == NodeHBox || t == NodeSpriteRow
+}
+
+func nodeSupportsText(t ScreenNodeType) bool {
+	return t == NodeLabel || t == NodeButton || t == NodeTouchButton
+}
+
+func nodeSupportsTextColor(t ScreenNodeType) bool {
+	return t == NodeLabel || t == NodeButton || t == NodeTouchButton || t == NodeTouchStick
+}
+
+func nodeSupportsFocusOrder(t ScreenNodeType) bool {
+	return isFocusableKind(t)
+}
+
+func nodeSupportsTouchHitSize(t ScreenNodeType) bool {
+	return t == NodeButton || t == NodeTouchStick || t == NodeTouchButton
+}
+
+func nodeSupportsSprite(t ScreenNodeType) bool {
+	return t == NodeSpriteRow
+}
+
+func nodeSupportsImageProgress(t ScreenNodeType) bool {
+	return t == NodeImageProgress
+}
+
+func nodeSupportsBackground(t ScreenNodeType) bool {
+	return t != NodeImageProgress
+}
+
+func nodeSupportsCornerRadius(t ScreenNodeType) bool {
+	return t == NodeVBox || t == NodeHBox || t == NodeContainer || t == NodeLabel || t == NodeButton || t == NodeColorRect
+}
+
+func formatDeviceClasses(classes []DeviceClass) string {
+	parts := make([]string, len(classes))
+	for i, c := range classes {
+		parts[i] = string(c)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // IsContainer reports whether t can hold child nodes.

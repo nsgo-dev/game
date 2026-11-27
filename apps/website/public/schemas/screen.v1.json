@@ -111,7 +111,7 @@
           "type": "boolean"
         },
         "sizeMode": {
-          "description": "SizeMode selects whether width is fixed (\"fixed\", the default) or sizes to fit localized text (\"fit_text\").",
+          "description": "SizeMode selects whether width is fixed (\"fixed\", the default) or sizes to fit localized text (\"fit_text\") on label and button nodes.",
           "type": "string",
           "enum": [
             "fixed",
@@ -131,7 +131,7 @@
           "maximum": 3.4028234663852886e+38
         },
         "padding": {
-          "description": "Padding is the node's inner padding in virtual points.",
+          "description": "Padding is the node's inner padding in virtual points (vbox, hbox, label, button).",
           "allOf": [
             {
               "$ref": "#/definitions/ScreenPaddingDoc"
@@ -145,11 +145,11 @@
           "maximum": 3.4028234663852886e+38
         },
         "textKey": {
-          "description": "TextKey names a localized string in the project's l10n tables (such as \"hud.hint.lever\"). Screen files store localization keys rather than literal text.",
+          "description": "TextKey names a localized string in the project's l10n tables (such as \"hud.hint.lever\") for label, button, and touch_button nodes. Screen files store localization keys rather than literal text.",
           "type": "string"
         },
         "focusOrder": {
-          "description": "FocusOrder sets the explicit keyboard/gamepad focus traversal order (1-based; 0 means not explicitly ordered).",
+          "description": "FocusOrder sets the explicit keyboard/gamepad focus traversal order (1-based; 0 means not explicitly ordered) on button and touch_button nodes.",
           "type": "integer",
           "minimum": 0,
           "maximum": 9223372036854776000
@@ -161,7 +161,7 @@
           "maximum": 3.4028234663852886e+38
         },
         "deviceClasses": {
-          "description": "DeviceClasses optionally restricts the node and its subtree to the listed device classes (for example [phone, tablet]). Empty shows on all devices.",
+          "description": "DeviceClasses optionally restricts the node and its subtree to the listed device classes (for example [phone, tablet]). Empty shows on all devices; nested nodes must overlap their parent's allowed classes.",
           "type": "array",
           "items": {
             "type": "string",
@@ -174,11 +174,11 @@
           }
         },
         "sprite": {
-          "description": "Sprite is a project-relative path to a sprite image or atlas file (for example \"art/ui/heart.png\"), followed by refs and game mv.",
+          "description": "Sprite is a project-relative path to a sprite image or atlas file (for example \"art/ui/heart.png\") for sprite_row nodes, followed by refs and game mv.",
           "type": "string"
         },
         "spriteFrame": {
-          "description": "SpriteFrame optionally names a frame inside a sprite atlas when Sprite points to an atlas JSON file.",
+          "description": "SpriteFrame optionally names a frame inside a sprite atlas when Sprite points to an atlas JSON file on a sprite_row node.",
           "type": "string"
         },
         "spriteCount": {
@@ -244,21 +244,21 @@
           "maximum": 3.4028234663852886e+38
         },
         "fontSize": {
-          "description": "FontSize overrides the text font size in virtual points for text-bearing nodes.",
+          "description": "FontSize overrides the text font size in virtual points for label, button, and touch_button nodes.",
           "type": "number",
           "minimum": 0,
           "maximum": 3.4028234663852886e+38
         },
         "textColor": {
-          "description": "TextColor is an optional CSS color string parsed with core.ParseColor for text.",
+          "description": "TextColor is an optional CSS color string parsed with core.ParseColor for text (label, button, touch_button) or the thumbstick knob (touch_stick).",
           "type": "string"
         },
         "background": {
-          "description": "Background is an optional CSS color string parsed with core.ParseColor for the node's fill.",
+          "description": "Background is an optional CSS color string parsed with core.ParseColor for the node's fill (all node types except image_progress; icon fallback tint on sprite_row and ring base on touch_stick).",
           "type": "string"
         },
         "cornerRadius": {
-          "description": "CornerRadius is an optional corner radius in virtual points.",
+          "description": "CornerRadius is an optional corner radius in virtual points (vbox, hbox, container, label, button, color_rect).",
           "type": "number",
           "minimum": 0,
           "maximum": 3.4028234663852886e+38
