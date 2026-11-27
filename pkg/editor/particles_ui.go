@@ -759,6 +759,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 		Children: []core.Node{
 			ui.Checkbox{
 				TestID:   "particles-collision-enabled",
+				Text:     "Enabled",
 				Label:    "Enabled",
 				Disabled: disabled,
 				Checked:  func() bool { return activeCfg().Collision.Enabled },
@@ -834,6 +835,7 @@ func particleFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	trailChildren := []core.Node{
 		ui.Checkbox{
 			TestID:   "particles-trail-enabled",
+			Text:     "Enable Ribbon Trails",
 			Label:    "Enable Ribbon Trails",
 			Disabled: disabled,
 			Checked:  func() bool { return activeCfg().Trail != nil },

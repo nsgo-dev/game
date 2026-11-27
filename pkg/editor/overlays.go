@@ -126,13 +126,14 @@ func (e *Editor) initBuiltinOverlays() {
 	if len(e.builtinOverlays) > 0 {
 		return
 	}
+	p := e.activeSpecPalette()
 	e.builtinOverlays = []ViewportOverlay{
 		{
 			ID:        OverlayCollisionShapes,
 			Name:      "Collision shapes",
 			NameKey:   "overlays.collisionShapes",
 			DefaultOn: true,
-			Color:     specTextSecondary,
+			Color:     p.TextMuted,
 			Swatch:    OverlaySwatchBox,
 			Count:     countCollisionShapesOverlay,
 			CountUnit: func(ed *Editor, n int) string {
@@ -148,7 +149,7 @@ func (e *Editor) initBuiltinOverlays() {
 			Name:      "Triggers",
 			NameKey:   "overlays.triggers",
 			DefaultOn: true,
-			Color:     specWarning,
+			Color:     p.Warning.Fg,
 			Swatch:    OverlaySwatchDashedBox,
 			Count:     countTriggersOverlay,
 			Draw:      drawTriggersOverlay,
@@ -158,7 +159,7 @@ func (e *Editor) initBuiltinOverlays() {
 			Name:      "Connections",
 			NameKey:   "overlays.connections",
 			DefaultOn: false,
-			Color:     specAccent,
+			Color:     p.Accent.Fg,
 			Swatch:    OverlaySwatchLine,
 			Count:     countConnectionsOverlay,
 			Draw:      drawConnectionsOverlay,
@@ -168,7 +169,7 @@ func (e *Editor) initBuiltinOverlays() {
 			Name:      "Patrol paths",
 			NameKey:   "overlays.patrolPaths",
 			DefaultOn: false,
-			Color:     specTextSecondary,
+			Color:     p.TextMuted,
 			Swatch:    OverlaySwatchDashedLine,
 			Count:     countPatrolPathsOverlay,
 			Draw:      drawPatrolPathsOverlay,
@@ -178,7 +179,7 @@ func (e *Editor) initBuiltinOverlays() {
 			Name:      "Navigation",
 			NameKey:   "overlays.navigation",
 			DefaultOn: true,
-			Color:     specTextSecondary,
+			Color:     p.TextMuted,
 			Swatch:    OverlaySwatchRegion,
 			Count:     countNavigationOverlay,
 			CountUnit: func(ed *Editor, n int) string {
@@ -194,7 +195,7 @@ func (e *Editor) initBuiltinOverlays() {
 			Name:      "Camera bounds",
 			NameKey:   "overlays.cameraBounds",
 			DefaultOn: true,
-			Color:     specTextMuted,
+			Color:     p.TextFaint,
 			Swatch:    OverlaySwatchDashedBox,
 			Count:     countCameraBoundsOverlay,
 			Draw:      drawCameraBoundsOverlay,
@@ -204,7 +205,7 @@ func (e *Editor) initBuiltinOverlays() {
 			Name:      "Labels",
 			NameKey:   "overlays.labels",
 			DefaultOn: false,
-			Color:     specTextSecondary,
+			Color:     p.TextMuted,
 			Swatch:    OverlaySwatchLabel,
 			Count:     countLabelsOverlay,
 			Draw:      drawLabelsOverlay,

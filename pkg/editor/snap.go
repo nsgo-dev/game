@@ -656,6 +656,7 @@ func snapSettingsPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], t
 			},
 			ui.Checkbox{
 				TestID:   "snap-show-grid",
+				Text:     ed.T("snap.showGrid"),
 				Label:    ed.T("snap.showGrid"),
 				Disabled: disabled,
 				Checked: func() bool {
@@ -669,6 +670,7 @@ func snapSettingsPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], t
 				Children: []core.Node{
 					ui.Checkbox{
 						TestID:   "snap-grid-toggle",
+						Text:     ed.T("snap.grid"),
 						Label:    ed.T("snap.grid"),
 						Disabled: disabled,
 						Checked: func() bool {
@@ -716,6 +718,7 @@ func snapSettingsPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], t
 			},
 			ui.Checkbox{
 				TestID:   "snap-pixel-toggle",
+				Text:     ed.T("snap.pixel"),
 				Label:    ed.T("snap.pixel"),
 				Disabled: disabled,
 				Checked: func() bool {
@@ -729,6 +732,7 @@ func snapSettingsPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], t
 				Children: []core.Node{
 					ui.Checkbox{
 						TestID:   "snap-rotation-toggle",
+						Text:     ed.T("snap.rotation"),
 						Label:    ed.T("snap.rotation"),
 						Disabled: disabled,
 						Checked: func() bool {
@@ -760,6 +764,7 @@ func snapSettingsPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], t
 				Children: []core.Node{
 					ui.Checkbox{
 						TestID:   "snap-scale-toggle",
+						Text:     ed.T("snap.scale"),
 						Label:    ed.T("snap.scale"),
 						Disabled: disabled,
 						Checked: func() bool {

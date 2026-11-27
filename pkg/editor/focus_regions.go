@@ -9,27 +9,6 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec focus ring fallback styles matching docs/design/editor/Spec.dc.html ("Focus ring").
-// Prefer ed.SpecPalette(cx).FocusRing(offset) or SpecPaletteFor(cx.Dark()).FocusRing(offset)
-// whenever a *core.Scope is in scope so Dark (#3B7BFF) and Light (#1D5CE6) both meet WCAG AA.
-var (
-	specFocusRingStyle = &core.Style{
-		OutlineWidth:  2,
-		OutlineColor:  specAccent,
-		OutlineOffset: 2,
-	}
-	specRowFocusRingStyle = &core.Style{
-		OutlineWidth:  2,
-		OutlineColor:  specAccent,
-		OutlineOffset: -2,
-	}
-	specCardFocusWithinStyle = &core.Style{
-		OutlineWidth:  2,
-		OutlineColor:  specAccent,
-		OutlineOffset: 2,
-	}
-)
-
 // FocusTheme returns the editor's unified Spec *core.Theme (SpecTheme), mapping
 // focus, info, and ring roles to Spec accent (#3B7BFF in Dark, #1D5CE6 in Light)
 // so every ui component calling ui.FocusRing draws the Spec 2 px focus ring on

@@ -476,13 +476,13 @@ func multiInspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 				func(v float64) { ed.report(ed.SetSelectedOriginY(float32(v))) },
 			)),
 			fieldRow(ed.T("inspector.flip"), ui.HStack{Gap: 12, Children: []core.Node{
-				multiBoolField("inspector-flip-x", "X", rev, disabled,
+				multiBoolFieldWithText("inspector-flip-x", "X", "X", rev, disabled,
 					func() (bool, bool) {
 						return multiBool(liveObjs(), func(o *sceneformat.ObjectDoc) bool { return o.FlipX })
 					},
 					func(on bool) { ed.report(ed.SetSelectedFlipX(on)) },
 				),
-				multiBoolField("inspector-flip-y", "Y", rev, disabled,
+				multiBoolFieldWithText("inspector-flip-y", "Y", "Y", rev, disabled,
 					func() (bool, bool) {
 						return multiBool(liveObjs(), func(o *sceneformat.ObjectDoc) bool { return o.FlipY })
 					},
@@ -750,8 +750,19 @@ func multiBoolField(
 	read func() (bool, bool),
 	commit func(bool),
 ) core.Node {
+	return multiBoolFieldWithText(testID, "", label, rev, disabled, read, commit)
+}
+
+func multiBoolFieldWithText(
+	testID, text, label string,
+	rev *core.Signal[uint64],
+	disabled func() bool,
+	read func() (bool, bool),
+	commit func(bool),
+) core.Node {
 	return ui.Checkbox{
 		TestID:   testID,
+		Text:     text,
 		Label:    label,
 		Disabled: disabled,
 		Indeterminate: func() bool {

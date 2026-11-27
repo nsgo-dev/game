@@ -458,6 +458,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Children: []core.Node{
 					ui.Checkbox{
 						TestID:   "material-double-sided",
+						Text:     ed.T("material.field.doubleSided"),
 						Label:    ed.T("material.field.doubleSided"),
 						Disabled: disabled,
 						Checked:  func() bool { return currentMat().DoubleSided },
@@ -465,6 +466,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					},
 					ui.Checkbox{
 						TestID:   "material-unlit",
+						Text:     ed.T("material.field.unlit"),
 						Label:    ed.T("material.field.unlit"),
 						Disabled: disabled,
 						Checked:  func() bool { return currentMat().Unlit },

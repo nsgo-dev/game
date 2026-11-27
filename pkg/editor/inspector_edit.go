@@ -145,6 +145,7 @@ func spriteFieldsFiltered(
 		flip := func(testID, label string, y bool) core.Node {
 			return ui.Checkbox{
 				TestID:   testID,
+				Text:     label,
 				Label:    label,
 				Disabled: disabled,
 				Checked: func() bool {

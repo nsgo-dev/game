@@ -10,46 +10,41 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Additional Spec.dc.html color tokens used by the Start Screen (shared tokens live in profiler_ui.go).
-var (
-	specAccentTint = specAlpha(darkSpecPalette.Accent.Fg, 0.18)
-	specRemoved    = darkSpecPalette.Removed.Fg
-)
-
-// templateSwatchColor returns a restrained, dark-theme card preview tint composed strictly from Spec tokens.
-func templateSwatchColor(name string) core.Color {
-	base := darkSpecPalette.Raised
+// templateSwatchColor returns a restrained card preview tint composed strictly from Spec tokens
+// for the active appearance (Dark or Light).
+func templateSwatchColor(p SpecPalette, name string) core.Color {
+	base := p.Raised
 	swatch := func(role core.Color, alpha float32) core.Color {
 		return CompositeOver(specAlpha(role, alpha), base)
 	}
 	swatches := map[string]core.Color{
-		"starter":        darkSpecPalette.LineRaised,
-		"platformer2d":   swatch(darkSpecPalette.Accent.Fg, 0.24),
-		"rpg2d":          swatch(darkSpecPalette.Added.Fg, 0.22),
-		"shmup2d":        swatch(darkSpecPalette.Removed.Fg, 0.22),
-		"fighting2d":     swatch(darkSpecPalette.Changed.Fg, 0.24),
-		"racing3d":       swatch(darkSpecPalette.Accent.Fg, 0.20),
-		"fps3d":          swatch(darkSpecPalette.Agent.Fg, 0.22),
-		"action3d":       swatch(darkSpecPalette.Added.Fg, 0.18),
-		"puzzle2d":       swatch(darkSpecPalette.Warning.Fg, 0.20),
-		"cards2d":        swatch(darkSpecPalette.Removed.Fg, 0.18),
-		"rts2d":          swatch(darkSpecPalette.Added.Fg, 0.20),
-		"roguelike2d":    swatch(darkSpecPalette.Agent.Fg, 0.18),
-		"towerdefense2d": swatch(darkSpecPalette.Warning.Fg, 0.18),
-		"idle":           swatch(darkSpecPalette.Added.Fg, 0.16),
-		"visualnovel":    swatch(darkSpecPalette.Agent.Fg, 0.24),
-		"rhythm":         swatch(darkSpecPalette.Accent.Fg, 0.18),
+		"starter":        p.LineRaised,
+		"platformer2d":   swatch(p.Accent.Fg, 0.24),
+		"rpg2d":          swatch(p.Added.Fg, 0.22),
+		"shmup2d":        swatch(p.Removed.Fg, 0.22),
+		"fighting2d":     swatch(p.Changed.Fg, 0.24),
+		"racing3d":       swatch(p.Accent.Fg, 0.20),
+		"fps3d":          swatch(p.Agent.Fg, 0.22),
+		"action3d":       swatch(p.Added.Fg, 0.18),
+		"puzzle2d":       swatch(p.Warning.Fg, 0.20),
+		"cards2d":        swatch(p.Removed.Fg, 0.18),
+		"rts2d":          swatch(p.Added.Fg, 0.20),
+		"roguelike2d":    swatch(p.Agent.Fg, 0.18),
+		"towerdefense2d": swatch(p.Warning.Fg, 0.18),
+		"idle":           swatch(p.Added.Fg, 0.16),
+		"visualnovel":    swatch(p.Agent.Fg, 0.24),
+		"rhythm":         swatch(p.Accent.Fg, 0.18),
 	}
 	if col, ok := swatches[strings.ToLower(name)]; ok {
 		return col
 	}
 	palette := []core.Color{
-		darkSpecPalette.LineRaised,
-		swatch(darkSpecPalette.Accent.Fg, 0.24),
-		swatch(darkSpecPalette.Added.Fg, 0.22),
-		swatch(darkSpecPalette.Agent.Fg, 0.22),
-		swatch(darkSpecPalette.Changed.Fg, 0.20),
-		swatch(darkSpecPalette.Warning.Fg, 0.20),
+		p.LineRaised,
+		swatch(p.Accent.Fg, 0.24),
+		swatch(p.Added.Fg, 0.22),
+		swatch(p.Agent.Fg, 0.22),
+		swatch(p.Changed.Fg, 0.20),
+		swatch(p.Warning.Fg, 0.20),
 	}
 	sum := 0
 	for i := range len(name) {
@@ -671,7 +666,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							core.View{
 								Style: core.Style{
 									Height:         core.Pt(56),
-									Background:     templateSwatchColor(tmpl.Name),
+									Background:     templateSwatchColor(p, tmpl.Name),
 									Padding:        core.All(8),
 									JustifyContent: core.JustifyEnd,
 									AlignItems:     core.AlignStart,

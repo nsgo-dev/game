@@ -1313,10 +1313,12 @@ func (e *Editor) hudProblemsForDoc(doc *gameui.ScreenDoc, activeLocale string) [
 	if doc == nil {
 		return nil
 	}
+	// HUD screens composite over a dark game viewport surface regardless of the editor's UI appearance.
+	hudFallbackBackdrop := DarkSpecPalette().Panel
 	opts := gameui.ScreenCheckOptions{
 		Locales:          e.hud.localeStrings,
 		Plurals:          e.hud.localePlurals,
-		FallbackBackdrop: specPanel,
+		FallbackBackdrop: hudFallbackBackdrop,
 	}
 	rawIssues := gameui.CheckScreen(doc, opts)
 	if len(rawIssues) == 0 {
@@ -1404,11 +1406,12 @@ func hudNodeContrastRatio(doc *gameui.ScreenDoc, n *gameui.ScreenNodeDoc) float6
 			fg = parsed
 		}
 	}
-	bg := specPanel
+	backdrop := DarkSpecPalette().Panel
+	bg := backdrop
 	if n.Background != "" {
 		if parsed, err := core.ParseColor(n.Background); err == nil && parsed != core.Transparent {
 			if parsed&0xff < 0xff {
-				parsed = parsed.Over(specPanel)
+				parsed = parsed.Over(backdrop)
 			}
 			bg = parsed
 		}

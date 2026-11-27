@@ -108,416 +108,420 @@ func shortcutsSettingsPageView(
 		return true
 	}
 
-	toolbar := core.View{
-		Style: core.Style{
-			Direction:  core.Row,
-			AlignItems: core.AlignCenter,
-			Gap:        8,
-		},
-		Children: []core.Node{
-			core.View{
-				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-				Children: []core.Node{
-					ui.Input{
-						TestID: "shortcuts-search",
-						Label:  ed.T("settings.shortcutsSearchLabel"),
-						Placeholder: func() string {
-							return ed.T("settings.shortcutsSearchPlaceholder")
-						}(),
-						Value: query.Get,
-						OnChange: func(v string) {
-							if capturing.Get() != "" {
-								cancelCapture()
-							}
-							query.Set(v)
-						},
-						Style: core.Style{
-							Height:       core.Pt(32),
-							Background:   specRaised,
-							BorderWidth:  1,
-							BorderColor:  specLineRaised,
-							CornerRadius: 8,
-							Color:        specText,
-							FontSize:     12.5,
-						},
-					},
-				},
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
+		toolbar := core.View{
+			Style: core.Style{
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        8,
 			},
-			ui.Button{
-				TestID:  "shortcuts-reset-all",
-				Text:    ed.T("settings.shortcutsResetAll"),
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonGhost,
-				Disabled: func() bool {
-					_ = uiKeyMemo.Get()
-					return !ed.HasCustomShortcuts()
-				},
-				Color: func() core.Color { return specRaised },
-				TextStyle: core.Style{
-					FontSize:   12,
-					FontWeight: 500,
-					Color:      specText,
-				},
-				Style: core.Style{
-					Height:       core.Pt(32),
-					CornerRadius: 8,
-					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					FocusVisible: specFocusRingStyle,
-				},
-				OnPress: func() {
-					cancelCapture()
-					ed.report(ed.ResetAllShortcuts())
-				},
-			},
-		},
-	}
-
-	rows := core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = uiKeyMemo.Get()
-		q := query.Get()
-		capID := capturing.Get()
-		conf := conflict.Get()
-		targetOS := cx.Env().OS()
-
-		cmds := ed.FilterShortcutCommands(q, targetOS)
-		if len(cmds) == 0 {
-			return core.View{
-				TestID: "shortcuts-empty",
-				Style: core.Style{
-					Padding:    core.Symmetric(24, 12),
-					AlignItems: core.AlignCenter,
-				},
-				Children: []core.Node{
-					core.Text{
-						Content: ed.T("settings.shortcutsEmpty"),
-						Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
-					},
-				},
-			}
-		}
-
-		items := make([]core.Node, 0, len(cmds))
-		for _, cmd := range cmds {
-			c := cmd
-			isCapturing := capID == c.ID
-			isCustom := ed.ShortcutOverridden(c.ID)
-			scopeText := ed.CommandScopeLabel(c.Scope)
-
-			keyText := ed.T("settings.shortcutsUnbound")
-			keyColor := specTextMuted
-			if c.Shortcut != "" {
-				keyText = FormatShortcut(c.Shortcut, targetOS)
-				keyColor = specTextStrong
-			}
-
-			var keyControl core.Node
-			if isCapturing {
-				keyControl = core.View{
-					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+			Children: []core.Node{
+				core.View{
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 					Children: []core.Node{
-						core.View{
-							TestID:    "shortcut-capture-" + c.ID,
-							Label:     ed.T("settings.shortcutsCapturePrompt"),
-							Ref:       captureRef,
-							Focusable: func() bool { return true },
-							OnBlur: func() {
-								if capturing.Get() == c.ID {
-									capturing.Set("")
+						ui.Input{
+							TestID: "shortcuts-search",
+							Label:  ed.T("settings.shortcutsSearchLabel"),
+							Placeholder: func() string {
+								return ed.T("settings.shortcutsSearchPlaceholder")
+							}(),
+							Value: query.Get,
+							OnChange: func(v string) {
+								if capturing.Get() != "" {
+									cancelCapture()
 								}
-							},
-							OnKeyDown: func(ev core.KeyEvent) bool {
-								return handleCaptureKey(c.ID, ev)
+								query.Set(v)
 							},
 							Style: core.Style{
-								Height:         core.Pt(28),
-								MinWidth:       core.Pt(112),
-								Padding:        core.Symmetric(0, 10),
-								CornerRadius:   6,
-								Background:     specRaised,
-								BorderWidth:    1,
-								BorderColor:    specAccent,
-								OutlineWidth:   2,
-								OutlineColor:   specAccent,
-								OutlineOffset:  2,
-								AlignItems:     core.AlignCenter,
-								JustifyContent: core.JustifyCenter,
+								Height:       core.Pt(32),
+								Background:   p.Raised,
+								BorderWidth:  1,
+								BorderColor:  p.LineRaised,
+								CornerRadius: 8,
+								Color:        p.TextSecondary,
+								FontSize:     12.5,
 							},
-							Children: []core.Node{
-								core.Text{
-									Content: ed.T("settings.shortcutsCapturePrompt"),
-									Style: core.Style{
-										FontSize:   11.5,
-										FontWeight: 600,
-										FontFamily: core.FontMonospace,
-										Color:      specTextStrong,
+						},
+					},
+				},
+				ui.Button{
+					TestID:  "shortcuts-reset-all",
+					Text:    ed.T("settings.shortcutsResetAll"),
+					Size:    ui.SizeSmall,
+					Variant: ui.ButtonGhost,
+					Disabled: func() bool {
+						_ = uiKeyMemo.Get()
+						return !ed.HasCustomShortcuts()
+					},
+					Color: func() core.Color { return ed.SpecPalette(cx).Raised },
+					TextStyle: core.Style{
+						FontSize:   12,
+						FontWeight: 500,
+						Color:      p.TextSecondary,
+					},
+					Style: core.Style{
+						Height:       core.Pt(32),
+						CornerRadius: 8,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+						FocusVisible: p.FocusRing(2),
+					},
+					OnPress: func() {
+						cancelCapture()
+						ed.report(ed.ResetAllShortcuts())
+					},
+				},
+			},
+		}
+
+		rows := core.Dynamic(func(cx *core.Scope) core.Node {
+			_ = uiKeyMemo.Get()
+			curPal := ed.SpecPalette(cx)
+			q := query.Get()
+			capID := capturing.Get()
+			conf := conflict.Get()
+			targetOS := cx.Env().OS()
+
+			cmds := ed.FilterShortcutCommands(q, targetOS)
+			if len(cmds) == 0 {
+				return core.View{
+					TestID: "shortcuts-empty",
+					Style: core.Style{
+						Padding:    core.Symmetric(24, 12),
+						AlignItems: core.AlignCenter,
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: ed.T("settings.shortcutsEmpty"),
+							Style:   core.Style{FontSize: 12.5, Color: curPal.TextFaint},
+						},
+					},
+				}
+			}
+
+			items := make([]core.Node, 0, len(cmds))
+			for _, cmd := range cmds {
+				c := cmd
+				isCapturing := capID == c.ID
+				isCustom := ed.ShortcutOverridden(c.ID)
+				scopeText := ed.CommandScopeLabel(c.Scope)
+
+				keyText := ed.T("settings.shortcutsUnbound")
+				keyColor := curPal.TextFaint
+				if c.Shortcut != "" {
+					keyText = FormatShortcut(c.Shortcut, targetOS)
+					keyColor = curPal.TextPrimary
+				}
+
+				var keyControl core.Node
+				if isCapturing {
+					keyControl = core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+						Children: []core.Node{
+							core.View{
+								TestID:    "shortcut-capture-" + c.ID,
+								Label:     ed.T("settings.shortcutsCapturePrompt"),
+								Ref:       captureRef,
+								Focusable: func() bool { return true },
+								OnBlur: func() {
+									if capturing.Get() == c.ID {
+										capturing.Set("")
+									}
+								},
+								OnKeyDown: func(ev core.KeyEvent) bool {
+									return handleCaptureKey(c.ID, ev)
+								},
+								Style: core.Style{
+									Height:         core.Pt(28),
+									MinWidth:       core.Pt(112),
+									Padding:        core.Symmetric(0, 10),
+									CornerRadius:   6,
+									Background:     curPal.Raised,
+									BorderWidth:    1,
+									BorderColor:    curPal.Accent.Fg,
+									OutlineWidth:   2,
+									OutlineColor:   curPal.Accent.Edge,
+									OutlineOffset:  2,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifyCenter,
+								},
+								Children: []core.Node{
+									core.Text{
+										Content: ed.T("settings.shortcutsCapturePrompt"),
+										Style: core.Style{
+											FontSize:   11.5,
+											FontWeight: 600,
+											FontFamily: core.FontMonospace,
+											Color:      curPal.TextPrimary,
+										},
 									},
 								},
 							},
-						},
-						ui.Button{
-							TestID:  "shortcut-capture-cancel",
-							Text:    ed.T("settings.shortcutsCaptureCancel"),
-							Size:    ui.SizeSmall,
-							Variant: ui.ButtonGhost,
-							Color:   func() core.Color { return specLineRaised },
-							TextStyle: core.Style{
-								FontSize: 11.5,
-								Color:    specText,
-							},
-							Style: core.Style{
-								Height:       core.Pt(28),
-								CornerRadius: 6,
-								FocusVisible: specFocusRingStyle,
-							},
-							OnPress: cancelCapture,
-						},
-					},
-				}
-			} else {
-				borderCol := specLineRaised
-				if isCustom {
-					borderCol = specChanged
-				}
-				keyControl = core.View{
-					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
-					Children: func() []core.Node {
-						nodes := []core.Node{
 							ui.Button{
-								TestID:  "shortcut-bind-" + c.ID,
-								Text:    keyText,
-								Label:   c.Label + " · " + keyText,
+								TestID:  "shortcut-capture-cancel",
+								Text:    ed.T("settings.shortcutsCaptureCancel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
-								Color:   func() core.Color { return specRaised },
-								TextStyle: core.Style{
-									FontSize:   11.5,
-									FontWeight: 500,
-									FontFamily: core.FontMonospace,
-									Color:      keyColor,
-								},
-								Style: core.Style{
-									Height:       core.Pt(28),
-									MinWidth:     core.Pt(72),
-									CornerRadius: 6,
-									BorderWidth:  1,
-									BorderColor:  borderCol,
-									FocusVisible: specFocusRingStyle,
-								},
-								OnPress: func() {
-									startCapture(c.ID)
-								},
-							},
-						}
-						if isCustom {
-							nodes = append(nodes, ui.Button{
-								TestID:  "shortcut-reset-" + c.ID,
-								Text:    ed.T("settings.shortcutsReset"),
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonGhost,
-								Color:   func() core.Color { return specPanel },
+								Color:   func() core.Color { return curPal.LineRaised },
 								TextStyle: core.Style{
 									FontSize: 11.5,
-									Color:    specTextSecondary,
+									Color:    curPal.TextSecondary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(28),
 									CornerRadius: 6,
-									BorderWidth:  1,
-									BorderColor:  specLineRaised,
-									FocusVisible: specFocusRingStyle,
+									FocusVisible: curPal.FocusRing(2),
 								},
-								OnPress: func() {
-									cancelCapture()
-									ed.report(ed.ResetShortcut(c.ID))
-								},
-							})
-						}
-						return nodes
-					}(),
-				}
-			}
-
-			labelChildren := []core.Node{
-				core.Text{
-					Content: c.Label,
-					Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: specTextStrong},
-				},
-			}
-			if isCustom {
-				labelChildren = append(labelChildren, core.View{
-					Style: core.Style{
-						Padding:      core.Symmetric(1, 6),
-						CornerRadius: 6,
-						Background:   specWarningFill,
-						BorderWidth:  1,
-						BorderColor:  specWarningEdge,
-					},
-					Children: []core.Node{
-						core.Text{
-							Content: ed.T("settings.shortcutsCustom"),
-							Style:   core.Style{FontSize: 10.5, FontWeight: 600, Color: specChanged},
-						},
-					},
-				})
-			}
-
-			rowChildren := []core.Node{
-				core.View{
-					Style: core.Style{
-						Direction:      core.Row,
-						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifySpaceBetween,
-						Gap:            12,
-						MinHeight:      core.Pt(36),
-					},
-					Children: []core.Node{
-						core.View{
-							Style: core.Style{
-								Direction:  core.Row,
-								AlignItems: core.AlignCenter,
-								Gap:        8,
-								FlexGrow:   1,
-								FlexShrink: 1,
-								MinWidth:   core.Pt(0),
-							},
-							Children: labelChildren,
-						},
-						core.View{
-							TestID: "shortcut-scope-" + c.ID,
-							Style: core.Style{
-								Height:         core.Pt(22),
-								Padding:        core.Symmetric(0, 8),
-								CornerRadius:   6,
-								Background:     specRaised,
-								BorderWidth:    1,
-								BorderColor:    specLineRaised,
-								AlignItems:     core.AlignCenter,
-								JustifyContent: core.JustifyCenter,
-							},
-							Children: []core.Node{
-								core.Text{
-									Content: scopeText,
-									Style:   core.Style{FontSize: 11, Color: specTextSecondary},
-								},
+								OnPress: cancelCapture,
 							},
 						},
-						keyControl,
-					},
-				},
-			}
-
-			if conf != nil && conf.cmdID == c.ID {
-				confCopy := *conf
-				rowChildren = append(rowChildren, core.View{
-					TestID: "shortcut-conflict-" + c.ID,
-					Style: core.Style{
-						Direction:      core.Row,
-						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifySpaceBetween,
-						Gap:            10,
-						Padding:        core.Symmetric(8, 12),
-						CornerRadius:   8,
-						Background:     specWarningFill,
-						BorderWidth:    1,
-						BorderColor:    specWarningEdge,
-					},
-					Children: []core.Node{
-						core.Text{
-							Content: ed.T("settings.shortcutsConflict",
-								l10n.Param("key", FormatShortcut(confCopy.shortcut, targetOS)),
-								l10n.Param("other", confCopy.conflictLabel),
-								l10n.Param("scope", ed.CommandScopeLabel(confCopy.scope)),
-							),
-							Style: core.Style{
-								FontSize:   12,
-								FontWeight: 500,
-								Color:      specWarning,
-								FlexGrow:   1,
-								FlexShrink: 1,
-							},
-						},
-						core.View{
-							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
-							Children: []core.Node{
+					}
+				} else {
+					borderCol := curPal.LineRaised
+					if isCustom {
+						borderCol = curPal.Changed.Fg
+					}
+					keyControl = core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+						Children: func() []core.Node {
+							nodes := []core.Node{
 								ui.Button{
-									TestID:  "shortcut-conflict-swap",
-									Text:    ed.T("settings.shortcutsSwap"),
+									TestID:  "shortcut-bind-" + c.ID,
+									Text:    keyText,
+									Label:   c.Label + " · " + keyText,
 									Size:    ui.SizeSmall,
 									Variant: ui.ButtonGhost,
-									Color:   func() core.Color { return specAccent },
+									Color:   func() core.Color { return curPal.Raised },
 									TextStyle: core.Style{
-										FontSize:   12,
-										FontWeight: 600,
-										Color:      specBg, // Spec contrast table: #101216 on #3B7BFF (4.88:1 AA).
+										FontSize:   11.5,
+										FontWeight: 500,
+										FontFamily: core.FontMonospace,
+										Color:      keyColor,
 									},
 									Style: core.Style{
 										Height:       core.Pt(28),
-										CornerRadius: 8,
-										FocusVisible: specFocusRingStyle,
+										MinWidth:     core.Pt(72),
+										CornerRadius: 6,
+										BorderWidth:  1,
+										BorderColor:  borderCol,
+										FocusVisible: curPal.FocusRing(2),
 									},
 									OnPress: func() {
-										conflict.Set(nil)
-										capturing.Set("")
-										ed.report(ed.SwapShortcut(confCopy.cmdID, confCopy.shortcut))
+										startCapture(c.ID)
 									},
 								},
-								ui.Button{
-									TestID:  "shortcut-conflict-cancel",
-									Text:    ed.T("settings.shortcutsCaptureCancel"),
+							}
+							if isCustom {
+								nodes = append(nodes, ui.Button{
+									TestID:  "shortcut-reset-" + c.ID,
+									Text:    ed.T("settings.shortcutsReset"),
 									Size:    ui.SizeSmall,
 									Variant: ui.ButtonGhost,
-									Color:   func() core.Color { return specLineRaised },
+									Color:   func() core.Color { return curPal.Panel },
 									TextStyle: core.Style{
-										FontSize: 12,
-										Color:    specText,
+										FontSize: 11.5,
+										Color:    curPal.TextMuted,
 									},
 									Style: core.Style{
 										Height:       core.Pt(28),
-										CornerRadius: 8,
-										FocusVisible: specFocusRingStyle,
+										CornerRadius: 6,
+										BorderWidth:  1,
+										BorderColor:  curPal.LineRaised,
+										FocusVisible: curPal.FocusRing(2),
 									},
-									OnPress: cancelCapture,
+									OnPress: func() {
+										cancelCapture()
+										ed.report(ed.ResetShortcut(c.ID))
+									},
+								})
+							}
+							return nodes
+						}(),
+					}
+				}
+
+				labelChildren := []core.Node{
+					core.Text{
+						Content: c.Label,
+						Style:   core.Style{FontSize: 12.5, FontWeight: 500, Color: curPal.TextPrimary},
+					},
+				}
+				if isCustom {
+					labelChildren = append(labelChildren, core.View{
+						Style: core.Style{
+							Padding:      core.Symmetric(1, 6),
+							CornerRadius: 6,
+							Background:   curPal.Warning.Fill,
+							BorderWidth:  1,
+							BorderColor:  curPal.Warning.Edge,
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: ed.T("settings.shortcutsCustom"),
+								Style:   core.Style{FontSize: 10.5, FontWeight: 600, Color: curPal.Changed.Fg},
+							},
+						},
+					})
+				}
+
+				rowChildren := []core.Node{
+					core.View{
+						Style: core.Style{
+							Direction:      core.Row,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifySpaceBetween,
+							Gap:            12,
+							MinHeight:      core.Pt(36),
+						},
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{
+									Direction:  core.Row,
+									AlignItems: core.AlignCenter,
+									Gap:        8,
+									FlexGrow:   1,
+									FlexShrink: 1,
+									MinWidth:   core.Pt(0),
+								},
+								Children: labelChildren,
+							},
+							core.View{
+								TestID: "shortcut-scope-" + c.ID,
+								Style: core.Style{
+									Height:         core.Pt(22),
+									Padding:        core.Symmetric(0, 8),
+									CornerRadius:   6,
+									Background:     curPal.Raised,
+									BorderWidth:    1,
+									BorderColor:    curPal.LineRaised,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifyCenter,
+								},
+								Children: []core.Node{
+									core.Text{
+										Content: scopeText,
+										Style:   core.Style{FontSize: 11, Color: curPal.TextMuted},
+									},
+								},
+							},
+							keyControl,
+						},
+					},
+				}
+
+				if conf != nil && conf.cmdID == c.ID {
+					confCopy := *conf
+					rowChildren = append(rowChildren, core.View{
+						TestID: "shortcut-conflict-" + c.ID,
+						Style: core.Style{
+							Direction:      core.Row,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifySpaceBetween,
+							Gap:            10,
+							Padding:        core.Symmetric(8, 12),
+							CornerRadius:   8,
+							Background:     curPal.Warning.Fill,
+							BorderWidth:    1,
+							BorderColor:    curPal.Warning.Edge,
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: ed.T("settings.shortcutsConflict",
+									l10n.Param("key", FormatShortcut(confCopy.shortcut, targetOS)),
+									l10n.Param("other", confCopy.conflictLabel),
+									l10n.Param("scope", ed.CommandScopeLabel(confCopy.scope)),
+								),
+								Style: core.Style{
+									FontSize:   12,
+									FontWeight: 500,
+									Color:      curPal.Warning.Fg,
+									FlexGrow:   1,
+									FlexShrink: 1,
+								},
+							},
+							core.View{
+								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+								Children: []core.Node{
+									ui.Button{
+										TestID:  "shortcut-conflict-swap",
+										Text:    ed.T("settings.shortcutsSwap"),
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonGhost,
+										Color:   func() core.Color { return curPal.Accent.Fg },
+										TextStyle: core.Style{
+											FontSize:   12,
+											FontWeight: 600,
+											Color:      curPal.Accent.OnFill,
+										},
+										Style: core.Style{
+											Height:       core.Pt(28),
+											CornerRadius: 8,
+											FocusVisible: curPal.FocusRing(2),
+										},
+										OnPress: func() {
+											conflict.Set(nil)
+											capturing.Set("")
+											ed.report(ed.SwapShortcut(confCopy.cmdID, confCopy.shortcut))
+										},
+									},
+									ui.Button{
+										TestID:  "shortcut-conflict-cancel",
+										Text:    ed.T("settings.shortcutsCaptureCancel"),
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonGhost,
+										Color:   func() core.Color { return curPal.LineRaised },
+										TextStyle: core.Style{
+											FontSize: 12,
+											Color:    curPal.TextSecondary,
+										},
+										Style: core.Style{
+											Height:       core.Pt(28),
+											CornerRadius: 8,
+											FocusVisible: curPal.FocusRing(2),
+										},
+										OnPress: cancelCapture,
+									},
 								},
 							},
 						},
+					})
+				}
+
+				items = append(items, core.View{
+					TestID: "shortcut-row-" + c.ID,
+					Style: core.Style{
+						Gap:         6,
+						Padding:     core.Symmetric(6, 4),
+						Borders:     core.Edges{Bottom: 1},
+						BorderColor: curPal.Line,
 					},
+					Children: rowChildren,
 				})
 			}
 
-			items = append(items, core.View{
-				TestID: "shortcut-row-" + c.ID,
-				Style: core.Style{
-					Gap:         6,
-					Padding:     core.Symmetric(6, 4),
-					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specLine,
-				},
-				Children: rowChildren,
-			})
-		}
+			return core.View{
+				Style:    core.Style{Gap: 0},
+				Children: items,
+			}
+		})
 
 		return core.View{
-			Style:    core.Style{Gap: 0},
-			Children: items,
+			TestID: "editor-settings-shortcuts-page",
+			Style:  core.Style{Gap: 12, FlexGrow: 1, MinHeight: core.Pt(0)},
+			Children: []core.Node{
+				toolbar,
+				ui.ScrollView{
+					TestID:    "shortcuts-list",
+					EdgeColor: func() core.Color { return ed.SpecPalette(cx).Panel },
+					Style: core.Style{
+						Height: core.Pt(332),
+					},
+					Children: []core.Node{rows},
+				},
+			},
 		}
 	})
-
-	return core.View{
-		TestID: "editor-settings-shortcuts-page",
-		Style:  core.Style{Gap: 12, FlexGrow: 1, MinHeight: core.Pt(0)},
-		Children: []core.Node{
-			toolbar,
-			ui.ScrollView{
-				TestID:    "shortcuts-list",
-				EdgeColor: func() core.Color { return specPanel },
-				Style: core.Style{
-					Height: core.Pt(332),
-				},
-				Children: []core.Node{rows},
-			},
-		},
-	}
 }
 
 // ShortcutsSheetView renders the ⌘/ Keyboard Shortcuts reference sheet grouped by keyboard scope,
@@ -535,6 +539,7 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	content := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = uiKeyMemo.Get()
 		_ = langMemo.Get()
+		p := ed.SpecPalette(cx)
 		targetOS := cx.Env().OS()
 		apple := targetOS == core.OSMacOS || targetOS == core.OSIOS
 		subtitle := ed.T("shortcutsSheet.subtitleOther")
@@ -571,7 +576,7 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					FontSize:      11,
 					FontWeight:    600,
 					LetterSpacing: 0.6,
-					Color:         specTextMuted,
+					Color:         p.TextFaint,
 					Padding:       core.Edges{Bottom: 6},
 				},
 			})
@@ -599,14 +604,14 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								FontSize:   12,
 								FontWeight: 500,
 								FontFamily: core.FontMonospace,
-								Color:      specTextStrong,
+								Color:      p.TextPrimary,
 							},
 						},
 						core.Text{
 							Content: cmd.Label,
 							Style: core.Style{
 								FontSize:   12.5,
-								Color:      specText,
+								Color:      p.TextSecondary,
 								FlexGrow:   1,
 								FlexShrink: 1,
 							},
@@ -617,9 +622,9 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			cards = append(cards, core.View{
 				TestID: "shortcuts-sheet-scope-" + sc,
 				Style: core.Style{
-					Background:   specPanel,
+					Background:   p.Panel,
 					BorderWidth:  1,
-					BorderColor:  specLine,
+					BorderColor:  p.Line,
 					CornerRadius: 12,
 					Padding:      core.Symmetric(14, 18),
 					Gap:          2,
@@ -632,9 +637,9 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 
 		return core.View{
 			Style: core.Style{
-				Background:   specBg,
+				Background:   p.Bg,
 				BorderWidth:  1,
-				BorderColor:  specLineRaised,
+				BorderColor:  p.LineRaised,
 				CornerRadius: 18,
 				Width:        core.Pt(720),
 				Padding:      core.Symmetric(20, 24),
@@ -654,11 +659,11 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Children: []core.Node{
 								core.Text{
 									Content: ed.T("shortcutsSheet.title"),
-									Style:   core.Style{FontSize: 16, FontWeight: 600, Color: specTextStrong},
+									Style:   core.Style{FontSize: 16, FontWeight: 600, Color: p.TextPrimary},
 								},
 								core.Text{
 									Content: subtitle,
-									Style:   core.Style{FontSize: 12, Color: specTextMuted},
+									Style:   core.Style{FontSize: 12, Color: p.TextFaint},
 								},
 							},
 						},
@@ -667,9 +672,9 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								Height:         core.Pt(24),
 								Padding:        core.Symmetric(0, 10),
 								CornerRadius:   12,
-								Background:     specRaised,
+								Background:     p.Raised,
 								BorderWidth:    1,
-								BorderColor:    specLineRaised,
+								BorderColor:    p.LineRaised,
 								AlignItems:     core.AlignCenter,
 								JustifyContent: core.JustifyCenter,
 							},
@@ -679,7 +684,7 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 									Style: core.Style{
 										FontSize:   11.5,
 										FontFamily: core.FontMonospace,
-										Color:      specTextSecondary,
+										Color:      p.TextMuted,
 									},
 								},
 							},
@@ -688,7 +693,7 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				},
 				ui.ScrollView{
 					TestID:    "shortcuts-sheet-list",
-					EdgeColor: func() core.Color { return specBg },
+					EdgeColor: func() core.Color { return p.Bg },
 					Style:     core.Style{Height: core.Pt(380)},
 					ContentStyle: core.Style{
 						Gap: 12,
@@ -702,7 +707,7 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						JustifyContent: core.JustifySpaceBetween,
 						Padding:        core.Edges{Top: 12},
 						Borders:        core.Edges{Top: 1},
-						BorderColor:    specLine,
+						BorderColor:    p.Line,
 					},
 					Children: []core.Node{
 						ui.Button{
@@ -710,18 +715,18 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Text:    ed.T("shortcutsSheet.customize"),
 							Size:    ui.SizeSmall,
 							Variant: ui.ButtonGhost,
-							Color:   func() core.Color { return specRaised },
+							Color:   func() core.Color { return p.Raised },
 							TextStyle: core.Style{
 								FontSize:   12,
 								FontWeight: 500,
-								Color:      specText,
+								Color:      p.TextSecondary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(30),
 								CornerRadius: 8,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
-								FocusVisible: specFocusRingStyle,
+								BorderColor:  p.LineRaised,
+								FocusVisible: p.FocusRing(2),
 							},
 							OnPress: func() {
 								ed.SetShortcutsSheetOpen(false)
@@ -733,16 +738,16 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Text:    ed.T("settings.done"),
 							Size:    ui.SizeSmall,
 							Variant: ui.ButtonGhost,
-							Color:   func() core.Color { return specTextStrong },
+							Color:   func() core.Color { return p.TextPrimary },
 							TextStyle: core.Style{
 								FontSize:   12,
 								FontWeight: 600,
-								Color:      specBg,
+								Color:      p.OnTextPrimary,
 							},
 							Style: core.Style{
 								Height:       core.Pt(30),
 								CornerRadius: 8,
-								FocusVisible: specFocusRingStyle,
+								FocusVisible: p.FocusRing(2),
 							},
 							OnPress: func() {
 								ed.SetShortcutsSheetOpen(false)
@@ -776,7 +781,7 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		},
 		Style: core.Style{
 			CornerRadius: 18,
-			Background:   specBg,
+			Background:   core.Transparent,
 		},
 		Children: []core.Node{content},
 	}

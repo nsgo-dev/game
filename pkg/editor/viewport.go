@@ -480,6 +480,9 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 		return
 	}
 	scene := e.ActiveScene()
+	if !e.playing && (scene == nil || !scene.HasBackground) {
+		e.drawViewportDotGrid(d, size)
+	}
 	if scene != nil {
 		if !e.playing && scene.HasBackground {
 			// The scene fills its background over the camera frame only; in edit mode the view can be panned or zoomed past that frame, so the whole canvas gets the scene's background and objects away from the camera are judged against the game's clear color.
@@ -494,6 +497,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 			d.Restore()
 		} else {
 			e.drawEditScene(d, scene, size)
+			e.drawNonSpriteMarkers2D(d, scene)
 		}
 	}
 	if scene == nil {
@@ -536,6 +540,79 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 		t.Draw(e, d)
 		d.Restore()
 	}
+}
+
+// drawViewportDotGrid draws the Spec 16x16 neutral dot-grid surround matching docs/design/editor/Main.dc.html
+// whenever the 2D edit viewport has no explicit scene clear color.
+// Uses a single dashed-stroke path (1.2px dash every 16px) so a 1440×900 canvas emits ~50 line
+// segments and one Stroke op instead of thousands of individual FillRect ops per frame.
+func (e *Editor) drawViewportDotGrid(d *core.Drawing, size core.Size) {
+	w, h := float32(size.Width), float32(size.Height)
+	if !(w > 0 && h > 0) || !isFiniteFloat32(w) || !isFiniteFloat32(h) || w > 8192 || h > 8192 {
+		return
+	}
+	spec := e.SpecPalette(nil)
+	const (
+		step float32 = 16
+		dot  float32 = 1.2
+	)
+	d.Save()
+	d.SetStrokeColor(spec.ViewportDot)
+	d.SetLineWidth(dot)
+	d.SetLineDash(dot, step-dot)
+	d.BeginPath()
+	for y := float32(8); y < h; y += step {
+		d.MoveTo(8, y)
+		d.LineTo(w, y)
+	}
+	d.Stroke()
+	d.Restore()
+}
+
+// drawNonSpriteMarkers2D renders subtle, neutral Spec-token markers for visible 2D objects
+// that have no sprite, skeleton, particle emitter, or 2D light visual so authors can see and
+// pick empty nodes, prefabs without sprites, and triggers directly on the canvas.
+// Uses strictly neutral Spec tokens so markers never collide with semantic overlay legend colors.
+func (e *Editor) drawNonSpriteMarkers2D(d *core.Drawing, scene *sceneformat.BuiltScene) {
+	if e == nil || d == nil || scene == nil || e.playing {
+		return
+	}
+	spec := e.SpecPalette(nil)
+	fill := spec.Raised
+	stroke := ui.Alpha(spec.TextFaint, 0.72)
+	centerDot := spec.TextMuted
+	d.Save()
+	d.SetLineDash()
+	d.SetLineWidth(1)
+	for _, layer := range scene.Layers {
+		if !layer.Visible {
+			continue
+		}
+		m := e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY)
+		var walk func(objs []*sceneformat.BuiltObject, hidden bool)
+		walk = func(objs []*sceneformat.BuiltObject, hidden bool) {
+			for _, bo := range objs {
+				if bo == nil || bo.Doc == nil {
+					continue
+				}
+				h := hidden || e.hidden[bo.ID]
+				if !h && bo.Sprite == nil && bo.Skeleton == nil && bo.Emitter == nil && bo.Doc.Light == nil {
+					pos := bo.World.TransformPoint(math2d.Vec2{})
+					cp := m.TransformPoint(pos)
+					cx, cy := cp.X, cp.Y
+					if isFiniteFloat32(cx) && isFiniteFloat32(cy) {
+						half := defaultMarkerHalfSize
+						d.SetFillColor(fill).BeginPath().RoundRect(cx-half, cy-half, half*2, half*2, 3).Fill()
+						d.SetStrokeColor(stroke).BeginPath().RoundRect(cx-half, cy-half, half*2, half*2, 3).Stroke()
+						d.SetFillColor(centerDot).FillRect(cx-1.5, cy-1.5, 3, 3)
+					}
+				}
+				walk(bo.Children, h)
+			}
+		}
+		walk(layer.Objects, false)
+	}
+	d.Restore()
 }
 
 // applyAffine multiplies d's transform by m, leaving it alone for the identity.

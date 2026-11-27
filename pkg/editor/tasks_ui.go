@@ -39,7 +39,7 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		parts := ed.TaskStatusParts()
 		kids := make([]core.Node, 0, len(parts))
 		for i, part := range parts {
-			dotColor := p.LineRaised
+			dotColor := p.TextFaint
 			textColor := p.TextFaint
 			switch part.State {
 			case TaskFailed:
@@ -128,6 +128,8 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			return core.Style{
 				Background:   p.Raised,
 				BorderColor:  border,
+				Cursor:       core.CursorPointer,
+				Hover:        &core.Style{Background: p.LineRaised},
 				FocusVisible: p.FocusRing(2),
 			}
 		},

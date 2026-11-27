@@ -102,431 +102,441 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 	}
 
-	header := core.View{
-		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8},
-		Children: []core.Node{
-			core.Text{
-				Content: "Tileset Editor",
-				Style:   core.Style{FontSize: 13, FontWeight: 600, Color: specTextStrong},
-			},
-			core.Text{
-				TestID: "tileset-editor-path",
-				ContentFunc: func() string {
-					_ = rev.Get()
-					p := ed.TilesetPath()
-					if p == "" {
-						p = "Untitled"
-					} else {
-						p = filepath.Base(p)
-					}
-					if ed.TilesetDirty() {
-						p += "*"
-					}
-					return p
-				},
-				Style: core.Style{FontSize: 12, Color: specTextMuted},
-			},
-			core.View{
-				Style: core.Style{
-					Direction:    core.Row,
-					Gap:          4,
-					Padding:      core.All(2),
-					CornerRadius: 6,
-					Background:   specRaised,
-					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-				},
-				Children: []core.Node{
-					tabBtn("tileset-tab-terrain", "Terrain", TilesetTabTerrain),
-					tabBtn("tileset-tab-collision", "Collision", TilesetTabCollision),
-					tabBtn("tileset-tab-animation", "Animation", TilesetTabAnimation),
-					tabBtn("tileset-tab-data", "Data", TilesetTabData),
-				},
-			},
-			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Button{
-				TestID:   "tileset-editor-save",
-				Text:     "Save Tileset",
-				Size:     ui.SizeSmall,
-				Variant:  ui.ButtonOutline,
-				Disabled: disabled,
-				OnPress: func() {
-					ed.report(ed.SaveTileset())
-				},
-			},
-			ui.Button{
-				TestID:   "tileset-editor-close",
-				Text:     "Close",
-				Size:     ui.SizeSmall,
-				Variant:  ui.ButtonGhost,
-				Disabled: disabled,
-				OnPress: func() {
-					ed.report(ed.CloseTileset())
-				},
-			},
-		},
-	}
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := ed.SpecPalette(cx)
 
-	// Left column: terrain sets list, add form, mode & default controls.
-	terrainCol := ui.ScrollView{
-		Style: core.Style{Width: core.Pt(228)},
-		Children: []core.Node{core.View{
-			TestID: "tileset-terrains",
-			Style:  core.Style{Gap: 6},
+		header := core.View{
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8},
 			Children: []core.Node{
 				core.Text{
-					Content: "TERRAINS",
-					Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+					Content: "Tileset Editor",
+					Style:   core.Style{FontSize: 13, FontWeight: 600, Color: p.TextPrimary},
 				},
-				core.Dynamic(func(cx *core.Scope) core.Node {
-					_ = rev.Get()
-					if !ed.TilesetOpen() {
-						return nil
-					}
-					doc := ed.tileset.doc
-					sel := ed.tileset.selectedTerrain
-					if len(doc.Terrains) == 0 {
-						return core.Text{
-							TestID:  "tileset-terrains-empty",
-							Content: "No terrains yet",
-							Style:   core.Style{FontSize: 11, Color: specTextMuted},
+				core.Text{
+					TestID: "tileset-editor-path",
+					ContentFunc: func() string {
+						_ = rev.Get()
+						tp := ed.TilesetPath()
+						if tp == "" {
+							tp = "Untitled"
+						} else {
+							tp = filepath.Base(tp)
 						}
-					}
-					var btns []core.Node
-					for _, td := range doc.Terrains {
-						name := td.Name
-						modeLabel := "4-bit"
-						if td.Mode == "blob" {
-							modeLabel = "8-bit"
+						if ed.TilesetDirty() {
+							tp += "*"
 						}
-						btns = append(btns, ui.ToggleButton{
-							TestID:   "tileset-terrain-" + name,
-							Text:     fmt.Sprintf("%s (%s)", name, modeLabel),
-							Disabled: disabled,
-							On:       func() bool { return sel == name },
-							OnChange: func(on bool) {
-								if on && !ed.Playing() {
-									ed.SetTilesetSelectedTerrain(name)
-								}
-							},
-						})
-					}
-					return core.View{
-						Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
-						Children: btns,
-					}
-				}),
-				ui.HStack{
-					Gap: 4,
+						return tp
+					},
+					Style: core.Style{FontSize: 12, Color: p.TextFaint},
+				},
+				core.View{
+					Style: core.Style{
+						Direction:    core.Row,
+						Gap:          4,
+						Padding:      core.All(2),
+						CornerRadius: 6,
+						Background:   p.Raised,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+					},
 					Children: []core.Node{
-						core.View{
-							Style: core.Style{FlexGrow: 1},
-							Children: []core.Node{ui.Input{
-								TestID:      "tileset-new-terrain-name",
-								Label:       "New terrain name",
-								Placeholder: "Terrain name...",
-								Disabled:    disabled,
-								Value:       newName.Get,
-								OnChange:    newName.Set,
-							}},
-						},
-						ui.Button{
-							TestID:  "tileset-add-terrain",
-							Text:    "+ Add",
-							Size:    ui.SizeSmall,
-							Variant: ui.ButtonSecondary,
-							Disabled: func() bool {
-								return disabled() || strings.TrimSpace(newName.Get()) == ""
-							},
-							OnPress: func() {
-								name := strings.TrimSpace(newName.Get())
-								if err := ed.AddTilesetTerrain(name, newMode.Get()); err != nil {
-									ed.report(err)
-									return
-								}
-								newName.Set("")
-							},
-						},
+						tabBtn("tileset-tab-terrain", "Terrain", TilesetTabTerrain),
+						tabBtn("tileset-tab-collision", "Collision", TilesetTabCollision),
+						tabBtn("tileset-tab-animation", "Animation", TilesetTabAnimation),
+						tabBtn("tileset-tab-data", "Data", TilesetTabData),
 					},
 				},
-				ui.HStack{
-					Gap: 4,
-					Children: []core.Node{
-						ui.ToggleButton{
-							TestID:   "tileset-new-terrain-mode-cardinal",
-							Text:     "4-bit",
-							Disabled: disabled,
-							On:       func() bool { return newMode.Get() == "cardinal" },
-							OnChange: func(on bool) {
-								if on {
-									newMode.Set("cardinal")
-								}
-							},
-						},
-						ui.ToggleButton{
-							TestID:   "tileset-new-terrain-mode-blob",
-							Text:     "8-bit",
-							Disabled: disabled,
-							On:       func() bool { return newMode.Get() == "blob" },
-							OnChange: func(on bool) {
-								if on {
-									newMode.Set("blob")
-								}
-							},
-						},
+				core.View{Style: core.Style{FlexGrow: 1}},
+				ui.Button{
+					TestID:   "tileset-editor-save",
+					Text:     "Save Tileset",
+					Size:     ui.SizeSmall,
+					Variant:  ui.ButtonOutline,
+					Disabled: disabled,
+					OnPress: func() {
+						ed.report(ed.SaveTileset())
 					},
 				},
-				core.Dynamic(func(cx *core.Scope) core.Node {
-					_ = rev.Get()
-					if !ed.TilesetOpen() || ed.tileset.selectedTerrain == "" {
-						return nil
-					}
-					sel := ed.tileset.selectedTerrain
-					_, td := terrainDocByName(ed.tileset.doc, sel)
-					if td == nil {
-						return nil
-					}
-					defText := "Default: mask 0"
-					if td.Default != nil {
-						defText = fmt.Sprintf("Default: tile %d", *td.Default)
-					}
-					return core.View{
-						Style: core.Style{Gap: 4},
+				ui.Button{
+					TestID:   "tileset-editor-close",
+					Text:     "Close",
+					Size:     ui.SizeSmall,
+					Variant:  ui.ButtonGhost,
+					Disabled: disabled,
+					OnPress: func() {
+						ed.report(ed.CloseTileset())
+					},
+				},
+			},
+		}
+
+		// Left column: terrain sets list, add form, mode & default controls.
+		terrainCol := ui.ScrollView{
+			Style: core.Style{Width: core.Pt(228)},
+			Children: []core.Node{core.View{
+				TestID: "tileset-terrains",
+				Style:  core.Style{Gap: 6},
+				Children: []core.Node{
+					core.Text{
+						Content: "TERRAINS",
+						Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
+					},
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						_ = rev.Get()
+						curPal := ed.SpecPalette(cx)
+						if !ed.TilesetOpen() {
+							return nil
+						}
+						doc := ed.tileset.doc
+						sel := ed.tileset.selectedTerrain
+						if len(doc.Terrains) == 0 {
+							return core.Text{
+								TestID:  "tileset-terrains-empty",
+								Content: "No terrains yet",
+								Style:   core.Style{FontSize: 11, Color: curPal.TextFaint},
+							}
+						}
+						var btns []core.Node
+						for _, td := range doc.Terrains {
+							name := td.Name
+							modeLabel := "4-bit"
+							if td.Mode == "blob" {
+								modeLabel = "8-bit"
+							}
+							btns = append(btns, ui.ToggleButton{
+								TestID:   "tileset-terrain-" + name,
+								Text:     fmt.Sprintf("%s (%s)", name, modeLabel),
+								Disabled: disabled,
+								On:       func() bool { return sel == name },
+								OnChange: func(on bool) {
+									if on && !ed.Playing() {
+										ed.SetTilesetSelectedTerrain(name)
+									}
+								},
+							})
+						}
+						return core.View{
+							Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
+							Children: btns,
+						}
+					}),
+					ui.HStack{
+						Gap: 4,
 						Children: []core.Node{
-							ui.HStack{
-								Gap: 4,
-								Children: []core.Node{
-									ui.ToggleButton{
-										TestID:   "tileset-mode-cardinal",
-										Text:     "Cardinal (4-bit)",
-										Disabled: disabled,
-										On:       func() bool { return td.Mode == "cardinal" },
-										OnChange: func(on bool) {
-											if on {
-												ed.report(ed.SetTilesetTerrainMode(sel, "cardinal"))
-											}
+							core.View{
+								Style: core.Style{FlexGrow: 1},
+								Children: []core.Node{ui.Input{
+									TestID:      "tileset-new-terrain-name",
+									Label:       "New terrain name",
+									Placeholder: "Terrain name...",
+									Disabled:    disabled,
+									Value:       newName.Get,
+									OnChange:    newName.Set,
+								}},
+							},
+							ui.Button{
+								TestID:  "tileset-add-terrain",
+								Text:    "+ Add",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									return disabled() || strings.TrimSpace(newName.Get()) == ""
+								},
+								OnPress: func() {
+									name := strings.TrimSpace(newName.Get())
+									if err := ed.AddTilesetTerrain(name, newMode.Get()); err != nil {
+										ed.report(err)
+										return
+									}
+									newName.Set("")
+								},
+							},
+						},
+					},
+					ui.HStack{
+						Gap: 4,
+						Children: []core.Node{
+							ui.ToggleButton{
+								TestID:   "tileset-new-terrain-mode-cardinal",
+								Text:     "4-bit",
+								Disabled: disabled,
+								On:       func() bool { return newMode.Get() == "cardinal" },
+								OnChange: func(on bool) {
+									if on {
+										newMode.Set("cardinal")
+									}
+								},
+							},
+							ui.ToggleButton{
+								TestID:   "tileset-new-terrain-mode-blob",
+								Text:     "8-bit",
+								Disabled: disabled,
+								On:       func() bool { return newMode.Get() == "blob" },
+								OnChange: func(on bool) {
+									if on {
+										newMode.Set("blob")
+									}
+								},
+							},
+						},
+					},
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						_ = rev.Get()
+						curPal := ed.SpecPalette(cx)
+						if !ed.TilesetOpen() || ed.tileset.selectedTerrain == "" {
+							return nil
+						}
+						sel := ed.tileset.selectedTerrain
+						_, td := terrainDocByName(ed.tileset.doc, sel)
+						if td == nil {
+							return nil
+						}
+						defText := "Default: mask 0"
+						if td.Default != nil {
+							defText = fmt.Sprintf("Default: tile %d", *td.Default)
+						}
+						return core.View{
+							Style: core.Style{Gap: 4},
+							Children: []core.Node{
+								ui.HStack{
+									Gap: 4,
+									Children: []core.Node{
+										ui.ToggleButton{
+											TestID:   "tileset-mode-cardinal",
+											Text:     "Cardinal (4-bit)",
+											Disabled: disabled,
+											On:       func() bool { return td.Mode == "cardinal" },
+											OnChange: func(on bool) {
+												if on {
+													ed.report(ed.SetTilesetTerrainMode(sel, "cardinal"))
+												}
+											},
+										},
+										ui.ToggleButton{
+											TestID:   "tileset-mode-blob",
+											Text:     "Blob (8-bit)",
+											Disabled: disabled,
+											On:       func() bool { return td.Mode == "blob" },
+											OnChange: func(on bool) {
+												if on {
+													ed.report(ed.SetTilesetTerrainMode(sel, "blob"))
+												}
+											},
 										},
 									},
-									ui.ToggleButton{
-										TestID:   "tileset-mode-blob",
-										Text:     "Blob (8-bit)",
-										Disabled: disabled,
-										On:       func() bool { return td.Mode == "blob" },
-										OnChange: func(on bool) {
-											if on {
-												ed.report(ed.SetTilesetTerrainMode(sel, "blob"))
-											}
+								},
+								core.Text{
+									TestID:  "tileset-default-info",
+									Content: defText,
+									Style:   core.Style{FontSize: 11, Color: curPal.TextFaint},
+								},
+								ui.HStack{
+									Gap: 4,
+									Children: []core.Node{
+										ui.Button{
+											TestID:   "tileset-set-default",
+											Text:     "Set Default",
+											Size:     ui.SizeSmall,
+											Variant:  ui.ButtonSecondary,
+											Disabled: disabled,
+											OnPress: func() {
+												id := ed.TilesetSelectedTile()
+												if id >= 0 {
+													ed.report(ed.SetTilesetTerrainDefault(sel, &id))
+												}
+											},
+										},
+										ui.Button{
+											TestID:  "tileset-clear-default",
+											Text:    "Clear",
+											Size:    ui.SizeSmall,
+											Variant: ui.ButtonGhost,
+											Disabled: func() bool {
+												return disabled() || td.Default == nil
+											},
+											OnPress: func() {
+												ed.report(ed.SetTilesetTerrainDefault(sel, nil))
+											},
+										},
+										ui.Button{
+											TestID:   "tileset-delete-terrain",
+											Text:     "Delete",
+											Size:     ui.SizeSmall,
+											Variant:  ui.ButtonDanger,
+											Disabled: disabled,
+											OnPress: func() {
+												ed.report(ed.RemoveTilesetTerrain(sel))
+											},
 										},
 									},
+								},
+							},
+						}
+					}),
+				},
+			}},
+		}
+
+		// Middle column: atlas/image tile picker grid with collision, shape, animation, and terrain overlays.
+		tileGridCol := ui.ScrollView{
+			Style: core.Style{FlexGrow: 1},
+			Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = rev.Get()
+				curPal := ed.SpecPalette(cx)
+				if !ed.TilesetOpen() {
+					return nil
+				}
+				doc := ed.tileset.doc
+				selTile := ed.tileset.selectedTile
+				selTerrain := ed.tileset.selectedTerrain
+				_, td := terrainDocByName(doc, selTerrain)
+				count := min(doc.Count(), maxPaletteTiles)
+				items := make([]core.Node, 0, count)
+				for id := range count {
+					tileID := id
+					mask, assigned := tileDocMask(doc, tileID, selTerrain)
+					isDefault := td != nil && ((td.Default != nil && *td.Default == tileID) || (td.Default == nil && assigned && mask == 0))
+					tileMeta := findTileDoc(doc, tileID)
+					img, frame, hasVis := ed.tilesetTileVisual(tileID)
+					border := curPal.LineRaised
+					if tileID == selTile {
+						border = curPal.Accent.Fg
+					}
+					items = append(items, core.View{
+						TestID: fmt.Sprintf("tileset-tile-%d", tileID),
+						Label:  fmt.Sprintf("Tile %d", tileID),
+						Style: core.Style{
+							Padding:      core.All(2),
+							BorderWidth:  2,
+							BorderColor:  border,
+							CornerRadius: 4,
+							Background:   curPal.Raised,
+							FocusVisible: curPal.FocusRing(2),
+						},
+						OnPress: func(core.PressEvent) {
+							if !ed.Playing() {
+								ed.SetTilesetSelectedTile(tileID)
+							}
+						},
+						Children: []core.Node{
+							core.Canvas{
+								TestID: fmt.Sprintf("tileset-tile-thumb-%d", tileID),
+								Style: core.Style{
+									Width:      core.Pt(32),
+									Height:     core.Pt(32),
+									Background: curPal.Bg,
+								},
+								Draw: func(d *core.Drawing, size core.Size) {
+									drawPal := ed.SpecPalette(cx)
+									w, h := float32(size.Width), float32(size.Height)
+									if hasVis {
+										drawPaletteTile(d, PaletteTile{Image: img, Frame: frame}, w, h)
+									}
+									if tileMeta != nil {
+										if tileMeta.Solid {
+											d.SetStrokeColor(drawPal.Accent.Fg).SetLineWidth(1.5).BeginPath().Rect(1, 1, w-2, h-2).Stroke()
+										} else if tileMeta.OneWay {
+											d.SetFillColor(drawPal.Changed.Fg).FillRect(0, 0, w, 3)
+										}
+										if len(tileMeta.Shapes) > 0 {
+											drawTileShapesOverlay(d, drawPal, doc.TileWidth, doc.TileHeight, w, h, tileMeta.Shapes, -1, nil)
+										}
+										if len(tileMeta.Animation) > 0 {
+											d.SetFillColor(drawPal.Agent.Fg).FillRect(1, h-6, 5, 5)
+										}
+									}
+									if assigned {
+										drawTileMaskDots(d, drawPal, w, h, mask)
+									}
+									if isDefault {
+										d.SetFillColor(drawPal.Warning.Fg).FillRect(w-7, 1, 6, 6)
+									}
 								},
 							},
 							core.Text{
-								TestID:  "tileset-default-info",
-								Content: defText,
-								Style:   core.Style{FontSize: 11, Color: specTextMuted},
-							},
-							ui.HStack{
-								Gap: 4,
-								Children: []core.Node{
-									ui.Button{
-										TestID:   "tileset-set-default",
-										Text:     "Set Default",
-										Size:     ui.SizeSmall,
-										Variant:  ui.ButtonSecondary,
-										Disabled: disabled,
-										OnPress: func() {
-											id := ed.TilesetSelectedTile()
-											if id >= 0 {
-												ed.report(ed.SetTilesetTerrainDefault(sel, &id))
-											}
-										},
-									},
-									ui.Button{
-										TestID:  "tileset-clear-default",
-										Text:    "Clear",
-										Size:    ui.SizeSmall,
-										Variant: ui.ButtonGhost,
-										Disabled: func() bool {
-											return disabled() || td.Default == nil
-										},
-										OnPress: func() {
-											ed.report(ed.SetTilesetTerrainDefault(sel, nil))
-										},
-									},
-									ui.Button{
-										TestID:   "tileset-delete-terrain",
-										Text:     "Delete",
-										Size:     ui.SizeSmall,
-										Variant:  ui.ButtonDanger,
-										Disabled: disabled,
-										OnPress: func() {
-											ed.report(ed.RemoveTilesetTerrain(sel))
-										},
-									},
-								},
+								Content: fmt.Sprintf("%d", tileID),
+								Style:   core.Style{FontSize: 10, Color: curPal.TextFaint},
 							},
 						},
-					}
-				}),
-			},
-		}},
-	}
-
-	// Middle column: atlas/image tile picker grid with collision, shape, animation, and terrain overlays.
-	tileGridCol := ui.ScrollView{
-		Style: core.Style{FlexGrow: 1},
-		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			_ = rev.Get()
-			if !ed.TilesetOpen() {
-				return nil
-			}
-			doc := ed.tileset.doc
-			selTile := ed.tileset.selectedTile
-			selTerrain := ed.tileset.selectedTerrain
-			_, td := terrainDocByName(doc, selTerrain)
-			count := min(doc.Count(), maxPaletteTiles)
-			items := make([]core.Node, 0, count)
-			for id := range count {
-				tileID := id
-				mask, assigned := tileDocMask(doc, tileID, selTerrain)
-				isDefault := td != nil && ((td.Default != nil && *td.Default == tileID) || (td.Default == nil && assigned && mask == 0))
-				tileMeta := findTileDoc(doc, tileID)
-				img, frame, hasVis := ed.tilesetTileVisual(tileID)
-				border := specLineRaised
-				if tileID == selTile {
-					border = specAccent
+					})
 				}
-				items = append(items, core.View{
-					TestID: fmt.Sprintf("tileset-tile-%d", tileID),
-					Label:  fmt.Sprintf("Tile %d", tileID),
-					Style: core.Style{
-						Padding:      core.All(2),
-						BorderWidth:  2,
-						BorderColor:  border,
-						CornerRadius: 4,
-						Background:   specRaised,
-						FocusVisible: specFocusRingStyle,
+				return core.View{
+					TestID:   "tileset-tile-grid",
+					Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
+					Children: items,
+				}
+			})},
+		}
+
+		// Right column: tabbed inspector for the selected tile (Terrain, Collision, Animation, Data).
+		rightCol := ui.ScrollView{
+			Style: core.Style{Width: core.Pt(328)},
+			Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = rev.Get()
+				curPal := ed.SpecPalette(cx)
+				if !ed.TilesetOpen() {
+					return nil
+				}
+				switch ed.TilesetTab() {
+				case TilesetTabCollision:
+					return tilesetCollisionTab(cx, ed, curPal, disabled, flagsDraft)
+				case TilesetTabAnimation:
+					return tilesetAnimationTab(ed, curPal, disabled, tileAnimRev, animTileDraft, animDurDraft)
+				case TilesetTabData:
+					return tilesetDataTab(ed, curPal, disabled, nameDraft, weightDraft, propKeyDraft, propTypeDraft, propValDraft)
+				default:
+					return tilesetTerrainMaskTab(cx, ed, curPal, disabled)
+				}
+			})},
+		}
+
+		return core.View{
+			TestID: "tileset-editor-panel",
+			Style: dockedStyle(cx, core.Style{
+				Height:      core.Pt(270),
+				Padding:     core.Symmetric(8, 12),
+				Gap:         8,
+				Background:  p.Panel,
+				Borders:     core.Edges{Top: 1},
+				BorderColor: p.Line,
+			}),
+			Children: []core.Node{
+				header,
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						return ed.TilesetError() != nil
 					},
-					OnPress: func(core.PressEvent) {
-						if !ed.Playing() {
-							ed.SetTilesetSelectedTile(tileID)
+					Then: func(cx *core.Scope) core.Node {
+						curPal := ed.SpecPalette(cx)
+						return core.Text{
+							TestID: "tileset-editor-error",
+							ContentFunc: func() string {
+								_ = rev.Get()
+								if err := ed.TilesetError(); err != nil {
+									return err.Error()
+								}
+								return ""
+							},
+							Style: core.Style{FontSize: 11, Color: curPal.Removed.Fg},
 						}
 					},
-					Children: []core.Node{
-						core.Canvas{
-							TestID: fmt.Sprintf("tileset-tile-thumb-%d", tileID),
-							Style: core.Style{
-								Width:      core.Pt(32),
-								Height:     core.Pt(32),
-								Background: specBg,
-							},
-							Draw: func(d *core.Drawing, size core.Size) {
-								w, h := float32(size.Width), float32(size.Height)
-								if hasVis {
-									drawPaletteTile(d, PaletteTile{Image: img, Frame: frame}, w, h)
-								}
-								if tileMeta != nil {
-									if tileMeta.Solid {
-										d.SetStrokeColor(specAccent).SetLineWidth(1.5).BeginPath().Rect(1, 1, w-2, h-2).Stroke()
-									} else if tileMeta.OneWay {
-										d.SetFillColor(specChanged).FillRect(0, 0, w, 3)
-									}
-									if len(tileMeta.Shapes) > 0 {
-										drawTileShapesOverlay(d, doc.TileWidth, doc.TileHeight, w, h, tileMeta.Shapes, -1, nil)
-									}
-									if len(tileMeta.Animation) > 0 {
-										d.SetFillColor(specAgent).FillRect(1, h-6, 5, 5)
-									}
-								}
-								if assigned {
-									drawTileMaskDots(d, w, h, mask)
-								}
-								if isDefault {
-									d.SetFillColor(specWarning).FillRect(w-7, 1, 6, 6)
-								}
-							},
-						},
-						core.Text{
-							Content: fmt.Sprintf("%d", tileID),
-							Style:   core.Style{FontSize: 10, Color: specTextMuted},
-						},
+				},
+				core.View{
+					Style: core.Style{
+						Direction: core.Row,
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+						Gap:       12,
 					},
-				})
-			}
-			return core.View{
-				TestID:   "tileset-tile-grid",
-				Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
-				Children: items,
-			}
-		})},
-	}
-
-	// Right column: tabbed inspector for the selected tile (Terrain, Collision, Animation, Data).
-	rightCol := ui.ScrollView{
-		Style: core.Style{Width: core.Pt(328)},
-		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			_ = rev.Get()
-			if !ed.TilesetOpen() {
-				return nil
-			}
-			switch ed.TilesetTab() {
-			case TilesetTabCollision:
-				return tilesetCollisionTab(ed, disabled, flagsDraft)
-			case TilesetTabAnimation:
-				return tilesetAnimationTab(ed, disabled, tileAnimRev, animTileDraft, animDurDraft)
-			case TilesetTabData:
-				return tilesetDataTab(ed, disabled, nameDraft, weightDraft, propKeyDraft, propTypeDraft, propValDraft)
-			default:
-				return tilesetTerrainMaskTab(ed, disabled)
-			}
-		})},
-	}
-
-	return core.View{
-		TestID: "tileset-editor-panel",
-		Style: dockedStyle(cx, core.Style{
-			Height:      core.Pt(270),
-			Padding:     core.Symmetric(8, 12),
-			Gap:         8,
-			Background:  specPanel,
-			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
-		}),
-		Children: []core.Node{
-			header,
-			core.Show{
-				When: func() bool {
-					_ = rev.Get()
-					return ed.TilesetError() != nil
-				},
-				Then: func(cx *core.Scope) core.Node {
-					return core.Text{
-						TestID: "tileset-editor-error",
-						ContentFunc: func() string {
-							_ = rev.Get()
-							if err := ed.TilesetError(); err != nil {
-								return err.Error()
-							}
-							return ""
-						},
-						Style: core.Style{FontSize: 11, Color: specProblem},
-					}
+					Children: []core.Node{terrainCol, tileGridCol, rightCol},
 				},
 			},
-			core.View{
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					Gap:       12,
-				},
-				Children: []core.Node{terrainCol, tileGridCol, rightCol},
-			},
-		},
-	}
+		}
+	})
 }
 
-func tilesetTerrainMaskTab(ed *Editor, disabled func() bool) core.Node {
+func tilesetTerrainMaskTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled func() bool) core.Node {
 	st := ed.tileset
 	selTile := st.selectedTile
 	selTerrain := st.selectedTerrain
@@ -537,7 +547,7 @@ func tilesetTerrainMaskTab(ed *Editor, disabled func() bool) core.Node {
 			Children: []core.Node{
 				core.Text{
 					Content: "Add or select a terrain to edit tile edges and corners.",
-					Style:   core.Style{FontSize: 11, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 				},
 			},
 		}
@@ -595,7 +605,7 @@ func tilesetTerrainMaskTab(ed *Editor, disabled func() bool) core.Node {
 					Style: core.Style{
 						Width:      core.Pt(32),
 						Height:     core.Pt(32),
-						Background: specBg,
+						Background: p.Bg,
 					},
 					Draw: func(d *core.Drawing, size core.Size) {
 						w, h := float32(size.Width), float32(size.Height)
@@ -603,7 +613,7 @@ func tilesetTerrainMaskTab(ed *Editor, disabled func() bool) core.Node {
 							drawPaletteTile(d, PaletteTile{Image: img, Frame: frame}, w, h)
 						}
 						if assigned || conflict >= 0 {
-							drawTileMaskDots(d, w, h, mask)
+							drawTileMaskDots(d, ed.SpecPalette(cx), w, h, mask)
 						}
 					},
 				},
@@ -613,12 +623,12 @@ func tilesetTerrainMaskTab(ed *Editor, disabled func() bool) core.Node {
 						core.Text{
 							TestID:  "tileset-mask-title",
 							Content: fmt.Sprintf("Tile %d — %s", selTile, selTerrain),
-							Style:   core.Style{FontSize: 12, FontWeight: 600, Color: specTextStrong},
+							Style:   core.Style{FontSize: 12, FontWeight: 600, Color: p.TextPrimary},
 						},
 						core.Text{
 							TestID:  "tileset-mask-summary",
 							Content: summary,
-							Style:   core.Style{FontSize: 11, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 						},
 					},
 				},
@@ -662,7 +672,7 @@ func tilesetTerrainMaskTab(ed *Editor, disabled func() bool) core.Node {
 				core.Text{
 					TestID:  "tileset-mask-conflict",
 					Content: fmt.Sprintf("Owned by tile %d", conflict),
-					Style:   core.Style{FontSize: 11, Color: specProblem, FlexGrow: 1},
+					Style:   core.Style{FontSize: 11, Color: p.Removed.Fg, FlexGrow: 1},
 				},
 				ui.Button{
 					TestID:   "tileset-mask-reassign",
@@ -694,7 +704,7 @@ func tilesetTerrainMaskTab(ed *Editor, disabled func() bool) core.Node {
 	return core.View{TestID: "tileset-mask-editor", Style: core.Style{Gap: 6}, Children: children}
 }
 
-func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Signal[string]) core.Node {
+func tilesetCollisionTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled func() bool, flagsDraft *core.Signal[string]) core.Node {
 	st := ed.tileset
 	doc := st.doc
 	selTile := st.selectedTile
@@ -751,9 +761,9 @@ func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Sign
 			Width:        core.Pt(core.Points(canvasSize)),
 			Height:       core.Pt(core.Points(canvasSize)),
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  p.LineRaised,
 			CornerRadius: 4,
-			Background:   specBg,
+			Background:   p.Bg,
 		},
 		OnPress: func(ev core.PressEvent) {
 			if ed.Playing() {
@@ -785,14 +795,15 @@ func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Sign
 				TestID: "tileset-shape-canvas-draw",
 				Style:  core.Style{Width: core.Pt(core.Points(canvasSize)), Height: core.Pt(core.Points(canvasSize))},
 				Draw: func(d *core.Drawing, size core.Size) {
+					drawPal := ed.SpecPalette(cx)
 					w, h := float32(size.Width), float32(size.Height)
 					if hasVis {
 						drawPaletteTile(d, PaletteTile{Image: img, Frame: frame}, w, h)
 					}
 					// Subtle midpoint crosshair guides.
-					d.SetStrokeColor(specLineRaised).SetLineWidth(1)
+					d.SetStrokeColor(drawPal.LineRaised).SetLineWidth(1)
 					d.BeginPath().MoveTo(w/2, 0).LineTo(w/2, h).MoveTo(0, h/2).LineTo(w, h/2).Stroke()
-					drawTileShapesOverlay(d, doc.TileWidth, doc.TileHeight, w, h, info.Shapes, selShape, draftPoly)
+					drawTileShapesOverlay(d, drawPal, doc.TileWidth, doc.TileHeight, w, h, info.Shapes, selShape, draftPoly)
 				},
 			},
 		},
@@ -866,7 +877,7 @@ func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Sign
 				core.Text{
 					TestID:  "tileset-shape-draft-count",
 					Content: fmt.Sprintf("%d pts", len(draftPoly)),
-					Style:   core.Style{FontSize: 11, Color: specChanged},
+					Style:   core.Style{FontSize: 11, Color: p.Changed.Fg},
 				},
 				ui.Button{
 					TestID:  "tileset-shape-finish-poly",
@@ -901,9 +912,9 @@ func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Sign
 		} else {
 			desc = fmt.Sprintf("%s (%d pts)", s.Kind, len(s.Points))
 		}
-		rowBg := specRaised
+		rowBg := p.Raised
 		if idx == selShape {
-			rowBg = specAccentTint
+			rowBg = specAlpha(p.Accent.Fg, 0.18)
 		}
 		shapeRows = append(shapeRows, core.View{
 			TestID: fmt.Sprintf("tileset-shape-row-%d", idx),
@@ -921,7 +932,7 @@ func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Sign
 			Children: []core.Node{
 				core.Text{
 					Content: desc,
-					Style:   core.Style{FontSize: 11, Color: specText, FlexGrow: 1},
+					Style:   core.Style{FontSize: 11, Color: p.TextSecondary, FlexGrow: 1},
 				},
 				ui.Button{
 					TestID:   fmt.Sprintf("tileset-shape-remove-%d", idx),
@@ -941,7 +952,7 @@ func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Sign
 	children := []core.Node{
 		core.Text{
 			Content: "COLLISION",
-			Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 		},
 		ui.HStack{
 			Gap: 4,
@@ -991,7 +1002,7 @@ func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Sign
 	}
 }
 
-func tilesetAnimationTab(ed *Editor, disabled func() bool, tileAnimRev *core.Signal[uint64], tileDraft, durDraft *core.Signal[string]) core.Node {
+func tilesetAnimationTab(ed *Editor, p SpecPalette, disabled func() bool, tileAnimRev *core.Signal[uint64], tileDraft, durDraft *core.Signal[string]) core.Node {
 	selTile := ed.TilesetSelectedTile()
 	info, _ := ed.TilesetTileInfo(selTile)
 	playing := ed.TilesetAnimPlaying()
@@ -1012,12 +1023,12 @@ func tilesetAnimationTab(ed *Editor, disabled func() bool, tileAnimRev *core.Sig
 				Gap:          6,
 				Padding:      core.Symmetric(2, 6),
 				CornerRadius: 4,
-				Background:   specRaised,
+				Background:   p.Raised,
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: fmt.Sprintf("#%d  tile %d  %s", idx, f.Tile, f.Duration),
-					Style:   core.Style{FontSize: 11, Color: specText, FlexGrow: 1},
+					Style:   core.Style{FontSize: 11, Color: p.TextSecondary, FlexGrow: 1},
 				},
 				ui.Button{
 					TestID:   fmt.Sprintf("tileset-anim-remove-%d", idx),
@@ -1037,7 +1048,7 @@ func tilesetAnimationTab(ed *Editor, disabled func() bool, tileAnimRev *core.Sig
 	children := []core.Node{
 		core.Text{
 			Content: "ANIMATION",
-			Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 		},
 		ui.HStack{
 			Gap: 8,
@@ -1047,9 +1058,9 @@ func tilesetAnimationTab(ed *Editor, disabled func() bool, tileAnimRev *core.Sig
 					Style: core.Style{
 						Width:        core.Pt(52),
 						Height:       core.Pt(52),
-						Background:   specBg,
+						Background:   p.Bg,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  p.LineRaised,
 						CornerRadius: 4,
 					},
 					Draw: func(d *core.Drawing, size core.Size) {
@@ -1069,7 +1080,7 @@ func tilesetAnimationTab(ed *Editor, disabled func() bool, tileAnimRev *core.Sig
 								_ = tileAnimRev.Get()
 								return fmt.Sprintf("Showing tile %d (%d frames)", ed.TilesetAnimPreviewTile(), len(info.Animation))
 							},
-							Style: core.Style{FontSize: 11, Color: specTextSecondary},
+							Style: core.Style{FontSize: 11, Color: p.TextMuted},
 						},
 						ui.Button{
 							TestID:   "tileset-anim-play-toggle",
@@ -1139,7 +1150,7 @@ func tilesetAnimationTab(ed *Editor, disabled func() bool, tileAnimRev *core.Sig
 		children = append(children, core.Text{
 			TestID:  "tileset-anim-empty",
 			Content: "Static tile. Add frames to animate.",
-			Style:   core.Style{FontSize: 11, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 		})
 	}
 
@@ -1150,7 +1161,7 @@ func tilesetAnimationTab(ed *Editor, disabled func() bool, tileAnimRev *core.Sig
 	}
 }
 
-func tilesetDataTab(ed *Editor, disabled func() bool, nameDraft, weightDraft, keyDraft, typeDraft, valDraft *core.Signal[string]) core.Node {
+func tilesetDataTab(ed *Editor, p SpecPalette, disabled func() bool, nameDraft, weightDraft, keyDraft, typeDraft, valDraft *core.Signal[string]) core.Node {
 	selTile := ed.TilesetSelectedTile()
 	info, _ := ed.TilesetTileInfo(selTile)
 
@@ -1189,12 +1200,12 @@ func tilesetDataTab(ed *Editor, disabled func() bool, nameDraft, weightDraft, ke
 				Gap:          6,
 				Padding:      core.Symmetric(2, 6),
 				CornerRadius: 4,
-				Background:   specRaised,
+				Background:   p.Raised,
 			},
 			Children: []core.Node{
 				core.Text{
 					Content: fmt.Sprintf("%s (%s) = %v", key, kind, v),
-					Style:   core.Style{FontSize: 11, Color: specText, FlexGrow: 1},
+					Style:   core.Style{FontSize: 11, Color: p.TextSecondary, FlexGrow: 1},
 				},
 				ui.Button{
 					TestID:   "tileset-prop-delete-" + key,
@@ -1214,7 +1225,7 @@ func tilesetDataTab(ed *Editor, disabled func() bool, nameDraft, weightDraft, ke
 	children := []core.Node{
 		core.Text{
 			Content: "TILE DATA",
-			Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 		},
 		ui.HStack{
 			Gap: 4,
@@ -1324,7 +1335,7 @@ func tilesetDataTab(ed *Editor, disabled func() bool, nameDraft, weightDraft, ke
 		children = append(children, core.Text{
 			TestID:  "tileset-prop-empty",
 			Content: "No custom properties.",
-			Style:   core.Style{FontSize: 11, Color: specTextMuted},
+			Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 		})
 	}
 
@@ -1398,6 +1409,7 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rev.Get()
+		p := ed.SpecPalette(cx)
 		tsPath, tileID, ok := ed.inspectedTilesetTile()
 		if !ok {
 			return nil
@@ -1484,11 +1496,11 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					JustifyContent: core.JustifySpaceBetween,
 					Padding:        core.Symmetric(6, 10),
 					Borders:        borders,
-					BorderColor:    specLine,
+					BorderColor:    p.Line,
 				},
 				Children: []core.Node{
-					core.Text{Content: k, Style: core.Style{FontSize: 12, Color: specTextSecondary}},
-					core.Text{Content: v, Style: core.Style{FontSize: 11.5, Color: specText}},
+					core.Text{Content: k, Style: core.Style{FontSize: 12, Color: p.TextMuted}},
+					core.Text{Content: v, Style: core.Style{FontSize: 11.5, Color: p.TextSecondary}},
 				},
 			}
 		}
@@ -1506,9 +1518,9 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								Width:        core.Pt(36),
 								Height:       core.Pt(36),
 								CornerRadius: 6,
-								Background:   specBg,
+								Background:   p.Bg,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
+								BorderColor:  p.LineRaised,
 							},
 							Draw: func(d *core.Drawing, size core.Size) {
 								if hasSwatch {
@@ -1522,12 +1534,12 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								core.Text{
 									TestID:  "tile-inspector-name",
 									Content: tileName,
-									Style:   core.Style{FontSize: 13, FontWeight: 600, Color: specTextStrong},
+									Style:   core.Style{FontSize: 13, FontWeight: 600, Color: p.TextPrimary},
 								},
 								core.Text{
 									TestID:  "tile-inspector-source",
 									Content: tileSource,
-									Style:   core.Style{FontSize: 11, Color: specTextMuted},
+									Style:   core.Style{FontSize: 11, Color: p.TextFaint},
 								},
 							},
 						},
@@ -1538,7 +1550,7 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Children: []core.Node{
 						core.Text{
 							Content: "COLLISION",
-							Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 						},
 						core.View{
 							TestID: "tile-inspector-collision-group",
@@ -1547,9 +1559,9 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								Gap:          4,
 								Padding:      core.All(3),
 								CornerRadius: 8,
-								Background:   specRaised,
+								Background:   p.Raised,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
+								BorderColor:  p.LineRaised,
 							},
 							Children: []core.Node{
 								collSeg("tile-inspector-coll-solid", "Solid", "solid"),
@@ -1564,15 +1576,15 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Children: []core.Node{
 						core.Text{
 							Content: "RULES",
-							Style:   core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted},
+							Style:   core.Style{FontSize: 11, FontWeight: 600, Color: p.TextFaint},
 						},
 						core.View{
 							TestID: "tile-inspector-rules",
 							Style: core.Style{
 								CornerRadius: 10,
-								Background:   specRaised,
+								Background:   p.Raised,
 								BorderWidth:  1,
-								BorderColor:  specLineRaised,
+								BorderColor:  p.LineRaised,
 							},
 							Children: []core.Node{
 								ruleRow("Terrain set", terrainText, false),
@@ -1583,7 +1595,7 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						ui.HStack{
 							Gap: 6,
 							Children: []core.Node{
-								core.Text{Content: "Weight", Style: core.Style{FontSize: 11, Color: specTextSecondary}},
+								core.Text{Content: "Weight", Style: core.Style{FontSize: 11, Color: p.TextMuted}},
 								core.View{
 									Style: core.Style{FlexGrow: 1},
 									Children: []core.Node{ui.Input{
@@ -1620,7 +1632,7 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				core.Text{
 					TestID:  "tile-inspector-note",
 					Content: "The agent inferred these rules when it sliced the tileset. Change one here, or ask it to change a whole set.",
-					Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
+					Style:   core.Style{FontSize: 11.5, Color: p.TextFaint},
 				},
 				ui.Button{
 					TestID:   "tile-inspector-open-editor",
@@ -1643,7 +1655,7 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 }
 
 // drawTileShapesOverlay draws a tile's collision shapes (rect, ellipse, polygon, polyline) and any in-progress draft polygon over a tile canvas.
-func drawTileShapesOverlay(d *core.Drawing, tileW, tileH int, canvasW, canvasH float32, shapes []tilemap.TileShapeDoc, selectedIdx int, draftPoly [][2]float32) {
+func drawTileShapesOverlay(d *core.Drawing, p SpecPalette, tileW, tileH int, canvasW, canvasH float32, shapes []tilemap.TileShapeDoc, selectedIdx int, draftPoly [][2]float32) {
 	if tileW <= 0 || tileH <= 0 || canvasW <= 0 || canvasH <= 0 {
 		return
 	}
@@ -1651,11 +1663,11 @@ func drawTileShapesOverlay(d *core.Drawing, tileW, tileH int, canvasW, canvasH f
 	sy := canvasH / float32(tileH)
 
 	for i, s := range shapes {
-		stroke := specAdded
-		fill := specAddedFill
+		stroke := p.Added.Fg
+		fill := specAlpha(p.Added.Fg, 0.12)
 		if i == selectedIdx {
-			stroke = specAccent
-			fill = specAccentTint
+			stroke = p.Accent.Fg
+			fill = specAlpha(p.Accent.Fg, 0.18)
 		}
 		d.SetFillColor(fill).SetStrokeColor(stroke).SetLineWidth(1.5)
 		switch s.Kind {
@@ -1683,7 +1695,7 @@ func drawTileShapesOverlay(d *core.Drawing, tileW, tileH int, canvasW, canvasH f
 	}
 
 	if len(draftPoly) > 0 {
-		d.SetStrokeColor(specChanged).SetFillColor(specChanged).SetLineWidth(1.5)
+		d.SetStrokeColor(p.Changed.Fg).SetFillColor(p.Changed.Fg).SetLineWidth(1.5)
 		if len(draftPoly) >= 2 {
 			d.BeginPath().MoveTo(draftPoly[0][0]*sx, draftPoly[0][1]*sy)
 			for _, pt := range draftPoly[1:] {
@@ -1698,13 +1710,13 @@ func drawTileShapesOverlay(d *core.Drawing, tileW, tileH int, canvasW, canvasH f
 }
 
 // drawTileMaskDots draws small Spec-token indicators on the center and every active edge and corner of a tile thumbnail.
-func drawTileMaskDots(d *core.Drawing, w, h float32, mask uint8) {
+func drawTileMaskDots(d *core.Drawing, p SpecPalette, w, h float32, mask uint8) {
 	if w <= 0 || h <= 0 {
 		return
 	}
 	const s float32 = 4
 	cx, cy := (w-s)/2, (h-s)/2
-	d.SetFillColor(specAdded)
+	d.SetFillColor(p.Added.Fg)
 	d.FillRect(cx, cy, s, s)
 	if mask&tilemap.MaskNorth != 0 {
 		d.FillRect(cx, 1, s, s)
