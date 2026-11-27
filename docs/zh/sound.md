@@ -71,6 +71,18 @@ if hit != nil {
 }
 ```
 
+## 总线效果链
+
+`mixer.SetGroupEffects(group, ...)` 为分组配置一条按顺序执行的 DSP 总线效果链——`sound.LowPass`、`sound.HighPass`、`sound.Delay`、`sound.Reverb`、`sound.Gain` 和 `sound.Bitcrush`，`mixer.GroupEffects(group)` 可读回该链。项目 `game.yaml` 中 `audio.buses` 的 `effects` 通过 [`project.File.ConfigureMixer`](project.md) 安装同样的效果链。
+
+效果链在音频源到达播放器之前、仍在内存中时生效：
+
+- `Music.Play(src, fade)`（以及 `PlaySections` / `PlayWithIntro`）在 src 持有内存中的 16-bit PCM WAV 数据时，先经音乐所属分组的效果链处理再播放处理结果。
+- `mixer.LoadEffect(src, group, limit, done)` 以同样方式先处理再加载，然后像 `mixer.Effect` 一样包装成音效。
+- `mixer.ProcessSource(group, src)` 单独暴露同一处理过程；编辑器的总线试听即使用它。
+
+其他来源——URI，或内存中的 MP3、AAC、Ogg 及非 PCM 的 WAV 数据——无法以这种方式处理，会不加效果播放，并按分组输出一条日志说明该来源跳过了效果。对已解码的 `*audio.Sound` 调用 `mixer.Effect(s, group, limit)` 同样不加效果：效果链在加载时应用，要听到效果请改用 `LoadEffect` 加载。在加载时处理整个缓冲区只是过渡方案；覆盖所有格式、作用于每个播放中声音的实时效果链计划在后续版本提供。
+
 ## 2D 定位音效
 
 `Listener2D` 从 2D 摄像机所在的位置收听摆放在世界中的音效：摄像机左边的音效偏向左声道播放，右边的偏向右声道，离得越远声音越小。
@@ -139,6 +151,7 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 - `Loop`：设为 `true` 后，之后通过 `Play` 启动的音轨都会在播完时循环。
 - `Play(src, fade)`：立即以静音状态开始播放新音轨，按显示帧（`core.Scope.Animate`）在 `fade` 时长内把它淡入、同时把正在播放的音轨淡出，旧音轨静音后立即关闭。`fade <= 0` 时立即切换。在一次交叉淡化尚未完成时再次调用 `Play`，正在淡入的音轨也会从当前音量平滑淡出。
 - `Stop(fade)`：在 `fade` 时长内淡出并关闭所有音乐播放器（`fade <= 0` 时立即停止）。
+- 持有内存中 16-bit PCM WAV 数据的 `src` 会先经过所属分组的[总线效果链](#总线效果链)处理再播放；其他来源原样播放。
 
 在 Web 平台上，浏览器有自动播放策略，在首次用户交互前会拒绝播放（`audio.NotAllowed`）；请在按钮点击或玩家首次操作时启动音乐。
 

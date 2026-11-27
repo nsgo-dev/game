@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"time"
 
@@ -162,6 +163,7 @@ func floatToPCM16(x float64) int16 {
 
 // SetGroupEffects configures the DSP bus effect chain for group, replacing any previous chain. Passing no effects clears group's chain.
 func (m *Mixer) SetGroupEffects(group string, effects ...BusEffect) {
+	delete(m.dryLogged, group)
 	if len(effects) == 0 {
 		delete(m.effects, group)
 		return
@@ -199,6 +201,25 @@ func (m *Mixer) ProcessSource(group string, src audio.Source) (audio.Source, err
 		return audio.Source{}, err
 	}
 	return audio.Source{Data: processed}, nil
+}
+
+// process applies group's configured bus chain to src as ProcessSource does. A source the chain cannot run on — one without in-memory 16-bit PCM WAV data — is returned unchanged, with one log line per group saying its effects are skipped for it, so a game that ships compressed audio hears it dry rather than in silence or not at all.
+func (m *Mixer) process(group string, src audio.Source) audio.Source {
+	if len(m.effects[group]) == 0 || sourceEmpty(src) {
+		return src
+	}
+	processed, err := m.ProcessSource(group, src)
+	if err == nil {
+		return processed
+	}
+	if !m.dryLogged[group] {
+		if m.dryLogged == nil {
+			m.dryLogged = map[string]bool{}
+		}
+		m.dryLogged[group] = true
+		log.Printf("game/sound: group %q has effects, which apply only to in-memory 16-bit PCM WAV sources; playing this source without them (%v)", group, err)
+	}
+	return src
 }
 
 type biquadKind int

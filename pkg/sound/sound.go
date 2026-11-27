@@ -31,6 +31,8 @@ type Mixer struct {
 	music  []*Music
 	// effects are the bus DSP chains set per group.
 	effects map[string]EffectChain
+	// dryLogged are the groups whose chain was already reported skipped for a source it cannot process; SetGroupEffects resets a group's entry.
+	dryLogged map[string]bool
 	// defaults are the volumes, by storage key, that SetDefaultMaster and SetDefaultVolume give keys the storage keeps none for.
 	defaults map[string]float32
 	// listener3D is the active 3D listener used by Effect.Play3D and Cue.Play3D; SetListener3D refreshes live Playback3D volumes.
@@ -220,8 +222,21 @@ func (p playback) effectiveVolume(groupGain float32) float32 {
 }
 
 // Effect returns s played through the mixer in group, at most limit at once (0 for no limit of its own). Close s as the app is done with it, as without the mixer.
+//
+// The group's bus effect chain (SetGroupEffects) does not apply here: s is already decoded, so it plays dry. Load a source through LoadEffect to play it with the chain applied.
 func (m *Mixer) Effect(s *audio.Sound, group string, limit int) *Effect {
 	return &Effect{Group: group, Limit: limit, m: m, sound: s}
+}
+
+// LoadEffect loads src as an effect played through the mixer in group, at most limit at once, as Effect does for a sound already loaded, applying group's bus effect chain (SetGroupEffects) first: a source holding in-memory 16-bit PCM WAV data is processed through the chain before loading, and any other source loads unchanged, with one log line per group saying its effects are skipped for it. done receives the effect or why it did not load, as audio.LoadSound's callback does.
+func (m *Mixer) LoadEffect(src audio.Source, group string, limit int, done func(*Effect, error)) {
+	audio.LoadSound(m.cx, m.process(group, src), func(s *audio.Sound, err error) {
+		if err != nil {
+			done(nil, err)
+			return
+		}
+		done(m.Effect(s, group, limit), nil)
+	})
 }
 
 // Play starts a playback of the sound at v's volume times its group's and the master volume, which follows those volumes as they change while it plays. It reports whether it asked for one: false while that volume is 0, as for a Muted voice, or while the app is in the background, suspended, or the effect's group is paused, and true otherwise, even where the backend's playback (audio.Playback) ends at once because it could not start. With Limit playbacks still playing it stops the oldest to make room, so the newest are heard; a playback that cannot start leaves them playing. A backend that cannot address playbacks plays it as it started, outside the limit and the volume changes.
@@ -323,7 +338,10 @@ func (m *Mixer) Music(group string) *Music {
 }
 
 // Play plays src, fading it in over fade as the tracks playing fade out, by the display's frames (core.Scope.Animate), and closing them as they reach silence; it switches at once when fade is 0. A track that fails, such as one the platform cannot decode, plays nothing.
+//
+// When the music's group has a bus effect chain (SetGroupEffects), a src holding in-memory 16-bit PCM WAV data is processed through the chain before playing, as ProcessSource does; any other source, such as an MP3 or AAC file or a URI, plays unchanged, with one log line per group saying its effects are skipped for it.
 func (mu *Music) Play(src audio.Source, fade time.Duration) {
+	src = mu.m.process(mu.Group, src)
 	var t *track
 	mu.m.cx.Run(func() {
 		t = &track{}

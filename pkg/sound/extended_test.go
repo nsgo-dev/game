@@ -3,6 +3,7 @@ package sound_test
 import (
 	"bytes"
 	"encoding/binary"
+	"log"
 	"math"
 	"testing"
 	"time"
@@ -555,4 +556,153 @@ func injectJunkChunk(wav []byte) []byte {
 	out = append(out, wav[12:]...)
 	binary.LittleEndian.PutUint32(out[4:8], uint32(len(out)-8))
 	return out
+}
+
+// wavTone returns tenths of a second of a freq Hz sine as a 16-bit PCM WAV buffer.
+func wavTone(t *testing.T, freq float64, tenths int) []byte {
+	t.Helper()
+	const sr = 44100
+	wav, err := sound.EncodeWAV(makeSine(freq, sr, sr*tenths/10), sr, 1)
+	if err != nil {
+		t.Fatalf("EncodeWAV: %v", err)
+	}
+	return wav
+}
+
+func TestMusicPlayAppliesBusChainToWAVSource(t *testing.T) {
+	rawWAV := wavTone(t, 6000, 1)
+	processed, err := sound.ProcessWAV(rawWAV, sound.LowPass(800, 1/math.Sqrt2))
+	if err != nil {
+		t.Fatalf("ProcessWAV: %v", err)
+	}
+	m := startMixed(t, func(a *nsgotest.App) {
+		a.AudioDurations[string(processed)] = 100 * time.Millisecond
+	})
+	m.mixer.SetGroupEffects("music", sound.LowPass(800, 1/math.Sqrt2))
+
+	m.music.Play(audio.Source{Data: rawWAV}, 0)
+	p := m.player(t, 0)
+	if bytes.Equal(p.Source.Data, rawWAV) {
+		t.Fatal("music player received the unprocessed WAV")
+	}
+	if !bytes.Equal(p.Source.Data, processed) {
+		t.Fatal("music player did not receive the WAV processed through the group's bus chain")
+	}
+	if !p.Playing {
+		t.Fatal("processed music did not play")
+	}
+
+	// PlaySections processes both sections through the chain too.
+	m.music.PlaySections(audio.Source{Data: rawWAV}, audio.Source{Data: rawWAV}, 0)
+	m.app.Settle()
+	for _, i := range []int{1, 2} {
+		if got := m.player(t, i).Source.Data; !bytes.Equal(got, processed) {
+			t.Fatalf("PlaySections player %d did not receive the bus-processed WAV", i)
+		}
+	}
+}
+
+func TestLoadEffectAppliesBusChainToWAVSource(t *testing.T) {
+	rawWAV := wavTone(t, 440, 1)
+	processed, err := sound.ProcessWAV(rawWAV, sound.Gain(0.5))
+	if err != nil {
+		t.Fatalf("ProcessWAV: %v", err)
+	}
+	m := startMixed(t, func(a *nsgotest.App) {
+		a.AudioDurations[string(processed)] = 100 * time.Millisecond
+	})
+	m.mixer.SetGroupEffects("sfx", sound.Gain(0.5))
+
+	var fx *sound.Effect
+	var loadErr error
+	m.mixer.LoadEffect(audio.Source{Data: rawWAV}, "sfx", 2, func(e *sound.Effect, err error) {
+		fx, loadErr = e, err
+	})
+	m.app.Settle()
+	if loadErr != nil || fx == nil {
+		t.Fatalf("LoadEffect: effect=%v err=%v", fx, loadErr)
+	}
+	loaded := m.app.Sounds[len(m.app.Sounds)-1]
+	if !bytes.Equal(loaded.Source.Data, processed) {
+		t.Fatal("LoadEffect did not load the WAV processed through the group's bus chain")
+	}
+	if !fx.Play(audio.Voice{}) {
+		t.Fatal("the loaded effect did not play")
+	}
+}
+
+func TestBusChainSkipsNonWAVSourcesWithOneDiagnosticPerGroup(t *testing.T) {
+	var logs bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(prev)
+
+	m := startMixed(t)
+	m.mixer.SetGroupEffects("music", sound.Gain(0.5))
+
+	// A URI source (a compressed file at run time) plays dry.
+	m.music.Play(audio.Source{URI: trackA}, 0)
+	p := m.player(t, 0)
+	if p.Source.URI != trackA || len(p.Source.Data) != 0 {
+		t.Fatalf("URI source was not passed through unchanged: %+v", p.Source)
+	}
+	if n := bytes.Count(logs.Bytes(), []byte(`group "music"`)); n != 1 {
+		t.Fatalf("diagnostics for group music = %d, want 1:\n%s", n, logs.String())
+	}
+
+	// In-memory data that is not 16-bit PCM WAV plays dry too, without logging again.
+	m.music.Play(audio.Source{Data: []byte("not a wav")}, 0)
+	p = m.player(t, 1)
+	if string(p.Source.Data) != "not a wav" {
+		t.Fatalf("non-WAV data was not passed through unchanged: %q", p.Source.Data)
+	}
+	if n := bytes.Count(logs.Bytes(), []byte(`group "music"`)); n != 1 {
+		t.Fatalf("diagnostics for group music = %d, want still 1:\n%s", n, logs.String())
+	}
+
+	// Re-setting the chain re-arms the diagnostic.
+	m.mixer.SetGroupEffects("music", sound.Gain(0.5))
+	m.music.Play(audio.Source{URI: trackB}, 0)
+	m.app.Settle()
+	if n := bytes.Count(logs.Bytes(), []byte(`group "music"`)); n != 2 {
+		t.Fatalf("diagnostics for group music after SetGroupEffects = %d, want 2:\n%s", n, logs.String())
+	}
+
+	// LoadEffect passes a source it cannot process to the loader unchanged, logging once for its group.
+	m.mixer.SetGroupEffects("sfx", sound.Gain(0.5))
+	var fx *sound.Effect
+	m.mixer.LoadEffect(audio.Source{URI: clickURI}, "sfx", 0, func(e *sound.Effect, err error) {
+		if err == nil {
+			fx = e
+		}
+	})
+	m.app.Settle()
+	if fx == nil {
+		t.Fatal("LoadEffect of a URI source on a bus with effects did not load it unchanged")
+	}
+	if got := m.app.Sounds[len(m.app.Sounds)-1]; got.Source.URI != clickURI {
+		t.Fatalf("LoadEffect loaded %+v, want the source unchanged", got.Source)
+	}
+	if n := bytes.Count(logs.Bytes(), []byte(`group "sfx"`)); n != 1 {
+		t.Fatalf("diagnostics for group sfx = %d, want 1:\n%s", n, logs.String())
+	}
+
+	// A group without effects logs nothing.
+	before := logs.Len()
+	dry := m.mixer.Music("dry")
+	dry.Play(audio.Source{URI: trackA}, 0)
+	m.app.Settle()
+	if logs.Len() != before {
+		t.Fatalf("a group without effects logged: %s", logs.String()[before:])
+	}
+
+	// Empty sections on a bus with effects log nothing either.
+	sec := m.mixer.Music("sec")
+	m.mixer.SetGroupEffects("sec", sound.Gain(0.5))
+	before = logs.Len()
+	sec.PlaySections(audio.Source{}, audio.Source{}, 0)
+	m.app.Settle()
+	if logs.Len() != before {
+		t.Fatalf("empty sections logged: %s", logs.String()[before:])
+	}
 }
