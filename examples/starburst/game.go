@@ -15,21 +15,24 @@ import (
 )
 
 // GameController connects the deterministic Arena simulation to NSGo's reactive view tree,
-// fixed-step game.Loop, and input.Actions bindings.
+// fixed-step game.Loop, input.Actions, and on-screen input.TouchControls.
 type GameController struct {
 	Arena   *Arena
 	Actions *input.Actions
-	Loop    *game.Loop
+	// Touch is the on-screen twin-stick and Nova overlay loaded from controls.touch.yaml.
+	Touch *input.TouchControls
+	Loop  *game.Loop
 	// Boards submits each finished run's score and opens the platform's leaderboard.
 	Boards *leaderboard.Service
 	// Quality picks the arena's preset from the device and the loop's frame times, or holds the player's choice.
 	Quality *quality.Selector
 
-	settings    *save.DefaultSettingsStore
-	frameSig    *core.Signal[uint64]
-	hudSig      *core.Signal[HUDState]
-	qualitySig  *core.Signal[string]
-	boardStatus *core.Signal[string]
+	settings     *save.DefaultSettingsStore
+	frameSig     *core.Signal[uint64]
+	hudSig       *core.Signal[HUDState]
+	qualitySig   *core.Signal[string]
+	boardStatus  *core.Signal[string]
+	touchVisible *core.Signal[bool]
 	// runID counts runs left after a game over, so a submission or sign-in answered after the next run started does not label that run.
 	runID uint64
 
@@ -51,9 +54,14 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 	arena := NewArena(seed)
 	actions := input.NewActions()
 
-	// Bind game.yaml's touch virtual pad regions and mouse buttons into input.Actions.
-	// Hardware gamepad bindings await nsgo#1049 and plug into Arena.Control alongside these.
+	// Bind game.yaml's mouse buttons and axes into input.Actions, and wire the twin-stick touch overlay into the same Actions.
 	gameProject.BindInput(actions)
+	touch, err := input.NewTouchControls(cx, touchLayout)
+	if err != nil {
+		panic(err) // controls.touch.yaml is validated by TestTouchLayoutIsCanonical.
+	}
+	touch.BindActions(actions)
+	touch.Haptics = input.NewHaptics(cx)
 
 	// The device places the starting preset: a low-end Android phone starts on low. A stored player setting other than auto holds its level instead.
 	sel, err := quality.NewSelector(quality.DefaultConfig(), quality.DeviceFromEnv(cx.Env()))
@@ -71,6 +79,7 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 	gc := &GameController{
 		Arena:        arena,
 		Actions:      actions,
+		Touch:        touch,
 		Quality:      sel,
 		settings:     settings,
 		frameSig:     core.NewSignal(cx, uint64(0)),
@@ -78,6 +87,7 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 		boardStatus:  core.NewSignal(cx, ""),
 		Boards:       newLeaderboards(cx),
 		qualitySig:   core.NewSignal(cx, qualityLabel(sel)),
+		touchVisible: core.NewSignal(cx, touch.Visible()),
 		viewSize:     core.Size{Width: core.Points(VirtualWidth), Height: core.Points(VirtualHeight)},
 		lastHUDState: initialHUD,
 	}
@@ -108,7 +118,7 @@ func NewGameView(cx *core.Scope, seed uint64) (*GameController, core.Node) {
 			}
 		},
 		Update: func(dt time.Duration) {
-			gc.stepInput(cx)
+			gc.stepInput(cx, dt)
 			gc.Arena.Step(dt)
 		},
 		Draw: func(float64) {
@@ -135,32 +145,45 @@ func (gc *GameController) bindKeys(cx *core.Scope) {
 	for _, key := range []string{"w", "a", "s", "d", "up", "down", "left", "right"} {
 		k := key
 		cx.OnKeyWith(k, moveOpts, func() {
+			gc.Touch.Tracker().OnKey(core.KeyEvent{Key: k})
 			gc.Arena.PressMoveKey(k)
 		})
 	}
 	actionOpts := core.KeyOptions{When: core.KeyAlways}
 	cx.OnKeyWith("space", actionOpts, func() {
+		gc.Touch.Tracker().OnKey(core.KeyEvent{Key: "space"})
 		gc.Arena.TriggerNova()
 	})
 	cx.OnKeyWith("p", actionOpts, func() {
+		gc.Touch.Tracker().OnKey(core.KeyEvent{Key: "p"})
 		gc.TogglePause()
 	})
 	cx.OnKeyWith("r", actionOpts, func() {
+		gc.Touch.Tracker().OnKey(core.KeyEvent{Key: "r"})
 		gc.Restart()
 	})
 	cx.OnKeyWith("t", actionOpts, func() {
+		gc.Touch.Tracker().OnKey(core.KeyEvent{Key: "t"})
 		gc.ToggleStress()
 	})
 }
 
-func (gc *GameController) stepInput(cx *core.Scope) {
+func (gc *GameController) stepInput(cx *core.Scope, dt time.Duration) {
 	gc.Actions.Step()
+	gc.Touch.Update(dt)
+
+	// TouchControls sticks report AxisY positive upward; negate Y for the Arena's screen-down coordinates.
+	aimX := float32(gc.Actions.Axis("aim_x"))
+	aimY := float32(-gc.Actions.Axis("aim_y"))
+	aimActive := aimX != 0 || aimY != 0
 
 	ctrl := ControlInput{
-		MoveX: float32(gc.Actions.Axis("move_x")),
-		MoveY: float32(gc.Actions.Axis("move_y")),
-		Fire:  gc.Actions.Pressed("fire"),
-		Nova:  gc.Actions.JustPressed("nova"),
+		MoveX:     float32(gc.Actions.Axis("move_x")),
+		MoveY:     float32(-gc.Actions.Axis("move_y")),
+		AimStickX: aimX,
+		AimStickY: aimY,
+		Fire:      gc.Actions.Pressed("fire") || aimActive,
+		Nova:      gc.Actions.JustPressed("nova"),
 	}
 
 	if gc.hasPointer {
@@ -177,10 +200,16 @@ func (gc *GameController) stepInput(cx *core.Scope) {
 
 func (gc *GameController) syncUI() {
 	gc.frameSig.Set(gc.frameSig.GetUntracked() + 1)
+	if vis := gc.Touch.Visible(); vis != gc.touchVisible.GetUntracked() {
+		gc.touchVisible.Set(vis)
+	}
 	next := gc.Arena.HUD()
 	if next != gc.lastHUDState {
-		if next.GameOver && !gc.lastHUDState.GameOver && !next.StressMode {
-			gc.submitScore(next.Score)
+		if next.GameOver && !gc.lastHUDState.GameOver {
+			gc.Actions.Reset()
+			if !next.StressMode {
+				gc.submitScore(next.Score)
+			}
 		}
 		if gc.lastHUDState.GameOver && !next.GameOver {
 			// A new run starts however the game-over screen is left (PLAY AGAIN, RESTART or the stress toggle), so the previous run's leaderboard result must not carry over.
@@ -236,6 +265,8 @@ func qualityLabel(s *quality.Selector) string {
 // TogglePause toggles pause and refreshes the HUD.
 func (gc *GameController) TogglePause() {
 	gc.Arena.TogglePaused()
+	gc.Actions.Reset()
+	gc.Touch.Wake()
 	gc.syncUI()
 }
 
@@ -243,6 +274,7 @@ func (gc *GameController) TogglePause() {
 func (gc *GameController) Restart() {
 	gc.Arena.Restart()
 	gc.Actions.Reset()
+	gc.Touch.Wake()
 	gc.syncUI()
 }
 
@@ -258,23 +290,25 @@ func (gc *GameController) buildView(cx *core.Scope) core.Node {
 	arenaView := core.View{
 		TestID: "arena-view",
 		Style:  full,
-		OnTouch: func(ev core.TouchEvent) {
-			if ev.Phase == core.TouchStart || ev.Phase == core.TouchMove {
-				gc.Arena.ShowTouchHints = true
+		OnLayout: func(b core.Bounds) {
+			if b.Size.Width > 0 && b.Size.Height > 0 {
+				gc.viewSize = b.Size
 			}
+		},
+		OnTouch: func(core.TouchEvent) {
+			// Clear mouse world aim on any touch so touch devices fall back to twin-stick or auto-aim instead of aiming at a stale touched point.
+			gc.hasPointer = false
 		},
 		OnMouseMove: func(ev core.MouseEvent) {
 			gc.pointerView = ev.Position
 			gc.hasPointer = true
 		},
+		OnMouseDown: func(ev core.MouseButtonEvent) {
+			gc.pointerView = ev.Position
+			gc.hasPointer = true
+		},
 		OnMouseLeave: func(core.MouseEvent) {
 			gc.hasPointer = false
-		},
-		OnPressDown: func(ev core.PressEvent) {
-			if !ev.Keyboard {
-				gc.pointerView = ev.Position
-				gc.hasPointer = true
-			}
 		},
 		Children: []core.Node{
 			core.Canvas{
@@ -286,11 +320,17 @@ func (gc *GameController) buildView(cx *core.Scope) core.Node {
 						gc.viewSize = size
 					}
 					gc.Arena.Draw(d, size)
+					gc.Touch.Resize(size, cx.Env().SafeArea())
+					if !gc.Arena.Paused && !gc.Arena.GameOver {
+						gc.Touch.Draw(d)
+					}
 				},
 			},
 		},
 	}
 	gc.Actions.Attach(&arenaView)
+	// After Actions.Attach so a touch shows the controls before Actions routes it.
+	gc.Touch.Attach(&arenaView)
 
 	return core.View{
 		TestID: "starburst-root",
@@ -600,25 +640,30 @@ func (gc *GameController) hudOverlay(cx *core.Scope, full core.Style) core.Node 
 				},
 			},
 
-			// Bottom compact control legend.
-			core.View{
-				PointerEvents: core.PointerEventsNone,
-				Style: core.Style{
-					AlignSelf:    core.AlignCenter,
-					Padding:      core.Edges{Top: 4, Right: 10, Bottom: 4, Left: 10},
-					Background:   core.RGBA(0x0B1221, 0.72),
-					CornerRadius: 6,
-				},
-				Children: []core.Node{
-					core.Text{
-						TestID:  "hud-controls",
-						Content: "WASD/Arrows: Move • Mouse/Auto-Aim: Fire • Space/Right-Click: Nova • T: Stress 1000 • P: Pause • R: Restart",
+			// Bottom compact control legend (hidden while on-screen touch controls are shown).
+			core.Show{
+				When: func() bool { return !gc.touchVisible.Get() },
+				Then: func(*core.Scope) core.Node {
+					return core.View{
+						PointerEvents: core.PointerEventsNone,
 						Style: core.Style{
-							FontFamily: core.FontMonospace,
-							FontSize:   10,
-							Color:      core.RGB(0x94A3B8),
+							AlignSelf:    core.AlignCenter,
+							Padding:      core.Edges{Top: 4, Right: 10, Bottom: 4, Left: 10},
+							Background:   core.RGBA(0x0B1221, 0.72),
+							CornerRadius: 6,
 						},
-					},
+						Children: []core.Node{
+							core.Text{
+								TestID:  "hud-controls",
+								Content: "WASD/Arrows: Move • Mouse/Auto-Aim: Fire • Space/Right-Click: Nova • T: Stress 1000 • P: Pause • R: Restart",
+								Style: core.Style{
+									FontFamily: core.FontMonospace,
+									FontSize:   10,
+									Color:      core.RGB(0x94A3B8),
+								},
+							},
+						},
+					}
 				},
 			},
 		},

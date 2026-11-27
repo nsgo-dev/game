@@ -61,16 +61,6 @@ const (
 	keyHoldDuration = 0.19
 )
 
-// Touch control regions in virtual coordinates, as game.yaml binds them into input.Actions.
-var (
-	touchMoveLeftRect  = projectRegion("move_left")
-	touchMoveRightRect = projectRegion("move_right")
-	touchMoveUpRect    = projectRegion("move_up")
-	touchMoveDownRect  = projectRegion("move_down")
-	touchFireRect      = projectRegion("fire")
-	touchNovaRect      = projectRegion("nova")
-)
-
 // EnemyKind identifies the visual frame and behavior of a hostile unit.
 type EnemyKind uint8
 
@@ -139,15 +129,13 @@ type starDot struct {
 
 // ControlInput holds normalized per-step movement, aim, and action state from any input device.
 //
-// Touch/mouse (`input.Actions`) and keyboard listeners populate this struct today.
-// Hardware gamepad bindings await nsgo#1049; when available, poll left/right sticks and triggers
-// directly into MoveX/MoveY, AimStickX/AimStickY, Fire, and Nova with no simulation changes.
+// Twin-stick touch controls (`input.TouchControls`), mouse (`input.Actions`), and keyboard listeners populate this struct.
 type ControlInput struct {
 	MoveX, MoveY float32
 	// AimWorldX/AimWorldY set an explicit world target (e.g. mouse cursor) when HasWorldAim is true.
 	AimWorldX, AimWorldY float32
 	HasWorldAim          bool
-	// AimStickX/AimStickY accept twin-stick directional aim (ready for gamepad bindings in nsgo#1049).
+	// AimStickX/AimStickY accept twin-stick directional aim (screen-down Y) from the on-screen aim stick or a controller.
 	AimStickX, AimStickY float32
 	Fire                 bool
 	Nova                 bool
@@ -245,9 +233,7 @@ type Arena struct {
 	keyRight float32
 	keyNova  bool
 
-	// Touch/aim indicators for subtle visual feedback.
-	ShowTouchHints bool
-	worldBounds    core.Bounds
+	worldBounds core.Bounds
 }
 
 // NewArena creates a deterministic Starburst arena with a procedural pixel-art atlas
@@ -747,7 +733,7 @@ func (a *Arena) stepPlayer(dtSec float32) {
 	// Resolve aim: twin-stick vector -> mouse world cursor -> nearest enemy auto-aim.
 	autoTarget := false
 	stickSq := a.Control.AimStickX*a.Control.AimStickX + a.Control.AimStickY*a.Control.AimStickY
-	if stickSq > 0.04 {
+	if stickSq > 1e-4 {
 		p.AimAngle = float32(math.Atan2(float64(a.Control.AimStickY), float64(a.Control.AimStickX)))
 	} else if a.Control.HasWorldAim {
 		dx := a.Control.AimWorldX - p.X
@@ -1500,11 +1486,6 @@ func (a *Arena) DrawWorld(d *core.Drawing) {
 
 	d.Restore()
 
-	// Subtle touch pad outlines when touch input has been used.
-	if a.ShowTouchHints {
-		a.drawTouchHints(d)
-	}
-
 	// Screen flash overlay (explosion / nova / damage feedback), an effect a low preset leaves out.
 	if a.Quality.Effects && a.flashAlpha > 0.005 {
 		d.Save()
@@ -1542,13 +1523,6 @@ func (a *Arena) drawFloorGrid(d *core.Drawing) {
 		d.MoveTo(float32(startX), float32(y)).LineTo(float32(endX), float32(y))
 	}
 	d.Stroke()
-}
-
-func (a *Arena) drawTouchHints(d *core.Drawing) {
-	d.SetStrokeColor(core.RGBA(0x38BDF8, 0.25)).SetLineWidth(1.0)
-	for _, r := range []core.Bounds{touchMoveLeftRect, touchMoveRightRect, touchMoveUpRect, touchMoveDownRect, touchNovaRect} {
-		d.StrokeRect(float32(r.Origin.X), float32(r.Origin.Y), float32(r.Size.Width), float32(r.Size.Height))
-	}
 }
 
 // NewProceduralAtlas builds a self-contained 128x32 premultiplied pixel-art RGBA atlas

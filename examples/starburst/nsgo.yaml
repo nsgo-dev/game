@@ -5,3 +5,7 @@ version: 0.1.0
 dev:
   target: native
 appearance: dark
+
+build:
+  output: dist
+  targets: [macos, windows, linux, android, web, ios]
