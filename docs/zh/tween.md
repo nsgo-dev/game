@@ -30,7 +30,7 @@ group.Update(dt) // 完成的补间会自动移除
 
 - **缓动曲线**：零值 `core.Curve` 默认为 `core.Linear`。
 - **`Repeat(count, yoyo)`**：在首轮之后额外重复 `count` 次（`0` 表示只播一次；`tween.RepeatForever` 或任意负数表示无限重复）。`yoyo` 为 `true` 时，奇数轮反向从 `to` 插值回 `from`。
-- **跳转与重置**：`tw.Seek(at)` 跳转到指定时间点并立即应用该时刻的值（不触发 `OnComplete`）；`tw.Reset()` 倒回起点。可通过 `tw.Done()` 与 `tw.Duration()` 查询状态。
+- **跳转与重置**：`tw.Seek(at)` 跳转到指定时间点并立即应用该时刻的值（不触发 `OnComplete`）；`tw.Reset()` 倒回起点并清除延迟捕获的起始状态（使 `To`、`By`、`FromCurrent` 与相机补间在下一次运行时重新读取当前值，而 `Seek(0)` 会保留已捕获的起始值以保证拖拽回放的确定性）。可通过 `tw.Done()` 与 `tw.Duration()` 查询状态。
 - **自定义类型**：用 `tween.New[T](from, to, d, curve, lerp, set)` 对任意结构体或向量做补间。
 
 ## 具名缓动与延迟读取起始值
@@ -125,3 +125,5 @@ intro.Play()
 | `CameraRotate(cam, toRot, d, curve)` | 将 `cam.Rotation`（弧度）旋转至 `toRot`。 |
 | `CameraMove(cam, toX, toY, toZoom, toRot, d, curve)` | 同时驱动位置、缩放与旋转。 |
 | `CameraFollowTransition(cam, targetFn, d, curve)` | 从相机起始位置平滑过渡到持续移动的 `targetFn()`，结束时精确落在该目标上。 |
+
+每个相机补间在首次运行时捕获相机当前的位置、缩放或旋转。调用 `Reset()` 会清除已捕获的起始状态，使重播时从相机当前状态出发；而 `Seek(0)` 会保留已捕获的起始状态，使拖拽与时间轴重启保持确定性。
