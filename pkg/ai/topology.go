@@ -1,8 +1,10 @@
 package ai
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/nsgo-dev/game/pkg/tilemap"
 )
@@ -415,6 +417,9 @@ func (a *AStar) MovementRangeWithCost(dst []ReachableCell, g Grid, start Cell, b
 	a.heapPush(astarNode{id: startID, f: 0, h: 0})
 
 	var steps [8]neighborStep
+	prevID := -1
+	prevCost := 0.0
+	needsSort := false
 
 	for len(a.open) > 0 {
 		cur := a.heapPop()
@@ -426,6 +431,11 @@ func (a *AStar) MovementRangeWithCost(dst []ReachableCell, g Grid, start Cell, b
 		c := cur.id % cols
 		r := cur.id / cols
 		curG := a.gScore[cur.id]
+		if prevID >= 0 && !needsSort && (curG < prevCost || (curG == prevCost && cur.id < prevID)) {
+			needsSort = true
+		}
+		prevID = cur.id
+		prevCost = curG
 		out = append(out, ReachableCell{Cell: Cell{Col: c, Row: r}, Cost: curG})
 
 		stepCount := a.Topology.neighbors(c, r, a.Diagonal, &steps)
@@ -496,7 +506,21 @@ func (a *AStar) MovementRangeWithCost(dst []ReachableCell, g Grid, start Cell, b
 		}
 	}
 
+	if needsSort {
+		slices.SortFunc(out, compareReachableCell)
+	}
+
 	return out
+}
+
+func compareReachableCell(a, b ReachableCell) int {
+	if c := cmp.Compare(a.Cost, b.Cost); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.Cell.Row, b.Cell.Row); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.Cell.Col, b.Cell.Col)
 }
 
 // ReachableCells returns every cell reachable from start on g within budget under topology, ordered by ascending cost then row-major cell index.

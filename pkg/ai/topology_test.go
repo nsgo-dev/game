@@ -1,6 +1,7 @@
 package ai_test
 
 import (
+	"cmp"
 	"math"
 	"math/rand/v2"
 	"slices"
@@ -609,5 +610,263 @@ func TestHexAStarAndMovementRangeZeroAllocations(t *testing.T) {
 	})
 	if rangeAllocs != 0 {
 		t.Fatalf("MovementRangeInto allocated %v times per run, want 0", rangeAllocs)
+	}
+}
+
+func sortReachableCells(in []ai.ReachableCell) []ai.ReachableCell {
+	out := slices.Clone(in)
+	slices.SortFunc(out, func(a, b ai.ReachableCell) int {
+		if c := cmp.Compare(a.Cost, b.Cost); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Cell.Row, b.Cell.Row); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Cell.Col, b.Cell.Col)
+	})
+	return out
+}
+
+func TestMovementRangeZeroCostEdgeOrdering(t *testing.T) {
+	t.Run("issue_1588_failing_path", func(t *testing.T) {
+		g := ai.NewBoolGrid(4, 1)
+		start := ai.Cell{Col: 3, Row: 0}
+		edgeFn := func(from, to ai.Cell) float64 {
+			if from == (ai.Cell{Col: 2, Row: 0}) && to == (ai.Cell{Col: 1, Row: 0}) {
+				return 0
+			}
+			return 1
+		}
+		want := []ai.ReachableCell{
+			{Cell: ai.Cell{Col: 3, Row: 0}, Cost: 0},
+			{Cell: ai.Cell{Col: 1, Row: 0}, Cost: 1},
+			{Cell: ai.Cell{Col: 2, Row: 0}, Cost: 1},
+			{Cell: ai.Cell{Col: 0, Row: 0}, Cost: 2},
+		}
+
+		a := ai.NewAStar()
+		got := a.MovementRangeWithCost(nil, g, start, 5, edgeFn)
+		if !slices.Equal(got, want) {
+			t.Fatalf("MovementRangeWithCost = %v, want %v", got, want)
+		}
+
+		gotReach := ai.ReachableCells(g, ai.TopologySquare4, start, 5, edgeFn)
+		if !slices.Equal(gotReach, want) {
+			t.Fatalf("ReachableCells = %v, want %v", gotReach, want)
+		}
+
+		eg := edgeCostAdapter{
+			CostMap: ai.NewCostMap(4, 1),
+			edge: func(fc, fr, tc, tr int) float64 {
+				return edgeFn(ai.Cell{Col: fc, Row: fr}, ai.Cell{Col: tc, Row: tr})
+			},
+		}
+		if gotEG := a.MovementRange(eg, start, 5); !slices.Equal(gotEG, want) {
+			t.Fatalf("MovementRange(EdgeCostGrid) = %v, want %v", gotEG, want)
+		}
+		buf := make([]ai.ReachableCell, 0, 8)
+		if gotInto := a.MovementRangeInto(buf, eg, start, 5); !slices.Equal(gotInto, want) {
+			t.Fatalf("MovementRangeInto(EdgeCostGrid) = %v, want %v", gotInto, want)
+		}
+	})
+
+	t.Run("zero_cost_chain_and_cycles", func(t *testing.T) {
+		// 2x2 grid with all zero-cost edges forms cycles; starting at (1,1) must terminate and emit row-major order.
+		g := ai.NewBoolGrid(2, 2)
+		zeroCost := func(from, to ai.Cell) float64 { return 0 }
+		want := []ai.ReachableCell{
+			{Cell: ai.Cell{Col: 0, Row: 0}, Cost: 0},
+			{Cell: ai.Cell{Col: 1, Row: 0}, Cost: 0},
+			{Cell: ai.Cell{Col: 0, Row: 1}, Cost: 0},
+			{Cell: ai.Cell{Col: 1, Row: 1}, Cost: 0},
+		}
+
+		a := ai.NewAStar()
+		for _, budget := range []float64{0, 5} {
+			got := a.MovementRangeWithCost(nil, g, ai.Cell{Col: 1, Row: 1}, budget, zeroCost)
+			if !slices.Equal(got, want) {
+				t.Fatalf("budget=%v: zero-cost cycle = %v, want %v", budget, got, want)
+			}
+		}
+	})
+
+	t.Run("ties_at_zero_and_positive_cost_with_cycles", func(t *testing.T) {
+		// 3x2 grid starting at (2, 1):
+		// - Free ring on bottom/right reaching (1, 1) at cost 0 -> ties at cost 0: (1,1) before (2,1).
+		// - Stepping into row 0 costs 1, and all row 0 edges are 0-cost cycles -> ties at cost 1: (0,0), (1,0), (2,0).
+		// - Stepping from (1, 1) to (0, 1) costs 1 -> ties at cost 1 after row 0: (0,1).
+		g := ai.NewBoolGrid(3, 2)
+		edgeFn := func(from, to ai.Cell) float64 {
+			if from.Row == 0 && to.Row == 0 {
+				return 0
+			}
+			if (from == (ai.Cell{Col: 2, Row: 1}) && to == (ai.Cell{Col: 1, Row: 1})) ||
+				(from == (ai.Cell{Col: 1, Row: 1}) && to == (ai.Cell{Col: 2, Row: 1})) {
+				return 0
+			}
+			return 1
+		}
+		want := []ai.ReachableCell{
+			{Cell: ai.Cell{Col: 1, Row: 1}, Cost: 0},
+			{Cell: ai.Cell{Col: 2, Row: 1}, Cost: 0},
+			{Cell: ai.Cell{Col: 0, Row: 0}, Cost: 1},
+			{Cell: ai.Cell{Col: 1, Row: 0}, Cost: 1},
+			{Cell: ai.Cell{Col: 2, Row: 0}, Cost: 1},
+			{Cell: ai.Cell{Col: 0, Row: 1}, Cost: 1},
+		}
+
+		a := ai.NewAStar()
+		got := a.MovementRangeWithCost(nil, g, ai.Cell{Col: 2, Row: 1}, 3, edgeFn)
+		if !slices.Equal(got, want) {
+			t.Fatalf("got = %v, want %v", got, want)
+		}
+	})
+}
+
+func TestMovementRangeRandomizedZeroCostOrderingProperty(t *testing.T) {
+	topologies := []ai.GridTopology{
+		ai.TopologySquare4,
+		ai.TopologySquare8,
+		ai.TopologyHexPointyOdd,
+		ai.TopologyStaggeredYOdd,
+	}
+	rng := rand.New(rand.NewPCG(1588, 2026))
+	weights := []float64{0, 0, 0.5, 1, 2, -1}
+
+	for _, topo := range topologies {
+		t.Run(topo.String(), func(t *testing.T) {
+			a := ai.NewAStar()
+			a.Topology = topo
+			if topo == ai.TopologyStaggeredYOdd {
+				a.Diagonal = true
+			}
+
+			for trial := range 25 {
+				const cols, rows = 8, 8
+				g := ai.NewBoolGrid(cols, rows)
+				for r := range rows {
+					for c := range cols {
+						if rng.Float64() < 0.15 {
+							g.SetWalkable(c, r, false)
+						}
+					}
+				}
+				start := ai.Cell{Col: rng.IntN(cols), Row: rng.IntN(rows)}
+				g.SetWalkable(start.Col, start.Row, true)
+
+				type edgeKey struct{ from, to ai.Cell }
+				edgeWeights := make(map[edgeKey]float64, cols*rows*6)
+				edgeFn := func(from, to ai.Cell) float64 {
+					k := edgeKey{from: from, to: to}
+					if w, ok := edgeWeights[k]; ok {
+						return w
+					}
+					w := weights[rng.IntN(len(weights))]
+					edgeWeights[k] = w
+					return w
+				}
+
+				budget := float64(rng.IntN(6))
+				got := a.MovementRangeWithCost(nil, g, start, budget, edgeFn)
+				wantSorted := sortReachableCells(got)
+				if !slices.Equal(got, wantSorted) {
+					t.Fatalf("trial %d: MovementRangeWithCost out of documented order:\ngot:  %v\nwant: %v", trial, got, wantSorted)
+				}
+
+				ref := bruteForceDijkstra(g, topo, a.Diagonal, a.NoCornerCutting, start, budget, edgeFn)
+				if len(got) != len(ref) {
+					t.Fatalf("trial %d: len(got)=%d, want %d", trial, len(got), len(ref))
+				}
+				for _, rc := range got {
+					wc, ok := ref[rc.Cell]
+					if !ok || math.Abs(rc.Cost-wc) > 1e-9 {
+						t.Fatalf("trial %d: cell %v cost=%v, want %v (ok=%v)", trial, rc.Cell, rc.Cost, wc, ok)
+					}
+				}
+
+				if !a.Diagonal {
+					gotReach := ai.ReachableCells(g, topo, start, budget, edgeFn)
+					if !slices.Equal(gotReach, got) {
+						t.Fatalf("trial %d: ReachableCells differed from MovementRangeWithCost", trial)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestMovementRangeIntoZeroCostZeroAllocations(t *testing.T) {
+	eg := &edgeCostAdapter{
+		CostMap: ai.NewCostMap(24, 24),
+		edge: func(fc, fr, tc, tr int) float64 {
+			if fr == tr && tc < fc {
+				return 0 // free westward road guarantees zero-cost inversions
+			}
+			return 1
+		},
+	}
+	a := ai.NewAStar()
+	a.Topology = ai.TopologySquare4
+	start := ai.Cell{Col: 18, Row: 12}
+	buf := make([]ai.ReachableCell, 0, 576)
+
+	// Warm up internal buffers and confirm output is sorted.
+	buf = a.MovementRangeInto(buf, eg, start, 6)
+	if len(buf) == 0 {
+		t.Fatal("warm-up MovementRangeInto returned empty")
+	}
+	if want := sortReachableCells(buf); !slices.Equal(buf, want) {
+		t.Fatalf("MovementRangeInto with zero-cost edges not sorted:\ngot:  %v\nwant: %v", buf, want)
+	}
+
+	allocs := testing.AllocsPerRun(50, func() {
+		buf = a.MovementRangeInto(buf[:0], eg, start, 6)
+		if len(buf) == 0 {
+			t.Fatal("MovementRangeInto returned empty")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("MovementRangeInto with zero-cost edges allocated %v times per run, want 0", allocs)
+	}
+}
+
+func BenchmarkMovementRangeInto(b *testing.B) {
+	g := ai.NewBoolGrid(24, 24)
+	for r := 4; r < 20; r++ {
+		g.SetWalkable(12, r, false)
+	}
+	a := ai.NewAStar()
+	a.Topology = ai.TopologyHexPointyOdd
+	start := ai.Cell{Col: 6, Row: 12}
+	buf := make([]ai.ReachableCell, 0, 576)
+	buf = a.MovementRangeInto(buf, g, start, 6)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		buf = a.MovementRangeInto(buf[:0], g, start, 6)
+	}
+}
+
+func BenchmarkMovementRangeIntoZeroCost(b *testing.B) {
+	eg := &edgeCostAdapter{
+		CostMap: ai.NewCostMap(24, 24),
+		edge: func(fc, fr, tc, tr int) float64 {
+			if fr == tr && tc < fc {
+				return 0
+			}
+			return 1
+		},
+	}
+	a := ai.NewAStar()
+	a.Topology = ai.TopologySquare4
+	start := ai.Cell{Col: 18, Row: 12}
+	buf := make([]ai.ReachableCell, 0, 576)
+	buf = a.MovementRangeInto(buf, eg, start, 6)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		buf = a.MovementRangeInto(buf[:0], eg, start, 6)
 	}
 }

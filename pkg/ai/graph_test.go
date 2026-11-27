@@ -1,6 +1,7 @@
 package ai_test
 
 import (
+	"cmp"
 	"math"
 	"math/rand/v2"
 	"slices"
@@ -790,4 +791,153 @@ func BenchmarkHexGridRange(b *testing.B) {
 	for range b.N {
 		dst = gs.RangeInto(dst, hg, start, 6)
 	}
+}
+
+func TestGraphRangeZeroCostEdgeOrderingAndPaths(t *testing.T) {
+	t.Run("hex_grid_zero_cost_inversions_and_cycles", func(t *testing.T) {
+		m := tilemap.New(4, 1, 32, 36)
+		m.Orientation = tilemap.OrientationHexagonal
+		m.StaggerAxis = tilemap.StaggerY
+		m.StaggerIndex = tilemap.StaggerOdd
+
+		hg := ai.NewHexGrid(m)
+		hg.StepCost = func(from, to ai.Cell) float64 {
+			// Zero-cost cycle between (2,0) and (1,0) at cost 1 from start (3,0).
+			if (from == (ai.Cell{Col: 2, Row: 0}) && to == (ai.Cell{Col: 1, Row: 0})) ||
+				(from == (ai.Cell{Col: 1, Row: 0}) && to == (ai.Cell{Col: 2, Row: 0})) {
+				return 0
+			}
+			return 1
+		}
+
+		gs := ai.NewGraphSearch[ai.Cell]()
+		start := ai.Cell{Col: 3, Row: 0}
+		got := gs.Range(hg, start, 5)
+		want := []ai.ReachableNode[ai.Cell]{
+			{Node: ai.Cell{Col: 3, Row: 0}, Cost: 0},
+			{Node: ai.Cell{Col: 1, Row: 0}, Cost: 1},
+			{Node: ai.Cell{Col: 2, Row: 0}, Cost: 1},
+			{Node: ai.Cell{Col: 0, Row: 0}, Cost: 2},
+		}
+		if !slices.Equal(got.Nodes(), want) {
+			t.Fatalf("HexGrid Range.Nodes() = %v, want %v", got.Nodes(), want)
+		}
+
+		// Verify parent pointers and path reconstruction survive re-sorting when child precedes parent.
+		if p, ok := got.Parent(ai.Cell{Col: 1, Row: 0}); !ok || p != (ai.Cell{Col: 2, Row: 0}) {
+			t.Fatalf("Parent((1,0)) = (%v, %v), want ((2,0), true)", p, ok)
+		}
+		if path, ok := got.Path(ai.Cell{Col: 0, Row: 0}); !ok || !slices.Equal(path, []ai.Cell{{3, 0}, {2, 0}, {1, 0}, {0, 0}}) {
+			t.Fatalf("Path((0,0)) = (%v, %v), want ([{3 0} {2 0} {1 0} {0 0}], true)", path, ok)
+		}
+		if c, ok := got.Cost(ai.Cell{Col: 1, Row: 0}); !ok || c != 1 {
+			t.Fatalf("Cost((1,0)) = (%v, %v), want (1, true)", c, ok)
+		}
+
+		// Zero allocations on RangeInto even when sorting triggers.
+		rangeDst := gs.RangeInto(nil, hg, start, 5)
+		allocs := testing.AllocsPerRun(50, func() {
+			rangeDst = gs.RangeInto(rangeDst, hg, start, 5)
+			if rangeDst.Len() != len(want) {
+				t.Fatalf("RangeInto len = %d, want %d", rangeDst.Len(), len(want))
+			}
+		})
+		if allocs != 0 {
+			t.Fatalf("HexGrid RangeInto with zero-cost edges allocated %v times/run, want 0", allocs)
+		}
+	})
+
+	t.Run("waypoint_graph_zero_cost_tie_break", func(t *testing.T) {
+		wg := ai.NewWaypointGraph()
+		n0 := wg.Add(core.Point{X: 0, Y: 0})
+		n1 := wg.Add(core.Point{X: 10, Y: 0})
+		n2 := wg.Add(core.Point{X: 20, Y: 0})
+		n3 := wg.Add(core.Point{X: 30, Y: 0})
+		wg.AddEdge(n3, n2, 1)
+		wg.AddEdge(n2, n1, 0)
+		wg.AddEdge(n1, n2, 0) // zero-cost cycle
+		wg.AddEdge(n1, n0, 1)
+
+		gs := ai.NewGraphSearch[int]()
+		got := gs.Range(wg, n3, 5)
+		want := []ai.ReachableNode[int]{
+			{Node: n3, Cost: 0},
+			{Node: n1, Cost: 1},
+			{Node: n2, Cost: 1},
+			{Node: n0, Cost: 2},
+		}
+		if !slices.Equal(got.Nodes(), want) {
+			t.Fatalf("WaypointGraph Range.Nodes() = %v, want %v", got.Nodes(), want)
+		}
+		if path, ok := got.Path(n0); !ok || !slices.Equal(path, []int{n3, n2, n1, n0}) {
+			t.Fatalf("Path(n0) = (%v, %v), want ([3 2 1 0], true)", path, ok)
+		}
+	})
+
+	t.Run("randomized_hex_zero_cost_property", func(t *testing.T) {
+		rng := rand.New(rand.NewPCG(1588, 831))
+		gs := ai.NewGraphSearch[ai.Cell]()
+		weights := []float64{0, 0, 0.5, 1, 2, -1}
+
+		for trial := range 20 {
+			const cols, rows = 8, 8
+			m := tilemap.New(cols, rows, 32, 36)
+			m.Orientation = tilemap.OrientationHexagonal
+			m.StaggerAxis = tilemap.StaggerY
+			m.StaggerIndex = tilemap.StaggerOdd
+
+			type edgeKey struct{ from, to ai.Cell }
+			edgeWeights := make(map[edgeKey]float64, cols*rows*6)
+			hg := ai.NewHexGrid(m)
+			hg.StepCost = func(from, to ai.Cell) float64 {
+				k := edgeKey{from: from, to: to}
+				if w, ok := edgeWeights[k]; ok {
+					return w
+				}
+				w := weights[rng.IntN(len(weights))]
+				edgeWeights[k] = w
+				return w
+			}
+
+			start := ai.Cell{Col: rng.IntN(cols), Row: rng.IntN(rows)}
+			budget := float64(rng.IntN(6))
+			got := gs.Range(hg, start, budget)
+			nodes := got.Nodes()
+
+			wantSorted := slices.Clone(nodes)
+			slices.SortFunc(wantSorted, func(a, b ai.ReachableNode[ai.Cell]) int {
+				if c := cmp.Compare(a.Cost, b.Cost); c != 0 {
+					return c
+				}
+				if c := cmp.Compare(a.Node.Row, b.Node.Row); c != 0 {
+					return c
+				}
+				return cmp.Compare(a.Node.Col, b.Node.Col)
+			})
+			if !slices.Equal(nodes, wantSorted) {
+				t.Fatalf("trial %d: GraphRange.Nodes() out of order:\ngot:  %v\nwant: %v", trial, nodes, wantSorted)
+			}
+
+			ref := hexRefDijkstra(m, hg, start, budget)
+			if len(nodes) != len(ref) {
+				t.Fatalf("trial %d: len=%d, want %d", trial, len(nodes), len(ref))
+			}
+			for _, rn := range nodes {
+				if wc, ok := ref[rn.Node]; !ok || math.Abs(rn.Cost-wc) > 1e-9 {
+					t.Fatalf("trial %d: cell %v cost=%v, want %v (ok=%v)", trial, rn.Node, rn.Cost, wc, ok)
+				}
+				path, ok := got.Path(rn.Node)
+				if !ok || path[0] != start || path[len(path)-1] != rn.Node {
+					t.Fatalf("trial %d: invalid Path(%v) = (%v, %v)", trial, rn.Node, path, ok)
+				}
+				sum := 0.0
+				for k := 1; k < len(path); k++ {
+					sum += hg.StepCost(path[k-1], path[k])
+				}
+				if math.Abs(sum-rn.Cost) > 1e-9 {
+					t.Fatalf("trial %d: path cost sum=%v, want %v (path %v)", trial, sum, rn.Cost, path)
+				}
+			}
+		}
+	})
 }
