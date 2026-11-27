@@ -27,7 +27,7 @@
 
 ### puzzle2d
 
-火花一直滑行到被墙挡住为止，并点亮途经的每一盏灯；在步数用完之前点亮一关的所有灯即过关，滑进虚空或步数用完时仍有灯未亮则失败。由于 HUD、棋盘和底部操作栏纵向堆叠，根作用域在手机上请求竖屏方向（`cx.RequestOrientation(core.OrientationPortrait)`）。这个模板展示解谜游戏如何成长：规则在 `board.go` 中，每一步都是 `undo.History` 的一个操作，可以精确地撤销和重做；关卡在 `levels.yaml` 中，这是一个带版本号、拒绝未知字段并有规范形式的 YAML 文件，由 `levels.go` 读写；输入映射在 `game.yaml` 中，绑定到 `input.Actions`，滑动手势来自 `input.GestureRecognizer`；移动由固定步长 `game.Loop` 上的 `tween` 播放动画；每关的星级用 `save` 保存。要修改游戏，可以在 `levels.yaml` 中增改关卡，测试会检查每一关都能在标准步数内完成；在 `game.yaml` 中重新绑定操作；在 `board.go` 中添加新的格子类型并在 `draw.go` 中绘制它。模板的 README 列出了全部操作、关卡格式和每个文件。
+火花一直滑行到被墙挡住为止，并点亮途经的每一盏灯；在步数用完之前点亮一关的所有灯即过关，滑进虚空或步数用完时仍有灯未亮则失败。由于 HUD、棋盘和底部操作栏纵向堆叠，根作用域在手机上请求竖屏方向（`cx.RequestOrientation(core.OrientationPortrait)`）。这个模板展示解谜游戏如何成长：规则在 `board.go` 中，每一步都是 `undo.History` 的一个操作，可以精确地撤销和重做；关卡在 `levels.yaml` 中，这是一个带版本号、拒绝未知字段并有规范形式的 YAML 文件，由 `levels.go` 读写；输入映射在 `game.yaml` 中，绑定到 `input.Actions`，滑动手势来自 `input.GestureRecognizer`；移动由固定步长 `game.Loop` 上的 `tween` 播放动画；每关的星级用 `save` 保存。要修改游戏，可以在 `levels.yaml` 中增改关卡，测试会检查每一关都能在标准步数内完成；运行 `go tool game playtest` 可通过 `playtest.yaml` 与 `playtest_test.go` 验证可解性、难度顺序、意外捷径和超出标准步数；在 `game.yaml` 中重新绑定操作；在 `board.go` 中添加新的格子类型并在 `draw.go` 中绘制它。模板的 README 列出了全部操作、关卡格式和每个文件。
 
 ### rhythm
 
@@ -41,7 +41,7 @@
 - `data/patterns.yaml` 以 `bullets` 格式保存全部弹幕，`data/explosion.yaml` 以 [`particles`](particles.md) 格式定义爆炸。
 - `world.go` 是一局关卡：自机、敌机、波次、道具和 Boss，以及推进它们的各个系统；它接收每一步的操作，并报告需要播放音效的事件。`controls.go` 把输入映射和拖动转换成这些操作，`game.go` 和 `hud.go` 负责循环、标题、游戏和结束画面以及原生 HUD。
 - 精灵在代码中绘制，音效来自[占位资源包](placeholder.md)，`CREDITS.md` 列出了它们的来源。
-- 测试通过 `nsgotest` 游玩整关：会躲避和射击的自动驾驶用手柄通关，什么都不做的自机则在键盘操作下被击落。其他测试覆盖触屏、鼠标、暂停、关卡的每个系统和数据文件。
+- 测试通过 `nsgotest` 游玩整关：会躲避和射击的自动驾驶用手柄通关，什么都不做的自机则在键盘操作下被击落。其他测试覆盖触屏、鼠标、暂停、关卡的每个系统和数据文件。`playtest.yaml` 和 `playtest_test.go` 接入了 `shooter` 机器人配置，运行 `go tool game playtest` 即可按种子无头试玩关卡并输出通关率、各波受击数和道具拾取率。
 
 模板的 `README.md` 列出了操作方式，以及修改关卡、弹幕、路径、道具、美术和音效的位置。
 

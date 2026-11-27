@@ -29,6 +29,7 @@ go tool nsgo dev -target web          # the browser
 go tool nsgo dev -target ios_simulator
 go tool nsgo dev -target android
 go tool nsgo test ./...               # headless tests
+go tool game playtest                 # automated bot playtest and report
 go tool nsgo check -target macos,windows,linux,android,web
 GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 ```
@@ -52,6 +53,7 @@ go run github.com/nsgo-dev/game/cmd/gameproject check
 - `game.go`: the root component, the fixed-step loop, input sampling, the HUD and the end-of-run panel.
 - `draw.go` and `art.go`: drawing the run, and the tileset and player frames drawn by code.
 - `main.go` and `project.go`: the entry point and the embedded `game.yaml`.
+- `playtest.yaml` and `playtest_test.go`: the `platformer-runner` playtest configuration and `TestPlaytest` adapter driven by `go tool game playtest`.
 - `*_test.go`: playthroughs, rules, controller timing and the data files.
 
 ## Where to change it

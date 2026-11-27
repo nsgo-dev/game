@@ -6,6 +6,7 @@
 go run github.com/nsgo-dev/game/cmd/game@latest new -template cards2d mycards
 cd mycards
 go tool nsgo dev
+go tool game playtest
 ```
 
 `nsgo init -template github.com/nsgo-dev/game/template/cards2d` writes the same project, as [Templates](templates.md) describes.
@@ -42,6 +43,7 @@ Starting a new deal before a game is over counts as a loss.
 | `save.go` | The save slots `records` and `table`, and the checks a saved game passes before it is restored. |
 | `game.go` | `Root`, the loop and the actions of the input map. |
 | `render.go`, `hud.go` | The card art and the table drawn through the viewport, and the native views over it. |
+| `playtest.yaml`, `playtest_test.go` | The [`card-ai`](playtest.md) tournament playtest configuration and `TestPlaytest` adapter driven by `go tool game playtest`. |
 | `*_test.go` | Playthroughs with the keyboard, a gamepad and touch to a win and a loss, and tests of the rules, the saves and the data files, with a fuzz test of `rules.yaml` and a benchmark of a whole game. |
 
 ## Where to change it

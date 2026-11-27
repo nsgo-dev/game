@@ -24,6 +24,7 @@ Deal *n* shuffles the same way for every player, so a deal can be shared and rep
 - `table.go` holds the rules on a `cards.Board`: dealing, drawing, climbing, throwing away, redealing, and the win and the loss. The board is the only record of where each card is.
 - `save.go` keeps the game in progress and the record of wins and losses with `save.Store`, after every move, so a game survives closing the app.
 - `game.go` is `Root`: a fixed-step `game.Loop` that reads the input map and steps the cards' moves. `render.go` draws the cards by code on a `core.Canvas` through the `screen.Viewport` of `game.yaml`, and `hud.go` lays the native counts and buttons over it.
+- `playtest.yaml` and `playtest_test.go` hold the `card-ai` playtest configuration and `TestPlaytest` tournament adapter driven by `go tool game playtest`.
 - `*_test.go` play the game through `nsgotest` with the keyboard, a gamepad and touch to a win and a loss, check the rules, the saves and the data files, and fuzz the rules file.
 - `nsgo.yaml` is NSGo's app metadata; its name, id, version and build targets follow `game.yaml`.
 
@@ -50,6 +51,7 @@ go tool nsgo dev -target web          # the browser
 go tool nsgo dev -target ios_simulator
 go tool nsgo dev -target android
 go tool nsgo test ./...
+go tool game playtest
 go tool nsgo check -target macos,windows,linux,android,web
 GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 ```

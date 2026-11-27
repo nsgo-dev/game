@@ -130,7 +130,13 @@ metrics.Finish() // 或 metrics.Fail("out of lives")
 - **`puzzle-solver`**（`playtest.ProfilePuzzleSolver`，对应 `puzzle2d` 模板）：结合 `SolvePuzzleBFS`（带 `stateLimit` 状态数上限、默认 200 万状态的广度优先最短解搜索）和连续走错 `undoAfterBadMoves`（默认 `3`）步后撤回的拟人玩家。使用 `EvaluatePuzzlePack` 或 `NewPuzzlePackSim` 可上报可解关卡数、超出标准步数、难度曲线倒挂次数以及短于预期解法的关卡。
 - **`card-ai`**（`playtest.ProfileCardAI`，对应 `cards2d` 模板）：两名向前看一回合的贪心 AI（`CardAI.ChooseAction`）对每对卡组交替先手对战 `matchesPerPair` 局。使用 `RunCardTournament` 或 `NewCardTournamentSim` 可上报先手胜率、对局回合数中位数、最悬殊卡组对阵胜率、确定性思考耗时以及 `deck_win_rates` 胜率矩阵。
 
-可以用 `playtest.RegisterBot(name, factory)` 注册自定义机器人配置。`rpg2d`、`shmup2d`、`puzzle2d` 和 `cards2d` 模板均内置了对应机器人的规范 `playtest.yaml`。
+可以用 `playtest.RegisterBot(name, factory)` 注册自定义机器人配置。`platformer2d`、`rpg2d`、`shmup2d`、`puzzle2d` 和 `cards2d` 模板均内置了对应机器人的规范 `playtest.yaml` 以及接入 `playtest.RunTest` 的 `playtest_test.go`，因此从这些模板创建项目后即可直接运行 `go tool game playtest` 生成确定性报告：
+
+```sh
+go run github.com/nsgo-dev/game/cmd/game@latest new -template platformer2d mygame
+cd mygame
+go tool game playtest
+```
 
 ## 无头运行与回放
 

@@ -20,7 +20,7 @@ Add four deterministic bot profiles to `packages/game/playtest` (`topdown-explor
 ### Report extensions and template contract
 
 - `playtest.Report` (`ReportVersion = 1`) gains optional `omitempty` `Series []SeriesChart` and `Matrices []MatrixChart` fields, validated strictly by `ValidateReport` and aggregated deterministically in `Run` from `Collector` (`ConfigureSeries`/`AddSeries`/`SetSeries`/`FlagSeries` and `ConfigureMatrix`/`RecordMatchup`). Existing version 1 reports without these fields remain unchanged.
-- `template/{rpg2d,shmup2d,puzzle2d,cards2d}/template/playtest.yaml` and their embedded copies under `packages/game/cmd/game/_templates/projects/` contain only canonical YAML (`EncodeConfig` byte-for-byte identical) without adding Go imports of `packages/game/playtest` into template Go sources, because standalone `go.mod.tmpl` pins an earlier `packages/game` pseudo-version until release.
+- `template/{rpg2d,shmup2d,puzzle2d,cards2d}/template/playtest.yaml` and their embedded copies under `packages/game/cmd/game/_templates/projects/` initially shipped only canonical YAML without Go imports of `pkg/playtest` while standalone `go.mod.tmpl` pinned a pre-`playtest` commit. Once `v0.1.0` published `pkg/playtest`, that constraint was lifted and [template playtest bot wiring](../bug-fix/2026-11-28-template-playtest-bot-wiring.md) added `playtest_test.go` adapters to all four templates plus `platformer2d/playtest.yaml` and CI `game playtest` checks.
 
 ## Alternatives considered
 

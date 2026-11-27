@@ -6,6 +6,7 @@
 go run github.com/nsgo-dev/game/cmd/game@latest new -template rpg2d mygame
 cd mygame
 go tool nsgo dev
+go tool game playtest
 ```
 
 `nsgo init -template github.com/nsgo-dev/game/template/rpg2d -module example.com/mygame mygame` 会写出同样的项目。
@@ -40,6 +41,7 @@ Hollowbrook 神龛里的灯熄灭了。治疗师 Mira 需要从 Whisper Meadow �
 | `data.go` | 读入数据文件并检查它们彼此一致：它们提到的每个物品、敌人、人物、对话节点、效果和图片都存在 |
 | `game.go`、`menu.go`、`save.go` | 规则、菜单和存档槽，不涉及绘制和输入设备，测试可以直接驱动 |
 | `input.go`、`draw.go`、`art.go`、`ui.go` | 把输入映射读成一步的意图、各画面的绘制、启动时绘出的像素画，以及带 HUD 的应用 |
+| `playtest.yaml`、`playtest_test.go` | [`topdown-explorer`](playtest.md) 自动化试玩配置与由 `go tool game playtest` 驱动的 `TestPlaytest` 适配器 |
 
 无法读入的数据文件会在窗口中显示错误而不是游戏，方便在 `go tool nsgo dev` 下修正。
 

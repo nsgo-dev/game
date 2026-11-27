@@ -53,6 +53,7 @@ Run the tests, which play every level and check every level can be won in its pa
 
 ```sh
 go tool nsgo test ./...
+go tool game playtest
 ```
 
 Vet and check across platforms:
@@ -93,6 +94,7 @@ The levels are played in the order the file lists them. `TestLevelsAreSolvableAt
 - `ui.go`: the native views: the level select, the counters and buttons, and the result.
 - `progress.go`: the saved stars and which levels are unlocked.
 - `project.go`, `main.go`: the parsed `game.yaml` and the entry point.
+- `playtest.yaml`, `playtest_test.go`: the `puzzle-solver` playtest configuration and `TestPlaytest` adapter driven by `go tool game playtest`.
 - `*_test.go`: the tests. `game_test.go` plays the game through `nsgotest`; `levels_test.go` checks the levels and fuzzes their format; `board_test.go` tests the rules and benchmarks a move.
 - `nsgo.yaml`: NSGo app metadata and dev settings; its name, id, version and build output and targets follow `game.yaml`.
 

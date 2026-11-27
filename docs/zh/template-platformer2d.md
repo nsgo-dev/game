@@ -6,6 +6,7 @@
 go run github.com/nsgo-dev/game/cmd/game@latest new -template platformer2d mygame
 cd mygame
 go tool nsgo dev
+go tool game playtest
 ```
 
 `nsgo init -template github.com/nsgo-dev/game/template/platformer2d` 会写出同样的项目，见[项目模板](templates.md)。
@@ -41,6 +42,7 @@ go tool nsgo dev
 | `world.go` | 关卡的一局：碰撞网格、玩家、感应区、命数、检查点、终点和房间，每个固定步长推进一次，不涉及设备和绘制。 |
 | `game.go` | 根组件、固定步长循环、输入采样、HUD 和一局结束时的面板。 |
 | `draw.go`、`art.go` | 绘制一局，以及由代码绘制的图块集和玩家帧。 |
+| `playtest.yaml`、`playtest_test.go` | [`platformer-runner`](playtest.md) 自动化试玩配置与由 `go tool game playtest` 驱动的 `TestPlaytest` 适配器。 |
 | `*_test.go` | 通关测试、规则、控制器时序和数据文件。 |
 
 关卡是纯文本，每行一排图块：
