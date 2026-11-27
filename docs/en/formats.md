@@ -1405,7 +1405,7 @@ tables:
         weight: 6.5
 ```
 
-<!-- format: achievements -->
+<!-- format: online/achievements -->
 ### Achievements
 
 | Files | Version | Read and written by | Fields |
@@ -1424,7 +1424,7 @@ achievements:
       playGames: CgkIabc123EAIQAg
 ```
 
-<!-- format: leaderboard -->
+<!-- format: online/leaderboard -->
 ### Leaderboards
 
 | Files | Version | Read and written by | Fields |
@@ -1976,7 +1976,7 @@ adapt:
 
 ## Servers
 
-<!-- format: accounts -->
+<!-- format: online/accounts -->
 ### Account service
 
 | Files | Version | Read and written by | Fields |
@@ -1997,7 +1997,7 @@ password:
     threads: 1
 ```
 
-<!-- format: accounts/token -->
+<!-- format: online/accounts/token -->
 ### Token key set
 
 | Files | Version | Read and written by | Fields |
@@ -2013,7 +2013,7 @@ keys:
     key: hze+0cYruVRddgjkbHzgCeWWJbEsBkn6K8JNHRDf6Wg=
 ```
 
-<!-- format: cloudsave -->
+<!-- format: online/cloudsave -->
 ### Cloud save service
 
 | Files | Version | Read and written by | Fields |
@@ -2029,7 +2029,7 @@ allowedOrigins:
   - https://play.example.com
 ```
 
-<!-- format: leaderboard/selfhost -->
+<!-- format: online/leaderboard/selfhost -->
 ### Leaderboard service
 
 | Files | Version | Read and written by | Fields |
@@ -2248,7 +2248,7 @@ benchmarks:
   BenchmarkRaycast: {ns_per_op: 420.5, bytes_per_op: 0, allocs_per_op: 0}
 ```
 
-<!-- format: achievements#progress -->
+<!-- format: online/achievements#progress -->
 ### Achievement progress
 
 | Files | Version | Read and written by | Fields |
@@ -2599,7 +2599,7 @@ The names are those the game registered with `RegisterFloat`, `RegisterInt`, `Re
 
 `payload` is the game's state as `encoding/json` writes it, in base64, and `loop_elapsed` is in nanoseconds.
 
-<!-- format: liveops -->
+<!-- format: online/liveops -->
 ### Cloud save payload
 
 | Files | Version | Read and written by | Fields |
@@ -2620,7 +2620,7 @@ The names are those the game registered with `RegisterFloat`, `RegisterInt`, `Re
 
 `hash` is the SHA-256 of the save's bytes, which `data` holds as text, or `data_base64` in base64 when they are not UTF-8.
 
-<!-- format: liveops#sync -->
+<!-- format: online/liveops#sync -->
 ### Cloud sync state
 
 | Files | Version | Read and written by | Fields |
@@ -2633,7 +2633,7 @@ The names are those the game registered with `RegisterFloat`, `RegisterInt`, `Re
 
 It records the cloud revision and content hash both sides held after the last sync, and when this device last wrote the local copy.
 
-<!-- format: leaderboard/selfhost#records -->
+<!-- format: online/leaderboard/selfhost#records -->
 ### Leaderboard records
 
 | Files | Version | Read and written by | Fields |
@@ -2864,7 +2864,7 @@ Ren: The sky is the same size. #line:obs_06
 
 ## Binary files
 
-Media that is binary by nature stays binary: images (PNG), sound (WAV, AAC, MP3), font pages, glTF buffers and `.glb` files, and KTX2 textures that `game assets` encodes. So do the packets of `net`, which are data on the wire, and a fighting recognizer's rollback state, which lives in memory. Every one of them is described by a text file above where it needs settings: an import settings sidecar, `game.yaml` or a glTF document.
+Media that is binary by nature stays binary: images (PNG), sound (WAV, AAC, MP3), font pages, glTF buffers and `.glb` files, and KTX2 textures that `game assets` encodes. So do the packets of `online/netplay`, which are data on the wire, and a fighting recognizer's rollback state, which lives in memory. Every one of them is described by a text file above where it needs settings: an import settings sidecar, `game.yaml` or a glTF document.
 
 ## Keeping this page current
 

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/accounts/token"
-	"github.com/nsgo-dev/game/pkg/cloudsave"
+	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/cloudsave"
 )
 
 func TestInitWritesDefaultConfigOnce(t *testing.T) {

@@ -3,7 +3,7 @@ package main
 import (
 	_ "embed"
 
-	"github.com/nsgo-dev/game/pkg/achievements"
+	"github.com/nsgo-dev/game/pkg/online/achievements"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

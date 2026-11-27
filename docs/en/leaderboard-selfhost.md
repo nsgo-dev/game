@@ -1,7 +1,7 @@
 # leaderboard/selfhost
 
 ```go
-import "github.com/nsgo-dev/game/pkg/leaderboard/selfhost"
+import "github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 ```
 
 `leaderboard/selfhost` is a self-hostable leaderboard service for games that run on several platforms or on platforms without a game service (the web, Windows, Linux). Where [`leaderboard`](leaderboard.md) shows Game Center's and Play Games' own boards, this service keeps one board for every platform, keyed by the account the [account service](accounts.md) signs players in to, so a score from a browser and a score from a phone land on the same board.
@@ -85,7 +85,7 @@ pals, err := svc.Friends(ctx, "high-score", "", friendIDs)              // these
 
 Errors are `ErrUnknownBoard`, `ErrUnknownPeriod` (no such period, or no longer kept), `ErrNotRanked`, `ErrInvalidAccount`, `ErrScoreOutOfRange`, `ErrProofRequired`, `ErrInvalidProof`, `ErrProofExpired` and `ErrInvalidQuery`.
 
-Each period is an order-statistic skip list in memory, so every query costs O(log n) plus the entries it returns. On a board of a million accounts the benchmarks take about 7 µs for the top 100, 60 µs for 100 entries deep in the board, 40 µs around an account and 10 µs to submit (`go tool nsgo test ./leaderboard/selfhost -run '^$' -bench .`); a benchmark fails when a query takes more than 50 ms, and CI runs the query benchmarks on every pull request.
+Each period is an order-statistic skip list in memory, so every query costs O(log n) plus the entries it returns. On a board of a million accounts the benchmarks take about 7 µs for the top 100, 60 µs for 100 entries deep in the board, 40 µs around an account and 10 µs to submit (`go tool nsgo test ./pkg/online/leaderboard/selfhost -run '^$' -bench .`); a benchmark fails when a query takes more than 50 ms, and CI runs the query benchmarks on every pull request.
 
 ## Server-validated scores
 

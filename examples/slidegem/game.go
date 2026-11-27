@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
-	"github.com/nsgo-dev/game/pkg/achievements"
 	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/online/achievements"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/screen"

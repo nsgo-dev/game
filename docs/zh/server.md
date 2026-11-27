@@ -1,6 +1,6 @@
 # server
 
-`github.com/nsgo-dev/game/pkg/server` 在普通 Go 进程中以固定步长运行游戏更新，不需要 NSGo 应用、窗口、[`core.Scope`](loop.md) 或 cgo。
+`github.com/nsgo-dev/game/pkg/online/server` 在普通 Go 进程中以固定步长运行游戏更新，不需要 NSGo 应用、窗口、[`core.Scope`](loop.md) 或 cgo。
 
 游戏传给 [`game.Loop`](loop.md) 的 `Update` 函数在服务器上原样运行：两边都用相同的固定 `1/Rate` 步长，所以专用服务器与客户端共享同一套模拟。
 
@@ -97,7 +97,7 @@ g := server.NewGuard(server.Limits{
 	MaxMessageSize:     8 << 10,
 	MaxPendingReliable: 256 << 10,
 }, server.LimitDisconnect)
-g.Validate = func(peer net.PeerID, p net.Packet) error { return checkInput(p) }
+g.Validate = func(peer netplay.PeerID, p netplay.Packet) error { return checkInput(p) }
 action, err := g.Check(peer, packet)
 ```
 
@@ -110,42 +110,42 @@ action, err := g.Check(peer, packet)
 
 ## 点对点中继
 
-锁步与回滚会话是点对点的，但位于 NAT 之后或运行在浏览器里的玩家无法互相直连。`net.Relay` 负责转发他们的数据包：每个玩家用 `net.RelayTransport` 连接中继，中继把每一帧交给该玩家所在会话中被寻址的成员。
+锁步与回滚会话是点对点的，但位于 NAT 之后或运行在浏览器里的玩家无法互相直连。`netplay.Relay` 负责转发他们的数据包：每个玩家用 `netplay.RelayTransport` 连接中继，中继把每一帧交给该玩家所在会话中被寻址的成员。
 
 ```go
-relay, err := gamenet.NewRelay(gamenet.RelayConfig{
+relay, err := netplay.NewRelay(netplay.RelayConfig{
 	// 校验玩家的令牌并给出它加入的对局；返回错误的文本即拒绝原因。
-	Join: func(peer gamenet.PeerID, token []byte) (string, error) {
+	Join: func(peer netplay.PeerID, token []byte) (string, error) {
 		return matchOf(token)
 	},
 	MaxSessionPeers: 2,
 })
-auth := relay.Auth(gamenet.Auth{GracePeriod: 15 * time.Second})
-srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem", nil) // 或 gamenet.ListenUDPServer(":7777", 1, auth)
+auth := relay.Auth(netplay.Auth{GracePeriod: 15 * time.Second})
+srv, err := netplay.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem", nil) // 或 netplay.ListenUDPServer(":7777", 1, auth)
 go relay.Serve(ctx, srv)
 ```
 
 ```go
-cli, err := gamenet.DialWebSocket("wss://relay.example.com/", token) // 或 gamenet.DialUDP(addr, token)
-peerTx := gamenet.NewRelayTransport(cli, gamenet.RelayTransportConfig{})
+cli, err := netplay.DialWebSocket("wss://relay.example.com/", token) // 或 netplay.DialUDP(addr, token)
+peerTx := netplay.NewRelayTransport(cli, netplay.RelayTransportConfig{})
 // 等 peerTx.Peers() 列出对手之后：
-session := gamenet.NewRollbackSession(gamenet.RollbackConfig{Transport: peerTx, Sim: sim})
+session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, Sim: sim})
 ```
 
-- 中继运行在 `WebSocketServer` 或 `UDPServer` 之上，因此每个玩家都要先通过[连接握手](net.md#连接握手与重连)。`relay.Auth` 先运行基础 `Auth.Verify`（如果设置了），再运行 `Join`；会话名为空时以 `no session` 拒绝，会话已有 `MaxSessionPeers`（默认 8）名成员时以 `session full` 拒绝。
+- 中继运行在 `WebSocketServer` 或 `UDPServer` 之上，因此每个玩家都要先通过[连接握手](netplay.md#连接握手与重连)。`relay.Auth` 先运行基础 `Auth.Verify`（如果设置了），再运行 `Join`；会话名为空时以 `no session` 拒绝，会话已有 `MaxSessionPeers`（默认 8）名成员时以 `session full` 拒绝。
 - 帧只在同一会话的成员之间转发。发往其他会话成员、发往中继本身、发给发送者自己或格式错误的帧会被丢弃，并计入 `Stats().Dropped`；`RelayTransport.Send` 对会话外的 ID 返回 `ErrUnknownPeer`。
 - `Peers` 列出其他成员，包括处于宽限期内的成员，因此会话不会因为某个玩家正在重连而失去他。中继每秒重发一次成员列表，在 UDP 上丢失了更新的客户端也能跟上。
-- 对局进行中加入中继会话的玩家，在对局主机用 `AddPeer` 接纳之后参与对局；离开的玩家在主机调用 `RemovePeer` 之后不再被等待（见 [net 指南](net.md#对局中途加入与离开的玩家)）。
+- 对局进行中加入中继会话的玩家，在对局主机用 `AddPeer` 接纳之后参与对局；离开的玩家在主机调用 `RemovePeer` 之后不再被等待（见 [netplay 指南](netplay.md#对局中途加入与离开的玩家)）。
 - `ChannelReliableOrdered` 端到端可靠：每条消息按对端编号，接收方确认（并选择性确认其后 64 条），发送方在根据实测往返时间调整的超时之后重发缺失的消息。它在 UDP 上同样有效；玩家用内层传输的 `Reconnect` 重连期间中继没能送达的消息，会在玩家回来之后到达。每个对端最多有 1024 条消息等待确认，超过时 `Send` 返回 `ErrRelayBacklog`。对于在某条缺失消息之后先到的消息，接收方为每个对端最多保留 4 MB，其余的丢弃，等待发送方重发。`ChannelUnreliable` 的包只发送一次。
 - 当内层传输的 `Reconnect` 因宽限期已过或中继重启而把玩家作为新对端接纳、而不是恢复会话时，`RelayTransport` 会从头开始：即使中继再次分配了相同的 ID，它也会忘掉旧的成员和未确认的消息，并等待新会话的成员列表。
 - 确认与重发在 `Recv` 内进行，会话每个 tick 都会通过 `Poll` 调用它。
 - 中继从不读取负载。它为每个成员在独立的 goroutine 上写出，经由容量为 `QueueSize`（默认 256）帧的队列，因此慢速玩家只拖慢自己；超出队列的帧会被丢弃，其中的可靠消息由发送方重发。
 - 一个中继在其整个生命周期内只服务一个服务端，因此 WebSocket 玩家与 UDP 玩家不能同处一个会话；每种协议各运行一个中继。`Serve` 返回后可以在同一个服务端上再次调用，仍然连接着的玩家保留各自的会话。负载最多 `MaxRelayPayload` 字节。
-- 除非连接使用 `wss://`，中继能看到明文负载；[net 指南](net.md#连接握手与重连)中关于 UDP 握手的注意事项同样适用。
+- 除非连接使用 `wss://`，中继能看到明文负载；[netplay 指南](netplay.md#连接握手与重连)中关于 UDP 握手的注意事项同样适用。
 
 ### 中继延迟
 
-`game/net` 中的 `BenchmarkRelayRoundTrip` 在同一台机器上经回环接口测量 48 字节消息的往返时间。“直连”是客户端与其服务端，单程一跳；“经中继”是两个 `RelayTransport` 经本地中继通信，单程两跳，并像回滚一样使用可靠通道发送：
+`game/online/netplay` 中的 `BenchmarkRelayRoundTrip` 在同一台机器上经回环接口测量 48 字节消息的往返时间。“直连”是客户端与其服务端，单程一跳；“经中继”是两个 `RelayTransport` 经本地中继通信，单程两跳，并像回滚一样使用可靠通道发送：
 
 | 路径 | Linux x86-64，24 核 | macOS arm64，10 核 |
 | --- | --- | --- |
@@ -162,7 +162,7 @@ go tool nsgo test ./net -run '^$' -bench BenchmarkRelayRoundTrip
 
 ### WebRTC 数据通道
 
-决定：`game/net` 目前不实现带 STUN 的 WebRTC 数据通道；所有点对点会话都走中继。
+决定：`game/online/netplay` 目前不实现带 STUN 的 WebRTC 数据通道；所有点对点会话都走中继。
 
 - WebRTC 需要 ICE（含 STUN 与 TURN）、DTLS 和 SCTP。浏览器通过 `RTCPeerConnection` 提供这些能力，但原生平台需要全部用 Go 实现；NSGo 没有暴露平台的 WebRTC 栈，而唯一完整的 Go 实现是一个庞大的第三方栈，每个原生构建都得带上它。
 - 中继无论如何都需要：STUN 在移动运营商常见的对称型 NAT 后会失败，而 TURN 本身就是中继。信令同样需要服务端。
@@ -172,10 +172,10 @@ go tool nsgo test ./net -run '^$' -bench BenchmarkRelayRoundTrip
 
 ## TLS、Origin、健康检查与指标
 
-HTTPS 页面里的浏览器需要 `wss://`。`net.ListenWebSocketTLS` 用 TLS 包装 WebSocket 监听，并在升级时检查浏览器 Origin；`ListenWebSocketTLSFiles` 直接加载 PEM 证书与私钥。两者都接受与 `ListenWebSocket` 相同的 `Auth`（见[连接握手与重连](net.md#连接握手与重连)）：
+HTTPS 页面里的浏览器需要 `wss://`。`netplay.ListenWebSocketTLS` 用 TLS 包装 WebSocket 监听，并在升级时检查浏览器 Origin；`ListenWebSocketTLSFiles` 直接加载 PEM 证书与私钥。两者都接受与 `ListenWebSocket` 相同的 `Auth`（见[连接握手与重连](netplay.md#连接握手与重连)）：
 
 ```go
-srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem",
+srv, err := netplay.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem",
 	[]string{"https://game.example.com"})
 ```
 

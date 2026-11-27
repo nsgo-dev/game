@@ -1,7 +1,7 @@
 # 成就
 
 ```go
-import "github.com/nsgo-dev/game/pkg/achievements"
+import "github.com/nsgo-dev/game/pkg/online/achievements"
 ```
 
 `achievements` 用一个带版本号的 YAML 文件一次性声明游戏的成就，跟踪玩家在每个成就上的进度，并通过 NSGo 的 [`gameservices`](https://nsgo.dev/zh/docs/services/) 包上报：macOS、iOS 和 tvOS 上是 Game Center，Android 上是 Google Play 游戏服务（Play Games）。它只依赖 Go 标准库、NSGo 的公开 API 和本模块已经依赖的 YAML 库。

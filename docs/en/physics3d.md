@@ -332,7 +332,7 @@ sw.Step(dt)
 snap := world.Save()
 hash := world.Checksum()
 
-// Serialize to plain-text JSON (or store in a net.SimState rollback buffer):
+// Serialize to plain-text JSON (or store in a netplay.SimState rollback buffer):
 raw, _ := json.Marshal(snap)
 
 var restored physics3d.WorldSnapshot

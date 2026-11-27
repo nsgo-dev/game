@@ -1,7 +1,7 @@
 # Achievements
 
 ```go
-import "github.com/nsgo-dev/game/pkg/achievements"
+import "github.com/nsgo-dev/game/pkg/online/achievements"
 ```
 
 `achievements` declares a game's achievements once, in a versioned YAML file, tracks the player's progress toward them, and reports that progress through NSGo's [`gameservices`](https://nsgo.dev/docs/services/#game-services) package: Game Center on macOS, iOS and tvOS, and Google Play Games Services on Android. It uses only Go's standard library, NSGo's public API and the YAML library the module already depends on.

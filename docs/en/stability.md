@@ -72,13 +72,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
 | `game/pkg/ability` | Experimental | [ability](ability.md) |
-| `game/pkg/accounts` | Experimental | [accounts](accounts.md) |
-| `game/pkg/accounts/pgstore` | Experimental | [accounts](accounts.md) |
-| `game/pkg/accounts/sqlitestore` | Experimental | [accounts](accounts.md) |
-| `game/pkg/accounts/sqlstore` | Experimental | [accounts](accounts.md) |
-| `game/pkg/accounts/storetest` | Experimental | [accounts](accounts.md) |
-| `game/pkg/accounts/token` | Experimental | [accounts](accounts.md) |
-| `game/pkg/achievements` | Experimental | [achievements](achievements.md) |
 | `game/pkg/ai` | Stable | [ai](ai.md) |
 | `game/pkg/ai/perception3d` | Experimental | [ai](ai.md) |
 | `game/pkg/anim3d` | Experimental | [anim3d](anim3d.md) |
@@ -86,9 +79,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/assets` | Experimental | [assets](assets.md) |
 | `game/pkg/bullets` | Experimental | [bullets](bullets.md) |
 | `game/pkg/cards` | Experimental | [cards](cards.md) |
-| `game/pkg/cloudsave` | Experimental | [cloudsave](cloudsave.md) |
-| `game/pkg/cloudsave/sqlstore` | Experimental | [cloudsave](cloudsave.md) |
-| `game/pkg/cloudsave/storetest` | Experimental | [cloudsave](cloudsave.md) |
 | `game/pkg/cutscene` | Experimental | [cutscene](cutscene.md) |
 | `game/pkg/debug` | Experimental | [debug](debug.md) |
 | `game/pkg/editor` | Experimental | [editor](editor.md) |
@@ -107,10 +97,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/input` | Stable | [input](input.md) |
 | `game/pkg/inventory` | Experimental | [inventory](inventory.md) |
 | `game/pkg/l10n` | Experimental | [l10n](l10n.md) |
-| `game/pkg/leaderboard` | Experimental | [leaderboard](leaderboard.md) |
-| `game/pkg/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/pkg/lights2d` | Experimental | [lights2d](lights2d.md) |
-| `game/pkg/liveops` | Experimental | [liveops](liveops.md) |
 | `game/pkg/loaderr` | Stable | [Errors](errors.md) |
 | `game/pkg/loot` | Experimental | [loot](loot.md) |
 | `game/pkg/math2d` | Stable | [math2d](math2d.md) |
@@ -119,7 +106,22 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/modding` | Experimental | [modding](modding.md) |
 | `game/pkg/navbake` | Experimental | [navbake](navbake.md) |
 | `game/pkg/navbake3d` | Experimental | [navbake3d](navbake3d.md) |
-| `game/pkg/net` | Experimental | [net](net.md) |
+| `game/pkg/online/accounts` | Experimental | [accounts](accounts.md) |
+| `game/pkg/online/accounts/pgstore` | Experimental | [accounts](accounts.md) |
+| `game/pkg/online/accounts/sqlitestore` | Experimental | [accounts](accounts.md) |
+| `game/pkg/online/accounts/sqlstore` | Experimental | [accounts](accounts.md) |
+| `game/pkg/online/accounts/storetest` | Experimental | [accounts](accounts.md) |
+| `game/pkg/online/accounts/token` | Experimental | [accounts](accounts.md) |
+| `game/pkg/online/achievements` | Experimental | [achievements](achievements.md) |
+| `game/pkg/online/cloudsave` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/online/cloudsave/sqlstore` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/online/cloudsave/storetest` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/online/leaderboard` | Experimental | [leaderboard](leaderboard.md) |
+| `game/pkg/online/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
+| `game/pkg/online/liveops` | Experimental | [liveops](liveops.md) |
+| `game/pkg/online/netplay` | Experimental | [netplay](netplay.md) |
+| `game/pkg/online/presence` | Experimental | [presence](presence.md) |
+| `game/pkg/online/server` | Experimental | [server](server.md) |
 | `game/pkg/particles` | Experimental | [particles](particles.md) |
 | `game/pkg/perf` | Experimental | [perf](perf.md) |
 | `game/pkg/physics` | Stable | [physics](physics.md) |
@@ -149,7 +151,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
 | `game/pkg/platformer` | Experimental | [platformer](platformer.md) |
 | `game/pkg/playtest` | Experimental | [playtest](playtest.md) |
-| `game/pkg/presence` | Experimental | [presence](presence.md) |
 | `game/pkg/procgen` | Experimental | [procgen](procgen.md) |
 | `game/pkg/project` | Experimental | [Project File](project.md) |
 | `game/pkg/quality` | Experimental | [quality](quality.md) |
@@ -168,7 +169,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/sceneformat` | Experimental | [editor](editor.md) |
 | `game/pkg/scenemodel` | Experimental | [scenemodel](scenemodel.md) |
 | `game/pkg/screen` | Stable | [screen](screen.md) |
-| `game/pkg/server` | Experimental | [server](server.md) |
 | `game/pkg/skeletal` | Experimental | [skeletal](skeletal.md) |
 | `game/pkg/sound` | Stable | [sound](sound.md) |
 | `game/pkg/sprite` | Stable | [sprite](sprite.md) |

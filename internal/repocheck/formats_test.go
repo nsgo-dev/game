@@ -27,8 +27,8 @@ import (
 	"github.com/nsgo-dev/game/pkg/fog"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/l10n"
-	"github.com/nsgo-dev/game/pkg/leaderboard/selfhost"
-	"github.com/nsgo-dev/game/pkg/liveops"
+	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
+	"github.com/nsgo-dev/game/pkg/online/liveops"
 	"github.com/nsgo-dev/game/pkg/quest"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/tooling/apiref"
@@ -43,21 +43,21 @@ const jsonImport = "encoding/json"
 
 // notJSONFormats are the packages that decode JSON without defining a file format of their own, each with the reason, so the File Formats page need not list them. Every other package that decodes JSON must have an entry there.
 var notJSONFormats = map[string]string{
-	"accounts":            "decodes the JSON bodies of its HTTP API, which is data on the wire",
-	"accounts/token":      "decodes the JSON payload of a signed token, which is data on the wire",
-	"editor":              "reads meta.image from packed sprite atlas JSON files and decodes JSON RPC payloads of remote MCP profiler tool calls",
-	"editor/editormcp":    "decodes JSON arguments of the editor's MCP tool calls, which are RPC payloads on the wire",
-	"gameui":              "marshals and unmarshals settings values inside save.Settings.Custom, the format of the save#settings entry",
-	"idle":                "decodes a Number from a JSON value inside another format",
-	"internal/jsonedit":   "strictly decodes component edits sent through mcp tool calls, which are RPC payloads on the wire",
-	"internal/samplegltf": "validates the sample glTF models, glTF being the gltf entry's format",
-	"loaderr":             "decodes a document only to find a field's line and column for an error",
-	"mcp":                 "decodes JSON arguments and results of MCP automation tool calls, which are RPC payloads on the wire",
-	"physics3d":           "decodes a ConvexHull's geometry inside WorldSnapshot, an in-memory/JSON world snapshot for Save/Restore and rollback netcode rather than a standalone file format, as physics3d.SnapshotVersion explains",
-	"presence":            "decodes JSON frames of Discord's local IPC protocol, which are RPC messages on the wire",
-	"refs":                "scans other formats' JSON documents for file references",
-	"rooms":               "reads LDtk projects, the format of the tilemap#ldtk entry",
-	"tooling/assetcheck":  "scans other formats' JSON documents for asset references",
+	"online/accounts":       "decodes the JSON bodies of its HTTP API, which is data on the wire",
+	"online/accounts/token": "decodes the JSON payload of a signed token, which is data on the wire",
+	"editor":                "reads meta.image from packed sprite atlas JSON files and decodes JSON RPC payloads of remote MCP profiler tool calls",
+	"editor/editormcp":      "decodes JSON arguments of the editor's MCP tool calls, which are RPC payloads on the wire",
+	"gameui":                "marshals and unmarshals settings values inside save.Settings.Custom, the format of the save#settings entry",
+	"idle":                  "decodes a Number from a JSON value inside another format",
+	"internal/jsonedit":     "strictly decodes component edits sent through mcp tool calls, which are RPC payloads on the wire",
+	"internal/samplegltf":   "validates the sample glTF models, glTF being the gltf entry's format",
+	"loaderr":               "decodes a document only to find a field's line and column for an error",
+	"mcp":                   "decodes JSON arguments and results of MCP automation tool calls, which are RPC payloads on the wire",
+	"physics3d":             "decodes a ConvexHull's geometry inside WorldSnapshot, an in-memory/JSON world snapshot for Save/Restore and rollback netcode rather than a standalone file format, as physics3d.SnapshotVersion explains",
+	"online/presence":       "decodes JSON frames of Discord's local IPC protocol, which are RPC messages on the wire",
+	"refs":                  "scans other formats' JSON documents for file references",
+	"rooms":                 "reads LDtk projects, the format of the tilemap#ldtk entry",
+	"tooling/assetcheck":    "scans other formats' JSON documents for asset references",
 }
 
 // codeFormat is an entry of the File Formats page for a format that is not a YAML format with conformance checks: a JSON format, a Yarn script or another tool's format.
@@ -74,42 +74,42 @@ type codeFormat struct {
 
 // codeFormats are the entries of the File Formats page that formattest.Run does not check, by ID. Every entry is either the Doc of a formattest.Format or listed here.
 var codeFormats = map[string]codeFormat{
-	"save":                         {decl: "Store.Load", lang: "json", read: readSaveSlot},
-	"save#settings":                {decl: "SettingsStore.Load", lang: "json", read: readSettings},
-	"worldmap#state":               {decl: "State.UnmarshalJSON", lang: "json", read: readStrict[worldmap.State]},
-	"fog":                          {decl: "Fog.UnmarshalJSON", lang: "json", read: readStrict[fog.Fog]},
-	"entities":                     {decl: "World.Restore", lang: "json", read: readWorldSnapshot},
-	"input":                        {decl: "Actions.Load", lang: "json", read: readInputBindings},
-	"debug":                        {decl: "Console.LoadTunables", lang: "json", read: readTunables},
-	"tooling/devstate":             {decl: "Store.LoadSnapshot", lang: "json", read: readDevSnapshot},
-	"liveops":                      {decl: "DecodeCloudSave", lang: "json", read: readCloudSave},
-	"liveops#sync":                 {decl: "syncState", lang: "json", checkedBy: "TestSyncStateExamplesOnFormatsPage"},
-	"quest#snapshot":               {decl: "Snapshot", lang: "json", read: readQuestSnapshot},
-	"leaderboard/selfhost#records": {decl: "FileStore.Load", lang: "json", read: readLeaderboardRecords},
-	"l10n#catalog":                 {decl: "Catalog.LoadJSON", lang: "json", read: readStringTable},
-	"anim3d":                       {decl: "LoadEventsSidecar", lang: "json", read: readClipEvents},
-	"assets":                       {decl: "ParsePackManifest", lang: "json", read: readPackManifest},
-	"cmd/sizecheck":                {decl: "LoadBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
-	"cmd/sizecheck#mobile":         {decl: "LoadMobileBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
-	"tooling/apiref":               {decl: "Unmarshal", lang: "json", read: readAPIReference},
-	"flow":                         {decl: "ParseYarn", lang: "yarn", read: readYarn},
-	"tilemap":                      {decl: "LoadTiled"},
-	"tilemap#world":                {decl: "ParseTiledWorld"},
-	"tilemap#ldtk":                 {decl: "LoadLDtk"},
-	"sprite":                       {decl: "LoadAtlas"},
-	"text":                         {decl: "LoadBMFont"},
-	"gltf":                         {decl: "Load"},
-	"world3d":                      {decl: "LoadMeshLibraryFromGLTF"},
-	"debug#trace":                  {decl: "Profiler.WriteChromeTrace"},
+	"save":                                {decl: "Store.Load", lang: "json", read: readSaveSlot},
+	"save#settings":                       {decl: "SettingsStore.Load", lang: "json", read: readSettings},
+	"worldmap#state":                      {decl: "State.UnmarshalJSON", lang: "json", read: readStrict[worldmap.State]},
+	"fog":                                 {decl: "Fog.UnmarshalJSON", lang: "json", read: readStrict[fog.Fog]},
+	"entities":                            {decl: "World.Restore", lang: "json", read: readWorldSnapshot},
+	"input":                               {decl: "Actions.Load", lang: "json", read: readInputBindings},
+	"debug":                               {decl: "Console.LoadTunables", lang: "json", read: readTunables},
+	"tooling/devstate":                    {decl: "Store.LoadSnapshot", lang: "json", read: readDevSnapshot},
+	"online/liveops":                      {decl: "DecodeCloudSave", lang: "json", read: readCloudSave},
+	"online/liveops#sync":                 {decl: "syncState", lang: "json", checkedBy: "TestSyncStateExamplesOnFormatsPage"},
+	"quest#snapshot":                      {decl: "Snapshot", lang: "json", read: readQuestSnapshot},
+	"online/leaderboard/selfhost#records": {decl: "FileStore.Load", lang: "json", read: readLeaderboardRecords},
+	"l10n#catalog":                        {decl: "Catalog.LoadJSON", lang: "json", read: readStringTable},
+	"anim3d":                              {decl: "LoadEventsSidecar", lang: "json", read: readClipEvents},
+	"assets":                              {decl: "ParsePackManifest", lang: "json", read: readPackManifest},
+	"cmd/sizecheck":                       {decl: "LoadBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
+	"cmd/sizecheck#mobile":                {decl: "LoadMobileBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
+	"tooling/apiref":                      {decl: "Unmarshal", lang: "json", read: readAPIReference},
+	"flow":                                {decl: "ParseYarn", lang: "yarn", read: readYarn},
+	"tilemap":                             {decl: "LoadTiled"},
+	"tilemap#world":                       {decl: "ParseTiledWorld"},
+	"tilemap#ldtk":                        {decl: "LoadLDtk"},
+	"sprite":                              {decl: "LoadAtlas"},
+	"text":                                {decl: "LoadBMFont"},
+	"gltf":                                {decl: "Load"},
+	"world3d":                             {decl: "LoadMeshLibraryFromGLTF"},
+	"debug#trace":                         {decl: "Profiler.WriteChromeTrace"},
 }
 
 // formatVersions maps each exported constant whose name ends in "Version" and that holds an integer, as "<package>.<name>", to the entry of the File Formats page for the format whose version it is, or to "" for one notFormatVersions explains. A versioned format the page lacks is found this way even when its package already has an entry for another format.
 var formatVersions = map[string]string{
 	"ability.CurrentVersion":                    "ability",
-	"accounts.ConfigVersion":                    "accounts",
-	"accounts/sqlstore.SchemaVersion":           "",
-	"accounts/token.KeySetVersion":              "accounts/token",
-	"achievements.CurrentVersion":               "achievements",
+	"online/accounts.ConfigVersion":             "online/accounts",
+	"online/accounts/sqlstore.SchemaVersion":    "",
+	"online/accounts/token.KeySetVersion":       "online/accounts/token",
+	"online/achievements.CurrentVersion":        "online/achievements",
 	"ai.BTFormatVersion":                        "ai#bt",
 	"ai.BTSnapshotVersion":                      "",
 	"ai.GOAPVersion":                            "ai#goap",
@@ -117,8 +117,8 @@ var formatVersions = map[string]string{
 	"animclip.StateMachineVersion":              "animclip",
 	"bullets.FormatVersion":                     "bullets",
 	"cards.FormatVersion":                       "cards",
-	"cloudsave.ConfigVersion":                   "cloudsave",
-	"cloudsave/sqlstore.SchemaVersion":          "",
+	"online/cloudsave.ConfigVersion":            "online/cloudsave",
+	"online/cloudsave/sqlstore.SchemaVersion":   "",
 	"cutscene.CurrentVersion":                   "cutscene",
 	"cutscene.MinVersion":                       "cutscene",
 	"editor.AgentThreadFileVersion":             "editor#agent-thread",
@@ -139,15 +139,15 @@ var formatVersions = map[string]string{
 	"inventory.CurrentVersion":                  "inventory",
 	"l10n.AssetManifestVersion":                 "l10n",
 	"l10n.StringTableVersion":                   "l10n#strings",
-	"leaderboard.CurrentVersion":                "leaderboard",
-	"leaderboard/selfhost.ConfigVersion":        "leaderboard/selfhost",
-	"liveops.CloudSaveVersion":                  "liveops",
+	"online/leaderboard.CurrentVersion":         "online/leaderboard",
+	"online/leaderboard/selfhost.ConfigVersion": "online/leaderboard/selfhost",
+	"online/liveops.CloudSaveVersion":           "online/liveops",
 	"loot.CurrentVersion":                       "loot",
 	"modding.ManifestVersion":                   "modding",
 	"modding.WorkshopMetadataVersion":           "modding#workshop",
 	"navbake.FormatVersion":                     "navbake",
 	"navbake3d.FormatVersion":                   "navbake3d",
-	"net.ReplicationVersion":                    "",
+	"online/netplay.ReplicationVersion":         "",
 	"particles.FormatVersion":                   "particles",
 	"physics.SnapshotVersion":                   "",
 	"physics3d.SnapshotVersion":                 "",
@@ -204,15 +204,15 @@ var formatVersions = map[string]string{
 
 // notFormatVersions are the version constants formatVersions maps to no entry, each with the reason.
 var notFormatVersions = map[string]string{
-	"accounts/sqlstore.SchemaVersion":  "the version of a PostgreSQL schema, which lives in the database",
-	"ai.BTSnapshotVersion":             "the version of in-memory/JSON behavior tree snapshots saved inside game save slots rather than a standalone file format; docs/en/ai.md documents it",
-	"cloudsave/sqlstore.SchemaVersion": "the version of a PostgreSQL schema, which lives in the database",
-	"flow.MachineSnapshotVersion":      "the version of in-memory/JSON state machine snapshots saved inside game save slots rather than a standalone file format; docs/en/flow.md documents it",
-	"internal/samplegltf.GLBVersion":   "the version of the binary glTF container, the gltf entry's format, that the sample models are checked against",
-	"net.ReplicationVersion":           "the version of the replication protocol on the wire between a ServerWorld and its ClientWorlds, which no file holds; docs/en/net.md documents it",
-	"physics.SnapshotVersion":          "the version of in-memory/JSON 2D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics.md documents it",
-	"physics3d.SnapshotVersion":        "the version of in-memory/JSON 3D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics3d.md documents it",
-	"vehicle.SnapshotVersion":          "the version of in-memory/JSON vehicle simulation snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/determinism.md documents it",
+	"online/accounts/sqlstore.SchemaVersion":  "the version of a PostgreSQL schema, which lives in the database",
+	"ai.BTSnapshotVersion":                    "the version of in-memory/JSON behavior tree snapshots saved inside game save slots rather than a standalone file format; docs/en/ai.md documents it",
+	"online/cloudsave/sqlstore.SchemaVersion": "the version of a PostgreSQL schema, which lives in the database",
+	"flow.MachineSnapshotVersion":             "the version of in-memory/JSON state machine snapshots saved inside game save slots rather than a standalone file format; docs/en/flow.md documents it",
+	"internal/samplegltf.GLBVersion":          "the version of the binary glTF container, the gltf entry's format, that the sample models are checked against",
+	"online/netplay.ReplicationVersion":       "the version of the replication protocol on the wire between a ServerWorld and its ClientWorlds, which no file holds; docs/en/netplay.md documents it",
+	"physics.SnapshotVersion":                 "the version of in-memory/JSON 2D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics.md documents it",
+	"physics3d.SnapshotVersion":               "the version of in-memory/JSON 3D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics3d.md documents it",
+	"vehicle.SnapshotVersion":                 "the version of in-memory/JSON vehicle simulation snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/determinism.md documents it",
 }
 
 // readStrict loads data as a T, refusing unknown fields and trailing data, for a type whose own UnmarshalJSON is the format's reader or that a save slot holds as it is.

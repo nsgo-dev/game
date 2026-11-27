@@ -4,7 +4,7 @@ import (
 	_ "embed"
 	"errors"
 
-	"github.com/nsgo-dev/game/pkg/leaderboard"
+	"github.com/nsgo-dev/game/pkg/online/leaderboard"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

@@ -1,7 +1,7 @@
 # Live operations
 
 ```go
-import "github.com/nsgo-dev/game/pkg/liveops"
+import "github.com/nsgo-dev/game/pkg/online/liveops"
 ```
 
 `liveops` holds provider-agnostic live operations primitives for NSGo games. It uses only Go's standard library, `github.com/nsgo-dev/game` and NSGo's public `core` and `cloud` APIs, and links no third-party crash, analytics, ad or payment SDKs.

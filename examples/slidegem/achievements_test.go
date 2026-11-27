@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/achievements"
+	"github.com/nsgo-dev/game/pkg/online/achievements"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gameservices"
 	"github.com/nsgo-dev/nsgo/nsgotest"

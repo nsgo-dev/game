@@ -34,7 +34,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `pixelfx` | `github.com/nsgo-dev/game/pkg/pixelfx` | [pixelfx](pixelfx.md) | pixelfx 像素风特效的 Go 移植：画笔、模拟和表演系统，按类别分包的特效（`pixelfx/fire`、`pixelfx/explosions` 等），换色、镜像与精灵表导出 |
 | `bullets` | `github.com/nsgo-dev/game/pkg/bullets` | [bullets](bullets.md) | 射击游戏弹幕（环形、螺旋、瞄准连发），由 YAML 定义，对象池复用并通过精灵批次绘制 |
 | `save` | `github.com/nsgo-dev/game/pkg/save` | [save](save.md) | 带版本号的 JSON 存档槽、结构迁移与原子备份恢复 |
-| `achievements` | `github.com/nsgo-dev/game/pkg/achievements` | [achievements](achievements.md) | 在带版本号的 YAML 中声明成就、只增不减并保存在 `core.Storage` 的进度，以及上报到 Game Center 和 Play Games |
+| `achievements` | `github.com/nsgo-dev/game/pkg/online/achievements` | [achievements](achievements.md) | 在带版本号的 YAML 中声明成就、只增不减并保存在 `core.Storage` 的进度，以及上报到 Game Center 和 Play Games |
 | `datatable` | `github.com/nsgo-dev/game/pkg/tooling/datatable` | [datatable](datatable.md) | 带版本号的 YAML（及 CSV/JSON）类型化数据表，单元格级错误、确定性保存与热重载 |
 | `debug` | `github.com/nsgo-dev/game/pkg/debug` | [debug](debug.md) | 帧耗时图、碰撞线框、场景检查器及 `-tags release` 零开销裁剪 |
 | `mcp` | `github.com/nsgo-dev/game/pkg/mcp` | [mcp](mcp.md) | 通过 `nsgo/automation` 注册的 MCP 工具，用于检查运行中的场景、图层、实体与组件 |
@@ -67,13 +67,13 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `l10n` | `github.com/nsgo-dev/game/pkg/l10n` | [l10n](l10n.md) | 支持 CLDR 复数的 JSON 字符串表、脚本 `FontSet`、RTL 视觉排序与多语言资源目录 |
 | `perf` | `github.com/nsgo-dev/game/pkg/perf` | [perf](perf.md) | 零分配 `Pool`/`Arena`/`SlicePool`、`SpatialHash`、`Quadtree` 与 `CullBatch` |
 | `idle` | `github.com/nsgo-dev/game/pkg/idle` | [idle](idle.md) | 超出 float64 范围的 `Number`、带上限的离线收益，以及大数字的缩写、科学计数法与本地化格式 |
-| `net` | `github.com/nsgo-dev/game/pkg/net` | [net](net.md) | 跨平台 WebSocket/UDP/回环传输、服务端权威增量复制与锁步/回滚同步 |
-| `server` | `github.com/nsgo-dev/game/pkg/server` | [server](server.md) | 专用服务器无头固定步长 `Runner`：多场比赛独立速率、超时报告与有界信号停止 |
-| `accounts` | `github.com/nsgo-dev/game/pkg/accounts` | [accounts](accounts.md) | 可自行部署的玩家账号：游客升级为邮箱或绑定平台/OAuth 身份、argon2id 密码、SQLite/Postgres 存储，以及游戏服务器离线校验的 Ed25519 令牌 |
-| `cloudsave` | `github.com/nsgo-dev/game/pkg/cloudsave` | [cloudsave](cloudsave.md) | 置于 `liveops.CloudSync` 之后的自部署云存档：经 HTTPS 按账号划分的槽位、把并发保存变成冲突的条件写入、大小上限、可恢复的历史版本，以及 SQLite/Postgres 存储 |
-| `leaderboard` | `github.com/nsgo-dev/game/pkg/leaderboard` | [leaderboard](leaderboard.md) | 在 YAML 里一次性声明排行榜，通过 Game Center 或 Play 游戏服务提交分数并显示原生排行榜 |
-| `leaderboard/selfhost` | `github.com/nsgo-dev/game/pkg/leaderboard/selfhost` | [leaderboard/selfhost](leaderboard-selfhost.md) | 可自行部署的跨平台排行榜：总榜、日榜和周榜并保留往期，成绩由账号令牌认证、可选由游戏服务器签名，支持前 N 名、我附近和好友查询 |
-| `presence` | `github.com/nsgo-dev/game/pkg/presence` | [presence](presence.md) | 通过与平台无关的 `Activity` 与 `Manager` 在 Steam（经 purego 调用 `ISteamFriends`）和 Discord（纯 Go 本地 IPC v1）好友列表显示丰富状态 |
+| `netplay` | `github.com/nsgo-dev/game/pkg/online/netplay` | [netplay](netplay.md) | 跨平台 WebSocket/UDP/回环传输、服务端权威增量复制与锁步/回滚同步 |
+| `server` | `github.com/nsgo-dev/game/pkg/online/server` | [server](server.md) | 专用服务器无头固定步长 `Runner`：多场比赛独立速率、超时报告与有界信号停止 |
+| `accounts` | `github.com/nsgo-dev/game/pkg/online/accounts` | [accounts](accounts.md) | 可自行部署的玩家账号：游客升级为邮箱或绑定平台/OAuth 身份、argon2id 密码、SQLite/Postgres 存储，以及游戏服务器离线校验的 Ed25519 令牌 |
+| `cloudsave` | `github.com/nsgo-dev/game/pkg/online/cloudsave` | [cloudsave](cloudsave.md) | 置于 `liveops.CloudSync` 之后的自部署云存档：经 HTTPS 按账号划分的槽位、把并发保存变成冲突的条件写入、大小上限、可恢复的历史版本，以及 SQLite/Postgres 存储 |
+| `leaderboard` | `github.com/nsgo-dev/game/pkg/online/leaderboard` | [leaderboard](leaderboard.md) | 在 YAML 里一次性声明排行榜，通过 Game Center 或 Play 游戏服务提交分数并显示原生排行榜 |
+| `leaderboard/selfhost` | `github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost` | [leaderboard/selfhost](leaderboard-selfhost.md) | 可自行部署的跨平台排行榜：总榜、日榜和周榜并保留往期，成绩由账号令牌认证、可选由游戏服务器签名，支持前 N 名、我附近和好友查询 |
+| `presence` | `github.com/nsgo-dev/game/pkg/online/presence` | [presence](presence.md) | 通过与平台无关的 `Activity` 与 `Manager` 在 Steam（经 purego 调用 `ISteamFriends`）和 Discord（纯 Go 本地 IPC v1）好友列表显示丰富状态 |
 | `inventory` | `github.com/nsgo-dev/game/pkg/inventory` | [inventory](inventory.md) | YAML 道具定义、可堆叠的格子容器、带类型的装备槽与存档快照 |
 | `ability` | `github.com/nsgo-dev/game/pkg/ability` | [ability](ability.md) | YAML 技能集与逐步推进的 `Caster`：由输入动作触发的消耗、冷却、充能、施法与引导时间以及条件 |
 | `quest` | `github.com/nsgo-dev/game/pkg/quest` | [quest](quest.md) | YAML 任务书：收集/到达/击败/对话目标、前置任务与奖励，由总线事件推进并以快照存档 |

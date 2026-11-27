@@ -1,6 +1,6 @@
 # server
 
-`github.com/nsgo-dev/game/pkg/server` runs a game's fixed-step updates in a plain Go process, without an NSGo app, window, [`core.Scope`](loop.md) or cgo.
+`github.com/nsgo-dev/game/pkg/online/server` runs a game's fixed-step updates in a plain Go process, without an NSGo app, window, [`core.Scope`](loop.md) or cgo.
 
 The `Update` function a game hands to [`game.Loop`](loop.md) runs unchanged on the server: both step it with the same fixed `1/Rate` duration, so a dedicated server and the client share one simulation.
 
@@ -97,7 +97,7 @@ g := server.NewGuard(server.Limits{
 	MaxMessageSize:     8 << 10,
 	MaxPendingReliable: 256 << 10,
 }, server.LimitDisconnect)
-g.Validate = func(peer net.PeerID, p net.Packet) error { return checkInput(p) }
+g.Validate = func(peer netplay.PeerID, p netplay.Packet) error { return checkInput(p) }
 action, err := g.Check(peer, packet)
 ```
 
@@ -110,42 +110,42 @@ The guard is transport-agnostic: call `Check` at the packet loop and act on the 
 
 ## Peer-to-peer relay
 
-Lockstep and rollback sessions are peer-to-peer, but players behind NAT or in a browser cannot reach each other. `net.Relay` forwards their packets: each player connects to the relay with a `net.RelayTransport`, and the relay passes each frame to the member of the player's session it is addressed to.
+Lockstep and rollback sessions are peer-to-peer, but players behind NAT or in a browser cannot reach each other. `netplay.Relay` forwards their packets: each player connects to the relay with a `netplay.RelayTransport`, and the relay passes each frame to the member of the player's session it is addressed to.
 
 ```go
-relay, err := gamenet.NewRelay(gamenet.RelayConfig{
+relay, err := netplay.NewRelay(netplay.RelayConfig{
 	// Check the player's token and name the match it joins; the error text is the rejection reason.
-	Join: func(peer gamenet.PeerID, token []byte) (string, error) {
+	Join: func(peer netplay.PeerID, token []byte) (string, error) {
 		return matchOf(token)
 	},
 	MaxSessionPeers: 2,
 })
-auth := relay.Auth(gamenet.Auth{GracePeriod: 15 * time.Second})
-srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem", nil) // or gamenet.ListenUDPServer(":7777", 1, auth)
+auth := relay.Auth(netplay.Auth{GracePeriod: 15 * time.Second})
+srv, err := netplay.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem", nil) // or netplay.ListenUDPServer(":7777", 1, auth)
 go relay.Serve(ctx, srv)
 ```
 
 ```go
-cli, err := gamenet.DialWebSocket("wss://relay.example.com/", token) // or gamenet.DialUDP(addr, token)
-peerTx := gamenet.NewRelayTransport(cli, gamenet.RelayTransportConfig{})
+cli, err := netplay.DialWebSocket("wss://relay.example.com/", token) // or netplay.DialUDP(addr, token)
+peerTx := netplay.NewRelayTransport(cli, netplay.RelayTransportConfig{})
 // Once peerTx.Peers() lists the opponent:
-session := gamenet.NewRollbackSession(gamenet.RollbackConfig{Transport: peerTx, Sim: sim})
+session := netplay.NewRollbackSession(netplay.RollbackConfig{Transport: peerTx, Sim: sim})
 ```
 
-- The relay runs on a `WebSocketServer` or `UDPServer`, so every player passes [the connection handshake](net.md#connection-handshake-and-reconnect) first. `relay.Auth` runs the base `Auth.Verify`, when set, and then `Join`; an empty session name is rejected with `no session`, and a session that already holds `MaxSessionPeers` (8 by default) with `session full`.
+- The relay runs on a `WebSocketServer` or `UDPServer`, so every player passes [the connection handshake](netplay.md#connection-handshake-and-reconnect) first. `relay.Auth` runs the base `Auth.Verify`, when set, and then `Join`; an empty session name is rejected with `no session`, and a session that already holds `MaxSessionPeers` (8 by default) with `session full`.
 - Frames go only between members of one session. A frame addressed to another session's peer, to the relay, to its sender, or malformed is dropped and counted in `Stats().Dropped`; `RelayTransport.Send` refuses an ID outside the session with `ErrUnknownPeer`.
 - `Peers` lists the other members, including members inside the grace period, so a session does not lose a player who is reconnecting. The relay sends the membership again every second, so a client whose update was lost on UDP catches up.
-- A player who joins the relay session while a match runs takes part once the match's host admits them with `AddPeer`, and one who leaves is no longer waited for once the host calls `RemovePeer` (see [the net guide](net.md#players-joining-and-leaving-mid-match)).
+- A player who joins the relay session while a match runs takes part once the match's host admits them with `AddPeer`, and one who leaves is no longer waited for once the host calls `RemovePeer` (see [the netplay guide](netplay.md#players-joining-and-leaving-mid-match)).
 - `ChannelReliableOrdered` is reliable end to end: each message is numbered per peer, the receiver acknowledges it (with a selective acknowledgement of the next 64), and the sender resends what is missing after a timeout adapted to the measured round trip. It works over UDP, and a message the relay could not deliver while a player reconnected with the inner transport's `Reconnect` arrives once the player is back. At most 1024 messages may wait for acknowledgement per peer; past that `Send` returns `ErrRelayBacklog`. A receiver holds at most 4 MB of one peer's messages that arrived ahead of a missing one and drops the rest until they are resent. `ChannelUnreliable` packets are sent once.
 - When the inner transport's `Reconnect` admits the player as a new peer instead of resuming, because the grace period passed or the relay restarted, the `RelayTransport` starts over: it forgets the old members and unacknowledged messages, even when the relay hands out the same ID again, and waits for the new session's membership.
 - Acknowledgements and resends happen inside `Recv`, which the sessions call every tick through `Poll`.
 - The relay never reads payloads. It writes to each member on that member's own goroutine through a queue of `QueueSize` frames (256 by default), so a slow player delays only itself; frames past the queue are dropped, and reliable ones are resent by their sender.
 - A relay serves one server for its lifetime, so WebSocket and UDP players cannot share a session; run one relay per protocol. `Serve` may be called again on the same server after it returns, and the players still connected keep their sessions. A payload is at most `MaxRelayPayload` bytes.
-- The relay sees payloads in the clear unless the connection is `wss://`; the handshake caveats for UDP in [the net guide](net.md#connection-handshake-and-reconnect) apply.
+- The relay sees payloads in the clear unless the connection is `wss://`; the handshake caveats for UDP in [the netplay guide](netplay.md#connection-handshake-and-reconnect) apply.
 
 ### Relay latency
 
-`BenchmarkRelayRoundTrip` in `game/net` measures the round trip of a 48-byte message on one machine over the loopback interface. "Direct" is a client and its server, one hop each way; "relay" is two `RelayTransport`s through a local relay, two hops each way, sending reliably as rollback does:
+`BenchmarkRelayRoundTrip` in `game/online/netplay` measures the round trip of a 48-byte message on one machine over the loopback interface. "Direct" is a client and its server, one hop each way; "relay" is two `RelayTransport`s through a local relay, two hops each way, sending reliably as rollback does:
 
 | Path | Linux x86-64, 24 cores | macOS arm64, 10 cores |
 | --- | --- | --- |
@@ -162,7 +162,7 @@ go tool nsgo test ./net -run '^$' -bench BenchmarkRelayRoundTrip
 
 ### WebRTC data channels
 
-Decision: `game/net` does not build WebRTC data channels with STUN now; the relay is the path for every peer-to-peer session.
+Decision: `game/online/netplay` does not build WebRTC data channels with STUN now; the relay is the path for every peer-to-peer session.
 
 - WebRTC needs ICE with STUN and TURN, DTLS and SCTP. Browsers provide them through `RTCPeerConnection`, but native targets would need all of them in Go; NSGo does not expose a platform WebRTC stack, and the only complete Go implementation is a large third-party stack that every native build would carry.
 - A relay is needed anyway: STUN fails behind symmetric NATs, common on mobile carriers, and TURN is itself a relay. Signaling also needs a server.
@@ -172,10 +172,10 @@ Revisit it when measurements show players near each other but far from every rel
 
 ## TLS, origins, health and metrics
 
-A browser on an HTTPS page needs `wss://`. `net.ListenWebSocketTLS` wraps the WebSocket listener in TLS and checks the browser Origin during the upgrade; `ListenWebSocketTLSFiles` loads a PEM certificate and key. Both take the same `Auth` as `ListenWebSocket` (see [the connection handshake](net.md#connection-handshake-and-reconnect)):
+A browser on an HTTPS page needs `wss://`. `netplay.ListenWebSocketTLS` wraps the WebSocket listener in TLS and checks the browser Origin during the upgrade; `ListenWebSocketTLSFiles` loads a PEM certificate and key. Both take the same `Auth` as `ListenWebSocket` (see [the connection handshake](netplay.md#connection-handshake-and-reconnect)):
 
 ```go
-srv, err := gamenet.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem",
+srv, err := netplay.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pem",
 	[]string{"https://game.example.com"})
 ```
 

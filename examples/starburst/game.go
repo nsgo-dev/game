@@ -7,7 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/input"
-	"github.com/nsgo-dev/game/pkg/leaderboard"
+	"github.com/nsgo-dev/game/pkg/online/leaderboard"
 	"github.com/nsgo-dev/game/pkg/quality"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"

@@ -1,7 +1,7 @@
 # leaderboard
 
 ```go
-import "github.com/nsgo-dev/game/pkg/leaderboard"
+import "github.com/nsgo-dev/game/pkg/online/leaderboard"
 ```
 
 `leaderboard` submits scores to and shows the platform's own leaderboards: Game Center on iOS, iPadOS, tvOS and macOS, and Play Games Services on Android. It is a thin layer over NSGo's [`gameservices`](https://github.com/nsgo-dev/nsgo/tree/main/gameservices) package that lets a game name its boards once in a YAML file instead of passing platform IDs around its code.

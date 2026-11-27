@@ -1,6 +1,6 @@
 # accounts
 
-`github.com/nsgo-dev/game/pkg/accounts` 是可自行部署的玩家账号服务。玩家以游客身份开始，之后可升级为邮箱账号，或绑定 OAuth 与平台身份（Game Center、Play Games、Steam），数据不会丢失；每台设备都会拿到短时效令牌，游戏服务器离线即可校验。
+`github.com/nsgo-dev/game/pkg/online/accounts` 是可自行部署的玩家账号服务。玩家以游客身份开始，之后可升级为邮箱账号，或绑定 OAuth 与平台身份（Game Center、Play Games、Steam），数据不会丢失；每台设备都会拿到短时效令牌，游戏服务器离线即可校验。
 
 该服务是服务端代码，放在独立的包里。不导入它们的游戏客户端或游戏服务器不会链接它们的任何依赖（`golang.org/x/crypto` 的 argon2id、SQLite 与 Postgres 驱动）；只校验令牌的游戏服务器只导入 `accounts/token`，它只依赖标准库和 YAML 包。
 

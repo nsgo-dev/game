@@ -92,10 +92,10 @@ if err := json.Unmarshal(data, &saved); err == nil {
 
 对于单个流，使用 `s.State()` 和 `s.SetState(state)`。回放或重开关卡时，调用 `s.Reset()` 或 `streams.Reset()` 即可把流重置回初始种子起点。
 
-对于物理世界，`physics.World`、`physics.RigidWorld`、`physics3d.World` 以及 `vehicle.Vehicle` 均提供 `Save()`、`Restore(snap)` 和 `Checksum()`，完整捕获所有私有求解器状态（热启动冲量缓存、休眠计时器、上一帧插值姿态、活跃接触/触发器对集合以及关节状态）。快照支持纯文本 JSON 序列化，可直接接入 `net.RollbackSession`（`net.SimState`）：
+对于物理世界，`physics.World`、`physics.RigidWorld`、`physics3d.World` 以及 `vehicle.Vehicle` 均提供 `Save()`、`Restore(snap)` 和 `Checksum()`，完整捕获所有私有求解器状态（热启动冲量缓存、休眠计时器、上一帧插值姿态、活跃接触/触发器对集合以及关节状态）。快照支持纯文本 JSON 序列化，可直接接入 `netplay.RollbackSession`（`netplay.SimState`）：
 
 ```go
-// 在 net.SimState 实现中：
+// 在 netplay.SimState 实现中：
 func (s *MatchSim) Save() []byte {
 	data, _ := json.Marshal(s.world.Save())
 	return data

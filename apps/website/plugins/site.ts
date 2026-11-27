@@ -78,7 +78,6 @@ export function firstSentence(markdown: string): string {
 const CORE = new Set('game sprite sound input tilemap scene physics screen project refs assets resource text placeholder math2d save random entities sceneformat tileshape loaderr'.split(' '))
 const UI = new Set('gameui lights2d effects worldmap fog quality a11y l10n pixelfx'.split(' '))
 const TOOLS = new Set('cmd tooling debug mcp replay statedump perf modding editor gametest'.split(' '))
-const ONLINE = new Set('net server accounts cloudsave leaderboard presence achievements liveops'.split(' '))
 const ONLINE_CMDS = new Set(['accountsd', 'cloudsaved', 'leaderboardd'])
 const THREE_D = new Set('math3d scene3d anim3d world3d voxel render3d vehicle physics3d gltf navbake3d scenemodel'.split(' '))
 
@@ -89,7 +88,7 @@ export function category(pkgPath: string): PackageCategory {
   if (rest.endsWith('3d') || THREE_D.has(top)) return '3d'
   if (top === 'cmd' && ONLINE_CMDS.has(rest.split('/')[1] ?? '')) return 'online'
   if (TOOLS.has(top)) return 'tools'
-  if (ONLINE.has(top)) return 'online'
+  if (top === 'online') return 'online'
   if (UI.has(top)) return 'ui'
   if (CORE.has(top)) return 'core'
   return 'play'
