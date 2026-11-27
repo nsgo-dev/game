@@ -173,9 +173,25 @@ Author HUDs and menus as plain-text versioned YAML files (`*.screen.yaml`, publi
 A screen defines a `designWidth` × `designHeight` reference canvas (such as `640 × 360`), an optional `scaleMode` (`fit`, `fill`, `stretch`, or `integer`), and a tree of nodes (`vbox`, `hbox`, `label`, `button`, `sprite_row`, `color_rect`, `touch_stick`, `touch_button`, `container`, `image_progress`):
 
 - **Anchors and safe areas:** set `anchor` to one of nine points (`top_left`, `top_center`, `top_right`, `center_left`, `center`, `center_right`, `bottom_left`, `bottom_center`, `bottom_right`) or `fill`, `offset` (`x`, `y` inset inward from right/bottom edges), and `safeArea` (defaults to `true` for non-fill anchors and `false` for `fill`).
-- **Sizing and localized text:** store localization keys in `textKey` (never literal strings), use `sizeMode: fixed` with `width` or `sizeMode: fit_text` to grow with localized text, and set `padding`, `spacing`, `fontSize`, `textColor`, `background`, and `cornerRadius`.
-- **Focus order, touch areas, and device classes:** declare explicit 1-based `focusOrder` for keyboard/gamepad traversal, `touchHitSize` for expanded circular touch targets (`TouchButton`, `TouchStick`, `Button`), and `deviceClasses` (`phone`, `tablet`, `desktop`, `ultrawide`) to show controls only on matching devices.
+- **Sizing and localized text:** store localization keys in `textKey` (never literal strings), use `sizeMode: fixed` with `width` or `sizeMode: fit_text` to grow with localized text on `label` and `button` nodes, and style nodes with the fields their type supports (listed below).
+- **Focus order, touch areas, and device classes:** declare explicit 1-based `focusOrder` for keyboard/gamepad traversal (`button`, `touch_button`), `touchHitSize` for expanded touch targets (`button`, `touch_stick`, `touch_button`), and `deviceClasses` (`phone`, `tablet`, `desktop`, `ultrawide`) to show controls only on matching devices. Nested `deviceClasses` intersect with their parent's allowed classes and must share at least one class with the parent; `ParseScreen` and `ValidateScreen` refuse disjoint combinations and unsupported fields per node type.
 - **Image-filled progress:** an `image_progress` node layers `under`, `progress`, and `over` image paths into an `ImageProgress`, with `fill` (`left_to_right`, `right_to_left`, `top_to_bottom`, `bottom_to_top`, `center_h`, `center_v`, `clockwise`, `counter_clockwise`), `startAngle` and `span` for the radial fills, and `min`/`max`/`value` as the starting range. Game code updates the widget's `Value` at runtime.
+
+#### Supported fields by node type
+
+Every node supports `id`, `type`, `anchor`, `offset`, `safeArea`, `width`, `height`, and `deviceClasses`; every node type except `image_progress` also supports `background` (fill color on boxes/containers/labels/buttons/color rects, icon fallback color on `sprite_row`, ring base color on `touch_stick`). Type-specific fields are refused on node types that do not read them:
+
+| Node type | Additional supported fields |
+| --- | --- |
+| `vbox`, `hbox` | `children`, `padding`, `spacing`, `cornerRadius` |
+| `container` | `children`, `cornerRadius` |
+| `label` | `sizeMode`, `padding`, `textKey`, `fontSize`, `textColor`, `cornerRadius` |
+| `button` | `sizeMode`, `padding`, `textKey`, `fontSize`, `textColor`, `cornerRadius`, `focusOrder`, `touchHitSize` |
+| `sprite_row` | `spacing`, `sprite`, `spriteFrame`, `spriteCount` |
+| `color_rect` | `cornerRadius` |
+| `touch_stick` | `touchHitSize`, `textColor` (knob color) |
+| `touch_button` | `textKey`, `fontSize`, `textColor`, `focusOrder`, `touchHitSize` |
+| `image_progress` | `under`, `progress`, `over`, `fill`, `startAngle`, `span`, `min`, `max`, `value` |
 
 Build a parsed screen into a `gameui.Root` and `SpatialNavigator` at runtime with `BuildScreen`:
 

@@ -173,9 +173,25 @@ overlay.Sync(proj)
 屏幕文件声明 `designWidth` × `designHeight` 设计画布尺寸（例如 `640 × 360`）、可选的 `scaleMode`（`fit`、`fill`、`stretch`、`integer`）以及节点树（`vbox`、`hbox`、`label`、`button`、`sprite_row`、`color_rect`、`touch_stick`、`touch_button`、`container`、`image_progress`）：
 
 - **锚点与安全区**：通过 `anchor` 指定九宫格锚点（`top_left`、`top_center`、`top_right`、`center_left`、`center`、`center_right`、`bottom_left`、`bottom_center`、`bottom_right`）或 `fill`，通过 `offset`（右侧/底部锚点的正值向内缩进）设置偏移，并用 `safeArea` 控制是否保持在安全区内（非 `fill` 默认为 `true`，`fill` 默认为 `false`）。
-- **尺寸与本地化文本**：在 `textKey` 中存放本地化键而非字面文本，使用 `sizeMode: fixed` 搭配 `width` 或 `sizeMode: fit_text` 随翻译文本自适应宽度，并支持 `padding`、`spacing`、`fontSize`、`textColor`、`background` 与 `cornerRadius`。
-- **焦点顺序、触控热区与设备类别**：使用从 1 开始的 `focusOrder` 声明键盘/手柄焦点遍历顺序，使用 `touchHitSize` 设置扩展圆形触控热区（`TouchButton`、`TouchStick`、`Button`），并使用 `deviceClasses`（`phone`、`tablet`、`desktop`、`ultrawide`）按设备类别条件显示控件。
+- **尺寸与本地化文本**：在 `textKey` 中存放本地化键而非字面文本，在 `label` 与 `button` 节点上使用 `sizeMode: fixed` 搭配 `width` 或 `sizeMode: fit_text` 随翻译文本自适应宽度，并按节点类型支持的属性（见下表）设置样式。
+- **焦点顺序、触控热区与设备类别**：在 `button` 与 `touch_button` 上使用从 1 开始的 `focusOrder` 声明键盘/手柄焦点遍历顺序，在 `button`、`touch_stick` 与 `touch_button` 上使用 `touchHitSize` 设置扩展触控热区，并使用 `deviceClasses`（`phone`、`tablet`、`desktop`、`ultrawide`）按设备类别条件显示控件。嵌套节点的 `deviceClasses` 会与父节点取交集，且必须与父节点至少有一个重叠的设备类别；`ParseScreen` 与 `ValidateScreen` 会拒绝无交集的嵌套设备类别以及各节点类型不支持的字段。
 - **图像填充进度条**：`image_progress` 节点将 `under`、`progress`、`over` 三个图像路径叠加为 `ImageProgress`，支持 `fill`（`left_to_right`、`right_to_left`、`top_to_bottom`、`bottom_to_top`、`center_h`、`center_v`、`clockwise`、`counter_clockwise`）、径向填充的 `startAngle` 与 `span`，以及初始量程 `min`/`max`/`value`。游戏代码在运行时更新控件的 `Value`。
+
+#### 各节点类型支持的字段
+
+所有节点均支持 `id`、`type`、`anchor`、`offset`、`safeArea`、`width`、`height` 与 `deviceClasses`；除 `image_progress` 外的节点类型均支持 `background`（盒容器/容器/标签/按钮/纯色矩形的填充色、`sprite_row` 的图标回退色、`touch_stick` 的底环颜色）。节点类型未使用的字段会在校验时被拒绝：
+
+| 节点类型 | 额外支持的字段 |
+| --- | --- |
+| `vbox`、`hbox` | `children`、`padding`、`spacing`、`cornerRadius` |
+| `container` | `children`、`cornerRadius` |
+| `label` | `sizeMode`、`padding`、`textKey`、`fontSize`、`textColor`、`cornerRadius` |
+| `button` | `sizeMode`、`padding`、`textKey`、`fontSize`、`textColor`、`cornerRadius`、`focusOrder`、`touchHitSize` |
+| `sprite_row` | `spacing`、`sprite`、`spriteFrame`、`spriteCount` |
+| `color_rect` | `cornerRadius` |
+| `touch_stick` | `touchHitSize`、`textColor`（摇杆旋钮颜色） |
+| `touch_button` | `textKey`、`fontSize`、`textColor`、`focusOrder`、`touchHitSize` |
+| `image_progress` | `under`、`progress`、`over`、`fill`、`startAngle`、`span`、`min`、`max`、`value` |
 
 运行时调用 `BuildScreen` 将屏幕文件构建为 `gameui.Root` 与 `SpatialNavigator`：
 
