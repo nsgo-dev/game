@@ -61,7 +61,7 @@ func mergeTools() []Tool {
 		{
 			Name:        ToolMergeStatus,
 			Title:       "Inspect scene merge conflicts",
-			Description: "Inspect the active object-by-object scene merge conflict session (branches, conflicted objects, Mine/Theirs/Agent options and reasons, MERGED BY ID items, and resolution progress), or detect unmerged scene files in the open project's Git repository.",
+			Description: "Inspect the active object-by-object scene conflict session (Git operation, branches/commits, conflicted objects, Mine/Theirs/Agent options and reasons, MERGED BY ID items, and resolution progress), or detect unmerged scene files in the open project's Git repository (from merge, rebase, pull --rebase, cherry-pick, revert, or stash pop).",
 			InputSchema: []byte(mergeStatusSchema),
 			Action:      ActionRead,
 			Handler:     mergeStatus,
@@ -78,7 +78,7 @@ func mergeTools() []Tool {
 		{
 			Name:        ToolMergeFinish,
 			Title:       "Finish scene merge",
-			Description: "Write the resolved scene, run game check and a short playtest on the result, and stage and commit the Git merge once every conflict is resolved.",
+			Description: "Write the resolved scene, run game check and a short playtest on the result, and stage and finish the active Git operation (commit for merge, --continue for rebase/cherry-pick/revert, or stage-only for stash) once every conflict is resolved.",
 			InputSchema: []byte(mergeEmptySchema),
 			Action:      ActionRun,
 			targets:     mergeFinishTargets,
@@ -87,7 +87,7 @@ func mergeTools() []Tool {
 		{
 			Name:        ToolMergeAbort,
 			Title:       "Abort scene merge",
-			Description: "Abort the active Git merge, restoring the branch and working tree as they were, and close the conflict resolver.",
+			Description: "Abort the active Git merge, rebase, cherry-pick, revert, or stash conflict, restoring the branch and working tree as they were, and close the conflict resolver.",
 			InputSchema: []byte(mergeEmptySchema),
 			Action:      ActionRun,
 			Target:      mergeAbortTarget,
@@ -99,6 +99,7 @@ func mergeTools() []Tool {
 // MergeStatusResult is the structured payload returned by merge_status, merge_resolve, and merge_finish.
 type MergeStatusResult struct {
 	Open           bool                       `json:"open"`
+	Operation      editor.MergeOperation      `json:"operation,omitempty"`
 	ScenePath      string                     `json:"scenePath,omitempty"`
 	Mine           editor.MergeSideMeta       `json:"mine,omitempty"`
 	Theirs         editor.MergeSideMeta       `json:"theirs,omitempty"`
@@ -120,6 +121,7 @@ func snapshotMergeStatus(ed *editor.Editor) MergeStatusResult {
 		DetectedScenes: ed.DetectedMergeConflicts(),
 	}
 	if sess := ed.MergeSession(); sess != nil && ed.MergeConflictOpen() {
+		res.Operation = sess.Operation
 		res.ScenePath = sess.ScenePath
 		res.Mine = sess.Mine
 		res.Theirs = sess.Theirs
@@ -221,10 +223,37 @@ func mergeStatus(ctx context.Context, c *Call) (*Result, error) {
 			b.WriteString("No active scene merge conflicts.")
 		}
 	} else {
-		fmt.Fprintf(&b, "Merging %s into %s (%s): %d of %d conflicts resolved.",
-			out.Theirs.Branch, out.Mine.Branch, out.ScenePath, out.ResolvedCount, out.TotalConflicts)
-		if out.Finished && out.CommitSHA != "" {
-			fmt.Fprintf(&b, " Merged as %s.", out.CommitSHA)
+		switch out.Operation {
+		case editor.MergeOperationRebase:
+			fmt.Fprintf(&b, "Rebasing %s onto %s (%s): %d of %d conflicts resolved.",
+				out.Mine.Branch, out.Theirs.Branch, out.ScenePath, out.ResolvedCount, out.TotalConflicts)
+			if out.Finished && out.CommitSHA != "" {
+				fmt.Fprintf(&b, " Rebased as %s.", out.CommitSHA)
+			}
+		case editor.MergeOperationCherryPick:
+			fmt.Fprintf(&b, "Cherry-picking %s onto %s (%s): %d of %d conflicts resolved.",
+				out.Theirs.Branch, out.Mine.Branch, out.ScenePath, out.ResolvedCount, out.TotalConflicts)
+			if out.Finished && out.CommitSHA != "" {
+				fmt.Fprintf(&b, " Cherry-picked as %s.", out.CommitSHA)
+			}
+		case editor.MergeOperationRevert:
+			fmt.Fprintf(&b, "Reverting %s on %s (%s): %d of %d conflicts resolved.",
+				out.Theirs.Branch, out.Mine.Branch, out.ScenePath, out.ResolvedCount, out.TotalConflicts)
+			if out.Finished && out.CommitSHA != "" {
+				fmt.Fprintf(&b, " Reverted as %s.", out.CommitSHA)
+			}
+		case editor.MergeOperationStash:
+			fmt.Fprintf(&b, "Applying %s onto %s (%s): %d of %d conflicts resolved.",
+				out.Theirs.Branch, out.Mine.Branch, out.ScenePath, out.ResolvedCount, out.TotalConflicts)
+			if out.Finished {
+				b.WriteString(" Staged.")
+			}
+		default:
+			fmt.Fprintf(&b, "Merging %s into %s (%s): %d of %d conflicts resolved.",
+				out.Theirs.Branch, out.Mine.Branch, out.ScenePath, out.ResolvedCount, out.TotalConflicts)
+			if out.Finished && out.CommitSHA != "" {
+				fmt.Fprintf(&b, " Merged as %s.", out.CommitSHA)
+			}
 		}
 	}
 	return &Result{Text: b.String(), Structured: out}, nil
@@ -333,7 +362,18 @@ func mergeFinish(ctx context.Context, c *Call) (*Result, error) {
 	}
 	msg := "Finished merge."
 	if out.CommitSHA != "" {
-		msg = fmt.Sprintf("Merged as %s. %s", out.CommitSHA, out.VerifySummary)
+		switch out.Operation {
+		case editor.MergeOperationRebase:
+			msg = fmt.Sprintf("Rebased as %s. %s", out.CommitSHA, out.VerifySummary)
+		case editor.MergeOperationCherryPick:
+			msg = fmt.Sprintf("Cherry-picked as %s. %s", out.CommitSHA, out.VerifySummary)
+		case editor.MergeOperationRevert:
+			msg = fmt.Sprintf("Reverted as %s. %s", out.CommitSHA, out.VerifySummary)
+		default:
+			msg = fmt.Sprintf("Merged as %s. %s", out.CommitSHA, out.VerifySummary)
+		}
+	} else if out.Operation == editor.MergeOperationStash {
+		msg = strings.TrimSpace("Staged resolved scene. " + out.VerifySummary)
 	} else if out.VerifySummary != "" {
 		msg = out.VerifySummary
 	}
@@ -346,7 +386,11 @@ func mergeAbort(ctx context.Context, c *Call) (*Result, error) {
 		return nil, fmt.Errorf("merge_abort: %w", err)
 	}
 	var out MergeStatusResult
+	var op editor.MergeOperation
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if sess := ed.MergeSession(); sess != nil {
+			op = sess.Operation
+		}
 		if err := ed.AbortMerge(); err != nil {
 			return err
 		}
@@ -356,5 +400,16 @@ func mergeAbort(ctx context.Context, c *Call) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("merge_abort: %w", err)
 	}
-	return &Result{Text: "Merge aborted and branch restored.", Structured: out}, nil
+	abortMsg := "Merge aborted and branch restored."
+	switch op {
+	case editor.MergeOperationRebase:
+		abortMsg = "Rebase aborted and branch restored."
+	case editor.MergeOperationCherryPick:
+		abortMsg = "Cherry-pick aborted and branch restored."
+	case editor.MergeOperationRevert:
+		abortMsg = "Revert aborted and branch restored."
+	case editor.MergeOperationStash:
+		abortMsg = "Stash conflict aborted and working tree restored."
+	}
+	return &Result{Text: abortMsg, Structured: out}, nil
 }

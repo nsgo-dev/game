@@ -525,8 +525,8 @@ func (e *Editor) hasGitMergeInProgress(repoRoot string) bool {
 	if repoRoot == "" {
 		return false
 	}
-	_, err := e.runGit(repoRoot, "rev-parse", "--verify", "--quiet", "MERGE_HEAD")
-	return err == nil
+	_, active := e.detectGitConflictOp(repoRoot)
+	return active
 }
 
 // RefreshChangesCount updates the lightweight working-tree changed-file count displayed in the status bar.

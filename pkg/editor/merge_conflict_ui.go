@@ -112,43 +112,31 @@ func mergeHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 		if sess == nil {
 			return core.View{}
 		}
-		total := len(sess.Conflicts)
-		remaining := sess.RemainingCount()
 		allDone := sess.AllResolved()
 
 		pillBg := p.Warning.Fill
 		pillBorder := p.Warning.Edge
 		pillFg := p.Warning.Fg
 		pillIcon := lucide.GitMerge
-		progressText := fmt.Sprintf("Merging %s into %s · %d of %d objects need you",
-			sess.Theirs.Branch, sess.Mine.Branch, remaining, total)
+		progressText := sess.headerProgressText()
 		if sess.Finished {
 			pillBg = specAlpha(p.Added.Fg, 0.12)
 			pillBorder = specAlpha(p.Added.Fg, 0.45)
 			pillFg = p.Added.Fg
 			pillIcon = lucide.Check
-			if sess.CommitSHA != "" {
-				progressText = fmt.Sprintf("Merged %s into %s · %s", sess.Theirs.Branch, sess.Mine.Branch, sess.CommitSHA)
-			} else {
-				progressText = fmt.Sprintf("Merged %s into %s · verified", sess.Theirs.Branch, sess.Mine.Branch)
-			}
-		} else if allDone {
-			progressText = fmt.Sprintf("Merging %s into %s · ready to finish", sess.Theirs.Branch, sess.Mine.Branch)
 		}
 
-		finishLabel := fmt.Sprintf("Finish merge · %d left", remaining)
+		finishLabel := sess.finishButtonLabel()
 		finishBg := p.Line
 		finishFg := p.TextFaint
 		var finishBorder core.Color
 		var finishBorderW core.Points
 		if sess.Finished {
-			finishLabel = "Merged"
 			finishBg = specAlpha(p.Added.Fg, 0.12)
 			finishFg = p.Added.Fg
 			finishBorder = specAlpha(p.Added.Fg, 0.45)
 			finishBorderW = 1
 		} else if allDone {
-			finishLabel = "Finish merge"
 			finishBg = p.Accent.Fg
 			finishFg = p.Accent.OnFill
 		}
@@ -178,7 +166,7 @@ func mergeHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 		} else {
 			rightActions = append(rightActions, ui.Button{
 				TestID:  "merge-abort",
-				Text:    "Abort merge",
+				Text:    sess.abortButtonLabel(),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
 				Color:   func() core.Color { return p.LineRaised },
@@ -360,7 +348,7 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 				case MergeChoiceMine:
 					chipText = "Mine"
 				case MergeChoiceTheirs:
-					chipText = "Theirs"
+					chipText = sess.theirsChipLabel()
 				case MergeChoiceCustom:
 					chipText = "Custom"
 				}
@@ -656,6 +644,10 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 			focusedID = focused.ID
 		}
 
+		mineHeading := strings.ToUpper(sess.mineSideTitle())
+		theirsHeading := strings.ToUpper(sess.theirsSideTitle())
+		twoRowHeader := sess.effectiveOperation() != MergeOperationMerge
+
 		sideCard := func(testID, canvasID, title string, meta MergeSideMeta, selected bool, doc *sceneformat.SceneDoc, built *sceneformat.BuiltScene, side string, onPick func()) core.Node {
 			bg := p.Panel
 			border := p.Line
@@ -673,25 +665,74 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 					authorMeta = meta.Commit
 				}
 			}
-			return core.View{
-				TestID: testID,
-				Role:   core.RoleButton,
-				Label:  fmt.Sprintf("Pick %s (%s)", title, meta.Branch),
-				Style: core.Style{
-					FlexGrow:     1,
-					FlexBasis:    core.Pt(0),
-					Padding:      core.All(12),
-					Gap:          8,
-					CornerRadius: 12,
-					Background:   bg,
-					BorderWidth:  bw,
-					BorderColor:  border,
-					FocusVisible: p.FocusRing(2),
-				},
-				OnPress: func(core.PressEvent) {
-					onPick()
-				},
-				Children: []core.Node{
+			var headerNodes []core.Node
+			if twoRowHeader {
+				subRow := []core.Node{
+					core.Text{
+						Content: meta.Branch,
+						Style: core.Style{
+							FontFamily: "monospace",
+							FontSize:   11,
+							Color:      p.TextMuted,
+						},
+					},
+				}
+				if msg := truncateMergeText(strings.TrimSpace(meta.Message), 34); msg != "" {
+					subRow = append(subRow, core.Text{
+						Content: "· " + msg,
+						Style: core.Style{
+							FontSize: 11,
+							Color:    p.TextFaint,
+						},
+					})
+				}
+				headerNodes = []core.Node{
+					core.View{
+						Style: core.Style{
+							Gap: 2,
+						},
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{
+									Direction:  core.Row,
+									AlignItems: core.AlignCenter,
+									Gap:        8,
+								},
+								Children: []core.Node{
+									core.Text{
+										TestID:  testID + "-title",
+										Content: title,
+										Style: core.Style{
+											FontSize:      11,
+											FontWeight:    600,
+											LetterSpacing: 0.7,
+											Color:         p.TextPrimary,
+										},
+									},
+									core.View{Style: core.Style{FlexGrow: 1}},
+									core.Text{
+										Content: authorMeta,
+										Style: core.Style{
+											FontSize: 11.5,
+											Color:    p.TextFaint,
+										},
+									},
+								},
+							},
+							core.View{
+								Style: core.Style{
+									Direction:  core.Row,
+									AlignItems: core.AlignCenter,
+									Gap:        6,
+									Height:     core.Pt(16),
+								},
+								Children: subRow,
+							},
+						},
+					},
+				}
+			} else {
+				headerNodes = []core.Node{
 					core.View{
 						Style: core.Style{
 							Direction:  core.Row,
@@ -700,6 +741,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 						},
 						Children: []core.Node{
 							core.Text{
+								TestID:  testID + "-title",
 								Content: title,
 								Style: core.Style{
 									FontSize:      11,
@@ -726,6 +768,27 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 							},
 						},
 					},
+				}
+			}
+			return core.View{
+				TestID: testID,
+				Role:   core.RoleButton,
+				Label:  fmt.Sprintf("Pick %s (%s)", title, meta.Branch),
+				Style: core.Style{
+					FlexGrow:     1,
+					FlexBasis:    core.Pt(0),
+					Padding:      core.All(12),
+					Gap:          8,
+					CornerRadius: 12,
+					Background:   bg,
+					BorderWidth:  bw,
+					BorderColor:  border,
+					FocusVisible: p.FocusRing(2),
+				},
+				OnPress: func(core.PressEvent) {
+					onPick()
+				},
+				Children: append(headerNodes,
 					core.View{
 						Style: core.Style{
 							Width:        core.Pct(100),
@@ -747,7 +810,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 							},
 						},
 					},
-				},
+				),
 			}
 		}
 
@@ -801,12 +864,12 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 						FlexShrink: 0,
 					},
 					Children: []core.Node{
-						sideCard("merge-card-mine", "merge-canvas-mine", "MINE", sess.Mine, focusedChoice == MergeChoiceMine, sess.MineDoc, sess.mineBuilt, "mine", func() {
+						sideCard("merge-card-mine", "merge-canvas-mine", mineHeading, sess.Mine, focusedChoice == MergeChoiceMine, sess.MineDoc, sess.mineBuilt, "mine", func() {
 							if focusedID != "" {
 								ed.report(ed.ResolveMergeConflict(focusedID, MergeChoiceMine))
 							}
 						}),
-						sideCard("merge-card-theirs", "merge-canvas-theirs", "THEIRS", sess.Theirs, focusedChoice == MergeChoiceTheirs, sess.TheirsDoc, sess.theirsBuilt, "theirs", func() {
+						sideCard("merge-card-theirs", "merge-canvas-theirs", theirsHeading, sess.Theirs, focusedChoice == MergeChoiceTheirs, sess.TheirsDoc, sess.theirsBuilt, "theirs", func() {
 							if focusedID != "" {
 								ed.report(ed.ResolveMergeConflict(focusedID, MergeChoiceTheirs))
 							}
@@ -839,7 +902,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 									},
 								},
 								core.Text{
-									Content: fmt.Sprintf("what %s will be after the merge", sess.SceneName),
+									Content: sess.resultSubtitle(),
 									Style: core.Style{
 										FontSize: 12,
 										Color:    p.TextFaint,
@@ -1277,10 +1340,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 
 		var footer []core.Node
 		if sess.Finished {
-			mergedTitle := "Scene resolved and saved"
-			if sess.CommitSHA != "" {
-				mergedTitle = "Merged as " + sess.CommitSHA
-			}
+			mergedTitle := sess.resultCardTitle()
 			footer = []core.Node{
 				core.View{
 					TestID: "merge-result-card",
@@ -1372,6 +1432,20 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 }
 
 // --- 2D Scene Preview Canvas Rendering for MINE, THEIRS, and RESULT ---
+
+func truncateMergeText(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 1 {
+		return "…"
+	}
+	return strings.TrimSpace(string(runes[:maxRunes-1])) + "…"
+}
 
 func drawMergeScenePreview(
 	d *core.Drawing,

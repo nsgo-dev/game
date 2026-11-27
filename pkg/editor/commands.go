@@ -2100,9 +2100,9 @@ func (e *Editor) initBuiltinCommands() {
 		{
 			ID:          CmdMergeConflicts,
 			Label:       "Resolve Scene Merge Conflicts",
-			Description: "Open the object-by-object scene merge conflict resolver for an active Git merge",
+			Description: "Open the object-by-object scene conflict resolver for an active Git merge, rebase, cherry-pick, revert, or stash conflict",
 			Category:    "Project",
-			Keywords:    []string{"merge", "conflict", "git", "resolve", "scene", "agent"},
+			Keywords:    []string{"merge", "rebase", "cherry-pick", "revert", "stash", "conflict", "git", "resolve", "scene", "agent"},
 			Enabled:     func() bool { return !e.Playing() && (e.MergeConflictOpen() || e.Project != nil || e.FilePath != "") },
 			Checked:     func() bool { return e.MergeConflictOpen() },
 			Run: func() error {

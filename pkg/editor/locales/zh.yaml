@@ -278,7 +278,7 @@ strings:
   cmd.localization.label: 本地化字符串
   cmd.materialEditor.desc: 切换带 3D/2D 实时预览的材质编辑器面板
   cmd.materialEditor.label: 材质编辑器
-  cmd.mergeConflicts.desc: 为当前进行的 Git 合并打开逐对象场景合并冲突解决器
+  cmd.mergeConflicts.desc: 为当前进行的 Git 合并、变基、拣选、还原或储藏冲突打开逐对象场景冲突解决器
   cmd.mergeConflicts.label: 解决场景合并冲突
   cmd.navMesh2dOverlay.desc: 在 2D 视口中显示或隐藏已构建的 2D 导航网格多边形、门户与区域轮廓
   cmd.navMesh2dOverlay.label: 切换 2D 导航网格叠加层
