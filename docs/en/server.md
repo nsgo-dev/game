@@ -23,7 +23,7 @@ if err := r.Run(ctx); err != nil { ... }
 
 ## Ticks and overruns
 
-A match's step is `1/Rate` seconds (60 Hz when `Rate` is zero or negative). When `Update` runs longer than one step, `Runner` calls `OnOverrun` with the lateness and the number of whole steps it covers. Missed ticks are **not** caught up: the next tick is scheduled from the moment the slow update returns, so a slow update slows the match rather than producing a burst.
+A match's step is `1/Rate` seconds (60 Hz when `Rate` is zero or negative). `Runner` schedules each tick against a fixed deadline (`next += step`), so `Update`'s own runtime and minor timer jitter come out of the remaining step budget rather than slowing the tick rate. When an update finishes past the next tick's deadline, `Runner` calls `OnOverrun` with the lateness and the number of whole steps it covers (at least 1). Missed ticks are **not** caught up: the deadline resets to one step from the moment the slow update returns, so a slow update slows the match rather than producing a burst.
 
 ## Stopping
 

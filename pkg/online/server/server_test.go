@@ -3,8 +3,10 @@ package server_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/server"
@@ -96,4 +98,203 @@ func TestRunnerRejectsAMatchWithoutUpdate(t *testing.T) {
 			t.Fatal("nil Update was accepted")
 		}
 	}
+}
+
+func TestRunnerHoldsRateUnderHalfStepUpdate(t *testing.T) {
+	cases := []struct {
+		name       string
+		rate       int
+		updateCost time.Duration
+	}{
+		{name: "100Hz_5ms", rate: 100, updateCost: 5 * time.Millisecond},
+		{name: "60Hz_8ms", rate: 60, updateCost: 8 * time.Millisecond},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				step := time.Duration(int64(time.Second) / int64(tc.rate))
+				start := time.Now()
+				var ticks, overruns int
+				var lastTickStart time.Duration
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				r := &server.Runner{
+					OnOverrun: func(*server.Match, time.Duration, int) { overruns++ },
+					Matches: []*server.Match{{
+						Rate: tc.rate,
+						Update: func(dt time.Duration) {
+							if dt != step {
+								t.Errorf("dt = %v, want %v", dt, step)
+							}
+							ticks++
+							lastTickStart = time.Since(start)
+							time.Sleep(tc.updateCost)
+							if ticks == tc.rate {
+								cancel()
+							}
+						},
+					}},
+				}
+				if err := r.Run(ctx); err != nil {
+					t.Fatal(err)
+				}
+				if ticks != tc.rate {
+					t.Fatalf("ticks = %d, want %d", ticks, tc.rate)
+				}
+				if overruns != 0 {
+					t.Fatalf("overruns = %d, want 0", overruns)
+				}
+				wantLast := time.Duration(tc.rate) * step
+				if lastTickStart != wantLast {
+					t.Fatalf("last tick started at %v, want %v", lastTickStart, wantLast)
+				}
+			})
+		})
+	}
+}
+
+func TestRunnerOverrunResetsScheduleWithoutBurst(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		type overrunEvent struct {
+			lag    time.Duration
+			missed int
+		}
+		const step = 50 * time.Millisecond
+		updateCosts := []time.Duration{
+			80 * time.Millisecond,  // overruns by 30ms -> missed 1
+			20 * time.Millisecond,  // normal after overrun reset
+			180 * time.Millisecond, // overruns by 130ms -> missed 2
+			20 * time.Millisecond,  // normal after multi-step overrun reset
+		}
+		start := time.Now()
+		var starts []time.Duration
+		var overruns []overrunEvent
+		var stops int
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		r := &server.Runner{
+			OnOverrun: func(_ *server.Match, lag time.Duration, missed int) {
+				overruns = append(overruns, overrunEvent{lag: lag, missed: missed})
+			},
+			Matches: []*server.Match{{
+				Rate: 20,
+				Update: func(dt time.Duration) {
+					if dt != step {
+						t.Errorf("dt = %v, want %v", dt, step)
+					}
+					idx := len(starts)
+					starts = append(starts, time.Since(start))
+					time.Sleep(updateCosts[idx])
+					if idx == len(updateCosts)-1 {
+						cancel()
+					}
+				},
+				OnStop: func() { stops++ },
+			}},
+		}
+		if err := r.Run(ctx); err != nil {
+			t.Fatal(err)
+		}
+
+		// Tick 1: starts at 50ms, finishes at 130ms (overrun -> reset to 130+50=180ms).
+		// Tick 2: starts at 180ms, finishes at 200ms (deadline -> 180+50=230ms).
+		// Tick 3: starts at 230ms, finishes at 410ms (overrun -> reset to 410+50=460ms).
+		// Tick 4: starts at 460ms, finishes at 480ms, cancels.
+		wantStarts := []time.Duration{
+			50 * time.Millisecond,
+			180 * time.Millisecond,
+			230 * time.Millisecond,
+			460 * time.Millisecond,
+		}
+		if !slices.Equal(starts, wantStarts) {
+			t.Fatalf("tick starts = %v, want %v", starts, wantStarts)
+		}
+		wantOverruns := []overrunEvent{
+			{lag: 30 * time.Millisecond, missed: 1},
+			{lag: 130 * time.Millisecond, missed: 2},
+		}
+		if !slices.Equal(overruns, wantOverruns) {
+			t.Fatalf("overruns = %+v, want %+v", overruns, wantOverruns)
+		}
+		if stops != 1 {
+			t.Fatalf("OnStop calls = %d, want 1", stops)
+		}
+	})
+}
+
+func TestRunnerExactStepUpdateDoesNotOverrunOrSkip(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const step = 10 * time.Millisecond
+		start := time.Now()
+		var starts []time.Duration
+		var overruns, stops int
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		r := &server.Runner{
+			OnOverrun: func(*server.Match, time.Duration, int) { overruns++ },
+			Matches: []*server.Match{{
+				Rate: 100,
+				Update: func(time.Duration) {
+					starts = append(starts, time.Since(start))
+					time.Sleep(step)
+					if len(starts) == 5 {
+						cancel()
+					}
+				},
+				OnStop: func() { stops++ },
+			}},
+		}
+		if err := r.Run(ctx); err != nil {
+			t.Fatal(err)
+		}
+		wantStarts := []time.Duration{
+			10 * time.Millisecond,
+			20 * time.Millisecond,
+			30 * time.Millisecond,
+			40 * time.Millisecond,
+			50 * time.Millisecond,
+		}
+		if !slices.Equal(starts, wantStarts) {
+			t.Fatalf("tick starts = %v, want %v", starts, wantStarts)
+		}
+		if overruns != 0 {
+			t.Fatalf("overruns = %d, want 0", overruns)
+		}
+		if stops != 1 {
+			t.Fatalf("OnStop calls = %d, want 1", stops)
+		}
+	})
+}
+
+func TestRunnerCancelInsideOverrunStopsImmediately(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var ticks, overruns, stops int
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		r := &server.Runner{
+			OnOverrun: func(*server.Match, time.Duration, int) {
+				overruns++
+				cancel()
+			},
+			Matches: []*server.Match{{
+				Rate: 20,
+				Update: func(time.Duration) {
+					ticks++
+					time.Sleep(80 * time.Millisecond)
+				},
+				OnStop: func() { stops++ },
+			}},
+		}
+		if err := r.Run(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if ticks != 1 || overruns != 1 || stops != 1 {
+			t.Fatalf("ticks=%d overruns=%d stops=%d, want 1, 1, 1", ticks, overruns, stops)
+		}
+	})
 }

@@ -31,11 +31,12 @@ type Match struct {
 type Runner struct {
 	// Matches are the matches to run. A nil Update is an error.
 	Matches []*Match
-	// OnOverrun, when set, reports a tick whose Update ran longer than its
-	// interval. lag is the time past the interval and missed is how many whole
-	// intervals that covers. The runner does not catch up the missed ticks: the
-	// next tick is scheduled from now, so a slow update slows the match instead
-	// of running a burst.
+	// OnOverrun, when set, reports a tick that finished past the next tick's
+	// deadline. lag is the time past the deadline and missed is how many whole
+	// intervals that covers (at least 1). The runner does not catch up the
+	// missed ticks: the deadline resets to one interval from when the slow
+	// update returns, so a slow update slows the match instead of running a
+	// burst.
 	OnOverrun func(m *Match, lag time.Duration, missed int)
 }
 
@@ -45,7 +46,11 @@ func (m *Match) interval() time.Duration {
 	if rate <= 0 {
 		rate = 60
 	}
-	return time.Duration(int64(time.Second) / int64(rate))
+	step := time.Duration(int64(time.Second) / int64(rate))
+	if step <= 0 {
+		return time.Nanosecond
+	}
+	return step
 }
 
 // Run starts every match and blocks until ctx is canceled and each match has
@@ -81,6 +86,7 @@ func (r *Runner) Run(ctx context.Context) error {
 
 func (r *Runner) runMatch(ctx context.Context, m *Match) {
 	step := m.interval()
+	next := time.Now().Add(step)
 	timer := time.NewTimer(step)
 	defer timer.Stop()
 	for {
@@ -92,19 +98,29 @@ func (r *Runner) runMatch(ctx context.Context, m *Match) {
 		if ctx.Err() != nil {
 			return
 		}
-		start := time.Now()
 		m.Update(step)
-		if elapsed := time.Since(start); elapsed > step && r.OnOverrun != nil {
-			lag := elapsed - step
-			missed := int(lag / step)
-			if missed < 1 {
-				missed = 1
+		now := time.Now()
+		next = next.Add(step)
+		if now.After(next) {
+			if r.OnOverrun != nil {
+				lag := now.Sub(next)
+				missed := int(lag / step)
+				if missed < 1 {
+					missed = 1
+				}
+				r.OnOverrun(m, lag, missed)
+				now = time.Now()
 			}
-			r.OnOverrun(m, lag, missed)
+			if ctx.Err() != nil {
+				return
+			}
+			next = now.Add(step)
+			timer.Reset(step)
+			continue
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		timer.Reset(step)
+		timer.Reset(next.Sub(now))
 	}
 }
