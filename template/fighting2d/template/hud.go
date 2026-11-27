@@ -38,9 +38,10 @@ func (g *fightingGame) render() core.Node {
 		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Background: core.RGB(0x05060a)},
 		Children: []core.Node{
 			arena,
-			core.Show{When: func() bool { s := g.screen.Get(); return s == screenFight || s == screenPaused }, Then: func(*core.Scope) core.Node { return g.fightHUD() }},
+			core.Show{When: func() bool { s := g.screen.Get(); return s == screenFight || s == screenPaused || s == screenReconnect }, Then: func(*core.Scope) core.Node { return g.fightHUD() }},
 			core.Show{When: func() bool { return g.screen.Get() == screenTitle }, Then: func(*core.Scope) core.Node { return g.titleMenu() }},
 			core.Show{When: func() bool { return g.screen.Get() == screenPaused }, Then: func(*core.Scope) core.Node { return g.pauseMenu() }},
+			core.Show{When: func() bool { return g.screen.Get() == screenReconnect }, Then: func(*core.Scope) core.Node { return g.reconnectMenu() }},
 			core.Show{When: func() bool { return g.screen.Get() == screenResult }, Then: func(*core.Scope) core.Node { return g.resultMenu() }},
 		},
 	}
@@ -141,9 +142,14 @@ func (g *fightingGame) fightHUD() core.Node {
 			},
 		},
 		core.Text{
-			TestID:      "banner",
-			ContentFunc: func() string { return g.hud.Get().banner },
-			Style:       core.Style{Color: textColor, FontSize: 40, FontWeight: core.FontWeightBold},
+			TestID: "banner",
+			ContentFunc: func() string {
+				if g.screen.Get() != screenFight {
+					return ""
+				}
+				return g.hud.Get().banner
+			},
+			Style: core.Style{Color: textColor, FontSize: 40, FontWeight: core.FontWeightBold},
 		},
 		core.View{Style: core.Style{Height: core.Pt(40)}},
 	)
@@ -195,6 +201,48 @@ func (g *fightingGame) pauseMenu() core.Node {
 			button("quit-btn", "Quit", false, g.quit),
 		}},
 	))
+}
+
+// reconnectMenu waits for disconnected versus controllers to return or be replaced, or lets those players continue on the keyboard.
+func (g *fightingGame) reconnectMenu() core.Node {
+	return overlay("reconnect-menu", core.JustifyCenter, panel(
+		core.Text{
+			TestID:      "reconnect-title",
+			ContentFunc: func() string { return reconnectTitle(g.disconnected.Get()) },
+			Style:       core.Style{Color: textColor, FontSize: 22, FontWeight: core.FontWeightBold},
+		},
+		core.Text{
+			TestID:      "reconnect-hint",
+			ContentFunc: func() string { return reconnectHint(g.disconnected.Get()) },
+			Style:       core.Style{Color: mutedColor, FontSize: 13},
+		},
+		core.View{Style: core.Style{Direction: core.Row, Gap: 10}, Children: []core.Node{
+			button("continue-keyboard-btn", "Continue on keyboard", true, g.continueOnKeyboard),
+			button("quit-btn", "Quit", false, g.quit),
+		}},
+	))
+}
+
+func reconnectTitle(disc [2]bool) string {
+	switch {
+	case disc[0] && disc[1]:
+		return "Players 1 & 2: reconnect your controllers"
+	case disc[1]:
+		return "Player 2: reconnect your controller"
+	default:
+		return "Player 1: reconnect your controller"
+	}
+}
+
+func reconnectHint(disc [2]bool) string {
+	switch {
+	case disc[0] && disc[1]:
+		return "Reconnect them, press any button on a free controller, or continue on keyboard (Enter / Right Shift)."
+	case disc[1]:
+		return "Reconnect it, press any button on a free controller, or press Right Shift for keyboard."
+	default:
+		return "Reconnect it, press any button on a free controller, or press Enter for keyboard."
+	}
 }
 
 // resultMenu says who won and offers a rematch.

@@ -230,7 +230,7 @@ func (g *fightingGame) drawTouchControls(d *core.Drawing) {
 		}
 		cx, cy := float32(r.Origin.X+r.Size.Width/2), float32(r.Origin.Y+r.Size.Height/2)
 		fill := core.RGBA(0xffffff, 0.18)
-		if g.controls.actions[0].Pressed(b.action) {
+		if g.controls.pressed(0, b.action) {
 			fill = core.RGBA(0xffffff, 0.4)
 		}
 		d.SetFillColor(fill).BeginPath().Arc(cx, cy, float32(r.Size.Width)/2, 0, 2*math.Pi, false).Fill()

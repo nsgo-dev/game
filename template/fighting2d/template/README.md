@@ -20,7 +20,7 @@ It shows:
 | Heavy | K | / | Y / Triangle, B / Circle | H |
 | Start, pause | Enter | Right Shift | Start | Pause |
 
-Hold back, away from the opponent, to guard; hold down-back to guard low. A low (a crouching attack, Basalt's quake) must be guarded crouching and an overhead (a jumping attack) standing. Against the CPU, player 1 may use either side of the keyboard. On the title screen, each player's left and right pick a fighter, player 1's Start fights the CPU and player 2's starts a versus match; with two controllers connected, the first goes to player 1 and the second to player 2. F1 shows the hitboxes and hurtboxes in debug builds.
+Hold back, away from the opponent, to guard; hold down-back to guard low. A low (a crouching attack, Basalt's quake) must be guarded crouching and an overhead (a jumping attack) standing. Against the CPU, player 1 may use either side of the keyboard. On the title screen, each player's left and right pick a fighter, player 1's Start fights the CPU and player 2's starts a versus match; with two controllers connected, the first goes to player 1 and the second to player 2, and each player keeps its assigned controller throughout the match. If an assigned controller disconnects during a versus match, the fight pauses and prompts that player to reconnect it, press a button on a free controller, or continue on the keyboard. F1 shows the hitboxes and hurtboxes in debug builds.
 
 | Fighter | Moves |
 | --- | --- |
