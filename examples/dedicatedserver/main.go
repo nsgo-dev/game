@@ -1,6 +1,4 @@
-// Command dedicatedserver runs one fixed-step match in a plain Go process.
-// Build it with `go build ./server/cmd/dedicatedserver`; it needs no NSGo app,
-// window or cgo.
+// Command dedicatedserver runs one fixed-step match in a plain Go process. Build it with `go build ./examples/dedicatedserver`; it needs no NSGo app, window or cgo.
 package main
 
 import (

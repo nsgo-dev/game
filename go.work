@@ -26,6 +26,8 @@ use (
 	./examples/fountain
 	./examples/fieldmedic
 	./examples/lantern3d
+	./examples/dedicatedserver
+	./examples/vnsample
 	./tools/changelog
 	./tools/agenteval
 )

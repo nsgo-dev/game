@@ -14,7 +14,7 @@ go run ./cmd/gameapi -out api.json
 
 加上 `-html` 会附带渲染成 HTML 的文档注释，即网站页面显示的内容。参考内容取自 linux、macos、windows、android、ios 和 web 目标在开发构建中编译的文件；main 包、`internal` 目录和 `testdata` 不包括在内。
 
-每个库包还带有可运行的示例：`example_test.go` 中的 `Example` 函数，展示包中各类型的主要用法。它们随包的 Go doc 一起显示（例如在 pkg.go.dev 上），`go tool nsgo test` 会运行每个示例，并把它的输出与 `// Output:` 注释比对，所以与代码不再相符的示例会让测试失败。命令（`package main`，例如 `cmd/` 下的命令和 `server/cmd/dedicatedserver`）不带示例，因为它们没有可展示的导出 API；internal 包也不带，因为只有本模块自己导入它们。需要外部服务（例如 `accounts/pgstore` 的 Postgres 数据库）或正在运行的测试（例如 `accounts/storetest`）的示例不写 `// Output:` 注释，因此只编译、不运行。
+每个库包还带有可运行的示例：`example_test.go` 中的 `Example` 函数，展示包中各类型的主要用法。它们随包的 Go doc 一起显示（例如在 pkg.go.dev 上），`go tool nsgo test` 会运行每个示例，并把它的输出与 `// Output:` 注释比对，所以与代码不再相符的示例会让测试失败。命令（`package main`，例如 `cmd/` 下的命令）不带示例，因为它们没有可展示的导出 API；internal 包也不带，因为只有本模块自己导入它们。需要外部服务（例如 `accounts/pgstore` 的 Postgres 数据库）或正在运行的测试（例如 `accounts/storetest`）的示例不写 `// Output:` 注释，因此只编译、不运行。
 
 ## Loop
 

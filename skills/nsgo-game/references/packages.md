@@ -110,7 +110,6 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/quest` | Experimental | YAML quest books with objectives, prerequisites, rewards and event-bus progression |
 | `game/pkg/loot` | Experimental | Nested weighted drop tables in YAML with guaranteed drops and hard/soft pity |
 | `game/pkg/vn` | Experimental | Visual novel presenter (YAML cast, portraits, typewriter text, choices, backlog, auto/skip) |
-| `game/pkg/vn/cmd/vnsample` | Experimental | Sample executable demonstrating `game/vn` |
 | `game/pkg/idle` | Experimental | Big `Number` beyond float64, capped offline progress and localized formatting |
 
 ## Persistence, networking, liveops and modding
@@ -120,7 +119,6 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/save` | Stable | Versioned JSON save slots, schema migrations, player settings and atomic backup recovery |
 | `game/pkg/net` | Experimental | Cross-target WebSocket/UDP/loopback transports, snapshot replication, lockstep/rollback |
 | `game/pkg/server` | Experimental | Headless fixed-step `Runner` for dedicated game servers with multiple match loops |
-| `game/pkg/server/cmd/dedicatedserver` | Experimental | Example dedicated server binary built on `game/server` |
 | `game/pkg/liveops` | Experimental | Cloud sync interfaces (`CloudSync`), conflict handling and liveops helpers |
 | `game/pkg/accounts` | Experimental | Self-hosted player accounts, guest upgrades, OAuth/email, argon2id passwords |
 | `game/cmd/accountsd` | Experimental | Self-hosted accounts daemon |
