@@ -28,6 +28,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'packages',
       'stability',
       'errors',
+      'platforms',
       'shipping',
       'cli',
       'cli-reference',

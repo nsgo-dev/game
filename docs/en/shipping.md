@@ -62,7 +62,7 @@ Run `nsgo check` to vet your Go code (and any catalogs) across every target befo
 go tool nsgo check -target all
 ```
 
-Or check the 6 game platforms explicitly:
+Or check the six primary build targets explicitly:
 
 ```sh
 go tool nsgo check -target macos,windows,linux,web,ios,android
@@ -102,6 +102,8 @@ Pass `-installers=false` if you only want the raw unpacked app directories on de
 Most licenses an asset comes under, Creative Commons Attribution and the SIL Open Font License among them, ask for its author and license to be shipped with the game. Record them in the `credit` section of the import settings sidecar beside each asset (`hero.png.import.yaml`); `nsgo game release`, which runs `nsgo build` for every platform, then writes `CREDITS.md` beside the packages, for the store or download page, and refuses to build while an asset in `game.yaml`'s `assets` section has no credit. `nsgo game credits` checks the credits and prints the file without building; `nsgo game credits -out resources/CREDITS.md` before the release puts it in every package too, since `nsgo build` copies the `resources` folder into each one ([Command Line](cli.md#credits)). Assets the game loads from outside the `assets` section are not listed, so credit those yourself.
 
 ## Targets
+
+This table covers build packaging and store formats for the six primary build targets; see [Platform support](platforms.md) for which runtime features work on each target, the status of experimental targets (HarmonyOS, tvOS, watchOS and mini programs), and links to upstream gaps.
 
 | Platform | Target names | Direct build (`-channel direct`) | Store build (`-channel store`) | Host requirements |
 | --- | --- | --- | --- | --- |

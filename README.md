@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src=".github/banner.webp" alt="NSGo Game: write games in Go, ship one codebase to six platforms" width="100%">
+  <img src=".github/banner.webp" alt="NSGo Game: write games in Go, ship one codebase to six build targets" width="100%">
 </h1>
 
 <p align="center">
@@ -24,7 +24,7 @@ Your game draws into one NSGo view (`Canvas`, pixel buffer, shader, or GPU view)
 
 ## Highlights
 
-- **Pure Go, six platforms**: Ship one Go codebase to **macOS, iOS, Windows, Linux, Android and Web**—zero hand-written C or `cgo`.
+- **Pure Go, six build targets**: Ship one Go codebase to **macOS, iOS, Windows, Linux, Android and Web**—zero hand-written C or `cgo` ([Platform Support](docs/en/platforms.md)).
 - **Drawn game, native UI**: Render your world at 60 fps or display refresh rate in a single view while keeping scores, menus and dialogs native NSGo views.
 - **2D & 3D on one shared foundation**: Fixed-step `game.Loop`, input actions, sound mixer, assets, saves and scene transitions are shared between 2D and 3D—mix both freely in one game.
 - **Visual 2D & 3D scene editor**: Run `game editor` for a live viewport, scene hierarchy, inspector, transform gizmos, asset browser and Go plugin API ([Editor Guide](docs/en/editor.md)).
@@ -123,7 +123,7 @@ Try the examples directly in your browser in the [Playground](https://game.nsgo.
 | 3D & Blender Pipeline | [3D Models from Blender](docs/en/3d-models-blender.md) | [从 Blender 导入 3D 模型](docs/zh/3d-models-blender.md) |
 | AI Agents & MCP | [MCP](docs/en/mcp.md) · [Agent Skill](docs/en/agent-skill.md) | [MCP](docs/zh/mcp.md) · [智能体技能](docs/zh/agent-skill.md) |
 | Migrating from Another Engine | [Godot](docs/en/from-godot.md) · [Unity](docs/en/from-unity.md) · [Ebitengine](docs/en/from-ebitengine.md) | [Godot](docs/zh/from-godot.md) · [Unity](docs/zh/from-unity.md) · [Ebitengine](docs/zh/from-ebitengine.md) |
-| API Stability & Shipping | [API Stability](docs/en/stability.md) · [Building & Shipping](docs/en/shipping.md) | [API 稳定性](docs/zh/stability.md) · [构建与发布](docs/zh/shipping.md) |
+| API Stability, Platforms & Shipping | [API Stability](docs/en/stability.md) · [Platform Support](docs/en/platforms.md) · [Building & Shipping](docs/en/shipping.md) | [API 稳定性](docs/zh/stability.md) · [平台支持](docs/zh/platforms.md) · [构建与发布](docs/zh/shipping.md) |
 
 ## Repository Layout
 
@@ -149,11 +149,11 @@ game/
 
 ## Targets & Compatibility
 
-| `game` | Go | NSGo | Targets |
+| `game` | Go | NSGo | Build targets |
 | --- | --- | --- | --- |
-| `v0.1.0` | `1.27+` | `v0.3.4+` | macOS, iOS, Windows, Linux, Android, Web |
+| `v0.1.0` | `1.27+` | `v0.3.4+` | macOS, iOS, Windows, Linux, Android, Web ([feature matrix](docs/en/platforms.md)) |
 
-Consoles (Nintendo Switch, PlayStation and Xbox) are out of scope: their SDKs are under NDA and require C toolchains, whereas NSGo and this repository are pure Go with no hand-written C. See [Building and Shipping](docs/en/shipping.md) for signing, notarization, store packaging and cross-target `nsgo check`.
+Feature support and CI test coverage differ by target—see [Platform Support](docs/en/platforms.md) ([中文](docs/zh/platforms.md)) for the per-feature matrix, experimental targets (HarmonyOS, tvOS, watchOS and mini programs) and upstream gap links. Consoles (Nintendo Switch, PlayStation and Xbox) are out of scope: their SDKs are under NDA and require C toolchains, whereas NSGo and this repository are pure Go with no hand-written C. See [Building and Shipping](docs/en/shipping.md) for signing, notarization, store packaging and cross-target `nsgo check`.
 
 ## Contributing & License
 

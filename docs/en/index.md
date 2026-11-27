@@ -119,11 +119,11 @@ While the window is in the background, the loop runs no updates and the mixer pl
 
 ## Targets
 
-macOS, iOS, Windows, Linux, Android and the web. HarmonyOS, mini programs, watchOS and tvOS are outside the first stage.
+NSGo Game has six primary build targets—macOS, iOS, Windows, Linux, Android and the web—while HarmonyOS, mini programs, watchOS and tvOS remain experimental targets outside the first stage. Feature availability and CI test coverage differ across targets; see [Platform support](platforms.md) for the per-feature matrix and the upstream issues tracking each gap.
 
 Consoles (Nintendo Switch, PlayStation and Xbox) are out of scope: their SDKs are under NDA and need C toolchains, and NSGo and this repository are Go only, with no hand-written C.
 
-See [Building and Shipping](shipping.md) for icons, signing, notarization, store packaging and `nsgo check` across all six targets, and [Command Line](cli.md) for `nsgo game`, which packs atlases, converts audio, generates asset manifests, encodes textures, opens the scene editor, and builds all of a game's assets from `game.yaml`, rebuilding only what changed.
+See [Building and Shipping](shipping.md) for icons, signing, notarization, store packaging and `nsgo check` across all six build targets, and [Command Line](cli.md) for `nsgo game`, which packs atlases, converts audio, generates asset manifests, encodes textures, opens the scene editor, and builds all of a game's assets from `game.yaml`, rebuilding only what changed.
 
 ### VR and AR
 

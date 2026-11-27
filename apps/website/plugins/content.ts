@@ -177,6 +177,7 @@ const DOC_ORDER = [
   'sprite.md',
   'sound.md',
   '3d-models-blender.md',
+  'platforms.md',
   'shipping.md',
   'cli.md',
   'cli-reference.md',
