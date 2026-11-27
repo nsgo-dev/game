@@ -130,7 +130,7 @@ Try the examples directly in your browser in the [Playground](https://game.nsgo.
 ```text
 game/
 ├─ go.mod / go.work     Go module github.com/nsgo-dev/game (entry package game at root)
-├─ cmd/                 CLI binaries (game, nsgo-game, gameapi, gameschema, sizecheck, ...)
+├─ cmd/                 CLI binaries (game, nsgo-game, gameproject, sizecheck, ...)
 ├─ internal/            internal shared helpers and CLI implementation
 ├─ pkg/                 library subpackages (github.com/nsgo-dev/game/pkg/<name>)
 ├─ template/            16 Go-module starter templates for game new / nsgo init
@@ -140,6 +140,7 @@ game/
 ├─ docs/                bilingual site documentation (en/ and zh/)
 ├─ apps/website/        official site at https://game.nsgo.dev (TanStack Start + React)
 ├─ benchmarks/          bench baseline and package size budgets
+├─ tools/               contributor tooling module (changelog, agenteval, gameschema, gameapi)
 └─ changelog.d/         release changelog fragments
 ```
 

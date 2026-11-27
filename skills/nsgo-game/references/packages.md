@@ -161,13 +161,11 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/refs` | Experimental | Stable file UIDs, project index and reference-rewriting file moves |
 | `game/cmd/editor` | Experimental | Standalone desktop application entrypoint for the NSGo Game Editor |
 | `game/cmd/game` | Experimental | The `nsgo game` CLI |
-| `game/cmd/gameapi` | Experimental | Generates API reference JSON from package doc comments |
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |
-| `game/cmd/gameschema` | Experimental | Generates and checks published JSON Schemas for YAML formats |
 | `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for running `nsgo game` outside a module |
 | `game/cmd/sizecheck` | Experimental | Verifies WebAssembly and mobile package size budgets |
 | `game/cmd/wasmprobe` | Experimental | Probe app used to measure WebAssembly binary size per package |
-| `game/pkg/tooling/apiref` | Experimental | Go doc parser powering `cmd/gameapi` |
+| `game/pkg/tooling/apiref` | Experimental | Go doc parser powering `tools/gameapi` |
 | `game/pkg/tooling/assetbuild` | Experimental | Incremental asset pipeline driven by `game.yaml` |
 | `game/pkg/tooling/assetcheck` | Experimental | Validator for scenes, Tiled/LDtk maps, atlases and file references |
 | `game/pkg/tooling/audioconv` | Experimental | WAV normalization, resampling and WAV/AAC/MP3 conversion |

@@ -76,13 +76,13 @@ Schema 一次只看一个文件，因此跨越整个文档的规则仍由 `Parse
 
 ## 在 CI 中检查 Schema
 
-`cmd/gameschema` 把已发布的 Schema 写入 `apps/website/public/schemas`，网站在 `https://game.nsgo.dev/schemas/` 提供这些文件。修改某种格式的 Go 类型或文档注释后，在仓库根目录重新生成：
+`tools/gameschema` 把已发布的 Schema 写入 `apps/website/public/schemas`，网站在 `https://game.nsgo.dev/schemas/` 提供这些文件。修改某种格式的 Go 类型或文档注释后，在仓库根目录重新生成：
 
 ```sh
-go run ./cmd/gameschema
+go run ./tools/gameschema
 ```
 
-Check 工作流会运行 `go run ./cmd/gameschema -check`：提交的 Schema 与 Go 类型生成的结果不一致、缺少某个 Schema，或目录里有不再生成的 Schema 时都会失败。`cmd/gameschema` 中的一个测试在 `go tool nsgo test` 下做同样的检查。
+Check 工作流会运行 `go run ./tools/gameschema -check`：提交的 Schema 与 Go 类型生成的结果不一致、缺少某个 Schema，或目录里有不再生成的 Schema 时都会失败。`tools/gameschema` 中的一个测试在 `tools` 模块里运行 `go tool nsgo test` 时做同样的检查。
 
 ## 在 CI 中检查格式
 

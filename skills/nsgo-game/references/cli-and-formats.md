@@ -49,7 +49,6 @@ go get -tool github.com/nsgo-dev/game/cmd/game@latest
 
 ### Companion module tools
 
-- `go run github.com/nsgo-dev/game/cmd/gameschema` — regenerate or `-check` the published JSON Schemas (`scene.v1.json`, `scene.v2.json`, `tileset.v1.json`, `import.v1.json`, `voxel.v1.json`).
 - `go run github.com/nsgo-dev/game/cmd/gameproject` — format (`fmt`) and validate `game.yaml` against `nsgo.yaml`.
 - `go run github.com/nsgo-dev/game/cmd/sizecheck` — check WebAssembly and mobile package size budgets.
 

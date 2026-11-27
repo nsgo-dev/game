@@ -1,6 +1,6 @@
 // Command gameapi writes the exported API of a Go module's packages, read from their source and doc comments, as the JSON of package apiref: the reference the website renders as its API pages and publishes at /api.json for agents.
 //
-//	go run ./cmd/gameapi [-root dir] [-html] [-out file]
+//	go run ./tools/gameapi [-root dir] [-html] [-out file]
 //
 // It reads the module whose go.mod is in -root, the current directory by default, and writes to -out, or to standard output without it. -html adds each doc comment rendered as HTML, which the website's pages show; the published JSON leaves it out.
 package main

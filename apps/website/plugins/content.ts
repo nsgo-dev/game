@@ -395,7 +395,7 @@ function textOf(node: MdNode): string {
 
 // ---- API reference ----
 
-// The reference is what cmd/gameapi in the Go module writes: run with -html for the pages, which show each doc comment as HTML, and without it for API_JSON, the JSON published for agents. Without Go, a local build shows the reference as unavailable; a deploy needs it.
+// The reference is what tools/gameapi in the Go module writes: run with -html for the pages, which show each doc comment as HTML, and without it for API_JSON, the JSON published for agents. Without Go, a local build shows the reference as unavailable; a deploy needs it.
 
 const API_JSON = 'api.json'
 
@@ -426,8 +426,8 @@ async function buildApi(ctx: Context): Promise<ApiBuild> {
 
 function gameapi(ctx: Context, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('go', ['run', './cmd/gameapi', ...args], { cwd: ctx.goModule, maxBuffer: 256 << 20 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(`go run ./cmd/gameapi ${args.join(' ')}: ${stderr.trim() || error.message}`))
+    execFile('go', ['run', './tools/gameapi', ...args], { cwd: ctx.goModule, maxBuffer: 256 << 20 }, (error, stdout, stderr) => {
+      if (error) reject(new Error(`go run ./tools/gameapi ${args.join(' ')}: ${stderr.trim() || error.message}`))
       else resolve(stdout)
     })
   })

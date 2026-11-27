@@ -7,7 +7,7 @@ Contributions are welcome: bug fixes, new packages, examples, documentation, and
 ```
 game/
 ├─ go.mod / go.work  Go module github.com/nsgo-dev/game (entry package game at root)
-├─ cmd/              CLI binaries (game, nsgo-game, gameapi, gameschema, sizecheck, ...)
+├─ cmd/              CLI binaries (game, nsgo-game, gameproject, sizecheck, ...)
 ├─ internal/         internal shared helpers and CLI implementation
 ├─ pkg/              library subpackages (github.com/nsgo-dev/game/pkg/<name>)
 ├─ examples/         playable sample games built on the game layer
@@ -17,7 +17,7 @@ game/
 │  └─ zh/            the same pages in Simplified Chinese
 ├─ apps/website/     the site at https://game.nsgo.dev
 ├─ changelog.d/      changelog fragments, folded into CHANGELOG.md at release
-└─ tools/            one Go module of contributor tooling: changelog/ checks and folds the fragments, agenteval/ is the agent evaluation suite
+└─ tools/            one Go module of contributor tooling: changelog/ checks and folds the fragments, agenteval/ is the agent evaluation suite, gameschema/ writes and checks the published JSON Schemas, gameapi/ generates the API reference
 ```
 
 The root `go.work` links the root module, starter templates, examples and the tools module together. The `nsgo` CLI is declared as a `tool` dependency in the root `go.mod`, so run `go tool nsgo ...` directly from the repository root (just as CI does).

@@ -66,9 +66,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/cmd/cloudsaved` | Experimental | [cloudsave](cloudsave.md) |
 | `game/cmd/editor` | Experimental | [Scene Editor](editor.md) |
 | `game/cmd/game` | Experimental | [Command Line](cli.md) |
-| `game/cmd/gameapi` | Experimental | |
 | `game/cmd/gameproject` | Experimental | [Project File](project.md) |
-| `game/cmd/gameschema` | Experimental | [Schemas for YAML files](schemas.md) |
 | `game/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
