@@ -4,11 +4,11 @@ import (
 	_ "embed"
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/nsgo/core"
 )
 
-// gameYAML is Starburst's project file, which holds its settings: window, virtual resolution and input map.
+// gameYAML is Starburst's project file, which holds its settings: window, virtual resolution, input map and export presets.
 //
 //go:embed game.yaml
 var gameYAML []byte
@@ -25,11 +25,18 @@ var (
 	VirtualHeight = gameViewport.Height
 )
 
-// projectRegion returns the on-screen control region game.yaml binds to action, which the HUD draws.
-func projectRegion(action string) core.Bounds {
-	r, ok := gameProject.Region(action)
-	if !ok {
-		panic(fmt.Sprintf("starburst: game.yaml binds no region to action %q", action))
+// touchLayoutYAML is Starburst's on-screen touch controls: floating twin sticks for movement and aim/fire, and a round Nova button above the aim stick.
+//
+//go:embed controls.touch.yaml
+var touchLayoutYAML []byte
+
+// touchLayout is the parsed controls.touch.yaml.
+var touchLayout = mustParseTouchLayout(touchLayoutYAML)
+
+func mustParseTouchLayout(data []byte) input.TouchLayout {
+	l, err := input.ParseTouchLayout(data)
+	if err != nil {
+		panic(fmt.Sprintf("starburst: controls.touch.yaml: %v", err))
 	}
-	return r
+	return l
 }

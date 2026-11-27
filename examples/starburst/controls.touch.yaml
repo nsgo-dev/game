@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/touchlayout.v1.json
+version: 1
+reference: {width: 844, height: 390}
+maxScale: 1.5
+idleAfter: 4s
+idleAlpha: 0.45
+controls:
+  - id: move
+    kind: stick
+    anchor: bottomLeft
+    size: {width: 300, height: 220}
+    label: Move
+    axisX: move_x
+    axisY: move_y
+    deadZone: 0.15
+    floating: true
+    radius: 52
+  - id: aim
+    kind: stick
+    anchor: bottomRight
+    size: {width: 300, height: 220}
+    label: Aim and Fire
+    axisX: aim_x
+    axisY: aim_y
+    deadZone: 0.15
+    floating: true
+    radius: 52
+  - id: nova
+    kind: button
+    anchor: bottomRight
+    offset: {x: 48, "y": 232}
+    size: {width: 68, height: 68}
+    label: Nova
+    action: nova
+    text: NOVA

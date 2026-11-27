@@ -14,7 +14,7 @@ It demonstrates high-throughput 2D rendering (**1,000+ active moving sprites, bu
 - **Cross-Platform Input & Gamepad Readiness**:
   - **Keyboard**: `WASD` or Arrow keys to move, `Space` for Nova pulse, `T` for Stress 1000, `P` to Pause/Resume, `R` to Restart.
   - **Mouse**: Aim at cursor, Left-Click to fire (auto-aims nearest enemy when cursor is idle), Right-Click for Nova pulse.
-  - **Touch (`input.Actions`)**: Bottom-left virtual D-pad regions (`move_x` / `move_y` axes), right-half fire zone, and bottom-right Nova zone mapped through `screen.Viewport.ViewToGame`.
+  - **Touch (`input.TouchControls`)**: On-screen controls loaded from `controls.touch.yaml`: a floating left-half move stick (`move_x` / `move_y`), a floating right-half aim-and-fire stick (`aim_x` / `aim_y`, holding fire past its dead zone and returning to nearest-enemy auto-aim when released), and a round **NOVA** button above the aim stick. Shown automatically on touch devices (or on first touch) and hidden on keyboard input.
   - **Gamepad readiness**: Hardware gamepad bindings await [`nsgo#1049`](https://github.com/nsgo-dev/nsgo/issues/1049). `Arena.Control` (`ControlInput`) already accepts normalized `MoveX`/`MoveY`, `AimStickX`/`AimStickY`, `Fire`, and `Nova` per fixed step so gamepad sticks and triggers drop straight in with zero simulation changes.
 
 ## Leaderboard
@@ -35,6 +35,6 @@ go tool nsgo test ./...
 # Run the 1000-sprite benchmark
 go tool nsgo test -bench BenchmarkArena1000Sprites ./...
 
-# Cross-compile check across desktop, Android, and Web
-go tool nsgo check -target macos,windows,linux,android,web
+# Cross-compile check across desktop, Android, iOS, and Web
+go tool nsgo check -target macos,windows,linux,android,web,ios
 ```

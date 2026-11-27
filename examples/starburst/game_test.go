@@ -222,14 +222,18 @@ func TestHUDControlsPauseRestartAndInput(t *testing.T) {
 		t.Fatal("expected mouse hover over arena-view to enable world aim")
 	}
 
-	// Touch virtual pad region triggers move_left via input.Actions (mapped through Viewport.ViewToGame).
-	// In a 960x540 window (2x scale of 480x270), touchMoveLeftRect (8..52, 184..226) maps to view (16..104, 368..452).
+	// Touch move stick drags left via input.TouchControls -> input.Actions, and clears stale mouse world aim.
 	xBeforeTouch := gc.Arena.Player.X
-	finger := app.Touch("arena-view", core.Point{X: 60, Y: 410})
+	moveCenter := centerOf(touchControlFrame(t, gc, "move"))
+	finger := app.Touch("arena-view", moveCenter)
+	finger.Move(core.Point{X: moveCenter.X - 60, Y: moveCenter.Y})
 	app.Advance(250 * time.Millisecond)
 	finger.Lift()
 	if gc.Arena.Player.X >= xBeforeTouch {
-		t.Fatalf("expected touch left region to move player left: before=%v after=%v", xBeforeTouch, gc.Arena.Player.X)
+		t.Fatalf("expected move stick drag left to move player left: before=%v after=%v", xBeforeTouch, gc.Arena.Player.X)
+	}
+	if gc.Arena.Control.HasWorldAim {
+		t.Fatal("expected touch input to clear mouse world aim")
 	}
 
 	// Advance so combat scores points.
