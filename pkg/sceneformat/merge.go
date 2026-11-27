@@ -55,9 +55,11 @@ func (r *MergeResult) ConflictDoc(scenePath string) *ConflictDoc {
 //
 // base may be nil for an add/add merge where both branches created the scene
 // independently. ours and theirs must be non-nil valid SceneDoc values (and
-// base, if non-nil, must be valid). The combined result is validated with
-// Validate; a merged document that fails validation is reported as a
-// ConflictValidation conflict.
+// base, if non-nil, must be valid). The schema version merges monotonically to
+// the highest version across base, ours and theirs (never below base) rather
+// than conflicting when two branches upgrade independently. The combined result
+// is validated with Validate; a merged document that fails validation is
+// reported as a ConflictValidation conflict.
 func Merge(base, ours, theirs *SceneDoc) (*MergeResult, error) {
 	if ours == nil {
 		return nil, errors.New("sceneformat: merge: ours scene is nil")
@@ -120,7 +122,7 @@ func (m *sceneMerger) run() *MergeResult {
 
 	// 1. Top-level scene fields.
 	sceneSide := sideTracker{}
-	out.Version = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "version", m.base.Version, m.ours.Version, m.theirs.Version)
+	out.Version = mergeVersion(&sceneSide, m.base.Version, m.ours.Version, m.theirs.Version)
 	out.UID = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "uid", m.base.UID, m.ours.UID, m.theirs.UID)
 	out.Inherits = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "inherits", m.base.Inherits, m.ours.Inherits, m.theirs.Inherits)
 	out.Name = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "name", m.base.Name, m.ours.Name, m.theirs.Name)
@@ -208,6 +210,18 @@ func (s *sideTracker) side() string {
 	default:
 		return ""
 	}
+}
+
+// mergeVersion combines schema versions monotonically: it picks the highest
+// version across base, ours and theirs (never dropping below base) and never
+// emits a field conflict on version itself. Compatibility of the combined
+// document at that version is enforced by the post-merge Validate gate.
+func mergeVersion(st *sideTracker, base, ours, theirs int) int {
+	v := max(base, ours, theirs)
+	if v != base {
+		st.mark(ours > base, theirs > base)
+	}
+	return v
 }
 
 func mergeScalar[T comparable](m *sceneMerger, st *sideTracker, ctx conflictCtx, field string, base, ours, theirs T) T {
