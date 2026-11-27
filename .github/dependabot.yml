@@ -2,7 +2,7 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directories: ["/", "/examples/*"]
+    directories: ["/", "/examples/*", "/tools"]
     schedule:
       interval: daily
     commit-message:

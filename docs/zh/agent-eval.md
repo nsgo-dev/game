@@ -93,9 +93,9 @@ go run ./tools/agenteval \
 
 ## 定时 CI
 
-`.github/workflows/agent-eval.yml` 每天在 Depot（`depot-ubuntu-24.04-4`）上运行，也可通过 `workflow_dispatch` 手动触发，并在 `tools/agenteval/**`、`skills/nsgo-game/**` 或工作流本身变更时运行。它包含两个作业：
+`.github/workflows/agent-eval.yml` 每天在 Depot（`depot-ubuntu-24.04-4`）上运行，也可通过 `workflow_dispatch` 手动触发，并在 `tools/agenteval/**`、tools 模块的 `tools/go.mod` 与 `tools/go.sum`、`skills/nsgo-game/**` 或工作流本身变更时运行。它包含两个作业：
 
-1. **`eval`（参考解）**：在 Pull Request、推送到 `main`、`schedule` 与 `workflow_dispatch` 上运行。它先在 `tools/agenteval` 运行 `go tool nsgo test ./...`，再用 `-mode=reference` 评分参考解，把逐任务评分表与细项分解追加到 `$GITHUB_STEP_SUMMARY`，并上传 `agent-eval-reference-report`（`agent-eval-reference-report.json` 与 `agent-eval-reference-summary.md`）。
+1. **`eval`（参考解）**：在 Pull Request、推送到 `main`、`schedule` 与 `workflow_dispatch` 上运行。它先在 `tools` 模块运行 `go tool nsgo test ./agenteval/...`，再用 `-mode=reference` 评分参考解，把逐任务评分表与细项分解追加到 `$GITHUB_STEP_SUMMARY`，并上传 `agent-eval-reference-report`（`agent-eval-reference-report.json` 与 `agent-eval-reference-summary.md`）。
 2. **`eval-agent`（编程智能体）**：仅在 `schedule` 与 `workflow_dispatch` 上运行（不在不受信任的 Pull Request 上运行）。配置了仓库密钥或变量后，它会在起始工作区上针对暂存文档、技能与 MCP 配置运行真实编程智能体，把逐任务得分、轮次/工具调用数与细项分解输出到 `$GITHUB_STEP_SUMMARY`，并上传 `agent-eval-agent-report`（`agent-eval-agent-report.json` 与 `agent-eval-agent-summary.md`）。在 `auto` / 定时模式下，若尚未配置密钥，则会以 `-skip-if-unconfigured` 运行，在摘要中清晰记录 `SKIPPED` 而不导致 CI 失败。
 
 `eval-agent` 读取的仓库密钥与变量：

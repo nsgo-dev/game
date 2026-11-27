@@ -2,6 +2,16 @@ go 1.27.3
 
 use (
 	.
+	./examples/caverun
+	./examples/cryptquest
+	./examples/dedicatedserver
+	./examples/fieldmedic
+	./examples/fountain
+	./examples/lantern3d
+	./examples/slidegem
+	./examples/starburst
+	./examples/tutorial
+	./examples/vnsample
 	./template
 	./template/action3d
 	./template/cards2d
@@ -18,17 +28,5 @@ use (
 	./template/shmup2d
 	./template/towerdefense2d
 	./template/visualnovel
-	./examples/starburst
-	./examples/slidegem
-	./examples/cryptquest
-	./examples/caverun
-	./examples/tutorial
-	./examples/fountain
-	./examples/fieldmedic
-	./examples/lantern3d
-	./examples/dedicatedserver
-	./examples/vnsample
-	./tools/changelog
-	./tools/agenteval
+	./tools
 )
-
