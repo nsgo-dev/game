@@ -28,12 +28,13 @@ func newGameDir(t *testing.T, gameYAML string) string {
 	return dir
 }
 
-// recordNSGo replaces runNSGo for the test with one that records its arguments, asserts the release tag env is present, and returns err. It also stubs verifyRelease since no real binaries are produced.
+// recordNSGo replaces runNSGo for the test with one that records its arguments, asserts the release tag env is present, and returns err. It also stubs verifyRelease since no real binaries are produced and stubs releaseHost to AllTargetsHost so mock tests behave identically on macOS, Linux, and Windows CI.
 func recordNSGo(t *testing.T, err error) *[][]string {
 	t.Helper()
 	var calls [][]string
 	saved := runNSGo
 	savedVerify := verifyRelease
+	savedHost := releaseHost
 	runNSGo = func(args, env []string, stdout, stderr io.Writer) error {
 		if !slices.Contains(env, "GOFLAGS=-tags=release") {
 			t.Errorf("runNSGo env = %q, want GOFLAGS=-tags=release", env)
@@ -42,9 +43,11 @@ func recordNSGo(t *testing.T, err error) *[][]string {
 		return err
 	}
 	verifyRelease = func(*releaseplan.Plan) error { return nil }
+	releaseHost = releaseplan.AllTargetsHost
 	t.Cleanup(func() {
 		runNSGo = saved
 		verifyRelease = savedVerify
+		releaseHost = savedHost
 	})
 	return &calls
 }
@@ -60,8 +63,8 @@ func TestReleaseBuildsEveryPlatformByDefault(t *testing.T) {
 	if !reflect.DeepEqual(*calls, want) {
 		t.Fatalf("ran %q, want %q", *calls, want)
 	}
-	// Without an assets section, the command notes that it writes no credits file.
-	if stdout.Len() != 0 || stderr.String() != noCreditsNote+"\n" {
+	// Without sign.profile and an assets section, the command notes both the unsigned iOS build and the absent credits file.
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "ios is unsigned") || !strings.Contains(stderr.String(), noCreditsNote) {
 		t.Errorf("wrote stdout %q, stderr %q", stdout, stderr)
 	}
 }
@@ -269,9 +272,130 @@ func TestReleaseReportsAFailedBuild(t *testing.T) {
 	if code := run([]string{"release", dir}, a); code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
-	if got := stderr.String(); got != noCreditsNote+"\ngame release: nsgo build: exit status 1\n" {
+	if got := stderr.String(); !strings.Contains(got, noCreditsNote) || !strings.HasSuffix(got, "game release: nsgo build: exit status 1\n") {
 		t.Fatalf("stderr = %q", got)
 	}
+}
+
+func TestReleaseHostSkippingAndUnsignedIOS(t *testing.T) {
+	const templatePresets = `version: 1
+export:
+  output: dist
+  presets:
+    - platform: macos
+      targets: [macos_arm64]
+    - platform: windows
+      targets: [windows_x64]
+    - platform: linux
+      targets: [linux_x64, linux_arm64]
+    - platform: ios
+      targets: [ios]
+    - platform: android
+      targets: [android_arm64]
+    - platform: web
+`
+	t.Run("linux host skips Apple presets with messages and builds the rest", func(t *testing.T) {
+		dir := newGameDir(t, templatePresets)
+		calls := recordNSGo(t, nil)
+		releaseHost = func() *releaseplan.Host { return &releaseplan.Host{GOOS: "linux"} }
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"release", dir}, a); code != 0 {
+			t.Fatalf("exit %d (stderr: %s)", code, stderr)
+		}
+		want := [][]string{{"-C", dir, "tool", "nsgo", "build", "-target", "windows_x64,linux_x64,linux_arm64,android_arm64,web", "-output", "dist"}}
+		if !reflect.DeepEqual(*calls, want) {
+			t.Fatalf("ran %q, want %q", *calls, want)
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+		errText := stderr.String()
+		for _, wantLine := range []string{
+			"game release: skipped macos_arm64: needs macOS",
+			"game release: skipped ios: needs macOS with Xcode",
+		} {
+			if !strings.Contains(errText, wantLine) {
+				t.Errorf("stderr missing %q:\n%s", wantLine, errText)
+			}
+		}
+		if strings.Contains(errText, "ios is unsigned") {
+			t.Errorf("stderr must not report ios unsigned when ios was skipped:\n%s", errText)
+		}
+	})
+
+	t.Run("macOS without Xcode skips ios and builds macos plus cross-host targets", func(t *testing.T) {
+		dir := newGameDir(t, templatePresets)
+		calls := recordNSGo(t, nil)
+		releaseHost = func() *releaseplan.Host {
+			return &releaseplan.Host{GOOS: "darwin", HasAppleSDK: func(string) bool { return false }}
+		}
+		a, _, stderr := newTestApp(t)
+		if code := run([]string{"release", dir}, a); code != 0 {
+			t.Fatalf("exit %d (stderr: %s)", code, stderr)
+		}
+		want := [][]string{{"-C", dir, "tool", "nsgo", "build", "-target", "macos_arm64,windows_x64,linux_x64,linux_arm64,android_arm64,web", "-output", "dist"}}
+		if !reflect.DeepEqual(*calls, want) {
+			t.Fatalf("ran %q, want %q", *calls, want)
+		}
+		if !strings.Contains(stderr.String(), "game release: skipped ios: needs Xcode (iphoneos SDK unavailable)") {
+			t.Errorf("stderr = %q, want skipped ios message", stderr)
+		}
+	})
+
+	t.Run("explicit -target ios fails clearly without Xcode", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			host *releaseplan.Host
+			want string
+		}{
+			{"linux", &releaseplan.Host{GOOS: "linux"}, "needs macOS with Xcode"},
+			{"darwin no xcode", &releaseplan.Host{GOOS: "darwin", HasAppleSDK: func(string) bool { return false }}, "needs Xcode (iphoneos SDK unavailable)"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				dir := newGameDir(t, templatePresets)
+				calls := recordNSGo(t, nil)
+				releaseHost = func() *releaseplan.Host { return tc.host }
+				a, stdout, stderr := newTestApp(t)
+				if code := run([]string{"release", "-target", "ios", dir}, a); code != 1 {
+					t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+				}
+				if len(*calls) != 0 || stdout.Len() != 0 {
+					t.Fatalf("ran %q, stdout %q; want nothing", *calls, stdout)
+				}
+				if !strings.Contains(stderr.String(), `cannot build requested target "ios" on this host: `+tc.want) {
+					t.Fatalf("stderr = %q, want clear ios error (%q)", stderr, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("macOS with Xcode builds unsigned ios with a note and keeps ios when sign.profile is set", func(t *testing.T) {
+		dir := newGameDir(t, templatePresets)
+		calls := recordNSGo(t, nil)
+		a, _, stderr := newTestApp(t)
+		if code := run([]string{"release", dir}, a); code != 0 {
+			t.Fatalf("exit %d (stderr: %s)", code, stderr)
+		}
+		want := [][]string{{"-C", dir, "tool", "nsgo", "build", "-target", "macos_arm64,windows_x64,linux_x64,linux_arm64,ios,android_arm64,web", "-output", "dist"}}
+		if !reflect.DeepEqual(*calls, want) {
+			t.Fatalf("ran %q, want %q", *calls, want)
+		}
+		if !strings.Contains(stderr.String(), "game release: note: ios is unsigned") {
+			t.Fatalf("stderr = %q, want unsigned ios note", stderr)
+		}
+
+		// With sign.profile configured in nsgo.yaml, no unsigned note is printed.
+		if err := os.WriteFile(filepath.Join(dir, "nsgo.yaml"), []byte("name: Test Game\nid: dev.example.test\nversion: 0.1.0\nsign:\n  profile: certs/appstore.mobileprovision\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		a, _, stderr = newTestApp(t)
+		if code := run([]string{"release", dir}, a); code != 0 {
+			t.Fatalf("exit %d (stderr: %s)", code, stderr)
+		}
+		if strings.Contains(stderr.String(), "ios is unsigned") {
+			t.Fatalf("stderr = %q, want no unsigned ios note when sign.profile is set", stderr)
+		}
+	})
 }
 
 func TestParseReleaseSettingsRefusesBadExports(t *testing.T) {

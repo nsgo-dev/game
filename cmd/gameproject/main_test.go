@@ -60,7 +60,7 @@ func TestSyncWritesNSGoAndCheckAgrees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "name: Demo\n# kept\ndev:\n  target: native\nid: dev.example.demo\nversion: 1.2.0\nbuild:\n  targets: [macos_arm64, web]\n"
+	want := "name: Demo\n# kept\ndev:\n  target: native\nid: dev.example.demo\nversion: 1.2.0\nbuild:\n  targets: [web]\n"
 	if string(got) != want {
 		t.Fatalf("nsgo.yaml = %q, want %q", got, want)
 	}

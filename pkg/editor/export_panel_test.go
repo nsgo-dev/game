@@ -186,8 +186,8 @@ func TestExportPanelDryRunMatchesGameReleaseCLI(t *testing.T) {
 	gameYAML := projectYAML + `export:
   output: my dist
   presets:
-    - platform: macos
-      targets: [macos_arm64]
+    - platform: linux
+      targets: [linux_x64]
     - platform: web
 assets:
   audio:

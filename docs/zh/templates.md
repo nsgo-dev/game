@@ -127,7 +127,7 @@ internal/gamecli/
 
 - `go.mod.tmpl` 以 `module {{.Module}}` 开头，依赖一个已发布的、包含模板所用全部包的 `github.com/nsgo-dev/game` 版本，并带有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`。它是唯一含模板动作的文件：`game new` 和 `nsgo init` 也会渲染 `nsgo.yaml`、`main.go` 和其他 `.tmpl` 文件，但 CI 只渲染 `go.mod.tmpl`，模板还必须在工作区中原样构建，所以这些文件渲染后必须与原文相同，`main.go` 中也不能出现 `{{`（例如 `[]T{{...}}` 这样的复合字面量），这类代码放到其他 Go 文件中。其余文件按原样复制，内容不限。名为 `go.mod` 的文件会让该目录成为独立模块，`go:embed` 和工作区都无法包含它。
 - `go.sum` 记录所固定模块的校验和。生成方法：在仓库外复制一份模板，把其中的 `go.mod.tmpl` 变成 `go.mod`，然后在那里运行 `GOWORK=off go mod tidy`。
-- `game.yaml` 是规范格式（`go run github.com/nsgo-dev/game/cmd/gameproject check` 会检查），`nsgo.yaml` 与它一致；`game new` 会替换两者的 `name` 和 `id`。
+- `game.yaml` 是规范格式（`go run github.com/nsgo-dev/game/cmd/gameproject check` 会检查），并声明全部六个主要平台的导出预设（`macos_arm64`、`windows_x64`、`linux_x64` 与 `linux_arm64`、面向真机的 `ios`——`ios_simulator` 留在 `dev` 中使用——`android_arm64` 和 `web`）。`nsgo.yaml` 与它一致，且 `build.targets` 仅保留所有操作系统都能构建的跨宿主目标（`windows_x64`、`linux_x64`、`linux_arm64`、`android_arm64`、`web`），使普通 `go tool nsgo build` 在 Linux 和 Windows 上也能直接成功，而 `go tool game release` 构建当前宿主支持的所有预设；`game new` 会替换两者的 `name` 和 `id`。
 - 包含 `main.go`、`README.md`、`.gitattributes`、`.gitignore` 和测试，并且在仓库根目录运行 `go run ./cmd/game index template` 无事可做。`.gitattributes` 设置 `* text=auto eol=lf` 使文本文件在不同操作系统下都保持 LF（即使 Windows 版 Git 默认开启 `core.autocrlf=true`），随后将二进制媒体扩展名标记为 `binary`，并把 `*.scene.yaml` / `*.scene.yml` 指向 `merge=nsgo-scene`；`.gitignore` 忽略 `.nsgo/`、`.game/` 和 `dist/`。
 - 模板作者编写的每个文件都是文本，与本仓库中的任何项目一样。
 

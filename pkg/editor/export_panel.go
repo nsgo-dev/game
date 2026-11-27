@@ -864,6 +864,12 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 	}
 
 	var initialLines []string
+	for _, skip := range plan.Skipped {
+		initialLines = append(initialLines, releaseplan.FormatSkippedTarget(skip))
+	}
+	for _, u := range plan.Unsigned {
+		initialLines = append(initialLines, releaseplan.FormatUnsignedNote(u))
+	}
 	for _, exp := range plan.Experimental {
 		initialLines = append(initialLines, releaseplan.FormatExperimentalWarning(exp))
 	}

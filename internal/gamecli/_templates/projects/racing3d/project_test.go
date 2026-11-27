@@ -15,7 +15,18 @@ var nsgoYAML []byte
 
 // TestProjectFileIsValidAndCanonical checks that game.yaml is in the form gameproject fmt writes and that nsgo.yaml agrees with it, as gameproject check and sync -check do. It reads both from the test binary, so it runs on every nsgo test target.
 func TestProjectFileIsValidAndCanonical(t *testing.T) {
-	if err := Project.CheckNSGo(nsgoYAML); err != nil {
+	// nsgo.yaml lists only the targets every host can build without macOS or Xcode, while game.yaml also carries the macOS and iOS release presets for game release.
+	synced := Project.Clone()
+	if synced.Export != nil {
+		var portable []project.Preset
+		for _, p := range synced.Export.Presets {
+			if p.Platform != "macos" && p.Platform != "ios" && p.Platform != "tvos" && p.Platform != "watchos" {
+				portable = append(portable, p)
+			}
+		}
+		synced.Export.Presets = portable
+	}
+	if err := synced.CheckNSGo(nsgoYAML); err != nil {
 		t.Fatal(err)
 	}
 	if canonical, err := project.Encode(Project); err != nil || !bytes.Equal(canonical, gameYAML) {

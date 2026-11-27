@@ -259,7 +259,6 @@ func TestBuildStrictRefusesExperimentalTargets(t *testing.T) {
 		t.Fatalf("strict Build on primary targets: %v", err)
 	}
 }
-
 func TestReadNSGoSettingsItchConfig(t *testing.T) {
 	dir := t.TempDir()
 	yamlText := `name: Demo
@@ -292,4 +291,120 @@ itch:
 	if !reflect.DeepEqual(got.ItchChannels, wantChannels) {
 		t.Fatalf("ItchChannels = %v, want %v", got.ItchChannels, wantChannels)
 	}
+}
+
+func TestBuildHostFilteringAndUnsignedIOS(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte("name: Demo\nid: dev.example.demo\nversion: 1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	allPresets := Settings{
+		Output:  "dist",
+		Targets: []string{"macos_arm64", "windows_x64", "linux_x64", "linux_arm64", "ios", "android_arm64", "web"},
+	}
+
+	t.Run("linux host skips macOS and iOS presets and keeps cross-host targets", func(t *testing.T) {
+		linuxHost := &Host{GOOS: "linux"}
+		plan, err := Build(dir, Options{Host: linuxHost}, allPresets)
+		if err != nil {
+			t.Fatalf("Build on linux: %v", err)
+		}
+		wantTargets := []string{"windows_x64", "linux_x64", "linux_arm64", "android_arm64", "web"}
+		if !reflect.DeepEqual(plan.Targets, wantTargets) {
+			t.Fatalf("Targets = %q, want %q", plan.Targets, wantTargets)
+		}
+		wantSkipped := []SkippedTarget{
+			{Target: "macos_arm64", Reason: "needs macOS"},
+			{Target: "ios", Reason: "needs macOS with Xcode"},
+		}
+		if !reflect.DeepEqual(plan.Skipped, wantSkipped) {
+			t.Fatalf("Skipped = %+v, want %+v", plan.Skipped, wantSkipped)
+		}
+		if len(plan.Unsigned) != 0 {
+			t.Fatalf("Unsigned = %+v, want none when ios was skipped", plan.Unsigned)
+		}
+		if !strings.Contains(plan.CommandLine, "-target windows_x64,linux_x64,linux_arm64,android_arm64,web") {
+			t.Fatalf("CommandLine = %q", plan.CommandLine)
+		}
+	})
+
+	t.Run("macOS host without Xcode keeps macOS and skips iOS", func(t *testing.T) {
+		macNoXcode := &Host{GOOS: "darwin", HasAppleSDK: func(string) bool { return false }}
+		plan, err := Build(dir, Options{Host: macNoXcode}, allPresets)
+		if err != nil {
+			t.Fatalf("Build on macOS without Xcode: %v", err)
+		}
+		wantTargets := []string{"macos_arm64", "windows_x64", "linux_x64", "linux_arm64", "android_arm64", "web"}
+		if !reflect.DeepEqual(plan.Targets, wantTargets) {
+			t.Fatalf("Targets = %q, want %q", plan.Targets, wantTargets)
+		}
+		wantSkipped := []SkippedTarget{
+			{Target: "ios", Reason: "needs Xcode (iphoneos SDK unavailable)"},
+		}
+		if !reflect.DeepEqual(plan.Skipped, wantSkipped) {
+			t.Fatalf("Skipped = %+v, want %+v", plan.Skipped, wantSkipped)
+		}
+	})
+
+	t.Run("explicit -target ios fails clearly without Xcode", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			host *Host
+			want string
+		}{
+			{"linux", &Host{GOOS: "linux"}, "needs macOS with Xcode"},
+			{"windows", &Host{GOOS: "windows"}, "needs macOS with Xcode"},
+			{"darwin without xcode", &Host{GOOS: "darwin", HasAppleSDK: func(string) bool { return false }}, "needs Xcode (iphoneos SDK unavailable)"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := Build(dir, Options{Targets: "ios", Host: tc.host}, allPresets)
+				if !errors.Is(err, ErrHostUnavailableTarget) {
+					t.Fatalf("err = %v, want ErrHostUnavailableTarget", err)
+				}
+				if !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("err = %q, want %q", err, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("all presets skipped returns ErrNoBuildableTargets", func(t *testing.T) {
+		_, err := Build(dir, Options{Host: &Host{GOOS: "linux"}}, Settings{Targets: []string{"ios"}})
+		if !errors.Is(err, ErrNoBuildableTargets) {
+			t.Fatalf("err = %v, want ErrNoBuildableTargets", err)
+		}
+	})
+
+	t.Run("macOS with Xcode reports ios without sign.profile as unsigned instead of dropping", func(t *testing.T) {
+		plan, err := Build(dir, Options{Host: AllTargetsHost()}, allPresets)
+		if err != nil {
+			t.Fatalf("Build on macOS with Xcode: %v", err)
+		}
+		if !reflect.DeepEqual(plan.Targets, allPresets.Targets) {
+			t.Fatalf("Targets = %q, want %q", plan.Targets, allPresets.Targets)
+		}
+		if len(plan.Skipped) != 0 {
+			t.Fatalf("Skipped = %+v, want none", plan.Skipped)
+		}
+		if len(plan.Unsigned) != 1 || plan.Unsigned[0].Target != "ios" {
+			t.Fatalf("Unsigned = %+v, want one ios entry", plan.Unsigned)
+		}
+		if note := FormatUnsignedNote(plan.Unsigned[0]); !strings.Contains(note, "sign.profile") || !strings.Contains(note, "unsigned") {
+			t.Fatalf("FormatUnsignedNote = %q", note)
+		}
+	})
+
+	t.Run("macOS with Xcode and sign.profile reports no unsigned note", func(t *testing.T) {
+		signedDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(signedDir, project.NSGoFileName), []byte("name: Demo\nid: dev.example.demo\nversion: 1.0.0\nsign:\n  profile: certs/appstore.mobileprovision\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := Build(signedDir, Options{Host: AllTargetsHost()}, allPresets)
+		if err != nil {
+			t.Fatalf("Build with sign.profile: %v", err)
+		}
+		if len(plan.Unsigned) != 0 {
+			t.Fatalf("Unsigned = %+v, want none when sign.profile is configured", plan.Unsigned)
+		}
+	})
 }
