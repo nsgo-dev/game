@@ -36,9 +36,9 @@ import (
 	"github.com/nsgo-dev/game/pkg/gltf"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/refs"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tilemap"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 // Problem is one thing wrong with a file Check read.

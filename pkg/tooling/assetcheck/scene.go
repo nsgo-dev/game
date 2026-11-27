@@ -15,11 +15,11 @@ import (
 	"github.com/nsgo-dev/game/pkg/gltf"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/particles"
-	"github.com/nsgo-dev/game/pkg/refs"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tilemap"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )

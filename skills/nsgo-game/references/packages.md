@@ -149,7 +149,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/tooling/gamedebug` | Experimental | Frame-time `Overlay`, `Profiler`, `GCMonitor`, `MemoryTracker`, `Console` tunables, wireframe debug draw (`-tags release` stripped) |
 | `game/pkg/mcp` | Experimental | `Bridge` registering game MCP tools with `nsgo/automation` for `nsgo mcp` and `nsgotest` |
 | `game/pkg/replay` | Experimental | `Recorder`/`Player`, editable YAML recordings and deterministic replay assertions |
-| `game/pkg/playtest` | Experimental | `playtest.yaml` parser/encoder, headless seeded bot runner with replays, metrics collector, `platformer-runner` profile and YAML report |
+| `game/pkg/tooling/playtest` | Experimental | `playtest.yaml` parser/encoder, headless seeded bot runner with replays, metrics collector, `platformer-runner` profile and YAML report |
 | `game/pkg/statedump` | Experimental | Headless deterministic YAML state dumps and line diffs between runs |
 | `game/pkg/gametest` | Experimental | Testing helpers and fixtures for game-layer tests |
 | `game/pkg/perf` | Experimental | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
@@ -162,10 +162,10 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `game/pkg/project` | Experimental | `game.yaml` parser, canonical encoder and `nsgo.yaml` consistency checker |
+| `game/pkg/tooling/refs` | Experimental | Stable file UIDs, project index and reference-rewriting file moves |
 | `game/pkg/plugin` | Experimental | Runtime Go `Plugin`, `Host`, atomic deterministic `Install`, standard scheduler stages and `OnWorld` codecs |
 | `game/pkg/plugin/devtools` | Experimental | Development-time plugin wiring (`PrefabSpec` for `mcp.Bridge` and `playtest` bot factories) split out to keep game binaries lean |
 | `game/pkg/plugin/manifest` | Experimental | Strict `plugin.yaml` parser, validator and deterministic byte-ordered encoder for Go plugins |
-| `game/pkg/refs` | Experimental | Stable file UIDs, project index and reference-rewriting file moves |
 | `game/cmd/editor` | Experimental | Standalone desktop application entrypoint for the NSGo Game Editor |
 | `game/cmd/game` | Experimental | The `game` CLI (`go tool game` / `go run github.com/nsgo-dev/game/cmd/game@latest`) |
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |

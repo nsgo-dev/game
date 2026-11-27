@@ -223,7 +223,7 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 
 Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically with `screen.ApplyCatalog(catalog, locale)`, update safe-area insets with `screen.SetSafeArea(insets)`, or switch device filters with `screen.SetDeviceClass(class)`.
 
-### Validation (`game check`) and safe refactoring (`refs`, `game mv`)
+### Validation (`game check`) and safe refactoring (`tooling/refs`, `game mv`)
 
 `game check` (and `gameui.CheckScreen`) checks every `*.screen.yaml` file in a project and reports the file, line, and node for:
 
@@ -234,4 +234,4 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 - missing `sprite` images or atlas frames;
 - missing `under`, `progress`, or `over` images on `image_progress` nodes.
 
-`refs` and `game mv` follow `sprite` paths, `image_progress` layer paths, and `textKey` references in `*.screen.yaml` files: `game mv art/heart.png art/ui/heart.png` rewrites `sprite:` in place, and `game mv -text-key hud.hint.lever hud.tip.lever` renames a localization key across both `*.screen.yaml` files and YAML string tables.
+`tooling/refs` and `game mv` follow `sprite` paths, `image_progress` layer paths, and `textKey` references in `*.screen.yaml` files: `game mv art/heart.png art/ui/heart.png` rewrites `sprite:` in place, and `game mv -text-key hud.hint.lever hud.tip.lever` renames a localization key across both `*.screen.yaml` files and YAML string tables.

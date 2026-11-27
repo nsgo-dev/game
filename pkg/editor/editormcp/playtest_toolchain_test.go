@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/gotoolchain"
-	"github.com/nsgo-dev/game/pkg/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 func TestDefaultPlaytestRunnerReceivesResolvedGoEnv(t *testing.T) {

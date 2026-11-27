@@ -8,9 +8,9 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/platformer"
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/replay"
 	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 func makePlatformerPlaytestSim(_ uint64, src replay.ActionSource, metrics *playtest.Collector) (playtest.Sim, error) {

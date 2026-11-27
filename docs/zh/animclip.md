@@ -122,7 +122,7 @@ sm.Update(dt)
 - **条件表达式**：`when` 支持 `||`/`or`、`&&`/`and`、`!`/`not`、`|param|` / `abs(param)`、一元 `-` 以及比较运算（`==`、`!=`、`<`、`<=`、`>`、`>=`、`≤`、`≥`）。表达式在加载时即对照 `parameters` 解析并做类型检查（`ParseStateMachine`）。
 - **触发器**：`Trigger(name)` 激活触发器参数；当引用它的过渡触发时自动消费，或在当前固定步长结束时清除（`Update`）。
 - **脚本化输入与测试**：`InputDriver` 将项目的 `input.Actions`（如 `move_left`、`move_right`、`jump`、`attack`、`hurt`）映射为运动参数（`move.x`、`velocity.y`、`on_floor`、`jump`、`attack`、`hurt`），`SimulateStateMachine` 在固定步长下确定性地驱动状态机，报告访问过的状态、切换轨迹与卡死状态。
-- **校验与引用**：`game check`（`tooling/assetcheck`）校验每个 `*.states.yaml` 文件与 `animator` 组件，拒绝指向缺失状态的过渡、不存在的片段文件以及没有任何过渡读取的参数，并给出精确的文件与行号。移动文件时，`refs` 会跟踪 `animator.states` 和 `states[].clip` 路径。
+- **校验与引用**：`game check`（`tooling/assetcheck`）校验每个 `*.states.yaml` 文件与 `animator` 组件，拒绝指向缺失状态的过渡、不存在的片段文件以及没有任何过渡读取的参数，并给出精确的文件与行号。移动文件时，`tooling/refs` 会跟踪 `animator.states` 和 `states[].clip` 路径。
 
 ### 场景连接
 

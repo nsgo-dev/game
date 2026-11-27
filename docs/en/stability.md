@@ -159,7 +159,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/pixelfx/weather` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pkg/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
 | `game/pkg/platformer` | Experimental | [platformer](platformer.md) |
-| `game/pkg/playtest` | Experimental | [playtest](playtest.md) |
 | `game/pkg/plugin` | Experimental | [Plugins](plugins.md) |
 | `game/pkg/plugin/devtools` | Experimental | [Plugins](plugins.md) |
 | `game/pkg/plugin/manifest` | Experimental | [Plugins](plugins.md) |
@@ -168,7 +167,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/quality` | Experimental | [quality](quality.md) |
 | `game/pkg/quest` | Experimental | [quest](quest.md) |
 | `game/pkg/random` | Stable | [Determinism](determinism.md) |
-| `game/pkg/refs` | Experimental | [Project File](project.md) |
 | `game/pkg/render3d` | Experimental | [render3d](render3d.md) |
 | `game/pkg/replay` | Experimental | [replay](replay.md) |
 | `game/pkg/resource` | Experimental | [resources](resources.md) |
@@ -200,6 +198,8 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/tooling/library` | Experimental | [Asset and Plugin Library](library.md) |
 | `game/pkg/tooling/manifest` | Experimental | |
 | `game/pkg/tooling/pack` | Experimental | |
+| `game/pkg/tooling/playtest` | Experimental | [playtest](playtest.md) |
+| `game/pkg/tooling/refs` | Experimental | [Project File](project.md) |
 | `game/pkg/tween` | Stable | [tween](tween.md) |
 | `game/pkg/undo` | Experimental | [undo](undo.md) |
 | `game/pkg/vehicle` | Experimental | [vehicle](vehicle.md) |

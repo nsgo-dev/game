@@ -179,7 +179,7 @@ player.Step(dt)
 
 与视频过场动画不同，`PlayTimeline` 保持 `Options.Loop` 和 `Options.Mixer` 运行，使场景继续绘制并播放过场音频，同时由 `Player.View()` 接收跳过输入。
 
-## `game check` 与 `refs` 检查
+## `game check` 与 `tooling/refs` 检查
 
 `game check`（`tooling/assetcheck` 包）会检查项目中的每个 `*.cutscene.yaml` / `*.cutscene.yml` 文件：
 
@@ -188,7 +188,7 @@ player.Step(dt)
 - 校验每个角色轨道的 `target` 与相机片段的 `target` 是否存在于引用场景（含继承和实例化的场景）中。
 - 校验每个对白片段的 `line` ID 是否存在于项目的 YAML 本地化字符串表（`l10n.ParseYAML`）中，缺失时报告精确的文件与行号。
 
-`refs`（`game mv` 与 `game index`）会跟踪 `*.cutscene.yaml` 中的 `scene`、项目相对路径的视频 `source` 与时间轴音频 `source`，在移动场景或音频资源时原地重写过场动画中的路径引用。
+`tooling/refs`（`game mv` 与 `game index`）会跟踪 `*.cutscene.yaml` 中的 `scene`、项目相对路径的视频 `source` 与时间轴音频 `source`，在移动场景或音频资源时原地重写过场动画中的路径引用。
 
 ## 播放视频过场动画
 

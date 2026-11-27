@@ -31,12 +31,12 @@ import (
 	"github.com/nsgo-dev/game/pkg/online/liveops"
 	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
 	"github.com/nsgo-dev/game/pkg/particles"
-	"github.com/nsgo-dev/game/pkg/playtest"
 	pluginmanifest "github.com/nsgo-dev/game/pkg/plugin/manifest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tilemap"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 	"github.com/nsgo-dev/game/pkg/voxel"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
@@ -275,7 +275,7 @@ var formats = []format{
 		url:     playtest.SchemaURL,
 		title:   "NSGo game playtest (version 1)",
 		typ:     reflect.TypeFor[playtest.Config](),
-		pkg:     "playtest",
+		pkg:     "tooling/playtest",
 		version: playtest.CurrentVersion,
 	},
 	{

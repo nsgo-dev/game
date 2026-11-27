@@ -28,7 +28,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `platformer` | `github.com/nsgo-dev/game/pkg/platformer` | [platformer](platformer.md) | 基于 `CharacterBody` 的平台跳跃 `Controller`：土狼时间、跳跃缓冲、可变跳跃高度、贴墙下滑与蹬墙跳，参数来自 YAML 配置 |
 | `screen` | `github.com/nsgo-dev/game/pkg/screen` | [screen](screen.md) | 虚拟分辨率 `Viewport` 缩放、像素对齐、移动端安全区与视频设置 |
 | `project` | `github.com/nsgo-dev/game/pkg/project` | [项目文件](project.md) | 唯一的项目文件 `game.yaml`：窗口、虚拟分辨率、输入映射、音频总线、自动加载和导出预设，并与 `nsgo.yaml` 保持一致 |
-| `refs` | `github.com/nsgo-dev/game/pkg/refs` | [稳定引用](project.md#稳定引用) | 稳定文件 ID、项目索引，以及改写所有引用的文件移动，供 `game mv`、`game index` 和 `game check` 使用 |
+| `tooling/refs` | `github.com/nsgo-dev/game/pkg/tooling/refs` | [稳定引用](project.md#稳定引用) | 稳定文件 ID、项目索引，以及改写所有引用的文件移动，供 `game mv`、`game index` 和 `game check` 使用 |
 | `assets` | `github.com/nsgo-dev/game/pkg/assets` | [assets](assets.md) | 按场景异步加载的资源组、响应式进度与 `LoadingScreen` |
 | `resource` | `github.com/nsgo-dev/game/pkg/resource` | [resource](resources.md) | 共享 YAML 资源文件（材质、曲线、渐变、动画片段、UI 主题、总线布局、物理材质），以及共享并重载它们的 `Library` |
 | `importsettings` | `github.com/nsgo-dev/game/pkg/importsettings` | [导入设置旁注文件](formats.md#导入设置旁注文件) | 图片、声音、字体或模型旁边的 `.import.yaml` 旁注文件，说明 `game assets` 如何导入它，并覆盖目标的设置 |
@@ -60,7 +60,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `replay` | `github.com/nsgo-dev/game/pkg/replay` | [replay](replay.md) | 输入录制/回放（`Recorder`/`Player`）、可编辑的 YAML 录像与确定性测试断言 |
 | `statedump` | `github.com/nsgo-dev/game/pkg/statedump` | [statedump](statedump.md) | 无窗口运行并转储为确定性 YAML（实体、组件、场景栈、全局值），以及两次运行之间的行 `Diff` |
 | `gametest` | `github.com/nsgo-dev/game/pkg/gametest` | [gametest](gametest.md) | `core.DrawOp` 确定性软件光栅化、带持久化差异图的黄金 PNG 断言以及 `ImageDraws` 结构化图像校验 |
-| `playtest` | `github.com/nsgo-dev/game/pkg/playtest` | [自动化试玩](playtest.md) | `playtest.yaml` 机器人、带回放录制的种子化无头运行、按目标评估的指标，以及确定性的 YAML 报告 |
+| `tooling/playtest` | `github.com/nsgo-dev/game/pkg/tooling/playtest` | [自动化试玩](playtest.md) | `playtest.yaml` 机器人、带回放录制的种子化无头运行、按目标评估的指标，以及确定性的 YAML 报告 |
 | `cutscene` | `github.com/nsgo-dev/game/pkg/cutscene` | [cutscene](cutscene.md) | 覆盖在游戏视图上、可跳过的视频过场动画，可放在场景中或场景之间，以 YAML 文件描述 |
 | `rhythm` | `github.com/nsgo-dev/game/pkg/rhythm` | [rhythm](rhythm.md) | 支持速度与拍号变化的 YAML 节拍图、基于音频时钟的音乐时钟，以及按设备的音频/画面延迟校准 |
 | `undo` | `github.com/nsgo-dev/game/pkg/undo` | [undo](undo.md) | 可撤销操作，支持无限撤销、重做与 `Seek`，可保存为 YAML `Log` |

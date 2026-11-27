@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor/editormcp"
-	"github.com/nsgo-dev/game/pkg/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 const fixturePlaytestYAML = `# yaml-language-server: $schema=https://game.nsgo.dev/schemas/playtest.v1.json

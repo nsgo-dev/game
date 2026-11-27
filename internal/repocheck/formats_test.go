@@ -58,9 +58,9 @@ var notJSONFormats = map[string]string{
 	"mcp":                             "decodes JSON arguments and results of MCP automation tool calls, which are RPC payloads on the wire",
 	"physics3d":                       "decodes a ConvexHull's geometry inside WorldSnapshot, an in-memory/JSON world snapshot for Save/Restore and rollback netcode rather than a standalone file format, as physics3d.SnapshotVersion explains",
 	"online/presence":                 "decodes JSON frames of Discord's local IPC protocol, which are RPC messages on the wire",
-	"refs":                            "scans other formats' JSON documents for file references",
 	"rooms":                           "reads LDtk projects, the format of the tilemap#ldtk entry",
 	"tooling/assetcheck":              "scans other formats' JSON documents for asset references",
+	"tooling/refs":                    "scans other formats' JSON documents for file references",
 }
 
 // codeFormat is an entry of the File Formats page for a format that is not a YAML format with conformance checks: a JSON format, a Yarn script or another tool's format.
@@ -174,8 +174,8 @@ var formatVersions = map[string]string{
 	"physics.SnapshotVersion":                       "",
 	"physics3d.SnapshotVersion":                     "",
 	"platformer.CurrentVersion":                     "platformer",
-	"playtest.CurrentVersion":                       "playtest",
-	"playtest.ReportVersion":                        "playtest#report",
+	"tooling/playtest.CurrentVersion":               "tooling/playtest",
+	"tooling/playtest.ReportVersion":                "tooling/playtest#report",
 	"plugin.APIVersion":                             "",
 	"plugin/manifest.ManifestVersion":               "plugin/manifest",
 	"procgen.RoomTemplatesVersion":                  "procgen#rooms",
@@ -185,7 +185,7 @@ var formatVersions = map[string]string{
 	"quality.FormatVersion":                         "quality",
 	"quest.FormatVersion":                           "quest",
 	"quest.SnapshotVersion":                         "quest#snapshot",
-	"refs.IndexVersion":                             "refs",
+	"tooling/refs.IndexVersion":                     "tooling/refs",
 	"render3d.LightProbeGridVersion":                "render3d#lightprobes",
 	"replay.FormatVersion":                          "replay",
 	"resource.CurrentVersion":                       "resource",

@@ -49,7 +49,7 @@ if err != nil {
 | `project` | `Parse`、`ParseBrief`、`LoadFile` | 项目和简报的模式规则，按字段 |
 | `resource` | `Parse`、`ParseAs`、`Library.Load`、`Library.Reload`、`Library.ReloadFile` | 头部、材质、曲线、渐变、动画、主题、音频总线布局和物理材质规则，按字段；`Library` 给出资源路径 |
 | `importsettings` | `Parse`、`ParseAssetSource` | 伴随配置节、枢轴点、切片、署名和生成资产来源字段，按字段 |
-| `refs` | `ParseIndex` | 项目索引路径、排序、UID 和 SHA-256 摘要，按字段 |
+| `tooling/refs` | `ParseIndex` | 项目索引路径、排序、UID 和 SHA-256 摘要，按字段 |
 | `particles` | `UnmarshalConfigYAML`、`UnmarshalConfigJSON`、`LoadConfigFile`、`LoadConfigFS`、`HotConfig` | 解码错误、时长、颜色和枚举值，按字段或按值所在的行 |
 | `skeletal` | `Load` | 骨骼、插槽、皮肤和关键帧，按字段 |
 | `anim3d` | `LoadEventsSidecar`、`LoadEventsFromGLTFExtras` | 解码错误和伴随事件模式规则，按字段 |
@@ -71,7 +71,7 @@ if err != nil {
 | `ai`、`ai/navbake`、`ai/navbake3d` | `ParseGOAP`、`ParseUtility`、`navbake.Parse`、`navbake3d.Parse` | 事实、动作、目标、曲线、多边形和跨网格链接，按字段 |
 | `quest`、`rooms`、`loot`、`inventory`、`ability`、`stats`、`cards`、`worldmap`、`cutscene`、`vn`、`bullets`、`framedata`、`fighting`、`platformer`、`vehicle`、`rts`、`rhythm`、`idle`、`procgen`、`quality` | 各包的 YAML `Parse*` 和 `Load*` 入口 | 解码错误、自定义时长/范围以及每条校验规则，按字段；`quest.ErrInvalidBook`、`rooms.ErrInvalidMap` 和 `stats.Err*` 等哨兵错误仍在错误链中 |
 | `online/accounts`、`online/accounts/authtoken`、`online/achievements`、`online/cloudsave`、`online/leaderboard`、`online/leaderboard/selfhost`、`online/liveops`、`online/netplay/wire` | 各包的 YAML `Parse*` 和 `Load*` 入口 | 服务配置、密钥集、目录、提醒和线协议模式，按字段 |
-| `playtest` | `ParseConfig`、`LoadConfigFile`、`ParseReport`、`LoadReportFile` | 范围、运行配置、机器人配置、指标、目标和报告各节，按字段 |
+| `tooling/playtest` | `ParseConfig`、`LoadConfigFile`、`ParseReport`、`LoadReportFile` | 范围、运行配置、机器人配置、指标、目标和报告各节，按字段 |
 | `editor` | `OpenFile`、`ParseEditorSettings`、`ParsePermissions`、`ParseAutomations`、`ParseLayout`、`ParseRecentProjects`、`ParseCheckpointManifest`、`ParseAgentThread`、`ParseAgentThreadYAML`、`parseViewState` | 编辑器配置、布局、检查点、线程和视图状态，按字段 |
 | `gltf` | `Load`、`LoadFS` | 出错的顶层条目，例如 `nodes[3]` |
 | `text` | `LoadBMFont`、`LoadBMFontImage` | 出错的记录，文本和 XML 字体均可 |

@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 func TestApplyBriefTargetsAndLoadBriefTargets(t *testing.T) {

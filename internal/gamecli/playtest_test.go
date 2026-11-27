@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 func copyPlaytestFixture(t *testing.T, dir string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "pkg", "playtest", "testdata", "platformer.playtest.yaml"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "pkg", "tooling", "playtest", "testdata", "platformer.playtest.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -122,7 +122,7 @@ sm.Update(dt)
 - **Condition expressions**: `when` supports `||`/`or`, `&&`/`and`, `!`/`not`, `|param|` / `abs(param)`, unary `-`, and comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`, `≤`, `≥`). Expressions are parsed and type-checked against `parameters` at load time (`ParseStateMachine`).
 - **Triggers**: `Trigger(name)` arms a trigger parameter; it is automatically consumed when a transition referencing it fires or cleared at the end of the fixed step (`Update`).
 - **Scripted input and testing**: `InputDriver` maps project `input.Actions` (such as `move_left`, `move_right`, `jump`, `attack`, `hurt`) into locomotion parameters (`move.x`, `velocity.y`, `on_floor`, `jump`, `attack`, `hurt`), and `SimulateStateMachine` drives a state machine deterministically across fixed steps to report visited states, transition trace, and stuck states.
-- **Validation and references**: `game check` (`tooling/assetcheck`) validates every `*.states.yaml` file and `animator` component, refusing transitions to missing states, unknown clip files, and parameters no transition reads, with exact file and line numbers. `refs` follows both `animator.states` and `states[].clip` paths when moving files.
+- **Validation and references**: `game check` (`tooling/assetcheck`) validates every `*.states.yaml` file and `animator` component, refusing transitions to missing states, unknown clip files, and parameters no transition reads, with exact file and line numbers. `tooling/refs` follows both `animator.states` and `states[].clip` paths when moving files.
 
 ### Scene connections
 

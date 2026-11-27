@@ -294,7 +294,7 @@ commercialUse: true
 approvedBy: kim
 ```
 
-<!-- format: refs -->
+<!-- format: tooling/refs -->
 ### Project index
 
 | Files | Version | Read and written by | Fields |
@@ -2565,7 +2565,7 @@ entities:
           y: 12
 ```
 
-<!-- format: playtest -->
+<!-- format: tooling/playtest -->
 ### Playtest configuration
 
 | Files | Version | Read and written by | Fields |
@@ -2609,7 +2609,7 @@ metrics:
       heatMap: true
 ```
 
-<!-- format: playtest#report -->
+<!-- format: tooling/playtest#report -->
 ### Playtest report
 
 | Files | Version | Read and written by | Fields |

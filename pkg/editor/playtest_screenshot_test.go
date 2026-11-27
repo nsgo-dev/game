@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/replay"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

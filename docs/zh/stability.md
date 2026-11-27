@@ -159,7 +159,6 @@
 | `game/pkg/pixelfx/weather` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pkg/placeholder` | 实验性 | [占位素材](placeholder.md) |
 | `game/pkg/platformer` | 实验性 | [platformer](platformer.md) |
-| `game/pkg/playtest` | 实验性 | [playtest](playtest.md) |
 | `game/pkg/plugin` | 实验性 | [插件](plugins.md) |
 | `game/pkg/plugin/devtools` | 实验性 | [插件](plugins.md) |
 | `game/pkg/plugin/manifest` | 实验性 | [插件](plugins.md) |
@@ -168,7 +167,6 @@
 | `game/pkg/quality` | 实验性 | [quality](quality.md) |
 | `game/pkg/quest` | 实验性 | [quest](quest.md) |
 | `game/pkg/random` | 稳定 | [确定性指南](determinism.md) |
-| `game/pkg/refs` | 实验性 | [项目文件](project.md) |
 | `game/pkg/render3d` | 实验性 | [render3d](render3d.md) |
 | `game/pkg/replay` | 实验性 | [replay](replay.md) |
 | `game/pkg/resource` | 实验性 | [resources](resources.md) |
@@ -200,6 +198,8 @@
 | `game/pkg/tooling/library` | 实验性 | [资源与插件库](library.md) |
 | `game/pkg/tooling/manifest` | 实验性 | |
 | `game/pkg/tooling/pack` | 实验性 | |
+| `game/pkg/tooling/playtest` | 实验性 | [playtest](playtest.md) |
+| `game/pkg/tooling/refs` | 实验性 | [项目文件](project.md) |
 | `game/pkg/tween` | 稳定 | [tween](tween.md) |
 | `game/pkg/undo` | 实验性 | [undo](undo.md) |
 | `game/pkg/vehicle` | 实验性 | [vehicle](vehicle.md) |

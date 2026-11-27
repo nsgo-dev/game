@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/formattest"
-	"github.com/nsgo-dev/game/pkg/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 func TestFormatConformance(t *testing.T) {
@@ -13,7 +13,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: playtest.ParseConfig,
 			Encode: playtest.EncodeConfig,
 			Files:  []string{"testdata/*.playtest.yaml"},
-			Doc:    "playtest",
+			Doc:    "tooling/playtest",
 		})
 	})
 	t.Run("report", func(t *testing.T) {
@@ -21,7 +21,7 @@ func TestFormatConformance(t *testing.T) {
 			Decode: playtest.ParseReport,
 			Encode: playtest.EncodeReport,
 			Files:  []string{"testdata/*.report.yaml"},
-			Doc:    "playtest#report",
+			Doc:    "tooling/playtest#report",
 		})
 	})
 }

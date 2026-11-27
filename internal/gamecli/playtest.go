@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nsgo-dev/game/pkg/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 // playtestCommand validates playtest.yaml, runs the playtest headless through its tests, records per-seed input recordings and writes a YAML report.

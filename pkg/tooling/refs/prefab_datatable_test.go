@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/refs"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 func TestScanAndPlanMovePrefabVariantsAndDataTable(t *testing.T) {

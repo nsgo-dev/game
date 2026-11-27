@@ -11,8 +11,8 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/refs"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

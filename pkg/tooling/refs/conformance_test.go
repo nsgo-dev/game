@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/formattest"
-	"github.com/nsgo-dev/game/pkg/refs"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 func TestFormatConformance(t *testing.T) {
@@ -12,6 +12,6 @@ func TestFormatConformance(t *testing.T) {
 		Decode: refs.ParseIndex,
 		Encode: refs.EncodeIndex,
 		Files:  []string{"testdata/game.index.yaml"},
-		Doc:    "refs",
+		Doc:    "tooling/refs",
 	})
 }

@@ -10,7 +10,7 @@ import (
 	"testing/fstest"
 
 	projpkg "github.com/nsgo-dev/game/pkg/project"
-	"github.com/nsgo-dev/game/pkg/refs"
+	"github.com/nsgo-dev/game/pkg/tooling/refs"
 )
 
 const testPackSHA = "0000000000000000000000000000000000000000000000000000000000000000"

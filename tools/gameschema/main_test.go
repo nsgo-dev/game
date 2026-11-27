@@ -19,10 +19,10 @@ import (
 	"github.com/nsgo-dev/game/pkg/modding"
 	"github.com/nsgo-dev/game/pkg/online/liveops"
 	"github.com/nsgo-dev/game/pkg/particles"
-	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 	"github.com/nsgo-dev/game/pkg/voxel"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
@@ -836,7 +836,7 @@ func TestPlaytestSchemaShapeAndValidation(t *testing.T) {
 		"puzzle2d.playtest.yaml",
 		"cards2d.playtest.yaml",
 	} {
-		data, err := os.ReadFile(filepath.Join(root, "pkg", "playtest", "testdata", fixture))
+		data, err := os.ReadFile(filepath.Join(root, "pkg", "tooling", "playtest", "testdata", fixture))
 		if err != nil {
 			t.Fatal(err)
 		}

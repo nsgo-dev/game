@@ -294,7 +294,7 @@ commercialUse: true
 approvedBy: kim
 ```
 
-<!-- format: refs -->
+<!-- format: tooling/refs -->
 ### 项目索引
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2565,7 +2565,7 @@ entities:
           y: 12
 ```
 
-<!-- format: playtest -->
+<!-- format: tooling/playtest -->
 ### 试玩配置
 
 | 文件 | 版本 | 读写函数 | 字段 |
@@ -2609,7 +2609,7 @@ metrics:
       heatMap: true
 ```
 
-<!-- format: playtest#report -->
+<!-- format: tooling/playtest#report -->
 ### 试玩报告
 
 | 文件 | 版本 | 读写函数 | 字段 |
