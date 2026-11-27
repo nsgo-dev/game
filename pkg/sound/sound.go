@@ -325,9 +325,13 @@ type track struct {
 	level, from float32
 	// playing says the track was asked to play and not to pause since; done that it ended or failed, so it plays no more.
 	playing, done bool
-	// next is the armed loop track handed off to when an intro track ends, nil for a single track; preloaded says Preload was called on this track.
+	// next is the armed loop track handed off to when an intro track finishes, nil for a single track; preloaded says Preload was called on this track.
 	next      *track
 	preloaded bool
+	// stopHandoff cancels a scheduled pre-end handoff timer for a two-file intro, nil when none is armed.
+	stopHandoff func() bool
+	// prev is a two-file intro finishing its remaining samples after an early handoff into this track, closed when its OnEnd runs or when this track stops or fades out.
+	prev *track
 }
 
 // Music returns music played through the mixer in group, which plays nothing until Play.
@@ -363,6 +367,10 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 	}
 	if mu.current != nil {
 		mu.current.cancelNext()
+		if mu.current.prev != nil {
+			mu.out = append(mu.out, mu.current.prev)
+			mu.current.prev = nil
+		}
 		mu.out = append(mu.out, mu.current)
 	}
 	mu.current = t
@@ -372,6 +380,9 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 	step := func(progress float64) {
 		if mu.current != nil {
 			mu.current.level = float32(progress)
+			if mu.current.prev != nil {
+				mu.current.prev.level = mu.current.level
+			}
 		}
 		for _, o := range mu.out {
 			o.level = o.from * float32(1-progress)
@@ -379,6 +390,10 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 		if progress >= 1 {
 			for _, o := range mu.out {
 				o.cancelNext()
+				if o.prev != nil {
+					o.prev.p.Close()
+					o.prev = nil
+				}
 				o.p.Close()
 			}
 			mu.out = nil
@@ -399,7 +414,10 @@ func (mu *Music) fadeTo(t *track, fade time.Duration) {
 func (mu *Music) apply() {
 	g := mu.m.gain(mu.Group)
 	if mu.current != nil {
-		mu.current.apply(g)
+		resumed := mu.current.apply(g)
+		if resumed && mu.current.next != nil {
+			mu.scheduleHandoff(mu.current, mu.current.p.Position(), mu.current.p.Duration())
+		}
 	}
 	for _, o := range mu.out {
 		o.apply(g)
@@ -407,16 +425,20 @@ func (mu *Music) apply() {
 }
 
 // apply plays the track at gain times its level, muted at a level of 0, such as a track a crossfade starts, as an audio.Player takes a volume of 0 for 1; it pauses the track while gain is 0, so music in a group that cannot be heard waits for it to be.
-func (t *track) apply(gain float32) {
+func (t *track) apply(gain float32) (started bool) {
+	if t.prev != nil {
+		t.prev.apply(gain)
+	}
 	if t.done {
-		return
+		return false
 	}
 	if gain <= 0 {
 		if t.playing {
 			t.p.Pause()
 			t.playing = false
+			t.cancelHandoff()
 		}
-		return
+		return false
 	}
 	v := gain * t.level
 	t.p.SetMuted(v <= 0)
@@ -426,9 +448,11 @@ func (t *track) apply(gain float32) {
 	if !t.playing {
 		t.p.Play(nil)
 		t.playing = true
+		started = true
 	}
 	if t.next != nil && !t.next.preloaded {
 		t.next.p.Preload()
 		t.next.preloaded = true
 	}
+	return started
 }

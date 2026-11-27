@@ -77,7 +77,7 @@ if hit != nil {
 
 The chain applies where a source is still in memory before it reaches the player:
 
-- `Music.Play(src, fade)` (and `PlaySections` / `PlayWithIntro`) runs src through the music's group chain when src holds in-memory 16-bit PCM WAV data, and plays the result.
+- `Music.Play(src, fade)` (and `PlayLooped`, `PlaySections`, `PlayWithIntro`) runs src through the music's group chain when src holds in-memory 16-bit PCM WAV data, and plays the result.
 - `mixer.LoadEffect(src, group, limit, done)` loads src through its group chain the same way, then wraps it as `mixer.Effect` does.
 - `mixer.ProcessSource(group, src)` exposes the same processing on its own; the editor's bus audition uses it.
 
@@ -152,6 +152,40 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 - `Play(src, fade)`: starts the new track at once, muted, and fades it in over `fade` while fading all currently playing tracks out on display frames (`core.Scope.Animate`), closing faded-out players once they reach silence. When `fade <= 0`, it switches immediately. Starting another `Play` mid-crossfade smoothly fades out the incoming track from its current level.
 - `Stop(fade)`: fades active music out over `fade` and closes its players (`fade <= 0` stops immediately).
 - A `src` holding in-memory 16-bit PCM WAV data is processed through the group's [bus effect chain](#bus-effect-chains) before playing; any other source plays as it is.
+
+### Intro and loop music
+
+Most game music plays an intro once and then loops the main body indefinitely.
+
+**Recommended: single file with `PlayLooped`**
+
+Keep intro and loop in one audio file and pass the loop point's timestamp to `PlayLooped(src, loopStart, fade)`:
+
+```go
+music.PlayLooped(
+	audio.Source{URI: "asset:music/boss.m4a"},
+	12*time.Second, // intro plays 0s..12s once, then 12s..end repeats
+	time.Second,
+)
+```
+
+`PlayLooped` creates a single `audio.Player` with `audio.PlayerOptions.LoopStart`, so the loop return runs inside the native player with no handoff gap or click across platforms. It always loops regardless of `music.Loop` (without changing `music.Loop` for later `Play` calls), crossfades and pauses like `Play`, processes in-memory 16-bit PCM WAV sources through the group's bus effect chain, loops the full track when `loopStart <= 0` (or `>= duration`), and stops the music over `fade` if `src` is empty.
+
+**Split files with `PlaySections` / `PlayWithIntro`**
+
+When intro and loop arrive as two separate files that cannot be combined into one asset, use `PlaySections(intro, loop, fade)` or `PlayWithIntro(sound.SectionedTrack{Intro, Loop}, fade)`:
+
+```go
+music.PlayWithIntro(sound.SectionedTrack{
+	Intro: audio.Source{URI: "asset:music/boss_intro.m4a"},
+	Loop:  audio.Source{URI: "asset:music/boss_loop.m4a"},
+}, time.Second)
+```
+
+- `PlaySections` plays `intro` once without looping, preloads `loop` with looping enabled, and schedules `loop` slightly ahead of `intro`'s reported duration using `OnProgress` (falling back to `OnEnd` when duration is unknown) while letting `intro` finish its remaining samples.
+- Stopping or starting another track during the intro cancels `loop` so it never plays.
+- If `intro` is empty, `loop` plays directly with looping enabled; if `loop` is empty, `intro` plays once without looping; if both are empty, `PlaySections` stops the music over `fade`.
+- Because two-file playback coordinates two separate `audio.Player` instances across engine turns, it may still leave a slight seam or overlap under load or on the web. Prefer a single file with `PlayLooped` whenever you control the asset.
 
 On the web, browsers enforce autoplay policies and refuse playback (`audio.NotAllowed`) until the user interacts with the page; start music from a button press or first tap/click.
 

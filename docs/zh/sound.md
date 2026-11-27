@@ -77,7 +77,7 @@ if hit != nil {
 
 效果链在音频源到达播放器之前、仍在内存中时生效：
 
-- `Music.Play(src, fade)`（以及 `PlaySections` / `PlayWithIntro`）在 src 持有内存中的 16-bit PCM WAV 数据时，先经音乐所属分组的效果链处理再播放处理结果。
+- `Music.Play(src, fade)`（以及 `PlayLooped`、`PlaySections`、`PlayWithIntro`）在 src 持有内存中的 16-bit PCM WAV 数据时，先经音乐所属分组的效果链处理再播放处理结果。
 - `mixer.LoadEffect(src, group, limit, done)` 以同样方式先处理再加载，然后像 `mixer.Effect` 一样包装成音效。
 - `mixer.ProcessSource(group, src)` 单独暴露同一处理过程；编辑器的总线试听即使用它。
 
@@ -152,6 +152,40 @@ music.Play(audio.Source{URI: "asset:music/overworld.m4a"}, 2*time.Second)
 - `Play(src, fade)`：立即以静音状态开始播放新音轨，按显示帧（`core.Scope.Animate`）在 `fade` 时长内把它淡入、同时把正在播放的音轨淡出，旧音轨静音后立即关闭。`fade <= 0` 时立即切换。在一次交叉淡化尚未完成时再次调用 `Play`，正在淡入的音轨也会从当前音量平滑淡出。
 - `Stop(fade)`：在 `fade` 时长内淡出并关闭所有音乐播放器（`fade <= 0` 时立即停止）。
 - 持有内存中 16-bit PCM WAV 数据的 `src` 会先经过所属分组的[总线效果链](#总线效果链)处理再播放；其他来源原样播放。
+
+### 前奏与循环音乐
+
+大多数游戏配乐都是前奏只播一次，随后主体部分无限循环。
+
+**推荐：使用单文件与 `PlayLooped`**
+
+把前奏与循环段放在同一个音频文件中，并将循环起点时间传给 `PlayLooped(src, loopStart, fade)`：
+
+```go
+music.PlayLooped(
+	audio.Source{URI: "asset:music/boss.m4a"},
+	12*time.Second, // 0s..12s 的前奏只播一次，随后 12s..结尾反复循环
+	time.Second,
+)
+```
+
+`PlayLooped` 只创建一个带 `audio.PlayerOptions.LoopStart` 的 `audio.Player`，循环回跳直接在原生播放器内部完成，不会产生双播放器切换的空隙或爆音。无论 `music.Loop` 为何值它都会循环（且不会改动后续 `Play` 所用的 `music.Loop`），与 `Play` 一样支持交叉淡化、暂停与内存 16-bit PCM WAV 的总线效果链；`loopStart <= 0`（或 `>= 音轨时长`）时会循环整首音轨，`src` 为空时则在 `fade` 内停止音乐。
+
+**拆分文件时使用 `PlaySections` / `PlayWithIntro`**
+
+当前奏和循环段分别位于两个独立文件、不便合并为单文件时，可以使用 `PlaySections(intro, loop, fade)` 或 `PlayWithIntro(sound.SectionedTrack{Intro, Loop}, fade)`：
+
+```go
+music.PlayWithIntro(sound.SectionedTrack{
+	Intro: audio.Source{URI: "asset:music/boss_intro.m4a"},
+	Loop:  audio.Source{URI: "asset:music/boss_loop.m4a"},
+}, time.Second)
+```
+
+- `PlaySections` 以不循环的方式播放 `intro`、预加载开启循环的 `loop`，并在后端报告 `intro` 时长与进度时通过 `OnProgress` 在 `intro` 结束前略微提前调度 `loop` 起播（未知时长时回退到 `OnEnd`），同时让 `intro` 播完剩余采样后再关闭。
+- 在前奏结束前停止或切换其他音轨会取消 `loop`，使其永不起播。
+- `intro` 为空时直接循环播放 `loop`；`loop` 为空时仅播一次 `intro`；两者都为空时在 `fade` 内停止音乐。
+- 由于双文件播放需要跨引擎事件轮次协调两个独立的 `audio.Player`，在高负载或 Web 平台上仍可能留下细微接缝或重叠。只要能控制音频资源，优先使用单文件配合 `PlayLooped`。
 
 在 Web 平台上，浏览器有自动播放策略，在首次用户交互前会拒绝播放（`audio.NotAllowed`）；请在按钮点击或玩家首次操作时启动音乐。
 

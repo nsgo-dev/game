@@ -272,6 +272,275 @@ func TestPlaySectionsEdgeCases(t *testing.T) {
 	expectPlayer(t, loop, true, 0.75)
 }
 
+func TestPlayLoopedUsesSinglePlayerWithLoopStart(t *testing.T) {
+	m := startSectioned(t)
+	m.mixer.SetVolume("music", 0.6)
+	m.music.Loop = false
+
+	loopStart := 15 * time.Second
+	m.music.PlayLooped(audio.Source{URI: trackA}, loopStart, 0)
+	p := m.player(t, 0)
+	if len(m.app.Players) != 1 {
+		t.Fatalf("PlayLooped opened %d players, want 1", len(m.app.Players))
+	}
+	expectPlayer(t, p, true, 0.6)
+	if !p.Loop {
+		t.Fatal("PlayLooped player has Loop=false, want true")
+	}
+	if p.LoopStart != loopStart {
+		t.Fatalf("PlayLooped LoopStart = %v, want %v", p.LoopStart, loopStart)
+	}
+	if m.music.Loop {
+		t.Fatal("PlayLooped mutated mu.Loop to true")
+	}
+
+	// First pass starts from 0 and plays through the intro before reaching the end.
+	m.app.Advance(10 * time.Second)
+	if p.Position != 10*time.Second {
+		t.Fatalf("first pass position = %v, want 10s", p.Position)
+	}
+
+	// Reaching the 60s track end returns to LoopStart (15s), not 0, inside the same single player.
+	m.app.Advance(55 * time.Second)
+	if len(m.app.Players) != 1 {
+		t.Fatalf("PlayLooped opened extra players on wrap: %d", len(m.app.Players))
+	}
+	if p.Position != 20*time.Second {
+		t.Fatalf("wrapped position = %v, want 20s (loopStart 15s + 5s)", p.Position)
+	}
+	expectPlayer(t, p, true, 0.6)
+
+	// Subsequent Play still honors mu.Loop (false).
+	m.music.Play(audio.Source{URI: trackB}, 0)
+	p1 := m.player(t, 1)
+	if !p.Closed {
+		t.Fatal("previous PlayLooped player was not closed by Play")
+	}
+	if p1.Loop || p1.LoopStart != 0 {
+		t.Fatalf("subsequent Play: loop=%v loopStart=%v, want false and 0", p1.Loop, p1.LoopStart)
+	}
+}
+
+func TestPlayLoopedCrossfadesStopsAndRespectsMixerState(t *testing.T) {
+	m := startSectioned(t)
+	m.mixer.SetVolume("music", 0.5)
+	m.music.Play(audio.Source{URI: trackA}, 0)
+	prev := m.player(t, 0)
+	expectPlayer(t, prev, true, 0.5)
+
+	// Crossfade from Play into PlayLooped over 1s.
+	m.music.PlayLooped(audio.Source{URI: trackB}, 12*time.Second, time.Second)
+	looped := m.player(t, 1)
+	if len(m.app.Players) != 2 {
+		t.Fatalf("players = %d, want 2", len(m.app.Players))
+	}
+	if !looped.Playing || looped.Volume != 0 || !looped.Loop || looped.LoopStart != 12*time.Second {
+		t.Fatalf("incoming PlayLooped: playing=%v vol=%v loop=%v loopStart=%v", looped.Playing, looped.Volume, looped.Loop, looped.LoopStart)
+	}
+
+	m.app.Advance(500 * time.Millisecond)
+	if !prev.Playing || !looped.Playing || math.Abs(float64(prev.Volume+looped.Volume-0.5)) > 0.02 {
+		t.Fatalf("mid-fade: prev=%v(playing=%v) looped=%v(playing=%v)", prev.Volume, prev.Playing, looped.Volume, looped.Playing)
+	}
+
+	m.app.Advance(600 * time.Millisecond)
+	if !prev.Closed {
+		t.Fatal("previous track was not closed after crossfade into PlayLooped")
+	}
+	expectPlayer(t, looped, true, 0.5)
+
+	// Pause, suspend and background pause and resume PlayLooped without losing position.
+	pos := looped.Position
+	m.mixer.SetPaused(true)
+	m.app.Settle()
+	expectPlayer(t, looped, false, 0)
+	m.app.Advance(500 * time.Millisecond)
+	if looped.Position != pos {
+		t.Fatalf("PlayLooped advanced while paused: %v -> %v", pos, looped.Position)
+	}
+	m.mixer.SetPaused(false)
+	m.app.Settle()
+	expectPlayer(t, looped, true, 0.5)
+
+	resume := m.mixer.Suspend()
+	m.app.Settle()
+	expectPlayer(t, looped, false, 0)
+	resume()
+	m.app.Settle()
+	expectPlayer(t, looped, true, 0.5)
+
+	m.app.SetEnvironment(background)
+	m.app.Settle()
+	expectPlayer(t, looped, false, 0)
+	m.app.SetEnvironment(playsAudio)
+	m.app.Settle()
+	expectPlayer(t, looped, true, 0.5)
+
+	// Stop(fade) fades out and closes the PlayLooped player.
+	m.music.Stop(500 * time.Millisecond)
+	m.app.Advance(250 * time.Millisecond)
+	if looped.Closed || looped.Volume <= 0 || looped.Volume >= 0.45 {
+		t.Fatalf("mid-stop PlayLooped: closed=%v vol=%v", looped.Closed, looped.Volume)
+	}
+	m.app.Advance(350 * time.Millisecond)
+	if !looped.Closed {
+		t.Fatal("PlayLooped player was not closed after Stop(fade)")
+	}
+
+	// Starting PlayLooped while group volume is 0 defers opening the player until audible.
+	m.mixer.SetVolume("music", 0)
+	before := len(m.app.Players)
+	m.music.PlayLooped(audio.Source{URI: trackA}, 5*time.Second, 0)
+	m.app.Settle()
+	if len(m.app.Players) != before {
+		t.Fatalf("silent PlayLooped opened %d players, want 0", len(m.app.Players)-before)
+	}
+	m.mixer.SetVolume("music", 0.8)
+	deferred := m.player(t, before)
+	expectPlayer(t, deferred, true, 0.8)
+	if !deferred.Loop || deferred.LoopStart != 5*time.Second {
+		t.Fatalf("deferred PlayLooped: loop=%v loopStart=%v, want true and 5s", deferred.Loop, deferred.LoopStart)
+	}
+	m.music.Stop(0)
+	m.app.Settle()
+	if !deferred.Closed {
+		t.Fatal("Stop(0) did not close PlayLooped player")
+	}
+}
+
+func TestPlayLoopedEdgeCasesAndBusEffects(t *testing.T) {
+	rawWAV := wavTone(t, 6000, 1)
+	processed, err := sound.ProcessWAV(rawWAV, sound.LowPass(800, 1/math.Sqrt2))
+	if err != nil {
+		t.Fatalf("ProcessWAV: %v", err)
+	}
+	m := startSectioned(t, func(a *nsgotest.App) {
+		a.AudioDurations[string(processed)] = 100 * time.Millisecond
+	})
+
+	// Negative loopStart clamps to 0.
+	m.music.PlayLooped(audio.Source{URI: trackA}, -3*time.Second, 0)
+	p0 := m.player(t, 0)
+	if !p0.Loop || p0.LoopStart != 0 {
+		t.Fatalf("negative loopStart: loop=%v loopStart=%v, want true and 0", p0.Loop, p0.LoopStart)
+	}
+
+	// Empty source stops music without opening a player.
+	before := len(m.app.Players)
+	m.music.PlayLooped(audio.Source{}, 5*time.Second, 0)
+	m.app.Settle()
+	if !p0.Closed {
+		t.Fatal("empty PlayLooped did not stop previous track")
+	}
+	if len(m.app.Players) != before {
+		t.Fatalf("empty PlayLooped opened %d players, want 0", len(m.app.Players)-before)
+	}
+
+	// In-memory PCM WAV source runs through the group's bus effect chain.
+	m.mixer.SetGroupEffects("music", sound.LowPass(800, 1/math.Sqrt2))
+	m.music.PlayLooped(audio.Source{Data: rawWAV}, 25*time.Millisecond, 0)
+	p1 := m.player(t, before)
+	if !bytes.Equal(p1.Source.Data, processed) {
+		t.Fatal("PlayLooped did not process WAV through the group bus chain")
+	}
+	if !p1.Loop || p1.LoopStart != 25*time.Millisecond {
+		t.Fatalf("processed PlayLooped: loop=%v loopStart=%v, want true and 25ms", p1.Loop, p1.LoopStart)
+	}
+}
+
+func TestPlaySectionsPreSchedulesHandoffBeforeIntroEnds(t *testing.T) {
+	m := startSectioned(t)
+	m.mixer.SetVolume("music", 0.6)
+
+	m.music.PlaySections(audio.Source{URI: introURI}, audio.Source{URI: loopURI}, 0)
+	intro := m.player(t, 0)
+	loop := m.player(t, 1)
+
+	// Advance to 10ms before intro's 2s end (inside the 20ms pre-handoff lead window).
+	m.app.Advance(1990 * time.Millisecond)
+	if !loop.Playing {
+		t.Fatal("PlaySections did not start loop ahead of intro's OnEnd")
+	}
+	if intro.Closed {
+		t.Fatal("intro closed prematurely before finishing its remaining samples")
+	}
+	expectPlayer(t, loop, true, 0.6)
+
+	// Once intro finishes its remaining samples, OnEnd closes intro while loop continues.
+	m.app.Advance(50 * time.Millisecond)
+	if !intro.Closed {
+		t.Fatal("intro was not closed once it reached its end")
+	}
+	expectPlayer(t, loop, true, 0.6)
+}
+
+func TestPlaySectionsPauseAndStopDuringPreHandoffTail(t *testing.T) {
+	// Pausing during the brief pre-handoff tail pauses both intro and loop, and resuming finishes intro cleanly.
+	m := startSectioned(t)
+	m.mixer.SetVolume("music", 0.7)
+	m.music.PlaySections(audio.Source{URI: introURI}, audio.Source{URI: loopURI}, 0)
+	intro := m.player(t, 0)
+	loop := m.player(t, 1)
+
+	m.app.Advance(1990 * time.Millisecond)
+	if !loop.Playing || intro.Closed {
+		t.Fatalf("at 1990ms: intro.Closed=%v loop.Playing=%v, want false and true", intro.Closed, loop.Playing)
+	}
+
+	m.mixer.SetPaused(true)
+	m.app.Settle()
+	expectPlayer(t, intro, false, 0)
+	expectPlayer(t, loop, false, 0)
+
+	m.mixer.SetPaused(false)
+	m.app.Settle()
+	expectPlayer(t, intro, true, 0.7)
+	expectPlayer(t, loop, true, 0.7)
+
+	m.app.Advance(50 * time.Millisecond)
+	if !intro.Closed {
+		t.Fatal("intro did not close after resuming from tail pause")
+	}
+	expectPlayer(t, loop, true, 0.7)
+
+	// Stop(0) during the pre-handoff tail closes both intro and loop immediately.
+	m.music.PlaySections(audio.Source{URI: introURI}, audio.Source{URI: loopURI}, 0)
+	intro2 := m.player(t, 2)
+	loop2 := m.player(t, 3)
+	m.app.Advance(1990 * time.Millisecond)
+	if !loop2.Playing || intro2.Closed {
+		t.Fatalf("second track at 1990ms: intro.Closed=%v loop.Playing=%v", intro2.Closed, loop2.Playing)
+	}
+	m.music.Stop(0)
+	m.app.Settle()
+	if !intro2.Closed || !loop2.Closed {
+		t.Fatalf("Stop(0) during tail: intro.Closed=%v loop.Closed=%v, want both true", intro2.Closed, loop2.Closed)
+	}
+
+	// Stop(fade) during the pre-handoff tail closes both once the fade completes.
+	m.music.PlaySections(audio.Source{URI: introURI}, audio.Source{URI: loopURI}, 0)
+	intro3 := m.player(t, 4)
+	loop3 := m.player(t, 5)
+	m.app.Advance(1990 * time.Millisecond)
+	m.music.Stop(200 * time.Millisecond)
+	m.app.Advance(250 * time.Millisecond)
+	if !intro3.Closed || !loop3.Closed {
+		t.Fatalf("Stop(fade) during tail: intro.Closed=%v loop.Closed=%v, want both true", intro3.Closed, loop3.Closed)
+	}
+
+	// Very short intro (< sectionHandoffLead) still hands off and closes cleanly.
+	const tinyURI = "asset:music/tiny_intro.m4a"
+	m.app.AudioDurations[tinyURI] = 10 * time.Millisecond
+	m.music.PlaySections(audio.Source{URI: tinyURI}, audio.Source{URI: loopURI}, 0)
+	tiny := m.player(t, 6)
+	loop4 := m.player(t, 7)
+	m.app.Advance(50 * time.Millisecond)
+	if !tiny.Closed {
+		t.Fatal("tiny intro was not closed after handoff")
+	}
+	expectPlayer(t, loop4, true, 0.7)
+}
+
 func makeSine(freq float64, sampleRate, frames int) []float64 {
 	out := make([]float64, frames)
 	for i := range frames {
