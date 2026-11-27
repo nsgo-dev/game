@@ -261,6 +261,15 @@ func (b *Bridge) addPrefabEntry(entry prefabEntry) error {
 	return nil
 }
 
+// HasPrefab reports whether a prefab named name is registered on b.
+func (b *Bridge) HasPrefab(name string) bool {
+	if b == nil || name == "" {
+		return false
+	}
+	_, ok := b.prefabs[name]
+	return ok
+}
+
 // RegisterPrefab registers a custom prefab spawner under name on b for game_prefabs_list and game_entity_spawn.
 func (b *Bridge) RegisterPrefab(name string, spawn PrefabSpawner) error {
 	if b == nil {

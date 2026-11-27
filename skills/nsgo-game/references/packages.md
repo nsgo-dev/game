@@ -160,6 +160,8 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `game/pkg/project` | Experimental | `game.yaml` parser, canonical encoder and `nsgo.yaml` consistency checker |
+| `game/pkg/plugin` | Experimental | Runtime Go `Plugin`, `Host`, atomic deterministic `Install`, standard scheduler stages and `OnWorld` codecs |
+| `game/pkg/plugin/devtools` | Experimental | Development-time plugin wiring (`PrefabSpec` for `mcp.Bridge` and `playtest` bot factories) split out to keep game binaries lean |
 | `game/pkg/plugin/manifest` | Experimental | Strict `plugin.yaml` parser, validator and deterministic byte-ordered encoder for Go plugins |
 | `game/pkg/refs` | Experimental | Stable file UIDs, project index and reference-rewriting file moves |
 | `game/cmd/editor` | Experimental | Standalone desktop application entrypoint for the NSGo Game Editor |

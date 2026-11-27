@@ -159,6 +159,8 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
 | `game/pkg/platformer` | Experimental | [platformer](platformer.md) |
 | `game/pkg/playtest` | Experimental | [playtest](playtest.md) |
+| `game/pkg/plugin` | Experimental | [Plugins](plugins.md) |
+| `game/pkg/plugin/devtools` | Experimental | [Plugins](plugins.md) |
 | `game/pkg/plugin/manifest` | Experimental | [Plugins](plugins.md) |
 | `game/pkg/procgen` | Experimental | [procgen](procgen.md) |
 | `game/pkg/project` | Experimental | [Project File](project.md) |

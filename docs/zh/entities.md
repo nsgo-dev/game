@@ -69,9 +69,11 @@ entities.Each2[Position, Velocity](world, func(e entities.Entity, p *Position, v
 `Scheduler` 在每个 `game.Loop` 固定步长上按确定的拓扑顺序执行具名系统。
 
 - `AddSystem(name, fn, opts...)` 注册系统并附带可选的 `Before(other)` 与 `After(other)` 约束，目标系统可以先引用后注册。
+- `HasSystem(name)` 报告调度器中是否已注册名为 `name` 的系统。
 - `Build()` 校验约束并通过 Kahn 算法解析顺序，无约束冲突时按注册顺序决胜；引用不存在的目标返回 `ErrUnknownSystem`，存在环路返回 `ErrSystemCycle`。
 - `Order()` 返回解析后的系统名称列表，`String()` 将其格式化为 `"a -> b -> c"`，便于调试叠层显示。
 - `Step(w, dt)` 在必要时完成解析并按顺序执行所有系统，稳态运行零分配。
+- 对于可复用插件，`game/pkg/plugin` 会为每个调度器一次性添加四组标准阶段锚点（`StageInput` -> `StageUpdate` -> `StagePhysics` -> `StageLate`），让插件系统无需知晓游戏内部系统名即可挂载到对应阶段；见[插件](plugins.md#标准调度阶段)。
 
 ```go
 sched := entities.NewScheduler()
