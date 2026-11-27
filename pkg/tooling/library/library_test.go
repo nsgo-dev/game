@@ -539,9 +539,9 @@ func TestOpenRefusesPlainHTTPToAnotherHost(t *testing.T) {
 func TestSearch(t *testing.T) {
 	idx, err := library.ParseIndex([]byte(`version: 1
 packs:
-  - {name: ui-kit, kind: asset, packVersion: '1', description: Buttons and panels., tags: [ui], license: MIT, source: a, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
-  - {name: dungeon-tiles, kind: asset, packVersion: '1', description: Stone tiles., tags: [2d, tiles], license: CC0-1.0, source: b, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
-  - {name: path-tools, kind: plugin, packVersion: '1', description: Draw paths for tiles and actors., license: MIT, source: c, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+  - {name: ui-kit, kind: asset, packVersion: 1.0.0, description: Buttons and panels., tags: [ui], license: MIT, source: a, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+  - {name: dungeon-tiles, kind: asset, packVersion: 1.0.0, description: Stone tiles., tags: [2d, tiles], license: CC0-1.0, source: b, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+  - {name: path-tools, kind: plugin, packVersion: 1.0.0, description: Draw paths for tiles and actors., license: MIT, source: c, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -573,28 +573,31 @@ packs:
 func TestParseIndexRefusesInvalidIndexes(t *testing.T) {
 	const sum = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 	entry := func(fields string) string {
-		return "version: 1\npacks:\n  - {name: tiles, kind: asset, packVersion: '1', description: Tiles., license: MIT, source: packs/tiles, sha256: " + sum + fields + "}\n"
+		return "version: 1\npacks:\n  - {name: tiles, kind: asset, packVersion: 1.0.0, description: Tiles., license: MIT, source: packs/tiles, sha256: " + sum + fields + "}\n"
 	}
 	cases := map[string]string{
-		"empty":            "",
-		"version":          "version: 2\n",
-		"unknown field":    "version: 1\nowner: me\n",
-		"unknown entry":    entry(", url: x"),
-		"trailing":         entry("") + "---\nversion: 1\n",
-		"name":             strings.Replace(entry(""), "name: tiles", "name: Tiles", 1),
-		"kind":             strings.Replace(entry(""), "kind: asset", "kind: music", 1),
-		"version spaces":   strings.Replace(entry(""), "packVersion: '1'", "packVersion: '1 0'", 1),
-		"no description":   strings.Replace(entry(""), "description: Tiles.", "description: ''", 1),
-		"no license":       strings.Replace(entry(""), "license: MIT", "license: ''", 1),
-		"license":          strings.Replace(entry(""), "license: MIT", "license: 'MIT;rm'", 1),
-		"tag":              entry(", tags: [Tiles]"),
-		"duplicate tag":    entry(", tags: [a, a]"),
-		"escaping source":  strings.Replace(entry(""), "source: packs/tiles", "source: ../tiles", 1),
-		"http source":      strings.Replace(entry(""), "source: packs/tiles", "source: 'http://example.com/tiles'", 1),
-		"query source":     strings.Replace(entry(""), "source: packs/tiles", "source: 'https://example.com/tiles?x=1'", 1),
-		"sha256":           strings.Replace(entry(""), sum, strings.ToUpper(sum), 1),
-		"duplicate pack":   entry("") + "  - {name: tiles, kind: asset, packVersion: '1', description: Tiles., license: MIT, source: packs/other, sha256: " + sum + "}\n",
-		"no packs version": "packs: []\n",
+		"empty":              "",
+		"version":            "version: 2\n",
+		"unknown field":      "version: 1\nowner: me\n",
+		"unknown entry":      entry(", url: x"),
+		"trailing":           entry("") + "---\nversion: 1\n",
+		"name":               strings.Replace(entry(""), "name: tiles", "name: Tiles", 1),
+		"kind":               strings.Replace(entry(""), "kind: asset", "kind: music", 1),
+		"version spaces":     strings.Replace(entry(""), "packVersion: 1.0.0", "packVersion: '1 0'", 1),
+		"version partial":    strings.Replace(entry(""), "packVersion: 1.0.0", "packVersion: '1.2'", 1),
+		"version non-semver": strings.Replace(entry(""), "packVersion: 1.0.0", "packVersion: latest", 1),
+		"version leading v":  strings.Replace(entry(""), "packVersion: 1.0.0", "packVersion: v1.0.0", 1),
+		"no description":     strings.Replace(entry(""), "description: Tiles.", "description: ''", 1),
+		"no license":         strings.Replace(entry(""), "license: MIT", "license: ''", 1),
+		"license":            strings.Replace(entry(""), "license: MIT", "license: 'MIT;rm'", 1),
+		"tag":                entry(", tags: [Tiles]"),
+		"duplicate tag":      entry(", tags: [a, a]"),
+		"escaping source":    strings.Replace(entry(""), "source: packs/tiles", "source: ../tiles", 1),
+		"http source":        strings.Replace(entry(""), "source: packs/tiles", "source: 'http://example.com/tiles'", 1),
+		"query source":       strings.Replace(entry(""), "source: packs/tiles", "source: 'https://example.com/tiles?x=1'", 1),
+		"sha256":             strings.Replace(entry(""), sum, strings.ToUpper(sum), 1),
+		"duplicate pack":     entry("") + "  - {name: tiles, kind: asset, packVersion: 1.0.0, description: Tiles., license: MIT, source: packs/other, sha256: " + sum + "}\n",
+		"no packs version":   "packs: []\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -616,40 +619,43 @@ func TestParseIndexRefusesInvalidIndexes(t *testing.T) {
 func TestParseManifestRefusesInvalidManifests(t *testing.T) {
 	const head = "version: 1\nname: tiles\nkind: asset\npackVersion: 1.0.0\ndescription: Tiles.\nlicense: CC0-1.0\n"
 	cases := map[string]string{
-		"version":           strings.Replace(head, "version: 1", "version: 3", 1),
-		"unknown field":     head + "homepage: x\n",
-		"into":              head + "into: ../x\n",
-		"file":              head + "files: [/etc/passwd]\n",
-		"backslash":         head + "files: ['a\\b']\n",
-		"manifest listed":   head + "files: [pack.yaml]\n",
-		"duplicate file":    head + "files: [a, a]\n",
-		"file in a file":    head + "files: [a, a/b]\n",
-		"hidden into":       head + "into: .github/workflows\n",
-		"hidden into elem":  head + "into: assets/.cache\n",
-		"hidden file":       head + "files: [.github/workflows/ci.yml]\n",
-		"go source":         head + "files: [init.go]\n",
-		"go source case":    head + "files: [sub/INIT.GO]\n",
-		"assembly":          head + "files: [a.s]\n",
-		"cgo":               head + "files: [a.c]\n",
-		"go.mod":            head + "files: [sub/go.mod]\n",
-		"go.sum":            head + "files: [go.sum]\n",
-		"case clash":        head + "files: [Tiles.png, tiles.png]\n",
-		"case dir clash":    head + "files: [A, a/b]\n",
-		"manifest case":     head + "files: [Pack.yaml]\n",
-		"colon":             head + "files: ['a:b.png']\n",
-		"reserved":          head + "files: [con.txt]\n",
-		"reserved com":      head + "files: [sub/COM1]\n",
-		"trailing dot":      head + "files: ['a.']\n",
-		"trailing space":    head + "files: ['a ']\n",
-		"newline":           head + "files: [\"a\\nb\"]\n",
-		"autoload missing":  head + "files: [a.json]\nautoload: {resources: [{name: r, path: b.json}]}\n",
-		"autoload name":     head + "files: [a.json]\nautoload: {resources: [{name: 'r r', path: a.json}]}\n",
-		"autoload twice":    head + "files: [a.json]\nautoload: {resources: [{name: r, path: a.json}, {name: r, path: a.json}]}\n",
-		"scene extension":   head + "files: [a.json]\nautoload: {scenes: [{name: s, path: a.json}]}\n",
-		"asset plugins":     head + "plugins: [health]\n",
-		"plugin no plugins": strings.Replace(head, "kind: asset", "kind: plugin", 1),
-		"plugin twice":      strings.Replace(head, "kind: asset", "kind: plugin", 1) + "plugins: [a, a]\n",
-		"plugin name":       strings.Replace(head, "kind: asset", "kind: plugin", 1) + "plugins: ['a b']\n",
+		"version":            strings.Replace(head, "version: 1", "version: 3", 1),
+		"version partial":    strings.Replace(head, "packVersion: 1.0.0", "packVersion: '1.2'", 1),
+		"version non-semver": strings.Replace(head, "packVersion: 1.0.0", "packVersion: latest", 1),
+		"version leading v":  strings.Replace(head, "packVersion: 1.0.0", "packVersion: v1.0.0", 1),
+		"unknown field":      head + "homepage: x\n",
+		"into":               head + "into: ../x\n",
+		"file":               head + "files: [/etc/passwd]\n",
+		"backslash":          head + "files: ['a\\b']\n",
+		"manifest listed":    head + "files: [pack.yaml]\n",
+		"duplicate file":     head + "files: [a, a]\n",
+		"file in a file":     head + "files: [a, a/b]\n",
+		"hidden into":        head + "into: .github/workflows\n",
+		"hidden into elem":   head + "into: assets/.cache\n",
+		"hidden file":        head + "files: [.github/workflows/ci.yml]\n",
+		"go source":          head + "files: [init.go]\n",
+		"go source case":     head + "files: [sub/INIT.GO]\n",
+		"assembly":           head + "files: [a.s]\n",
+		"cgo":                head + "files: [a.c]\n",
+		"go.mod":             head + "files: [sub/go.mod]\n",
+		"go.sum":             head + "files: [go.sum]\n",
+		"case clash":         head + "files: [Tiles.png, tiles.png]\n",
+		"case dir clash":     head + "files: [A, a/b]\n",
+		"manifest case":      head + "files: [Pack.yaml]\n",
+		"colon":              head + "files: ['a:b.png']\n",
+		"reserved":           head + "files: [con.txt]\n",
+		"reserved com":       head + "files: [sub/COM1]\n",
+		"trailing dot":       head + "files: ['a.']\n",
+		"trailing space":     head + "files: ['a ']\n",
+		"newline":            head + "files: [\"a\\nb\"]\n",
+		"autoload missing":   head + "files: [a.json]\nautoload: {resources: [{name: r, path: b.json}]}\n",
+		"autoload name":      head + "files: [a.json]\nautoload: {resources: [{name: 'r r', path: a.json}]}\n",
+		"autoload twice":     head + "files: [a.json]\nautoload: {resources: [{name: r, path: a.json}, {name: r, path: a.json}]}\n",
+		"scene extension":    head + "files: [a.json]\nautoload: {scenes: [{name: s, path: a.json}]}\n",
+		"asset plugins":      head + "plugins: [health]\n",
+		"plugin no plugins":  strings.Replace(head, "kind: asset", "kind: plugin", 1),
+		"plugin twice":       strings.Replace(head, "kind: asset", "kind: plugin", 1) + "plugins: [a, a]\n",
+		"plugin name":        strings.Replace(head, "kind: asset", "kind: plugin", 1) + "plugins: ['a b']\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -672,7 +678,7 @@ func TestParseManifestRefusesInvalidManifests(t *testing.T) {
 }
 
 func TestReadPackRefusesAMissingFile(t *testing.T) {
-	fsys := fstest.MapFS{"p/pack.yaml": {Data: []byte("version: 1\nname: p\nkind: asset\npackVersion: '1'\ndescription: P.\nlicense: MIT\nfiles: [gone.png]\n")}}
+	fsys := fstest.MapFS{"p/pack.yaml": {Data: []byte("version: 1\nname: p\nkind: asset\npackVersion: 1.0.0\ndescription: P.\nlicense: MIT\nfiles: [gone.png]\n")}}
 	if _, err := library.ReadPack(fsys, "p"); err == nil || !strings.Contains(err.Error(), "gone.png") {
 		t.Fatalf("ReadPack = %v, want an error naming gone.png", err)
 	}
@@ -683,7 +689,7 @@ func TestReadPackRefusesAMissingFile(t *testing.T) {
 
 func TestKindsMatchTheProjectFile(t *testing.T) {
 	for _, kind := range project.PackKinds {
-		m := fmt.Sprintf("version: 1\nname: p\nkind: %s\npackVersion: '1'\ndescription: P.\nlicense: MIT\n", kind)
+		m := fmt.Sprintf("version: 1\nname: p\nkind: %s\npackVersion: 1.0.0\ndescription: P.\nlicense: MIT\n", kind)
 		if kind == project.PackPlugin {
 			m += "plugins: [x]\n"
 		}
@@ -735,8 +741,8 @@ func layoutPack(version string, files ...string) testPack {
 
 // TestUpdateSwapsAFileAndADirectory updates a pack whose new release has a directory where the old one had a file, and back again.
 func TestUpdateSwapsAFileAndADirectory(t *testing.T) {
-	v1, _ := newLibrary(t, layoutPack("1", "notes", "keep.txt"))
-	v2, _ := newLibrary(t, layoutPack("2", "notes/a.txt", "notes/b.txt", "keep.txt"))
+	v1, _ := newLibrary(t, layoutPack("1.0.0", "notes", "keep.txt"))
+	v2, _ := newLibrary(t, layoutPack("2.0.0", "notes/a.txt", "notes/b.txt", "keep.txt"))
 	dir := newProject(t, minimalProject)
 	notes := filepath.Join(dir, "packs", "layout", "notes")
 	if _, err := library.Install(dir, fetch(t, v1, "layout"), ""); err != nil {

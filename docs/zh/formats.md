@@ -345,7 +345,7 @@ version: 1
 packs:
   - name: dungeon-tiles
     kind: asset
-    packVersion: "1"
+    packVersion: 1.0.0
     description: Stone tiles.
     tags: [2d, tiles]
     license: CC0-1.0

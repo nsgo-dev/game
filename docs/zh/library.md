@@ -77,7 +77,7 @@ packs:
 | `version` | 索引 schema 版本，`1`。 |
 | `name` | 包名：1 到 64 个小写 ASCII 字母、数字和 `-`，以字母或数字开头；在索引中唯一。 |
 | `kind` | `asset`、`plugin` 或 `template`。 |
-| `packVersion` | 索引提供的包版本。 |
+| `packVersion` | 索引提供的包版本：不带前导 `v` 的严格语义化版本（`MAJOR.MINOR.PATCH[-prerelease][+build]`），例如 `1.0.0`。 |
 | `description` | 一行文字说明包的内容。 |
 | `tags` | 搜索也会匹配的小写词。 |
 | `license` | 包中文件的许可证，以 SPDX 表达式书写，如 `CC0-1.0` 或 `MIT OR Apache-2.0`。 |

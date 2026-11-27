@@ -2,7 +2,6 @@ package modding
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/internal/semver"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/tsx/pkg"
 	"go.yaml.in/yaml/v3"
@@ -437,195 +437,23 @@ func validateEntryPath(entry string) error {
 }
 
 // SemVer is a parsed semantic version (MAJOR.MINOR.PATCH[-prerelease]).
-type SemVer struct {
-	Major int
-	Minor int
-	Patch int
-	Pre   string
-}
+type SemVer = semver.Version
 
-// ParseSemVer parses a semantic version string such as "1.2.3" or "0.4.0-beta.1".
+// ParseSemVer parses a semantic version string with an optional leading "v", such as "1.2.3", "v1.2.3", or "0.4.0-beta.1".
 func ParseSemVer(raw string) (SemVer, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return SemVer{}, errors.New("empty version")
-	}
-	// Strip optional build metadata (+...).
-	if idx := strings.IndexByte(s, '+'); idx >= 0 {
-		s = s[:idx]
-	}
-	var pre string
-	if idx := strings.IndexByte(s, '-'); idx >= 0 {
-		pre = s[idx+1:]
-		if pre == "" {
-			return SemVer{}, fmt.Errorf("empty prerelease in %q", raw)
-		}
-		s = s[:idx]
-	}
-	parts := strings.Split(s, ".")
-	if len(parts) != 3 {
-		return SemVer{}, fmt.Errorf("expected MAJOR.MINOR.PATCH, got %q", raw)
-	}
-	nums := make([]int, 3)
-	for i, p := range parts {
-		if p == "" || (len(p) > 1 && p[0] == '0') {
-			return SemVer{}, fmt.Errorf("invalid numeric segment %q in %q", p, raw)
-		}
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
-			return SemVer{}, fmt.Errorf("invalid numeric segment %q in %q", p, raw)
-		}
-		nums[i] = n
-	}
-	return SemVer{Major: nums[0], Minor: nums[1], Patch: nums[2], Pre: pre}, nil
-}
-
-// String formats v as MAJOR.MINOR.PATCH[-prerelease].
-func (v SemVer) String() string {
-	base := fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
-	if v.Pre != "" {
-		return base + "-" + v.Pre
-	}
-	return base
-}
-
-// Compare compares v and other according to SemVer 2.0.0 precedence.
-func (v SemVer) Compare(other SemVer) int {
-	if c := cmp.Compare(v.Major, other.Major); c != 0 {
-		return c
-	}
-	if c := cmp.Compare(v.Minor, other.Minor); c != 0 {
-		return c
-	}
-	if c := cmp.Compare(v.Patch, other.Patch); c != 0 {
-		return c
-	}
-	if v.Pre == other.Pre {
-		return 0
-	}
-	if v.Pre == "" {
-		return 1
-	}
-	if other.Pre == "" {
-		return -1
-	}
-	a := strings.Split(v.Pre, ".")
-	b := strings.Split(other.Pre, ".")
-	for i := 0; i < len(a) && i < len(b); i++ {
-		if a[i] == b[i] {
-			continue
-		}
-		ai, aErr := strconv.Atoi(a[i])
-		bi, bErr := strconv.Atoi(b[i])
-		switch {
-		case aErr == nil && bErr == nil:
-			return cmp.Compare(ai, bi)
-		case aErr == nil:
-			return -1
-		case bErr == nil:
-			return 1
-		default:
-			return cmp.Compare(a[i], b[i])
-		}
-	}
-	return cmp.Compare(len(a), len(b))
+	return semver.Parse(raw)
 }
 
 // ValidateConstraint checks that constraint is a syntactically valid version constraint.
 func ValidateConstraint(constraint string) error {
-	_, err := parseConstraintClauses(constraint)
+	_, err := semver.ParseConstraint(constraint)
 	return err
 }
 
 // CheckConstraint reports whether version satisfies constraint.
-// Supported operators: *, =, >=, >, <=, <, ^, ~, and space/comma-separated conjunctions.
+// Supported operators: *, =, >=, >, <=, <, ^, ~, partial versions such as ^1.2, and space/comma-separated conjunctions.
 func CheckConstraint(version, constraint string) (bool, error) {
-	v, err := ParseSemVer(version)
-	if err != nil {
-		return false, err
-	}
-	clauses, err := parseConstraintClauses(constraint)
-	if err != nil {
-		return false, err
-	}
-	for _, cl := range clauses {
-		if !cl.matches(v) {
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
-type versionClause struct {
-	op  string
-	ver SemVer
-}
-
-func parseConstraintClauses(raw string) ([]versionClause, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" || s == "*" {
-		return nil, nil
-	}
-	s = strings.ReplaceAll(s, ",", " ")
-	fields := strings.Fields(s)
-	clauses := make([]versionClause, 0, len(fields))
-	for _, f := range fields {
-		if f == "*" {
-			continue
-		}
-		op := "="
-		rest := f
-		for _, prefix := range []string{">=", "<=", ">", "<", "=", "^", "~"} {
-			if strings.HasPrefix(f, prefix) {
-				op = prefix
-				rest = strings.TrimPrefix(f, prefix)
-				break
-			}
-		}
-		ver, err := ParseSemVer(rest)
-		if err != nil {
-			return nil, fmt.Errorf("invalid constraint clause %q: %v", f, err)
-		}
-		clauses = append(clauses, versionClause{op: op, ver: ver})
-	}
-	return clauses, nil
-}
-
-func (c versionClause) matches(v SemVer) bool {
-	switch c.op {
-	case "=":
-		return v.Compare(c.ver) == 0
-	case ">=":
-		return v.Compare(c.ver) >= 0
-	case ">":
-		return v.Compare(c.ver) > 0
-	case "<=":
-		return v.Compare(c.ver) <= 0
-	case "<":
-		return v.Compare(c.ver) < 0
-	case "^":
-		if v.Compare(c.ver) < 0 {
-			return false
-		}
-		var upper SemVer
-		switch {
-		case c.ver.Major > 0:
-			upper = SemVer{Major: c.ver.Major + 1}
-		case c.ver.Minor > 0:
-			upper = SemVer{Major: 0, Minor: c.ver.Minor + 1}
-		default:
-			upper = SemVer{Major: 0, Minor: 0, Patch: c.ver.Patch + 1}
-		}
-		return v.Compare(upper) < 0
-	case "~":
-		if v.Compare(c.ver) < 0 {
-			return false
-		}
-		upper := SemVer{Major: c.ver.Major, Minor: c.ver.Minor + 1}
-		return v.Compare(upper) < 0
-	default:
-		return false
-	}
+	return semver.Check(version, constraint)
 }
 
 // ResolveOrder validates manifests and returns them in deterministic topological load order

@@ -27,14 +27,14 @@ capabilities: [readState, spawnEntity, emitEvent, ui]
 | `manifestVersion` | yes | Schema version of the file, currently `1` (`modding.ManifestVersion`) |
 | `id` | yes | Unique ID of letters, digits, `.`, `-` and `_`, such as `com.example.boss-rush` |
 | `name` | yes | Human-readable name |
-| `version` | yes | The mod's own semantic version (`MAJOR.MINOR.PATCH[-prerelease]`) |
+| `version` | yes | The mod's own semantic version (`MAJOR.MINOR.PATCH[-prerelease][+build]`, optional leading `v`) |
 | `author`, `description` | no | Free text |
 | `entry` | yes | Entry script relative to the mod directory: `.tsx`, `.ts`, `.jsx`, `.js` or `.mjs` |
 | `gameVersion` | no | Constraint on the host's `ManagerOptions.GameVersion`, such as `'>=0.2.0'` |
 | `capabilities` | no | Capability names the mod requests |
 | `dependencies` | no | Map of mod IDs to version constraints, such as `com.example.core-lib: ^1.0.0` |
 
-Constraints accept `*`, `=`, `>=`, `>`, `<=`, `<`, `^` and `~`, joined by spaces or commas. Quote a value that starts with `>` or `*` (`'>=0.2.0'`, `'*'`), since YAML reads those characters at the start of a value as a folded block and an alias.
+Constraints accept `*`, `=`, `>=`, `>`, `<=`, `<`, `^` and `~` (or a bare version, equivalent to `=`), joined by spaces or commas. Clauses accept an optional leading `v` and partial versions (`MAJOR` or `MAJOR.MINOR`): `^1.2` means `>=1.2.0 <2.0.0`, `^0.2` and `^0.0` bound the next minor version, `~1.2` and `1.2` mean `>=1.2.0 <1.3.0`, `<=1.2` means `<1.3.0`, and `>1.2` means `>=1.3.0`. Comparisons use pure SemVer 2.0.0 precedence: build metadata is ignored, pre-releases (including Go pseudo-versions) match any range whose bounds bracket them (`>=1.0.0` matches `1.1.0-beta`, while `1.0.0-beta` does not), and `<2.0.0` (including the upper bound of `^1.0.0`) matches `2.0.0-alpha` unless written `<2.0.0-0`. Quote a value that starts with `>` or `*` (`'>=0.2.0'`, `'*'`), since YAML reads those characters at the start of a value as a folded block and an alias.
 
 The format is strict: `ParseManifest` refuses unknown or misspelled fields, duplicate keys, a second YAML document, unknown or repeated capability names, and a `manifestVersion` that is missing, unsupported or not written as the plain integer `1`, all as `ErrInvalidManifest`. `EncodeManifest` writes a manifest in one canonical form (fields in the order above, capabilities in the order listed below, dependencies sorted by ID in byte order), so a file already in that form is unchanged by a read and a write. A `ModManifest` built in Go may leave `ManifestVersion` at 0: `Validate` and `ResolveOrder` accept it, and `EncodeManifest` writes `manifestVersion: 1`. `Manager` reads only `mod.yaml`; a mod directory that still has only the old `mod.json` is refused with a message asking for `mod.yaml`.
 
