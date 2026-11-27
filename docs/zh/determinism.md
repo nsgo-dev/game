@@ -41,6 +41,7 @@ particles := streams.Stream("particles")
 ```
 
 - 每个 `Stream` 都内置了独立的 SplitMix64 + Xoshiro256\*\* 算法和固定的拒绝采样实现（`Intn`、`IntRange`、`Float64`、`Float32`、`Range`、`Range32`、`Bool`、`Chance`、`Pick`、`WeightedIndex`、`Shuffle`）。同一个种子在所有 Go 版本、操作系统和 CPU 架构（32 位、64 位、ARM64、x64 和 WebAssembly）上产生的比特序列完全一致。
+- 在均匀分布之外，`Normal(mean, stddev)` 用固定的 12 次 Irwin-Hall 求和抽取正态分布，`InCircle(r)`、`OnCircle()` 和 `InRect(x, y, w, h)` 返回在圆内、单位圆上（随机方向）和矩形内均匀分布的二维点。这些方法刻意不使用 `math.Sin`、`math.Cos`、`math.Log` 和 `math.Exp`（它们在不同架构上舍入结果不同），因此结果同样在所有平台上逐位一致。
 - 通过 `root.Fork("loot")`、`root.Fork("level-1").Fork("spawns")` 或 `streams.Stream("loot")` 按用途派生子流时，既不会推进父流，也不会影响兄弟流。新增粒子特效或调整创建顺序，都不会改变敌人 AI 或战利品掉落。
 - 把纯表现层的随机性（粒子、镜头震动、音效微调）放在独立的流里，避免视觉改动影响玩法逻辑。
 

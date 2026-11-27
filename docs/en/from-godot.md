@@ -20,6 +20,7 @@ The biggest change is where a game lives. In Godot you assemble scenes in the ed
 | `[connection]` in a `.tscn` | A scene file's `connections`, run by `sceneformat.Connect` and `Signals.Emit`, or deferred, as `CONNECT_DEFERRED` does, with `Signals.Enqueue` and `Flush`; `SpawnConnected` binds them to entities | [Editor & Scene Format](editor.md#connections-490) |
 | `Timer` node, `await` on a signal | `flow.Timers`, `flow.Seq` and `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`, `tween.Timeline` | [tween](tween.md) |
+| `RandomNumberGenerator` (`randf`, `randi_range`, `randfn`, `rand_weighted`) | `random.Stream` (`Float64`, `IntRange`, `Normal`, `WeightedIndex`), seeded and forked per purpose | [Determinism](determinism.md) |
 | Input Map, `Input.is_action_just_pressed` | `input.Actions`, `JustPressed` | [input](input.md) |
 | `CharacterBody2D.move_and_slide()` | `World.MoveAndSlide` / `MoveAndSlideWith` against bodies, shapes, tiles and static rigid bodies (`physics.MoveAndSlide` for tiles alone; `platformer.Controller.StepWorld` for platformers) | [physics](physics.md), [platformer](platformer.md) |
 | `RigidBody2D`, joints | `physics.RigidWorld`, `RigidBody`, joints | [2D Rigid Bodies](physics2d-rigid.md) |

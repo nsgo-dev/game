@@ -226,6 +226,83 @@ func (s *Stream) Range32(min, max float32) float32 {
 	return v
 }
 
+// Normal returns a normally distributed value with the given mean and standard
+// deviation. It draws the sum of 12 uniform Float64 values, shifted to zero
+// mean (an Irwin-Hall distribution, which matches the normal distribution's
+// mean and variance), rather than a Box-Muller or ziggurat transform, because
+// those need math.Log, math.Sin or math.Exp, whose standard library
+// implementations round differently across architectures. The sum uses
+// additions only and consumes a fixed 12 draws per call with no cached second
+// value, so the output is bit-identical across architectures and fully
+// captured by State and SetState. Values stay within ±6 standard deviations
+// of the mean.
+// It panics if stddev < 0 or either argument is NaN.
+func (s *Stream) Normal(mean, stddev float64) float64 {
+	if math.IsNaN(mean) || !(stddev >= 0) {
+		panic("random: Normal requires a non-NaN mean and stddev >= 0")
+	}
+	var z float64
+	for range 12 {
+		z += s.Float64()
+	}
+	z -= 6
+	return mean + float64(stddev*z)
+}
+
+// InCircle returns a point uniformly distributed inside the circle of radius r
+// centered at the origin. It draws candidates from the enclosing square until
+// one falls inside the unit circle and scales it by r, which spreads points
+// uniformly over the area without the square-root radius and trigonometry of
+// the polar form, whose math.Sin and math.Cos round differently across
+// architectures.
+// It panics if r < 0 or r is NaN.
+func (s *Stream) InCircle(r float64) (x, y float64) {
+	if !(r >= 0) {
+		panic("random: InCircle requires r >= 0")
+	}
+	for {
+		x = s.Range(-1, 1)
+		y = s.Range(-1, 1)
+		if float64(x*x)+float64(y*y) < 1 {
+			return x * r, y * r
+		}
+	}
+}
+
+// OnCircle returns a uniformly distributed unit vector: a random direction.
+// It draws a point inside the unit circle as InCircle does and divides it by
+// its length, so the direction is uniform over the angle without trigonometry;
+// only math.Sqrt and division are used, both correctly rounded by IEEE-754 on
+// every architecture.
+func (s *Stream) OnCircle() (x, y float64) {
+	for {
+		x = s.Range(-1, 1)
+		y = s.Range(-1, 1)
+		r2 := float64(x*x) + float64(y*y)
+		if r2 > 0 && r2 < 1 {
+			l := math.Sqrt(r2)
+			return x / l, y / l
+		}
+	}
+}
+
+// InRect returns a point uniformly distributed in [x, x+w) × [y, y+h).
+// It panics if w or h is negative or any argument is NaN.
+func (s *Stream) InRect(x, y, w, h float64) (px, py float64) {
+	if !(w >= 0) || !(h >= 0) || math.IsNaN(x) || math.IsNaN(y) {
+		panic("random: InRect requires non-NaN coordinates with w >= 0 and h >= 0")
+	}
+	px = x + float64(s.Float64()*w)
+	if px >= x+w {
+		px = math.Nextafter(x+w, x)
+	}
+	py = y + float64(s.Float64()*h)
+	if py >= y+h {
+		py = math.Nextafter(y+h, y)
+	}
+	return px, py
+}
+
 // Bool returns a uniformly distributed boolean.
 func (s *Stream) Bool() bool {
 	return s.Uint64()>>63 != 0

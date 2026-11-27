@@ -128,6 +128,64 @@ func TestGoldenSequences(t *testing.T) {
 	}
 }
 
+func TestGoldenDistributionSequences(t *testing.T) {
+	// Verify Normal exact IEEE-754 bit patterns (fixed 12-draw Irwin-Hall sum).
+	sN := random.New(42)
+	wantNormalBits := []uint64{
+		0x402c94caee5f6442,
+		0x4028865c09d1653e,
+		0x402a51ae2f4888fc,
+		0x402a5d1a82d4358e,
+	}
+	for i, w := range wantNormalBits {
+		if got := math.Float64bits(sN.Normal(10, 2.5)); got != w {
+			t.Fatalf("Normal(10, 2.5)[%d] bits = 0x%016x, want 0x%016x", i, got, w)
+		}
+	}
+
+	// Verify InCircle exact IEEE-754 bit patterns.
+	sC := random.New(42)
+	wantInCircleBits := [][2]uint64{
+		{0xc003f97de75db73c, 0xbfe73c5cdb2e3316},
+		{0x3ff148bf32d5b5b9, 0x400462a07d50b1a2},
+		{0x3ff50c7fb201e631, 0x4000cce75cbc3b20},
+	}
+	for i, w := range wantInCircleBits {
+		x, y := sC.InCircle(3)
+		if got := [2]uint64{math.Float64bits(x), math.Float64bits(y)}; got != w {
+			t.Fatalf("InCircle(3)[%d] bits = %#x, want %#x", i, got, w)
+		}
+	}
+
+	// Verify OnCircle exact IEEE-754 bit patterns.
+	sO := random.New(42)
+	wantOnCircleBits := [][2]uint64{
+		{0xbfeeba1d2ed6b8aa, 0xbfd1df334b576113},
+		{0x3fd8fadff3e7ee02, 0x3fed763b4c60b288},
+		{0x3fe0fced7a72c098, 0x3feb1e4fce3488ac},
+	}
+	for i, w := range wantOnCircleBits {
+		x, y := sO.OnCircle()
+		if got := [2]uint64{math.Float64bits(x), math.Float64bits(y)}; got != w {
+			t.Fatalf("OnCircle()[%d] bits = %#x, want %#x", i, got, w)
+		}
+	}
+
+	// Verify InRect exact IEEE-754 bit patterns.
+	sR := random.New(42)
+	wantInRectBits := [][2]uint64{
+		{0xc01150fe9a3e7a28, 0x40270826cc33688a},
+		{0x3fdc2ea66473c930, 0x402b65c56a381d9b},
+		{0x400779b71ff8bb16, 0x402a286d29880bca},
+	}
+	for i, w := range wantInRectBits {
+		x, y := sR.InRect(-5, 10, 8, 4)
+		if got := [2]uint64{math.Float64bits(x), math.Float64bits(y)}; got != w {
+			t.Fatalf("InRect(-5, 10, 8, 4)[%d] bits = %#x, want %#x", i, got, w)
+		}
+	}
+}
+
 func TestGoldenForksAndIndependence(t *testing.T) {
 	forkCases := []struct {
 		purpose  string
@@ -554,6 +612,133 @@ func TestDistributionsAndBounds(t *testing.T) {
 	}
 }
 
+func TestNormalAndUniformPointDistributions(t *testing.T) {
+	const samples = 20000
+	s := random.New(2026)
+
+	// Normal(10, 2.5): sample mean and deviation within tolerance, bounded
+	// to ±6 standard deviations by the Irwin-Hall sum.
+	var sum, sumSq float64
+	for range samples {
+		v := s.Normal(10, 2.5)
+		if math.IsNaN(v) || math.Abs(v-10) > 6*2.5 {
+			t.Fatalf("Normal(10, 2.5) outside ±6 stddevs: %v", v)
+		}
+		sum += v
+		sumSq += v * v
+	}
+	mean := sum / samples
+	if math.Abs(mean-10) > 0.1 {
+		t.Fatalf("Normal(10, 2.5) mean = %v, want ~10", mean)
+	}
+	dev := math.Sqrt(sumSq/samples - mean*mean)
+	if math.Abs(dev-2.5) > 0.06 {
+		t.Fatalf("Normal(10, 2.5) stddev = %v, want ~2.5", dev)
+	}
+	// stddev 0 always returns the mean.
+	for range 4 {
+		if v := s.Normal(-3, 0); v != -3 {
+			t.Fatalf("Normal(-3, 0) = %v, want -3", v)
+		}
+	}
+
+	// InCircle(3): inside the radius, uniform over the area. Half the disc's
+	// area lies within radius r/sqrt(2); a uniform radius (the common mistake)
+	// would put only ~29% there.
+	inner := 0
+	var quadrants [4]int
+	for range samples {
+		x, y := s.InCircle(3)
+		r2 := x*x + y*y
+		if r2 > 9*1.000000000001 {
+			t.Fatalf("InCircle(3) outside radius: (%v, %v)", x, y)
+		}
+		if r2 < 4.5 {
+			inner++
+		}
+		quadrants[(b2i(x > 0)<<1)|b2i(y > 0)]++
+	}
+	if inner < 9000 || inner > 11000 {
+		t.Fatalf("InCircle(3) inner half-area count %d outside [9000, 11000]", inner)
+	}
+	for i, c := range quadrants {
+		if c < 4500 || c > 5500 {
+			t.Fatalf("InCircle(3) quadrant %d count %d outside [4500, 5500]", i, c)
+		}
+	}
+	if x, y := s.InCircle(0); x != 0 || y != 0 {
+		t.Fatalf("InCircle(0) = (%v, %v), want (0, 0)", x, y)
+	}
+
+	// OnCircle: unit length, uniform over the eight octants.
+	var octants [8]int
+	for range samples {
+		x, y := s.OnCircle()
+		if l := math.Hypot(x, y); math.Abs(l-1) > 1e-12 {
+			t.Fatalf("OnCircle length = %v, want 1", l)
+		}
+		oct := int(math.Floor((math.Atan2(y, x) + math.Pi) / (math.Pi / 4)))
+		octants[min(oct, 7)]++
+	}
+	for i, c := range octants {
+		if c < 2000 || c > 3000 {
+			t.Fatalf("OnCircle octant %d count %d outside [2000, 3000]", i, c)
+		}
+	}
+
+	// InRect(-5, 10, 8, 4): inside the half-open bounds, uniform over the
+	// area, exact origin when w or h is 0.
+	var rectQuadrants [4]int
+	for range samples {
+		px, py := s.InRect(-5, 10, 8, 4)
+		if px < -5 || px >= 3 || py < 10 || py >= 14 {
+			t.Fatalf("InRect(-5, 10, 8, 4) out of bounds: (%v, %v)", px, py)
+		}
+		rectQuadrants[(b2i(px > -1)<<1)|b2i(py > 12)]++
+	}
+	for i, c := range rectQuadrants {
+		if c < 4500 || c > 5500 {
+			t.Fatalf("InRect quadrant %d count %d outside [4500, 5500]", i, c)
+		}
+	}
+	if px, py := s.InRect(2, 3, 0, 0); px != 2 || py != 3 {
+		t.Fatalf("InRect(2, 3, 0, 0) = (%v, %v), want (2, 3)", px, py)
+	}
+
+	// State round trip captures the new draws exactly.
+	snap := s.State()
+	var want [8]float64
+	for i := range want {
+		want[i] = s.Normal(0, 1)
+		x, y := s.InCircle(1)
+		want[i] += x + y
+		x, y = s.OnCircle()
+		want[i] += x + y
+		x, y = s.InRect(0, 0, 1, 1)
+		want[i] += x + y
+	}
+	s.SetState(snap)
+	for i, w := range want {
+		got := s.Normal(0, 1)
+		x, y := s.InCircle(1)
+		got += x + y
+		x, y = s.OnCircle()
+		got += x + y
+		x, y = s.InRect(0, 0, 1, 1)
+		got += x + y
+		if got != w {
+			t.Fatalf("step %d after SetState: %v != %v", i, got, w)
+		}
+	}
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func TestInvalidArgumentsPanic(t *testing.T) {
 	s := random.New(1)
 	cases := []struct {
@@ -573,6 +758,15 @@ func TestInvalidArgumentsPanic(t *testing.T) {
 		{"WeightedIndex(NaN)", func() { s.WeightedIndex([]float64{1, math.NaN()}) }},
 		{"WeightedIndex(Inf)", func() { s.WeightedIndex([]float64{1, math.Inf(1)}) }},
 		{"WeightedIndex(overflow)", func() { s.WeightedIndex([]float64{math.MaxFloat64, math.MaxFloat64}) }},
+		{"Normal(NaN,1)", func() { s.Normal(math.NaN(), 1) }},
+		{"Normal(0,-1)", func() { s.Normal(0, -1) }},
+		{"Normal(0,NaN)", func() { s.Normal(0, math.NaN()) }},
+		{"InCircle(-1)", func() { s.InCircle(-1) }},
+		{"InCircle(NaN)", func() { s.InCircle(math.NaN()) }},
+		{"InRect(-1w)", func() { s.InRect(0, 0, -1, 1) }},
+		{"InRect(-1h)", func() { s.InRect(0, 0, 1, -1) }},
+		{"InRect(NaNx)", func() { s.InRect(math.NaN(), 0, 1, 1) }},
+		{"InRect(NaNy)", func() { s.InRect(0, math.NaN(), 1, 1) }},
 	}
 
 	for _, tc := range cases {

@@ -20,6 +20,7 @@
 | `.tscn` 里的 `[connection]` | 场景文件的 `connections`，由 `sceneformat.Connect` 与 `Signals.Emit` 运行，或者像 `CONNECT_DEFERRED` 那样用 `Signals.Enqueue` 与 `Flush` 延后运行；`SpawnConnected` 把它们绑定到实体 | [编辑器与场景格式](editor.md#连接490) |
 | `Timer` 节点、`await` 信号 | `flow.Timers`、`flow.Seq` 与 `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`、`tween.Timeline` | [tween](tween.md) |
+| `RandomNumberGenerator`（`randf`、`randi_range`、`randfn`、`rand_weighted`） | 按用途播种和派生的 `random.Stream`（`Float64`、`IntRange`、`Normal`、`WeightedIndex`） | [确定性](determinism.md) |
 | 输入映射、`Input.is_action_just_pressed` | `input.Actions`、`JustPressed` | [input](input.md) |
 | `CharacterBody2D.move_and_slide()` | 针对物体、形状、瓦片与静态刚体的 `World.MoveAndSlide` / `MoveAndSlideWith`（纯瓦片可用 `physics.MoveAndSlide`，平台跳跃可用 `platformer.Controller.StepWorld`） | [physics](physics.md)、[platformer](platformer.md) |
 | `RigidBody2D`、关节 | `physics.RigidWorld`、`RigidBody`、关节 | [2D 刚体](physics2d-rigid.md) |
