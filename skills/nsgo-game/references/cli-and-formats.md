@@ -87,7 +87,7 @@ Every file authored by a human or coding agent is plain-text YAML:
 - **TexturePacker** and **Aseprite** JSON sprite atlases (`sprite`)
 - **AngelCode BMFont** and **MSDF** fonts (`text`)
 - **glTF 2.0** `.gltf` / `.glb` 3D models (`gltf`)
-- **Yarn Spinner** `.yarn` dialogue scripts (`flow`)
+- **Yarn Spinner** `.yarn` dialogue scripts (`dialogue`)
 - **Chrome trace** JSON profiler exports (`tooling/gamedebug#trace`)
 
 Binary files are used only for inherently binary media (PNG/KTX2 images, WAV/AAC/MP3 audio, fonts, glTF buffers) and network packets (`online/netplay`).

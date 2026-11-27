@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/save"
@@ -303,7 +303,7 @@ func (n *novel) t(key string, args ...l10n.Arg) string {
 // newPresenter returns a presenter for a new playthrough that knows the lines read before.
 func (n *novel) newPresenter() *vn.Presenter {
 	p := vn.New(n.story.script, n.story.cast, vn.Options{
-		Dialogue: flow.DialogueOptions{
+		Dialogue: dialogue.Options{
 			OnCommand:      n.command,
 			StringResolver: n.story.resolver(n.locale.GetUntracked),
 		},
@@ -336,7 +336,7 @@ func (n *novel) toTitle() {
 }
 
 // command runs the script's commands other than vn's own.
-func (n *novel) command(ev flow.DialogueEvent) {
+func (n *novel) command(ev dialogue.Event) {
 	switch ev.Command {
 	case commandBackground:
 		if len(ev.Args) != 1 || backgrounds[ev.Args[0]] == nil {
@@ -483,7 +483,7 @@ func (n *novel) logScrollMax() int {
 
 // advance goes on to the rest of the line or the next one.
 func (n *novel) advance() {
-	if err := n.run.p.Advance(); err != nil && !errors.Is(err, flow.ErrChoiceRequired) {
+	if err := n.run.p.Advance(); err != nil && !errors.Is(err, dialogue.ErrChoiceRequired) {
 		log.Print(err)
 	}
 }
@@ -672,12 +672,12 @@ func (n *novel) styleFor(size core.Size) vn.Style {
 }
 
 // firstAvailable returns the position of the first available choice, 0 when none is.
-func firstAvailable(choices []flow.DialogueChoice) int {
+func firstAvailable(choices []dialogue.Choice) int {
 	return max(stepChoice(choices, -1, 1), 0)
 }
 
 // stepChoice moves the highlight from position from by dir to the next available choice, staying put at either end.
-func stepChoice(choices []flow.DialogueChoice, from, dir int) int {
+func stepChoice(choices []dialogue.Choice, from, dir int) int {
 	for i := from + dir; i >= 0 && i < len(choices); i += dir {
 		if choices[i].Available {
 			return i

@@ -83,6 +83,7 @@
 | `game/pkg/cutscene` | 实验性 | [cutscene](cutscene.md) |
 | `game/pkg/datatable` | 实验性 | |
 | `game/pkg/datatable/datatablewatch` | 实验性 | |
+| `game/pkg/dialogue` | 稳定 | [dialogue](dialogue.md) |
 | `game/pkg/editor` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | 实验性 | [editor](editor.md) |
 | `game/pkg/editor/editormcp` | 实验性 | [mcp](mcp.md) |

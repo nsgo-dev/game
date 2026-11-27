@@ -12,7 +12,8 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/mempool` | Experimental | Zero-alloc object pools: `Pool`, `Arena` with generational `Handle`s and `SlicePool` |
 | `game/pkg/spatial` | Experimental | 2D broad phase with `Hash` and `Quadtree`, and viewport culling with `Cull` and `CullBatch` |
 | `game/pkg/screen` | Stable | Virtual resolution `Viewport` scaling, pixel snapping, safe areas, video settings |
-| `game/pkg/flow` | Stable | Game-clock `Timers`, `Machine[S]`, `Seq`/`Parallel`/`Race`, typed event `Bus`, Yarn dialogue |
+| `game/pkg/flow` | Stable | Game-clock `Timers`, `Machine[S]`, `Seq`/`Parallel`/`Race`, typed event `Bus` |
+| `game/pkg/dialogue` | Stable | Yarn Spinner `ParseYarn`, `Runner` with `Start`/`Continue`/`Choose`, variables, `<<commands>>` as `Event`s and saved `State` |
 | `game/pkg/tween` | Stable | Fixed-step `Tween`, `Timeline`, easing functions and camera choreography |
 | `game/pkg/animclip` | Experimental | Property-keyed animation clips played on scene objects through `tween.Timeline` |
 | `game/pkg/loaderr` | Stable | Structured load errors with file, line, field and actionable fix hints |

@@ -1,4 +1,4 @@
-package flow_test
+package dialogue_test
 
 import (
 	"encoding/json"
@@ -8,10 +8,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/internal/loaderrtest"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/loaderr"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
+
+func TestMain(m *testing.M) { nsgotest.Main(m) }
+
+func startLoop(t *testing.T, rate int, update func(dt time.Duration)) *nsgotest.App {
+	t.Helper()
+	l := &game.Loop{Rate: rate, Update: update}
+	return nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		l.Run(cx)
+		return core.View{}
+	})
+}
 
 const merchantQuestYarn = `
 // Multi-node merchant & dungeon quest script.
@@ -72,7 +87,7 @@ Merchant: Safe travels! #line:merchant_farewell
 `
 
 func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
-	script, err := flow.ParseYarn(merchantQuestYarn)
+	script, err := dialogue.ParseYarn(merchantQuestYarn)
 	if err != nil {
 		t.Fatalf("ParseYarn failed: %v", err)
 	}
@@ -90,15 +105,15 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 
 	// Branch A: Rich hero buys the key, fires Bus events & OnCommand, jumps to QuestHook, hits <<stop>>.
 	var bus flow.Bus
-	var busEvents []flow.DialogueEvent
-	var cbEvents []flow.DialogueEvent
-	flow.Subscribe(&bus, func(ev flow.DialogueEvent) {
+	var busEvents []dialogue.Event
+	var cbEvents []dialogue.Event
+	flow.Subscribe(&bus, func(ev dialogue.Event) {
 		busEvents = append(busEvents, ev)
 	})
 
-	runner := flow.NewDialogueRunner(script, flow.DialogueOptions{
+	runner := dialogue.NewRunner(script, dialogue.Options{
 		Bus: &bus,
-		OnCommand: func(ev flow.DialogueEvent) {
+		OnCommand: func(ev dialogue.Event) {
 			cbEvents = append(cbEvents, ev)
 		},
 	})
@@ -106,7 +121,7 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 	runner.SetVar("$gold", 25) // leading '$' and Go int normalized cleanly
 
 	// Drive steps inside a game.Loop under nsgotest to verify seamless loop + bus integration.
-	var steps []flow.DialogueStep
+	var steps []dialogue.Step
 	var loopErr error
 	tick := 0
 	app := startLoop(t, 60, func(dt time.Duration) {
@@ -114,7 +129,7 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 		if loopErr != nil {
 			return
 		}
-		var st flow.DialogueStep
+		var st dialogue.Step
 		switch tick {
 		case 1:
 			st, loopErr = runner.Start("Merchant")
@@ -145,7 +160,7 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 	}
 
 	// Step 0: Merchant greeting line
-	if steps[0].Kind != flow.StepLine {
+	if steps[0].Kind != dialogue.StepLine {
 		t.Fatalf("step 0 kind = %v, want line", steps[0].Kind)
 	}
 	if steps[0].Line.Speaker != "Merchant" || steps[0].Line.Text != "Welcome, Aria! You carry 25 gold." {
@@ -156,7 +171,7 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 	}
 
 	// Step 1: Choices (all 3 available since gold=25 >= 10)
-	if steps[1].Kind != flow.StepChoices || len(steps[1].Choices) != 3 {
+	if steps[1].Kind != dialogue.StepChoices || len(steps[1].Choices) != 3 {
 		t.Fatalf("step 1 = %+v, want 3 choices", steps[1])
 	}
 	for i, c := range steps[1].Choices {
@@ -169,27 +184,27 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 	}
 
 	// Step 2: Sold line after <<set>>, <<give_item>>, <<play_sfx>>
-	if steps[2].Kind != flow.StepLine || steps[2].Line.Text != "Pleasure doing business! 15 gold remains." {
+	if steps[2].Kind != dialogue.StepLine || steps[2].Line.Text != "Pleasure doing business! 15 gold remains." {
 		t.Fatalf("step 2 = %+v", steps[2])
 	}
 
 	// Step 3: Narration line in QuestHook (no speaker)
-	if steps[3].Kind != flow.StepLine || steps[3].Line.Speaker != "" || steps[3].Line.Text != "A faint chime echoes from the north gate." {
+	if steps[3].Kind != dialogue.StepLine || steps[3].Line.Speaker != "" || steps[3].Line.Text != "A faint chime echoes from the north gate." {
 		t.Fatalf("step 3 = %+v", steps[3])
 	}
 
 	// Step 4: <<if $gold >= 15 and $has_key>> branch
-	if steps[4].Kind != flow.StepLine || steps[4].Line.Text != "You even have coin left for potions!" {
+	if steps[4].Kind != dialogue.StepLine || steps[4].Line.Text != "You even have coin left for potions!" {
 		t.Fatalf("step 4 = %+v", steps[4])
 	}
 
 	// Step 5: <<stop>> ends dialogue before unreachable line
-	if steps[5].Kind != flow.StepEnded {
+	if steps[5].Kind != dialogue.StepEnded {
 		t.Fatalf("step 5 kind = %v, want ended", steps[5].Kind)
 	}
 
-	// Verify Bus and OnCommand received identical typed DialogueEvents.
-	wantEvents := []flow.DialogueEvent{
+	// Verify Bus and OnCommand received identical typed Events.
+	wantEvents := []dialogue.Event{
 		{Command: "give_item", Args: []string{"key", "1"}, Node: "Merchant"},
 		{Command: "play_sfx", Args: []string{"chime"}, Node: "Merchant"},
 		{Command: "grant_reward", Args: []string{"Iron Key", "1", "15"}, Node: "QuestHook"},
@@ -225,15 +240,15 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Start(Merchant) failed: %v", err)
 	}
-	if st.Kind != flow.StepLine || st.Line.Text != "Good luck inside the dungeon, Aria!" {
+	if st.Kind != dialogue.StepLine || st.Line.Text != "Good luck inside the dungeon, Aria!" {
 		t.Fatalf("revisit step 1 = %+v", st)
 	}
 	st, err = runner.Continue()
-	if err != nil || st.Kind != flow.StepLine || st.Line.Text != "Safe travels!" {
+	if err != nil || st.Kind != dialogue.StepLine || st.Line.Text != "Safe travels!" {
 		t.Fatalf("revisit step 2 = %+v, err=%v", st, err)
 	}
 	st, err = runner.Continue()
-	if err != nil || st.Kind != flow.StepEnded {
+	if err != nil || st.Kind != dialogue.StepEnded {
 		t.Fatalf("revisit step 3 = %+v, err=%v", st, err)
 	}
 	if runner.Visited("Merchant") != 2 || runner.Visited("Farewell") != 1 {
@@ -241,16 +256,16 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 	}
 
 	// Branch B: Poor hero (5 gold) cannot pick buy option; explores nested choice & escaped \#.
-	poor := flow.NewDialogueRunner(script, flow.DialogueOptions{})
+	poor := dialogue.NewRunner(script, dialogue.Options{})
 	poor.SetVar("hero", "Bram")
 	poor.SetVar("gold", 5)
 
 	st, err = poor.Start("Merchant")
-	if err != nil || st.Kind != flow.StepLine {
+	if err != nil || st.Kind != dialogue.StepLine {
 		t.Fatalf("poor Start = %+v, err=%v", st, err)
 	}
 	st, err = poor.Continue()
-	if err != nil || st.Kind != flow.StepChoices {
+	if err != nil || st.Kind != dialogue.StepChoices {
 		t.Fatalf("poor choices = %+v, err=%v", st, err)
 	}
 	if st.Choices[0].Available {
@@ -259,41 +274,41 @@ func TestDialogueMerchantQuestBranchesAndBusEvents(t *testing.T) {
 	if !st.Choices[1].Available || !st.Choices[2].Available {
 		t.Fatalf("ask/leave options should be available: %+v", st.Choices)
 	}
-	if _, err := poor.Choose(0); !errors.Is(err, flow.ErrChoiceUnavailable) {
+	if _, err := poor.Choose(0); !errors.Is(err, dialogue.ErrChoiceUnavailable) {
 		t.Fatalf("Choose(unavailable) err = %v, want ErrChoiceUnavailable", err)
 	}
 
 	// Pick "Ask about the dungeon" -> nested choice menu -> pick advice -> jump Farewell.
 	st, err = poor.Choose(1)
-	if err != nil || st.Kind != flow.StepLine || st.Line.Text != "The north gate is sealed tightly." {
+	if err != nil || st.Kind != dialogue.StepLine || st.Line.Text != "The north gate is sealed tightly." {
 		t.Fatalf("ask branch line = %+v, err=%v", st, err)
 	}
 	st, err = poor.Continue()
-	if err != nil || st.Kind != flow.StepChoices || len(st.Choices) != 2 {
+	if err != nil || st.Kind != dialogue.StepChoices || len(st.Choices) != 2 {
 		t.Fatalf("nested choices = %+v, err=%v", st, err)
 	}
 	st, err = poor.Choose(0)
-	if err != nil || st.Kind != flow.StepLine || st.Line.Text != "Bring a lantern and item #1 from my crate." {
+	if err != nil || st.Kind != dialogue.StepLine || st.Line.Text != "Bring a lantern and item #1 from my crate." {
 		t.Fatalf("nested advice line = %+v, err=%v", st, err)
 	}
 	st, err = poor.Continue()
-	if err != nil || st.Kind != flow.StepLine || st.Line.Text != "Safe travels!" {
+	if err != nil || st.Kind != dialogue.StepLine || st.Line.Text != "Safe travels!" {
 		t.Fatalf("farewell after advice = %+v, err=%v", st, err)
 	}
 	st, err = poor.Continue()
-	if err != nil || st.Kind != flow.StepEnded {
+	if err != nil || st.Kind != dialogue.StepEnded {
 		t.Fatalf("end after farewell = %+v, err=%v", st, err)
 	}
 
 	// Revisit as poor hero hits <<elseif visited("Merchant") > 1>>.
 	st, err = poor.Start("Merchant")
-	if err != nil || st.Kind != flow.StepLine || st.Line.Text != "Back again, Bram? Still 5 gold in your pouch." {
+	if err != nil || st.Kind != dialogue.StepLine || st.Line.Text != "Back again, Bram? Still 5 gold in your pouch." {
 		t.Fatalf("poor revisit line = %+v, err=%v", st, err)
 	}
 }
 
 func TestDialogueLocalizationStringTableAndFallback(t *testing.T) {
-	script, err := flow.ParseYarn(merchantQuestYarn)
+	script, err := dialogue.ParseYarn(merchantQuestYarn)
 	if err != nil {
 		t.Fatalf("ParseYarn failed: %v", err)
 	}
@@ -325,7 +340,7 @@ func TestDialogueLocalizationStringTableAndFallback(t *testing.T) {
 		return fallback
 	}
 
-	runner := flow.NewDialogueRunner(script, flow.DialogueOptions{
+	runner := dialogue.NewRunner(script, dialogue.Options{
 		StringResolver: resolver,
 	})
 	runner.SetVar("hero", "Sora")
@@ -337,7 +352,7 @@ func TestDialogueLocalizationStringTableAndFallback(t *testing.T) {
 		t.Fatalf("EN welcome = %+v, err=%v", st, err)
 	}
 	st, err = runner.Continue()
-	if err != nil || st.Kind != flow.StepChoices {
+	if err != nil || st.Kind != dialogue.StepChoices {
 		t.Fatalf("EN choices = %+v, err=%v", st, err)
 	}
 	if st.Choices[0].Text != "Purchase dungeon key (10g)" {
@@ -358,7 +373,7 @@ func TestDialogueLocalizationStringTableAndFallback(t *testing.T) {
 	}
 
 	// Fresh runner in JA locale verifies localized interpolation with both {hero} and {$gold} + fallback.
-	jaRunner := flow.NewDialogueRunner(script, flow.DialogueOptions{
+	jaRunner := dialogue.NewRunner(script, dialogue.Options{
 		StringResolver: resolver,
 	})
 	jaRunner.SetVar("hero", "ソラ")
@@ -368,7 +383,7 @@ func TestDialogueLocalizationStringTableAndFallback(t *testing.T) {
 		t.Fatalf("JA welcome = %+v, err=%v", st, err)
 	}
 	st, err = jaRunner.Continue()
-	if err != nil || st.Kind != flow.StepChoices {
+	if err != nil || st.Kind != dialogue.StepChoices {
 		t.Fatalf("JA choices = %+v, err=%v", st, err)
 	}
 	if st.Choices[0].Text != "ダンジョンの鍵を買う（10ゴールド）" || st.Choices[1].Text != "Ask about the dungeon" {
@@ -388,26 +403,26 @@ title: Gate
 <<endif>>
 ===
 `
-	script, err := flow.ParseYarn(src)
+	script, err := dialogue.ParseYarn(src)
 	if err != nil {
 		t.Fatalf("ParseYarn failed: %v", err)
 	}
 
 	var bus flow.Bus
-	var r *flow.DialogueRunner
-	flow.Subscribe(&bus, func(ev flow.DialogueEvent) {
+	var r *dialogue.Runner
+	flow.Subscribe(&bus, func(ev dialogue.Event) {
 		if ev.Command == "check_pass" {
 			// Synchronous Bus handler mutates dialogue variables seen immediately by next <<if>>.
 			r.SetVar("pass_granted", true)
 		}
 	})
 
-	r = flow.NewDialogueRunner(script, flow.DialogueOptions{Bus: &bus})
+	r = dialogue.NewRunner(script, dialogue.Options{Bus: &bus})
 	r.SetVar("name", "Kael")
 	r.SetVar("score", 42)
 
 	st, err := r.Start("Gate")
-	if err != nil || st.Kind != flow.StepLine || st.Line.Text != "Your pass is valid, Kael." {
+	if err != nil || st.Kind != dialogue.StepLine || st.Line.Text != "Your pass is valid, Kael." {
 		t.Fatalf("step after synchronous bus mutation = %+v, err=%v", st, err)
 	}
 
@@ -423,12 +438,12 @@ title: Gate
 	if err != nil {
 		t.Fatalf("json.Marshal(State) failed: %v", err)
 	}
-	var restored flow.DialogueState
+	var restored dialogue.State
 	if err := json.Unmarshal(blob, &restored); err != nil {
 		t.Fatalf("json.Unmarshal(State) failed: %v", err)
 	}
 
-	r2 := flow.NewDialogueRunner(script, flow.DialogueOptions{})
+	r2 := dialogue.NewRunner(script, dialogue.Options{})
 	r2.LoadState(restored)
 	if r2.Visited("Gate") != 1 {
 		t.Fatalf("restored Visited(Gate) = %d, want 1", r2.Visited("Gate"))
@@ -458,26 +473,26 @@ title: Math
 System: Continued past all-unavailable menu.
 ===
 `
-	script, err := flow.ParseYarn(src)
+	script, err := dialogue.ParseYarn(src)
 	if err != nil {
 		t.Fatalf("ParseYarn failed: %v", err)
 	}
-	r := flow.NewDialogueRunner(script, flow.DialogueOptions{})
+	r := dialogue.NewRunner(script, dialogue.Options{})
 	st, err := r.Start("Math")
-	if err != nil || st.Kind != flow.StepLine || st.Line.Text != "Result=-4 and count=1" {
+	if err != nil || st.Kind != dialogue.StepLine || st.Line.Text != "Result=-4 and count=1" {
 		t.Fatalf("math line 1 = %+v, err=%v", st, err)
 	}
 	st, err = r.Continue()
-	if err != nil || st.Kind != flow.StepLine || st.Line.Text != "Continued past all-unavailable menu." {
+	if err != nil || st.Kind != dialogue.StepLine || st.Line.Text != "Continued past all-unavailable menu." {
 		t.Fatalf("line after skipped choice group = %+v, err=%v", st, err)
 	}
 	st, err = r.Continue()
-	if err != nil || st.Kind != flow.StepEnded {
+	if err != nil || st.Kind != dialogue.StepEnded {
 		t.Fatalf("end = %+v, err=%v", st, err)
 	}
 	// Continuing after ended is an idempotent StepEnded.
 	st, err = r.Continue()
-	if err != nil || st.Kind != flow.StepEnded {
+	if err != nil || st.Kind != dialogue.StepEnded {
 		t.Fatalf("continue after end = %+v, err=%v", st, err)
 	}
 }
@@ -506,7 +521,7 @@ func TestDialogueErrorsAndGuards(t *testing.T) {
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				_, err := flow.ParseYarn(tc.src)
+				_, err := dialogue.ParseYarn(tc.src)
 				if err == nil {
 					t.Fatalf("ParseYarn succeeded, want error containing %q", tc.want)
 				}
@@ -520,8 +535,8 @@ func TestDialogueErrorsAndGuards(t *testing.T) {
 
 	t.Run("RuntimeErrors", func(t *testing.T) {
 		// Nil script
-		nilRunner := flow.NewDialogueRunner(nil, flow.DialogueOptions{})
-		if _, err := nilRunner.Start("Start"); !errors.Is(err, flow.ErrNilScript) {
+		nilRunner := dialogue.NewRunner(nil, dialogue.Options{})
+		if _, err := nilRunner.Start("Start"); !errors.Is(err, dialogue.ErrNilScript) {
 			t.Fatalf("nil script Start err = %v, want ErrNilScript", err)
 		}
 
@@ -534,33 +549,33 @@ title: Start
     Narrator: Done.
 ===
 `
-		script, err := flow.ParseYarn(src)
+		script, err := dialogue.ParseYarn(src)
 		if err != nil {
 			t.Fatalf("ParseYarn failed: %v", err)
 		}
-		r := flow.NewDialogueRunner(script, flow.DialogueOptions{})
+		r := dialogue.NewRunner(script, dialogue.Options{})
 
-		if _, err := r.Start("UnknownNode"); !errors.Is(err, flow.ErrUnknownNode) {
+		if _, err := r.Start("UnknownNode"); !errors.Is(err, dialogue.ErrUnknownNode) {
 			t.Fatalf("Start(UnknownNode) err = %v, want ErrUnknownNode", err)
 		}
-		if _, err := r.Choose(0); !errors.Is(err, flow.ErrNoPendingChoice) {
+		if _, err := r.Choose(0); !errors.Is(err, dialogue.ErrNoPendingChoice) {
 			t.Fatalf("Choose before Start err = %v, want ErrNoPendingChoice", err)
 		}
 
 		st, err := r.Start("Start")
-		if err != nil || st.Kind != flow.StepChoices {
+		if err != nil || st.Kind != dialogue.StepChoices {
 			t.Fatalf("Start = %+v, err=%v", st, err)
 		}
-		if _, err := r.Continue(); !errors.Is(err, flow.ErrChoiceRequired) {
+		if _, err := r.Continue(); !errors.Is(err, dialogue.ErrChoiceRequired) {
 			t.Fatalf("Continue while choices pending err = %v, want ErrChoiceRequired", err)
 		}
-		if _, err := r.Choose(-1); !errors.Is(err, flow.ErrInvalidChoice) {
+		if _, err := r.Choose(-1); !errors.Is(err, dialogue.ErrInvalidChoice) {
 			t.Fatalf("Choose(-1) err = %v, want ErrInvalidChoice", err)
 		}
-		if _, err := r.Choose(2); !errors.Is(err, flow.ErrInvalidChoice) {
+		if _, err := r.Choose(2); !errors.Is(err, dialogue.ErrInvalidChoice) {
 			t.Fatalf("Choose(2) err = %v, want ErrInvalidChoice", err)
 		}
-		if _, err := r.Choose(0); !errors.Is(err, flow.ErrUnknownNode) {
+		if _, err := r.Choose(0); !errors.Is(err, dialogue.ErrUnknownNode) {
 			t.Fatalf("jump to missing node err = %v, want ErrUnknownNode", err)
 		}
 	})
@@ -577,14 +592,14 @@ title: Pong
 <<jump Ping>>
 ===
 `
-		script, err := flow.ParseYarn(loopSrc)
+		script, err := dialogue.ParseYarn(loopSrc)
 		if err != nil {
 			t.Fatalf("ParseYarn failed: %v", err)
 		}
-		r := flow.NewDialogueRunner(script, flow.DialogueOptions{
+		r := dialogue.NewRunner(script, dialogue.Options{
 			MaxStepsPerContinue: 32,
 		})
-		if _, err := r.Start("Ping"); !errors.Is(err, flow.ErrStepLimitExceeded) {
+		if _, err := r.Start("Ping"); !errors.Is(err, dialogue.ErrStepLimitExceeded) {
 			t.Fatalf("infinite jump err = %v, want ErrStepLimitExceeded", err)
 		}
 		if r.CurrentNode() != "" {

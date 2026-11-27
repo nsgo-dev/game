@@ -22,8 +22,8 @@ import (
 	"github.com/nsgo-dev/game/internal/formattest"
 	"github.com/nsgo-dev/game/pkg/anim3d"
 	"github.com/nsgo-dev/game/pkg/assets"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/entities"
-	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/fog"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/l10n"
@@ -98,7 +98,7 @@ var codeFormats = map[string]codeFormat{
 	"tooling/sizecheck":                   {decl: "LoadBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
 	"tooling/sizecheck#mobile":            {decl: "LoadMobileBudget", lang: "json", checkedBy: "TestBudgetExamplesOnFormatsPage"},
 	"internal/apiref":                     {decl: "Unmarshal", lang: "json", read: readAPIReference},
-	"flow":                                {decl: "ParseYarn", lang: "yarn", read: readYarn},
+	"dialogue":                            {decl: "ParseYarn", lang: "yarn", read: readYarn},
 	"tilemap":                             {decl: "LoadTiled"},
 	"tilemap#world":                       {decl: "ParseTiledWorld"},
 	"tilemap#ldtk":                        {decl: "LoadLDtk"},
@@ -531,7 +531,7 @@ func readAPIReference(_ *testing.T, data []byte) error {
 }
 
 func readYarn(_ *testing.T, data []byte) error {
-	_, err := flow.ParseYarn(string(data))
+	_, err := dialogue.ParseYarn(string(data))
 	return err
 }
 

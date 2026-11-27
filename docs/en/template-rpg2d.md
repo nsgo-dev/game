@@ -19,7 +19,7 @@ The shrine lamp of Hollowbrook has gone out. Mira the healer needs three glowcap
 | --- | --- | --- |
 | Maps | Two maps drawn as rows of characters in `data/world.yaml`, built into tile maps with solid tiles flagged for collision and a camera that follows the player | [tilemap](tilemap.md) |
 | Walking | Tile-by-tile movement on a fixed-step loop, exits between maps, items picked up by walking onto them and foes that patrol | [loop](loop.md) |
-| Dialogue | A Yarn Spinner script with branching options, conditions on what the player has, and commands that give and take items, start the quest and heal, played with portraits and a typewriter | [vn](vn.md), [flow](flow.md) |
+| Dialogue | A Yarn Spinner script with branching options, conditions on what the player has, and commands that give and take items, start the quest and heal, played with portraits and a typewriter | [vn](vn.md), [dialogue](dialogue.md) |
 | Items and equipment | A bag of slots, and weapon, armor and charm slots whose bonuses come from named effects | [inventory](inventory.md), [stats](stats.md) |
 | Quest | One quest with objectives to gather, defeat and report, and rewards granted when it completes | [quest](quest.md) |
 | Battles | Turn-based fights with Attack, Potion and Flee, where a boss cannot be fled from | |

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/vn"
 )
@@ -184,7 +184,7 @@ func TestEveryPathEndsInAnEnding(t *testing.T) {
 	var walk func(path []int)
 	walk = func(path []int) {
 		ending := ""
-		p := vn.New(s.script, s.cast, vn.Options{Dialogue: flow.DialogueOptions{OnCommand: func(ev flow.DialogueEvent) {
+		p := vn.New(s.script, s.cast, vn.Options{Dialogue: dialogue.Options{OnCommand: func(ev dialogue.Event) {
 			switch {
 			case ev.Command == commandEnding && len(ev.Args) == 1 && slices.Contains(endings, ev.Args[0]):
 				ending = ev.Args[0]

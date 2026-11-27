@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/vn"
 )
 
@@ -50,7 +50,7 @@ func (v *fakeVoices) StopVoice() { v.stops++ }
 
 func newPresenter(t testing.TB, src string, opts vn.Options) *vn.Presenter {
 	t.Helper()
-	script, err := flow.ParseYarn(src)
+	script, err := dialogue.ParseYarn(src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func sameStage(a, b stage) bool {
 
 func TestPortraitsFollowCommandsAndTags(t *testing.T) {
 	var commands []string
-	p := newPresenter(t, sceneYarn, vn.Options{Dialogue: flow.DialogueOptions{OnCommand: func(ev flow.DialogueEvent) {
+	p := newPresenter(t, sceneYarn, vn.Options{Dialogue: dialogue.Options{OnCommand: func(ev dialogue.Event) {
 		commands = append(commands, ev.Command)
 	}}})
 
@@ -148,7 +148,7 @@ func TestPortraitsFollowCommandsAndTags(t *testing.T) {
 	if !slices.Equal(commands, []string{"play_sfx"}) {
 		t.Fatalf("user commands = %v, want only play_sfx", commands)
 	}
-	if err := p.Advance(); !errors.Is(err, flow.ErrChoiceRequired) {
+	if err := p.Advance(); !errors.Is(err, dialogue.ErrChoiceRequired) {
 		t.Fatalf("Advance at choices = %v", err)
 	}
 	if err := p.Choose(1); err != nil {
@@ -192,7 +192,7 @@ func TestStageCommandErrors(t *testing.T) {
 		"bad tag slot":      "Aiko: Hi. #at:roof",
 	} {
 		t.Run(name, func(t *testing.T) {
-			script, err := flow.ParseYarn("title: Start\n---\n" + src + "\nAiko: Next.\n===\n")
+			script, err := dialogue.ParseYarn("title: Start\n---\n" + src + "\nAiko: Next.\n===\n")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -341,7 +341,7 @@ func TestSkipRunsThroughReadLinesToChoices(t *testing.T) {
 	}
 
 	voices := &fakeVoices{lengths: map[string]time.Duration{"v1": time.Second, "v3": time.Second}}
-	script, err := flow.ParseYarn(sceneYarn)
+	script, err := dialogue.ParseYarn(sceneYarn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func TestStartKeepsBacklogAndReadLines(t *testing.T) {
 func TestStartUnknownNodeKeepsState(t *testing.T) {
 	p := newPresenter(t, sceneYarn, vn.Options{CharsPerSecond: -1})
 	before := stageOf(p)
-	if err := p.Start("Typo"); !errors.Is(err, flow.ErrUnknownNode) {
+	if err := p.Start("Typo"); !errors.Is(err, dialogue.ErrUnknownNode) {
 		t.Fatalf("Start(Typo) = %v, want ErrUnknownNode", err)
 	}
 	if got := lineText(t, p); got != "Welcome to the observatory." {
@@ -547,7 +547,7 @@ func TestChooseStopsVoice(t *testing.T) {
 }
 
 func BenchmarkPresenterUpdate(b *testing.B) {
-	script, err := flow.ParseYarn(sceneYarn)
+	script, err := dialogue.ParseYarn(sceneYarn)
 	if err != nil {
 		b.Fatal(err)
 	}

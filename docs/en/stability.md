@@ -83,6 +83,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/cutscene` | Experimental | [cutscene](cutscene.md) |
 | `game/pkg/datatable` | Experimental | |
 | `game/pkg/datatable/datatablewatch` | Experimental | |
+| `game/pkg/dialogue` | Stable | [dialogue](dialogue.md) |
 | `game/pkg/editor` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editormcp` | Experimental | [mcp](mcp.md) |

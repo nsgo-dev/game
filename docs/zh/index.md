@@ -45,6 +45,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `tooling/gamedebug` | `github.com/nsgo-dev/game/pkg/tooling/gamedebug` | [gamedebug](gamedebug.md) | 帧耗时图、碰撞线框、场景检查器及 `-tags release` 零开销裁剪 |
 | `mcp` | `github.com/nsgo-dev/game/pkg/mcp` | [mcp](mcp.md) | 通过 `nsgo/automation` 注册的 MCP 工具，用于检查运行中的场景、图层、实体与组件 |
 | `flow` | `github.com/nsgo-dev/game/pkg/flow` | [flow](flow.md) | 游戏时钟 `Timers`、`Machine[S]`、`Seq`/`Parallel`/`Race` 与类型化事件 `Bus` |
+| `dialogue` | `github.com/nsgo-dev/game/pkg/dialogue` | [dialogue](dialogue.md) | 逐句、逐个选项运行 Yarn Spinner 脚本，支持变量、条件、游戏命令与可存档的 `State` |
 | `entities` | `github.com/nsgo-dev/game/pkg/entities` | [实体（entities）](entities.md) | 零反射 ECS：带代数的实体、类型化稀疏集组件、零分配查询、有序系统、预制体与 JSON 快照 |
 | `stats` | `github.com/nsgo-dev/game/pkg/stats` | [stats](stats.md) | 基础属性与来自各来源的 add/mul/override 修饰符，改动即重算，按固定步长计时的修饰符与 YAML 属性文件 |
 | `tween` | `github.com/nsgo-dev/game/pkg/tween` | [tween](tween.md) | 固定步长 `Tween`、`Timeline` 与相机运镜补间 |

@@ -1,4 +1,4 @@
-package flow
+package dialogue
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
@@ -16,18 +17,10 @@ import (
 //
 // Format decision: Yarn Spinner (.yarn) over compiled ink JSON.
 //
-//   - Single-file human-authorable without an external compiler: Yarn scripts are
-//     plain text authored directly in the repo and parsed by ParseYarn in pure Go,
-//     whereas ink's runtime format requires compiling .ink sources through the
-//     external C# inklecate compiler to JSON.
-//   - First-class localization hooks: Yarn's native #line:<id> tags attach stable
-//     string-table keys directly to lines and choices, pairing cleanly with
-//     StringResolver without coupling flow to a specific l10n package.
-//   - Direct gameplay commands: <<command arg1 arg2>> maps one-to-one onto typed
-//     DialogueEvent messages published on flow.Bus (and/or DialogueOptions.OnCommand),
-//     keeping narrative scripts decoupled from game systems.
-//   - Deterministic and isolated: zero goroutines, zero wall-clock reads, zero
-//     package-level state, and serializable DialogueState for save games.
+//   - Single-file human-authorable without an external compiler: Yarn scripts are plain text authored directly in the repo and parsed by ParseYarn in pure Go, whereas ink's runtime format requires compiling .ink sources through the external C# inklecate compiler to JSON.
+//   - First-class localization hooks: Yarn's native #line:<id> tags attach stable string-table keys directly to lines and choices, pairing cleanly with StringResolver without coupling dialogue to a specific l10n package.
+//   - Direct gameplay commands: <<command arg1 arg2>> maps one-to-one onto typed Event messages published on a flow.Bus (and/or Options.OnCommand), keeping narrative scripts decoupled from game systems.
+//   - Deterministic and isolated: zero goroutines, zero wall-clock reads, zero package-level state, and serializable State for save games.
 
 // DefaultMaxStepsPerContinue is the default upper bound on internal statements
 // (assignments, branches, jumps, commands) executed in a single Start, Continue,
@@ -35,31 +28,31 @@ import (
 const DefaultMaxStepsPerContinue = 1024
 
 var (
-	// ErrNilScript is returned when starting a DialogueRunner with a nil script.
-	ErrNilScript = errors.New("flow: nil dialogue script")
+	// ErrNilScript is returned when starting a Runner with a nil script.
+	ErrNilScript = errors.New("dialogue: nil script")
 	// ErrUnknownNode is returned when starting or jumping to a node not present in the script.
-	ErrUnknownNode = errors.New("flow: unknown dialogue node")
+	ErrUnknownNode = errors.New("dialogue: unknown node")
 	// ErrInvalidChoice is returned when Choose receives an out-of-range option index.
-	ErrInvalidChoice = errors.New("flow: invalid dialogue choice index")
+	ErrInvalidChoice = errors.New("dialogue: invalid choice index")
 	// ErrChoiceUnavailable is returned when Choose selects an option whose <<if>> guard evaluated false.
-	ErrChoiceUnavailable = errors.New("flow: dialogue choice is unavailable")
+	ErrChoiceUnavailable = errors.New("dialogue: choice is unavailable")
 	// ErrNoPendingChoice is returned when Choose is called while no choice menu is active.
-	ErrNoPendingChoice = errors.New("flow: no pending dialogue choices")
+	ErrNoPendingChoice = errors.New("dialogue: no pending choices")
 	// ErrChoiceRequired is returned when Continue is called while a choice menu is awaiting Choose.
-	ErrChoiceRequired = errors.New("flow: dialogue is waiting for Choose")
+	ErrChoiceRequired = errors.New("dialogue: waiting for Choose")
 	// ErrStepLimitExceeded is returned when execution exceeds MaxStepsPerContinue without yielding a line, choice, or end.
-	ErrStepLimitExceeded = errors.New("flow: dialogue step limit exceeded")
+	ErrStepLimitExceeded = errors.New("dialogue: step limit exceeded")
 )
 
-// DialogueScript is a parsed Yarn Spinner script containing one or more named nodes.
-// A parsed DialogueScript is immutable and safe to share across multiple DialogueRunners.
-type DialogueScript struct {
+// Script is a parsed Yarn Spinner script containing one or more named nodes.
+// A parsed Script is immutable and safe to share across multiple Runners.
+type Script struct {
 	nodes     map[string]*dialogueNode
 	nodeOrder []string
 }
 
 // Nodes returns the script's node titles in declaration order.
-func (s *DialogueScript) Nodes() []string {
+func (s *Script) Nodes() []string {
 	if s == nil {
 		return nil
 	}
@@ -67,7 +60,7 @@ func (s *DialogueScript) Nodes() []string {
 }
 
 // HasNode reports whether the script contains a node with the given title.
-func (s *DialogueScript) HasNode(title string) bool {
+func (s *Script) HasNode(title string) bool {
 	if s == nil {
 		return false
 	}
@@ -77,7 +70,7 @@ func (s *DialogueScript) HasNode(title string) bool {
 
 // NodeHeaders returns a copy of the header metadata declared on the named node,
 // or nil if the node does not exist.
-func (s *DialogueScript) NodeHeaders(title string) map[string]string {
+func (s *Script) NodeHeaders(title string) map[string]string {
 	if s == nil {
 		return nil
 	}
@@ -88,10 +81,8 @@ func (s *DialogueScript) NodeHeaders(title string) map[string]string {
 	return maps.Clone(n.headers)
 }
 
-// DialogueEvent is published onto flow.Bus (via Publish) and/or passed to
-// DialogueOptions.OnCommand whenever a script executes a game command such as
-// <<give_item key 1>> or <<play_sfx chime>>.
-type DialogueEvent struct {
+// Event is published onto a flow.Bus (via flow.Publish) and/or passed to Options.OnCommand whenever a script executes a game command such as <<give_item key 1>> or <<play_sfx chime>>.
+type Event struct {
 	Command string
 	Args    []string
 	Node    string
@@ -105,7 +96,7 @@ type DialogueEvent struct {
 // the runner using its current variables.
 type StringResolver func(lineID, fallback string, vars map[string]any) string
 
-// StepKind identifies what a DialogueStep produced.
+// StepKind identifies what a Step produced.
 type StepKind int
 
 const (
@@ -131,16 +122,16 @@ func (k StepKind) String() string {
 	}
 }
 
-// DialogueLine holds a resolved dialogue line produced by a DialogueRunner.
-type DialogueLine struct {
+// Line holds a resolved dialogue line produced by a Runner.
+type Line struct {
 	Speaker string
 	Text    string
 	LineID  string
 	Tags    []string
 }
 
-// DialogueChoice holds one option presented at a StepChoices step.
-type DialogueChoice struct {
+// Choice holds one option presented at a StepChoices step.
+type Choice struct {
 	Index     int
 	Text      string
 	LineID    string
@@ -148,19 +139,19 @@ type DialogueChoice struct {
 	Tags      []string
 }
 
-// DialogueStep is the result of Start, Continue, or Choose on a DialogueRunner.
-type DialogueStep struct {
+// Step is the result of Start, Continue, or Choose on a Runner.
+type Step struct {
 	Kind    StepKind
-	Line    DialogueLine
-	Choices []DialogueChoice
+	Line    Line
+	Choices []Choice
 }
 
-// DialogueOptions configures a DialogueRunner.
-type DialogueOptions struct {
-	// Bus, if non-nil, receives a DialogueEvent via Publish for every game command.
-	Bus *Bus
+// Options configures a Runner.
+type Options struct {
+	// Bus, if non-nil, receives an Event via flow.Publish for every game command.
+	Bus *flow.Bus
 	// OnCommand, if non-nil, is invoked for every game command after Bus delivery.
-	OnCommand func(DialogueEvent)
+	OnCommand func(Event)
 	// StringResolver, if non-nil, resolves localized text for dialogue lines and choices.
 	StringResolver StringResolver
 	// MaxStepsPerContinue caps internal statements per Start, Continue, or Choose call
@@ -168,9 +159,8 @@ type DialogueOptions struct {
 	MaxStepsPerContinue int
 }
 
-// DialogueState is a JSON-serializable snapshot of a DialogueRunner's variables
-// and node visit counts for save/load persistence.
-type DialogueState struct {
+// State is a JSON-serializable snapshot of a Runner's variables and node visit counts for save/load persistence.
+type State struct {
 	Vars    map[string]any `json:"vars,omitempty"`
 	Visited map[string]int `json:"visited,omitempty"`
 }
@@ -266,7 +256,7 @@ type bodyLine struct {
 	text   string
 }
 
-// ParseYarn parses Yarn Spinner (.yarn) source text into a reusable DialogueScript.
+// ParseYarn parses Yarn Spinner (.yarn) source text into a reusable Script.
 //
 // Supported syntax:
 //   - Node headers (title: ..., custom key: value) delimited by --- and ===
@@ -279,13 +269,13 @@ type bodyLine struct {
 //   - Game commands: <<command arg1 "quoted arg" $var {$expr}>>
 //
 // Its errors are *loaderr.Error values that give the line of the problem and how to fix it; a caller that read src from a file names it with loaderr.WithFile.
-func ParseYarn(src string) (*DialogueScript, error) {
+func ParseYarn(src string) (*Script, error) {
 	script, err := parseYarn(src)
 	return script, loaderr.Locate(err, "", nil, fixYarn)
 }
 
 // fixYarn is the fix for a Yarn script error; the problem says what is wrong on the line.
-const fixYarn = "correct the Yarn script on this line; docs/en/flow.md lists the syntax ParseYarn reads"
+const fixYarn = "correct the Yarn script on this line; docs/en/dialogue.md lists the syntax ParseYarn reads"
 
 // yarnError reports a problem on line of a Yarn script, with the message format formats with args.
 func yarnError(line int, format string, args ...any) *loaderr.Error {
@@ -294,12 +284,12 @@ func yarnError(line int, format string, args ...any) *loaderr.Error {
 	return e
 }
 
-func parseYarn(src string) (*DialogueScript, error) {
+func parseYarn(src string) (*Script, error) {
 	normalized := strings.ReplaceAll(src, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 	lines := strings.Split(normalized, "\n")
 
-	script := &DialogueScript{
+	script := &Script{
 		nodes: make(map[string]*dialogueNode),
 	}
 
@@ -1077,28 +1067,26 @@ type execFrame struct {
 	index int
 }
 
-// DialogueRunner executes a parsed DialogueScript step by step.
+// Runner executes a parsed Script step by step.
 //
-// It maintains variables, node visit counts, and the active execution stack
-// without goroutines or global state. Game commands execute synchronously and
-// publish typed DialogueEvent values on DialogueOptions.Bus when configured.
-type DialogueRunner struct {
-	script         *DialogueScript
-	opts           DialogueOptions
+// It maintains variables, node visit counts, and the active execution stack without goroutines or global state. Game commands execute synchronously and publish typed Event values on Options.Bus when configured.
+type Runner struct {
+	script         *Script
+	opts           Options
 	vars           map[string]any
 	visited        map[string]int
 	currentNode    string
 	frames         []execFrame
-	pendingChoices []DialogueChoice
+	pendingChoices []Choice
 	pendingOptions []choiceOption
 }
 
-// NewDialogueRunner creates a runner for script with the given options.
-func NewDialogueRunner(script *DialogueScript, opts DialogueOptions) *DialogueRunner {
+// NewRunner creates a runner for script with the given options.
+func NewRunner(script *Script, opts Options) *Runner {
 	if opts.MaxStepsPerContinue <= 0 {
 		opts.MaxStepsPerContinue = DefaultMaxStepsPerContinue
 	}
-	return &DialogueRunner{
+	return &Runner{
 		script:  script,
 		opts:    opts,
 		vars:    make(map[string]any),
@@ -1108,13 +1096,13 @@ func NewDialogueRunner(script *DialogueScript, opts DialogueOptions) *DialogueRu
 
 // Start begins executing the script at the named node and advances until the
 // first line, choice menu, or end of dialogue.
-func (r *DialogueRunner) Start(node string) (DialogueStep, error) {
+func (r *Runner) Start(node string) (Step, error) {
 	if r.script == nil {
-		return DialogueStep{}, ErrNilScript
+		return Step{}, ErrNilScript
 	}
 	n, ok := r.script.nodes[node]
 	if !ok {
-		return DialogueStep{}, fmt.Errorf("%w: %q", ErrUnknownNode, node)
+		return Step{}, fmt.Errorf("%w: %q", ErrUnknownNode, node)
 	}
 	r.frames = []execFrame{{stmts: n.body}}
 	r.pendingChoices = nil
@@ -1126,27 +1114,27 @@ func (r *DialogueRunner) Start(node string) (DialogueStep, error) {
 
 // Continue advances an active dialogue to the next line, choice menu, or end.
 // Calling Continue while a choice menu is awaiting Choose returns ErrChoiceRequired.
-func (r *DialogueRunner) Continue() (DialogueStep, error) {
+func (r *Runner) Continue() (Step, error) {
 	if len(r.pendingChoices) > 0 {
-		return DialogueStep{}, ErrChoiceRequired
+		return Step{}, ErrChoiceRequired
 	}
 	if len(r.frames) == 0 {
-		return DialogueStep{Kind: StepEnded}, nil
+		return Step{Kind: StepEnded}, nil
 	}
 	return r.advance()
 }
 
 // Choose selects optionIndex from the active StepChoices step and advances to
 // the next line, choice menu, or end of dialogue.
-func (r *DialogueRunner) Choose(optionIndex int) (DialogueStep, error) {
+func (r *Runner) Choose(optionIndex int) (Step, error) {
 	if len(r.pendingChoices) == 0 {
-		return DialogueStep{}, ErrNoPendingChoice
+		return Step{}, ErrNoPendingChoice
 	}
 	if optionIndex < 0 || optionIndex >= len(r.pendingChoices) {
-		return DialogueStep{}, fmt.Errorf("%w: %d (count %d)", ErrInvalidChoice, optionIndex, len(r.pendingChoices))
+		return Step{}, fmt.Errorf("%w: %d (count %d)", ErrInvalidChoice, optionIndex, len(r.pendingChoices))
 	}
 	if !r.pendingChoices[optionIndex].Available {
-		return DialogueStep{}, fmt.Errorf("%w: option %d", ErrChoiceUnavailable, optionIndex)
+		return Step{}, fmt.Errorf("%w: option %d", ErrChoiceUnavailable, optionIndex)
 	}
 	body := r.pendingOptions[optionIndex].body
 	r.pendingChoices = nil
@@ -1158,13 +1146,13 @@ func (r *DialogueRunner) Choose(optionIndex int) (DialogueStep, error) {
 }
 
 // CurrentNode returns the title of the currently executing node, or "" when ended.
-func (r *DialogueRunner) CurrentNode() string {
+func (r *Runner) CurrentNode() string {
 	return r.currentNode
 }
 
 // SetVar sets a dialogue variable. A leading '$' is optional and normalized away.
 // Numeric Go types are normalized to float64 to match Yarn expression semantics.
-func (r *DialogueRunner) SetVar(name string, val any) {
+func (r *Runner) SetVar(name string, val any) {
 	if r.vars == nil {
 		r.vars = make(map[string]any)
 	}
@@ -1172,7 +1160,7 @@ func (r *DialogueRunner) SetVar(name string, val any) {
 }
 
 // Var returns the current value of name (leading '$' optional) and whether it is set.
-func (r *DialogueRunner) Var(name string) (any, bool) {
+func (r *Runner) Var(name string) (any, bool) {
 	if r.vars == nil {
 		return nil, false
 	}
@@ -1181,14 +1169,14 @@ func (r *DialogueRunner) Var(name string) (any, bool) {
 }
 
 // Vars returns a shallow copy of all currently set dialogue variables (keys without leading '$').
-func (r *DialogueRunner) Vars() map[string]any {
+func (r *Runner) Vars() map[string]any {
 	out := make(map[string]any, len(r.vars))
 	maps.Copy(out, r.vars)
 	return out
 }
 
 // Visited returns how many times the named node has been entered via Start or <<jump>>.
-func (r *DialogueRunner) Visited(node string) int {
+func (r *Runner) Visited(node string) int {
 	if r.visited == nil {
 		return 0
 	}
@@ -1196,17 +1184,17 @@ func (r *DialogueRunner) Visited(node string) int {
 }
 
 // State returns a serializable snapshot of the runner's variables and visit counts.
-func (r *DialogueRunner) State() DialogueState {
+func (r *Runner) State() State {
 	visited := make(map[string]int, len(r.visited))
 	maps.Copy(visited, r.visited)
-	return DialogueState{
+	return State{
 		Vars:    r.Vars(),
 		Visited: visited,
 	}
 }
 
-// LoadState restores variables and visit counts from a previously saved DialogueState.
-func (r *DialogueRunner) LoadState(state DialogueState) {
+// LoadState restores variables and visit counts from a previously saved State.
+func (r *Runner) LoadState(state State) {
 	r.vars = make(map[string]any, len(state.Vars))
 	for k, v := range state.Vars {
 		r.vars[normalizeVarName(k)] = normalizeDialogueValue(v)
@@ -1219,14 +1207,14 @@ func normalizeVarName(name string) string {
 	return strings.TrimPrefix(name, "$")
 }
 
-func (r *DialogueRunner) env() *exprEnv {
+func (r *Runner) env() *exprEnv {
 	return &exprEnv{
 		vars:    r.vars,
 		visited: r.visited,
 	}
 }
 
-func (r *DialogueRunner) resolveAndInterpolate(lineID, rawText string) (string, error) {
+func (r *Runner) resolveAndInterpolate(lineID, rawText string) (string, error) {
 	text := rawText
 	if r.opts.StringResolver != nil {
 		text = r.opts.StringResolver(lineID, rawText, r.Vars())
@@ -1234,7 +1222,7 @@ func (r *DialogueRunner) resolveAndInterpolate(lineID, rawText string) (string, 
 	return interpolateText(text, r.env())
 }
 
-func (r *DialogueRunner) advance() (DialogueStep, error) {
+func (r *Runner) advance() (Step, error) {
 	limit := r.opts.MaxStepsPerContinue
 	if limit <= 0 {
 		limit = DefaultMaxStepsPerContinue
@@ -1255,7 +1243,7 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 			r.pendingOptions = nil
 			node := r.currentNode
 			r.currentNode = ""
-			return DialogueStep{}, fmt.Errorf("%w: exceeded %d steps in node %q", ErrStepLimitExceeded, limit, node)
+			return Step{}, fmt.Errorf("%w: exceeded %d steps in node %q", ErrStepLimitExceeded, limit, node)
 		}
 
 		stmt := top.stmts[top.index]
@@ -1265,11 +1253,11 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 		case lineStmt:
 			text, err := r.resolveAndInterpolate(st.lineID, st.text)
 			if err != nil {
-				return DialogueStep{}, err
+				return Step{}, err
 			}
-			return DialogueStep{
+			return Step{
 				Kind: StepLine,
-				Line: DialogueLine{
+				Line: Line{
 					Speaker: st.speaker,
 					Text:    text,
 					LineID:  st.lineID,
@@ -1278,7 +1266,7 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 			}, nil
 
 		case choiceGroupStmt:
-			choices := make([]DialogueChoice, len(st.choices))
+			choices := make([]Choice, len(st.choices))
 			anyAvailable := false
 			env := r.env()
 			for i, opt := range st.choices {
@@ -1286,7 +1274,7 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 				if opt.cond != nil {
 					v, err := opt.cond.eval(env)
 					if err != nil {
-						return DialogueStep{}, err
+						return Step{}, err
 					}
 					avail = toDialogueBool(v)
 				}
@@ -1295,9 +1283,9 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 				}
 				text, err := r.resolveAndInterpolate(opt.lineID, opt.text)
 				if err != nil {
-					return DialogueStep{}, err
+					return Step{}, err
 				}
-				choices[i] = DialogueChoice{
+				choices[i] = Choice{
 					Index:     i,
 					Text:      text,
 					LineID:    opt.lineID,
@@ -1311,7 +1299,7 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 			}
 			r.pendingChoices = choices
 			r.pendingOptions = st.choices
-			return DialogueStep{
+			return Step{
 				Kind:    StepChoices,
 				Choices: slices.Clone(choices),
 			}, nil
@@ -1323,7 +1311,7 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 				if br.cond != nil {
 					v, err := br.cond.eval(env)
 					if err != nil {
-						return DialogueStep{}, err
+						return Step{}, err
 					}
 					matched = toDialogueBool(v)
 				}
@@ -1343,7 +1331,7 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 			}
 			val, err := st.expr.eval(r.env())
 			if err != nil {
-				return DialogueStep{}, err
+				return Step{}, err
 			}
 			if st.op == "=" {
 				r.SetVar(st.varName, val)
@@ -1359,45 +1347,45 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 				} else {
 					ln, err := toDialogueNumber(cur)
 					if err != nil {
-						return DialogueStep{}, err
+						return Step{}, err
 					}
 					rn, err := toDialogueNumber(val)
 					if err != nil {
-						return DialogueStep{}, err
+						return Step{}, err
 					}
 					r.SetVar(st.varName, ln+rn)
 				}
 			case "-=":
 				ln, err := toDialogueNumber(cur)
 				if err != nil {
-					return DialogueStep{}, err
+					return Step{}, err
 				}
 				rn, err := toDialogueNumber(val)
 				if err != nil {
-					return DialogueStep{}, err
+					return Step{}, err
 				}
 				r.SetVar(st.varName, ln-rn)
 			case "*=":
 				ln, err := toDialogueNumber(cur)
 				if err != nil {
-					return DialogueStep{}, err
+					return Step{}, err
 				}
 				rn, err := toDialogueNumber(val)
 				if err != nil {
-					return DialogueStep{}, err
+					return Step{}, err
 				}
 				r.SetVar(st.varName, ln*rn)
 			case "/=":
 				ln, err := toDialogueNumber(cur)
 				if err != nil {
-					return DialogueStep{}, err
+					return Step{}, err
 				}
 				rn, err := toDialogueNumber(val)
 				if err != nil {
-					return DialogueStep{}, err
+					return Step{}, err
 				}
 				if rn == 0 {
-					return DialogueStep{}, fmt.Errorf("dialogue: division by zero in $%s /=", st.varName)
+					return Step{}, fmt.Errorf("dialogue: division by zero in $%s /=", st.varName)
 				}
 				r.SetVar(st.varName, ln/rn)
 			}
@@ -1405,7 +1393,7 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 		case jumpStmt:
 			target, ok := r.script.nodes[st.target]
 			if !ok {
-				return DialogueStep{}, fmt.Errorf("%w: %q", ErrUnknownNode, st.target)
+				return Step{}, fmt.Errorf("%w: %q", ErrUnknownNode, st.target)
 			}
 			r.frames = []execFrame{{stmts: target.body}}
 			r.currentNode = st.target
@@ -1416,7 +1404,7 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 			r.pendingChoices = nil
 			r.pendingOptions = nil
 			r.currentNode = ""
-			return DialogueStep{Kind: StepEnded}, nil
+			return Step{Kind: StepEnded}, nil
 
 		case commandStmt:
 			env := r.env()
@@ -1427,18 +1415,18 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 				} else {
 					s, err := interpolateText(a.raw, env)
 					if err != nil {
-						return DialogueStep{}, err
+						return Step{}, err
 					}
 					args[i] = s
 				}
 			}
-			ev := DialogueEvent{
+			ev := Event{
 				Command: st.name,
 				Args:    args,
 				Node:    r.currentNode,
 			}
 			if r.opts.Bus != nil {
-				Publish(r.opts.Bus, ev)
+				flow.Publish(r.opts.Bus, ev)
 			}
 			if r.opts.OnCommand != nil {
 				r.opts.OnCommand(ev)
@@ -1447,5 +1435,5 @@ func (r *DialogueRunner) advance() (DialogueStep, error) {
 	}
 
 	r.currentNode = ""
-	return DialogueStep{Kind: StepEnded}, nil
+	return Step{Kind: StepEnded}, nil
 }

@@ -2,7 +2,7 @@
 
 `github.com/nsgo-dev/game/pkg/vn` plays a dialogue script as a visual novel: character portraits with expressions, a text box with name plates and a typewriter, choices, a backlog, auto and skip modes, and voice lines.
 
-A `Presenter` runs a Yarn Spinner script with [`flow`](flow.md)'s `DialogueRunner` and a cast read from a YAML cast file. `Update` moves it on by [`game.Loop`](loop.md)'s fixed step and `Draw` draws it into a `Canvas`, so a scene plays alike every time and under `nsgotest`.
+A `Presenter` runs a Yarn Spinner script with [`dialogue`](dialogue.md)'s `Runner` and a cast read from a YAML cast file. `Update` moves it on by [`game.Loop`](loop.md)'s fixed step and `Draw` draws it into a `Canvas`, so a scene plays alike every time and under `nsgotest`.
 
 ## Cast file
 
@@ -50,7 +50,7 @@ Lines steer the stage with tags after the line:
 
 A line by a cast member brings their portrait on the stage and marks it speaking; the others dim. A narration line has no name plate. A speaker not in the cast shows the name as written and takes no `#expr:` or `#at:` tag.
 
-Three commands are the presenter's own; every other command reaches `DialogueOptions.OnCommand` as before, and all of them reach `DialogueOptions.Bus`:
+Three commands are the presenter's own; every other command reaches `dialogue.Options.OnCommand` as before, and all of them reach `dialogue.Options.Bus`:
 
 ```text
 <<show aiko>>                 // enters in its slot with its default expression
@@ -92,12 +92,12 @@ loop := &game.Loop{Update: func(dt time.Duration) {
 }}
 ```
 
-- `Advance` is the player's tap: it shows the rest of a line still appearing, or goes on. It stops skip mode, and returns `flow.ErrChoiceRequired` while choices wait.
+- `Advance` is the player's tap: it shows the rest of a line still appearing, or goes on. It stops skip mode, and returns `dialogue.ErrChoiceRequired` while choices wait.
 - `Choices` lists the options waiting and `Choose(index)` picks one.
 - `Line` is the line shown with its name plate's `Name` and `Color`, its `Voice`, and `Read`, whether the player had read it before.
 - `Portraits` lists the portraits on the stage in the order to draw them, each with its slot, expression, frame and whether its character speaks.
-- `Runner` gives the `flow.DialogueRunner` for variables and its save state.
-- `Start` on a node the script lacks returns `flow.ErrUnknownNode` and leaves the stage and the line as they were.
+- `Runner` gives the `dialogue.Runner` for variables and its save state.
+- `Start` on a node the script lacks returns `dialogue.ErrUnknownNode` and leaves the stage and the line as they were.
 
 `Options.CharsPerSecond` sets the typewriter's speed (40 when 0; negative shows a line at once).
 

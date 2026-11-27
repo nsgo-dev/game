@@ -3077,12 +3077,12 @@ These are read as the tools that make them write them, never converted into a fo
 | --- | --- | --- |
 | Chrome's trace event JSON, opened in Perfetto or `chrome://tracing` | `gamedebug.Profiler.WriteChromeTrace` | `gamedebug.Profiler` |
 
-<!-- format: flow -->
+<!-- format: dialogue -->
 ### Yarn dialogue script
 
 | Files | Read by | Guide |
 | --- | --- | --- |
-| Yarn Spinner scripts (`.yarn`), written by hand: nodes of lines, `->` choices and `<<commands>>`, each under a `title:` header between `---` and `===` | `flow.ParseYarn`; `vn.Presenter` plays one | [vn](vn.md) |
+| Yarn Spinner scripts (`.yarn`), written by hand: nodes of lines, `->` choices and `<<commands>>`, each under a `title:` header between `---` and `===` | `dialogue.ParseYarn`; `vn.Presenter` plays one | [dialogue](dialogue.md) |
 
 ```yarn
 title: Start
