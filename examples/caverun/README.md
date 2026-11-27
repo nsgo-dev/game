@@ -134,14 +134,14 @@ The frame rate on each platform comes from NSGo's performance monitor: run the g
 
 | Target | Device | Display rate | With 1000 sprites |
 | --- | --- | --- | --- |
-| macOS | not measured yet | | |
-| Windows | not measured yet | | |
-| Linux | not measured yet | | |
-| Web | not measured yet | | |
-| iOS | not measured yet | | 60 fps target |
-| Android | not measured yet | | 60 fps target |
+| macOS | MacBook Pro, Apple M4 Pro | 120 Hz | 29–30 fps on NSGo v0.3.4; **119–120 fps** (0% dropped) with NSGo `Canvas.ResolutionScale` + batched Apple `DrawAtlas` ([nsgo#2525](https://github.com/nsgo-dev/nsgo/pull/2525)) |
+| Windows | not measured on physical GPU yet | | |
+| Linux | not measured on physical display yet | | |
+| Web | Google Chrome, Apple M4 Pro | 60 Hz | **60 commits/s** (0% dropped, app 0.65 ms, core 0.35 ms) |
+| iOS | iPhone 17 (`iPhone18,3`) | 120 Hz | ~12.5 fps on NSGo v0.3.0; re-test pending NSGo release with `Canvas.ResolutionScale` + [nsgo#2525](https://github.com/nsgo-dev/nsgo/pull/2525) (60 fps target) |
+| Android | Google Pixel 3 XL (Android 12) | 60 Hz | **59–60 fps** (0% dropped, frame 0.24–0.35 ms, 60 commits/s) |
 
-These need the real devices, so they are filled in as each one is measured ([#8](https://github.com/nsgo-dev/game/issues/8)).
+These need real devices with GPU-attached displays, so the remaining cells are filled in as each target is measured ([#64](https://github.com/nsgo-dev/game/issues/64), [#8](https://github.com/nsgo-dev/game/issues/8)).
 
 ## Tests
 
