@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: wire
+order: be
+enums:
+  - name: Channel
+    doc: Channel selects delivery semantics on a pkg/net Transport.
+    type: u8
+    values:
+      - name: reliable_ordered
+        value: 0
+        doc: Reliable, ordered delivery.
+      - name: unreliable
+        value: 1
+        doc: Best-effort, unordered delivery.
+messages:
+  - name: TransportFrame
+    doc: TransportFrame is the 5-byte channel and sequence header followed by raw payload bytes used by pkg/net transports.
+    fields:
+      - name: channel
+        type: Channel
+      - name: seq
+        type: u32
+      - name: payload
+        type: bytes
+        length: rest
+  - name: UDPPeerFrame
+    doc: UDPPeerFrame is the 9-byte peer-to-peer UDP datagram header (sender PeerID plus TransportFrame) used by UDPTransport.
+    fields:
+      - name: from
+        type: u32
+      - name: channel
+        type: Channel
+      - name: seq
+        type: u32
+      - name: payload
+        type: bytes
+        length: rest

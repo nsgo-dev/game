@@ -2084,6 +2084,73 @@ boards:
     keep: 4
 ```
 
+<!-- format: online/netplay/wire -->
+### Netplay wire message schema
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.wire.yaml` (under `pkg/online/netplay/wire/` or a game package) | `version: 1` | `wire.Parse`, `wire.Encode` | [netplay/wire](netplay-wire.md); schema `https://game.nsgo.dev/schemas/wire.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: props
+order: le
+enums:
+  - name: Stance
+    type: u8
+    values:
+      - name: idle
+        value: 0
+      - name: running
+        value: 1
+messages:
+  - name: FighterProps
+    fields:
+      - name: team
+        type: bits
+        bits: 4
+      - name: combo
+        type: bits
+        bits: 4
+      - name: aim_x
+        type: qfloat
+        qfloat:
+          min: -1
+          max: 1
+          bits: 12
+      - name: aim_y
+        type: qfloat
+        qfloat:
+          min: -1
+          max: 1
+          bits: 12
+      - name: stance
+        type: Stance
+      - name: hp_delta
+        type: svarint
+        bits: 32
+      - name: stamina
+        type: fixed
+        fixed:
+          scale: 100
+          type: u16
+      - name: state
+        type: mask
+        mask:
+          type: u8
+          delta: true
+          fields:
+            - name: shield
+              type: qfloat
+              qfloat:
+                min: 0
+                max: 100
+                bits: 10
+            - name: tag
+              type: string
+```
+
 ## Files programs write in YAML
 
 A program writes these for itself, but they are YAML for the same reasons: a person can read one, review its diff and, when needed, edit it.

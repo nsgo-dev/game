@@ -33,6 +33,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | 游戏界面屏幕，版本 1 | `https://game.nsgo.dev/schemas/screen.v1.json` | `*.screen.yaml`，由 `gameui.ParseScreen` 和 `gameui.LoadScreenFS` 读取 |
 | 精灵状态机，版本 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`，由 `animclip.ParseStateMachine` 和 `animclip.FSStates` 读取 |
 | 粒子发射器（2D），版本 1 | `https://game.nsgo.dev/schemas/particles.v1.json` | `*.particles.yaml` / `*.emitter.yaml`，由 `particles.UnmarshalConfigYAML` 和 `particles.LoadConfigFS` 读取 |
+| 网络线路消息 Schema，版本 1 | `https://game.nsgo.dev/schemas/wire.v1.json` | `*.wire.yaml`，由 `wire.Parse` 和 `cmd/gamewire` 读取（见 [netplay/wire](netplay-wire.md)） |
 | 数据表 | 用 `datatable.Schema[T]` 按行类型生成 | `*.yaml`，由 `datatable.LoadYAML` 读取 |
 
 其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、骨骼绑定（#475）和本地化表（#473）。

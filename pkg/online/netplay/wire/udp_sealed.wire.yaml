@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: wire
+order: be
+imports:
+  - transport.wire.yaml
+enums:
+  - name: UDPDatagramType
+    doc: UDPDatagramType identifies the direction and purpose of a sealed UDP session datagram.
+    type: u8
+    values:
+      - name: data
+        value: 177
+        doc: Client-to-server application datagram (0xB1).
+      - name: server_data
+        value: 178
+        doc: Server-to-client application datagram (0xB2).
+      - name: ping
+        value: 179
+        doc: Client-to-server keepalive ping (0xB3).
+      - name: pong
+        value: 180
+        doc: Server-to-client keepalive reply (0xB4).
+      - name: bye
+        value: 181
+        doc: Client-to-server session goodbye (0xB5).
+messages:
+  - name: UDPSealedDatagram
+    doc: UDPSealedDatagram is an authenticated UDP session datagram with an 18-byte header (type, peer, seq, channel, 8-byte truncated HMAC-SHA256 tag) and trailing payload.
+    fields:
+      - name: type
+        type: UDPDatagramType
+      - name: peer
+        type: u32
+      - name: seq
+        type: u32
+      - name: channel
+        type: Channel
+      - name: tag
+        type: array
+        array:
+          count: 8
+          of: u8
+      - name: payload
+        type: bytes
+        length: rest

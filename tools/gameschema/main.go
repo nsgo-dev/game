@@ -27,6 +27,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/jsonschema"
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -326,6 +327,13 @@ var formats = []format{
 		typ:     reflect.TypeFor[editor.CheckpointManifest](),
 		pkg:     "editor",
 		version: editor.CheckpointVersion,
+	},
+	{
+		url:     wire.SchemaURL,
+		title:   "NSGo game netplay wire message schema (version 1)",
+		typ:     reflect.TypeFor[wire.Schema](),
+		pkg:     "online/netplay/wire",
+		version: wire.CurrentVersion,
 	},
 }
 

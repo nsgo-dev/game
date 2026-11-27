@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/wire.v1.json
+version: 1
+package: wire
+order: be
+messages:
+  - name: HandshakeHello
+    doc: HandshakeHello is the client-to-server version 1 connection handshake body following tag 0xA1.
+    fields:
+      - name: version
+        type: u8
+        const: 1
+      - name: nonce
+        type: array
+        array:
+          count: 16
+          of: u8
+      - name: resume_peer
+        type: u32
+      - name: resume_secret
+        type: array
+        array:
+          count: 16
+          of: u8
+      - name: token
+        type: bytes
+        length: u16
+        maxLength: 4096
+  - name: HandshakeWelcome
+    doc: HandshakeWelcome is the server-to-client version 1 acceptance body following tag 0xA2.
+    fields:
+      - name: version
+        type: u8
+        const: 1
+      - name: nonce
+        type: array
+        array:
+          count: 16
+          of: u8
+      - name: peer
+        type: u32
+      - name: server
+        type: u32
+      - name: resumed
+        type: bool
+      - name: secret
+        type: array
+        array:
+          count: 16
+          of: u8
+      - name: key
+        type: array
+        array:
+          count: 32
+          of: u8
+  - name: HandshakeReject
+    doc: HandshakeReject is the server-to-client version 1 rejection body following tag 0xA3.
+    fields:
+      - name: version
+        type: u8
+        const: 1
+      - name: nonce
+        type: array
+        array:
+          count: 16
+          of: u8
+      - name: reason
+        type: string
+        length: u16
+        maxLength: 256
+unions:
+  - name: HandshakeMessage
+    doc: HandshakeMessage is a tag-discriminated version 1 connection handshake message.
+    discriminator:
+      type: u8
+    cases:
+      - name: hello
+        tag: 161
+        message: HandshakeHello
+        doc: Client hello (0xA1).
+      - name: welcome
+        tag: 162
+        message: HandshakeWelcome
+        doc: Server welcome (0xA2).
+      - name: reject
+        tag: 163
+        message: HandshakeReject
+        doc: Server rejection (0xA3).

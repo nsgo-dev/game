@@ -168,6 +168,8 @@ _ = renderEntities
 
 第 1 版来自加入 epoch 之前的版本，没有消息头：其消息直接以类型 1 到 5 开头，按第 1 版解读。不同版本的对端之间无法复制，且双方都不会误读对方的消息。客户端拒绝其他版本的快照并通过 `client.Err()` 报告，服务端拒绝其他版本的确认与重新同步请求并通过 `server.PeerErr(peer)` 报告；两种错误都包装了 `ErrReplicationVersion` 并写明双方版本，游戏可以据此提示玩家更新，而不是一直等待永远不会到来的世界。
 
+`pkg/online/netplay` 的每一种线路格式——传输帧、UDP 认证封包、连接握手、中继帧与控制体、复制协议 v2、锁步/回滚输入以及对局中途成员变更——都在 `pkg/online/netplay/wire/` 下以带版本的 YAML Schema（`*.wire.yaml`）描述，并由 `cmd/gamewire` 生成零分配 Go 编解码器（`AppendX` / `DecodeX`，以及增量掩码的 `DiffX` / `ApplyX`）。游戏也可以用同一套 Schema 工具配合位打包和纯整数 `qfloat`/`fixed` 量化为 `EntityState.Props` 或自定义消息生成编解码器，详见 [netplay/wire](netplay-wire.md)。
+
 ## 确定性锁步与回滚同步
 
 面向格斗、RTS 或高响应街机合作游戏，实现 `SimState`（`Step`、`Save`、`Load`、`Checksum`）并交由 `LockstepSession` 或 `RollbackSession` 驱动：

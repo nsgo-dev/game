@@ -126,7 +126,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
   },
   {
     key: 'multiplayerModding',
-    slugs: ['netplay', 'server', 'accounts', 'cloudsave', 'leaderboard', 'leaderboard-selfhost', 'achievements', 'presence', 'liveops', 'modding'],
+    slugs: ['netplay', 'netplay-wire', 'server', 'accounts', 'cloudsave', 'leaderboard', 'leaderboard-selfhost', 'achievements', 'presence', 'liveops', 'modding'],
   },
   {
     key: 'threeD',

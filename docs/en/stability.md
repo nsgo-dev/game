@@ -67,6 +67,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/cmd/editor` | Experimental | [Scene Editor](editor.md) |
 | `game/cmd/game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/gameproject` | Experimental | [Project File](project.md) |
+| `game/cmd/gamewire` | Experimental | [netplay/wire](netplay-wire.md) |
 | `game/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
@@ -124,6 +125,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/online/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/pkg/online/liveops` | Experimental | [liveops](liveops.md) |
 | `game/pkg/online/netplay` | Experimental | [netplay](netplay.md) |
+| `game/pkg/online/netplay/wire` | Experimental | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | Experimental | [presence](presence.md) |
 | `game/pkg/online/server` | Experimental | [server](server.md) |
 | `game/pkg/particles` | Experimental | [particles](particles.md) |

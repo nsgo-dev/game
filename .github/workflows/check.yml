@@ -49,6 +49,8 @@ jobs:
           fi
       - name: Check the published JSON Schemas match the Go types
         run: go run ./tools/gameschema -check
+      - name: Check the generated netplay wire codecs match their YAML schemas
+        run: go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check
       - name: Build and vet every target but iOS
         run: go tool nsgo check -target macos,windows,linux,android,web
 
