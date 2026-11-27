@@ -17,6 +17,8 @@ export const UDPDatagramType = {
   Bye: 181,
   // UDPTransport pre-shared key peer datagram (0xB6).
   PeerData: 182,
+  // Server-to-client session removal whose payload is the reason (0xB7).
+  Kick: 183,
 } as const;
 export type UDPDatagramType = (typeof UDPDatagramType)[keyof typeof UDPDatagramType];
 
@@ -28,6 +30,7 @@ export function isValidUDPDatagramType(v: number): v is UDPDatagramType {
     case UDPDatagramType.Pong:
     case UDPDatagramType.Bye:
     case UDPDatagramType.PeerData:
+    case UDPDatagramType.Kick:
       return true;
     default:
       return false;
