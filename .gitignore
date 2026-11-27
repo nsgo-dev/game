@@ -15,3 +15,8 @@ node_modules/
 # The agent notes board (bun run init-board, bun run bundle-board)
 /board.html
 /demo.html
+# Local worktrees, compiled test binaries, scratch files and HarmonyOS build caches
+.worktrees/
+*.test
+.tmp/
+.hvigor/

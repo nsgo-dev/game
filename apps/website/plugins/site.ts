@@ -50,7 +50,7 @@ function cells(line: string): string[] {
     .map((c) => c.trim())
 }
 
-// parseIndexTable reads the package table of docs/<lang>/index.md: each package's import path below github.com/nsgo-dev/game/packages and what it holds.
+// parseIndexTable reads the package table of docs/<lang>/index.md: each package's import path relative to github.com/nsgo-dev, such as game/pkg/sprite, and what it holds.
 export function parseIndexTable(markdown: string): Map<string, string> {
   const out = new Map<string, string>()
   for (const line of markdown.split('\n')) {
