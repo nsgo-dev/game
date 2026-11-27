@@ -441,14 +441,21 @@ func (a *Actions) BindMotionAxis(name string, axis MotionAxis, opts MotionAxisOp
 		a.motionAxes = make(map[string]motionAxisBinding)
 	}
 	a.motionAxes[name] = motionAxisBinding{axis: axis, opts: opts}
+	delete(a.unboundMotionAxes, name)
 	delete(a.motionInit, name)
 }
 
-// UnbindMotionAxis removes the motion axis binding for name.
+// UnbindMotionAxis removes the motion axis binding for name. Save records the unbinding so a later Load keeps name unbound rather than restoring a default.
 func (a *Actions) UnbindMotionAxis(name string) {
 	delete(a.motionAxes, name)
 	delete(a.motionSnap, name)
 	delete(a.motionInit, name)
+	if name != "" {
+		if a.unboundMotionAxes == nil {
+			a.unboundMotionAxes = make(map[string]bool)
+		}
+		a.unboundMotionAxes[name] = true
+	}
 }
 
 // MotionAxisBinding returns the motion axis and options bound to name.

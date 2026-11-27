@@ -66,11 +66,11 @@ type savedAxis struct {
 	Positive string `json:"positive,omitempty"`
 }
 
-// Save writes all of a's action, axis, motion axis, pointer axis and game controller stick axis bindings as JSON into store under key. It fails with *core.StorageFullError when the storage is full.
+// Save writes all of a's action, axis, motion axis, pointer axis and game controller stick axis bindings as JSON into store under key, including explicit unbindings made with Unbind, UnbindAxis, UnbindMotionAxis, UnbindPointerAxis or UnbindGamepadAxis so a later Load keeps them unbound rather than restoring defaults. It fails with *core.StorageFullError when the storage is full.
 func (a *Actions) Save(store core.Storage, key string) error {
 	doc := savedBindings{Version: storageVersion}
-	if len(a.bindings) > 0 {
-		doc.Actions = make(map[string][]savedInput, len(a.bindings))
+	if len(a.bindings) > 0 || len(a.unboundActions) > 0 {
+		doc.Actions = make(map[string][]savedInput, len(a.bindings)+len(a.unboundActions))
 		for name, list := range a.bindings {
 			out := make([]savedInput, len(list))
 			for i, in := range list {
@@ -82,15 +82,27 @@ func (a *Actions) Save(store core.Storage, key string) error {
 			}
 			doc.Actions[name] = out
 		}
+		for name := range a.unboundActions {
+			if _, bound := a.bindings[name]; bound {
+				continue
+			}
+			doc.Actions[name] = []savedInput{{Kind: "none"}}
+		}
 	}
-	if len(a.axes) > 0 {
-		doc.Axes = make(map[string]savedAxis, len(a.axes))
+	if len(a.axes) > 0 || len(a.unboundAxes) > 0 {
+		doc.Axes = make(map[string]savedAxis, len(a.axes)+len(a.unboundAxes))
 		for name, ax := range a.axes {
 			doc.Axes[name] = savedAxis{Negative: ax.negative, Positive: ax.positive}
 		}
+		for name := range a.unboundAxes {
+			if _, bound := a.axes[name]; bound {
+				continue
+			}
+			doc.Axes[name] = savedAxis{}
+		}
 	}
-	if len(a.motionAxes) > 0 {
-		doc.MotionAxes = make(map[string]savedMotionAxis, len(a.motionAxes))
+	if len(a.motionAxes) > 0 || len(a.unboundMotionAxes) > 0 {
+		doc.MotionAxes = make(map[string]savedMotionAxis, len(a.motionAxes)+len(a.unboundMotionAxes))
 		for name, mb := range a.motionAxes {
 			axName, err := encodeMotionAxis(mb.axis)
 			if err != nil {
@@ -105,9 +117,15 @@ func (a *Actions) Save(store core.Storage, key string) error {
 				Invert:      mb.opts.Invert,
 			}
 		}
+		for name := range a.unboundMotionAxes {
+			if _, bound := a.motionAxes[name]; bound {
+				continue
+			}
+			doc.MotionAxes[name] = savedMotionAxis{Axis: "none"}
+		}
 	}
-	if len(a.pointerAxes) > 0 {
-		doc.PointerAxes = make(map[string]savedPointerAxis, len(a.pointerAxes))
+	if len(a.pointerAxes) > 0 || len(a.unboundPointerAxes) > 0 {
+		doc.PointerAxes = make(map[string]savedPointerAxis, len(a.pointerAxes)+len(a.unboundPointerAxes))
 		for name, pb := range a.pointerAxes {
 			axName, err := encodePointerAxis(pb.axis)
 			if err != nil {
@@ -115,9 +133,15 @@ func (a *Actions) Save(store core.Storage, key string) error {
 			}
 			doc.PointerAxes[name] = savedPointerAxis{Axis: axName, Sensitivity: pb.opts.Sensitivity, Invert: pb.opts.Invert}
 		}
+		for name := range a.unboundPointerAxes {
+			if _, bound := a.pointerAxes[name]; bound {
+				continue
+			}
+			doc.PointerAxes[name] = savedPointerAxis{Axis: "none"}
+		}
 	}
-	if len(a.gpAxes) > 0 {
-		doc.GamepadAxes = make(map[string]savedGamepadAxis, len(a.gpAxes))
+	if len(a.gpAxes) > 0 || len(a.unboundGpAxes) > 0 {
+		doc.GamepadAxes = make(map[string]savedGamepadAxis, len(a.gpAxes)+len(a.unboundGpAxes))
 		for name, gb := range a.gpAxes {
 			axName, err := encodeGamepadAxis(gb.axis)
 			if err != nil {
@@ -131,6 +155,12 @@ func (a *Actions) Save(store core.Storage, key string) error {
 				Invert:      gb.opts.Invert,
 			}
 		}
+		for name := range a.unboundGpAxes {
+			if _, bound := a.gpAxes[name]; bound {
+				continue
+			}
+			doc.GamepadAxes[name] = savedGamepadAxis{Axis: "none"}
+		}
 	}
 	data, err := json.Marshal(doc)
 	if err != nil {
@@ -139,75 +169,132 @@ func (a *Actions) Save(store core.Storage, key string) error {
 	return store.SetItem(key, string(data))
 }
 
-// Load replaces a's action and axis bindings with those saved in store under key, and reports whether key was present.
+// Load merges action and axis bindings saved in store under key into a, and reports whether key was present.
+//
+// Each action, axis, motion axis, pointer axis or gamepad axis present in the saved value replaces a's binding for that name; an entry saved as explicitly unbound (an empty or "none"-only action list, an empty axis, or axis "none") unbinds that name. Names absent from the saved value keep their current bindings, so defaults added in a newer build stay bound when loading an older save. Use LoadReplace to replace all of a's bindings with the saved snapshot.
 //
 // When key is absent, Load leaves a's existing bindings as they are and returns false, nil. When the stored value is invalid JSON, has a field Load does not know or uses an unknown format, Load leaves a's bindings untouched and returns false and an error: a *loaderr.Error that names key as its file, with the line and field of the problem and how to fix it.
 func (a *Actions) Load(store core.Storage, key string) (bool, error) {
+	return a.loadKey(store, key, false)
+}
+
+// LoadReplace replaces all of a's action and axis bindings with those saved in store under key, dropping any binding absent from the saved value, and reports whether key was present.
+//
+// When key is absent or the stored value fails to decode, LoadReplace behaves like Load: it leaves a's bindings untouched and returns false with nil or a *loaderr.Error.
+func (a *Actions) LoadReplace(store core.Storage, key string) (bool, error) {
+	return a.loadKey(store, key, true)
+}
+
+func (a *Actions) loadKey(store core.Storage, key string, replace bool) (bool, error) {
 	raw, ok := store.GetItem(key)
 	if !ok {
 		return false, nil
 	}
-	loaded, err := a.load(raw)
+	loaded, err := a.load(raw, replace)
 	return loaded, loaderr.Locate(err, key, []byte(raw), "save the bindings again with Actions.Save, or remove the key so the defaults apply")
 }
 
-func (a *Actions) load(raw string) (bool, error) {
+type decodedBindings struct {
+	actions            map[string][]Input
+	unboundActions     map[string]bool
+	axes               map[string]axisBinding
+	unboundAxes        map[string]bool
+	motionAxes         map[string]motionAxisBinding
+	unboundMotionAxes  map[string]bool
+	pointerAxes        map[string]pointerAxisBinding
+	unboundPointerAxes map[string]bool
+	gpAxes             map[string]gamepadAxisBinding
+	unboundGpAxes      map[string]bool
+}
+
+func allNoneInputs(list []Input) bool {
+	for _, in := range list {
+		if in.Kind != InputNone {
+			return false
+		}
+	}
+	return true
+}
+
+func decodeBindings(raw string) (decodedBindings, error) {
 	var doc savedBindings
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&doc); err != nil {
-		return false, err
+		return decodedBindings{}, err
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return false, &loaderr.Error{Problem: "trailing data after the bindings", Fix: "keep one JSON object in the value; remove what follows it"}
+		return decodedBindings{}, &loaderr.Error{Problem: "trailing data after the bindings", Fix: "keep one JSON object in the value; remove what follows it"}
 	}
 	if doc.Version != storageVersion {
-		return false, &loaderr.Error{Field: "version", Problem: fmt.Sprintf("unsupported version %d", doc.Version), Expected: fmt.Sprint(storageVersion), Fix: fmt.Sprintf("save the bindings again with this build's Actions.Save, which writes version %d", storageVersion)}
+		return decodedBindings{}, &loaderr.Error{Field: "version", Problem: fmt.Sprintf("unsupported version %d", doc.Version), Expected: fmt.Sprint(storageVersion), Fix: fmt.Sprintf("save the bindings again with this build's Actions.Save, which writes version %d", storageVersion)}
 	}
-	var bindings map[string][]Input
+	var out decodedBindings
 	if len(doc.Actions) > 0 {
-		bindings = make(map[string][]Input, len(doc.Actions))
 		// Sorted, so the first bad binding reported is the same on every load.
 		for _, name := range slices.Sorted(maps.Keys(doc.Actions)) {
 			list := doc.Actions[name]
-			if len(list) == 0 {
-				continue
-			}
 			decoded := make([]Input, len(list))
 			for i, item := range list {
 				in, err := decodeInput(item)
 				if err != nil {
-					return false, loaderr.Errorf(loaderr.Path("actions", name, i), `use kind "none", "touch_region" or "mouse_region" with bounds, "mouse_button" with button left, right, middle, back or forward, "key" with key, "key_code" with code, or "gamepad_button" with button`, "action %q: %w", name, err)
+					return decodedBindings{}, loaderr.Errorf(loaderr.Path("actions", name, i), `use kind "none", "touch_region" or "mouse_region" with bounds, "mouse_button" with button left, right, middle, back or forward, "key" with key, "key_code" with code, or "gamepad_button" with button`, "action %q: %w", name, err)
 				}
 				decoded[i] = in
 			}
-			bindings[name] = decoded
-		}
-	}
-	var axes map[string]axisBinding
-	if len(doc.Axes) > 0 {
-		axes = make(map[string]axisBinding, len(doc.Axes))
-		for name, ax := range doc.Axes {
-			if ax.Negative == "" && ax.Positive == "" {
+			if allNoneInputs(decoded) {
+				if name != "" {
+					if out.unboundActions == nil {
+						out.unboundActions = make(map[string]bool)
+					}
+					out.unboundActions[name] = true
+				}
 				continue
 			}
-			axes[name] = axisBinding{negative: ax.Negative, positive: ax.Positive}
+			if out.actions == nil {
+				out.actions = make(map[string][]Input, len(doc.Actions))
+			}
+			out.actions[name] = decoded
+		}
+	}
+	if len(doc.Axes) > 0 {
+		for name, ax := range doc.Axes {
+			if ax.Negative == "" && ax.Positive == "" {
+				if name != "" {
+					if out.unboundAxes == nil {
+						out.unboundAxes = make(map[string]bool)
+					}
+					out.unboundAxes[name] = true
+				}
+				continue
+			}
+			if out.axes == nil {
+				out.axes = make(map[string]axisBinding, len(doc.Axes))
+			}
+			out.axes[name] = axisBinding{negative: ax.Negative, positive: ax.Positive}
 		}
 	}
 
-	var motionAxes map[string]motionAxisBinding
 	if len(doc.MotionAxes) > 0 {
-		motionAxes = make(map[string]motionAxisBinding, len(doc.MotionAxes))
 		for _, name := range slices.Sorted(maps.Keys(doc.MotionAxes)) {
 			ma := doc.MotionAxes[name]
 			ax, err := decodeMotionAxis(ma.Axis)
 			if err != nil {
-				return false, loaderr.Errorf(loaderr.Path("motion_axes", name, "axis"), "use none, tilt_x, tilt_y, tilt_z, gyro_x, gyro_y or gyro_z", "motion axis %q: %w", name, err)
+				return decodedBindings{}, loaderr.Errorf(loaderr.Path("motion_axes", name, "axis"), "use none, tilt_x, tilt_y, tilt_z, gyro_x, gyro_y or gyro_z", "motion axis %q: %w", name, err)
 			}
 			if ax == MotionAxisNone {
+				if name != "" {
+					if out.unboundMotionAxes == nil {
+						out.unboundMotionAxes = make(map[string]bool)
+					}
+					out.unboundMotionAxes[name] = true
+				}
 				continue
 			}
-			motionAxes[name] = motionAxisBinding{
+			if out.motionAxes == nil {
+				out.motionAxes = make(map[string]motionAxisBinding, len(doc.MotionAxes))
+			}
+			out.motionAxes[name] = motionAxisBinding{
 				axis: ax,
 				opts: MotionAxisOptions{
 					DeadZone:    ma.DeadZone,
@@ -220,32 +307,49 @@ func (a *Actions) load(raw string) (bool, error) {
 		}
 	}
 
-	var pointerAxes map[string]pointerAxisBinding
 	if len(doc.PointerAxes) > 0 {
-		pointerAxes = make(map[string]pointerAxisBinding, len(doc.PointerAxes))
 		for _, name := range slices.Sorted(maps.Keys(doc.PointerAxes)) {
 			pa := doc.PointerAxes[name]
 			ax, err := decodePointerAxis(pa.Axis)
 			if err != nil {
-				return false, loaderr.Errorf(loaderr.Path("pointer_axes", name, "axis"), "use none, pointer_x or pointer_y", "pointer axis %q: %w", name, err)
+				return decodedBindings{}, loaderr.Errorf(loaderr.Path("pointer_axes", name, "axis"), "use none, pointer_x or pointer_y", "pointer axis %q: %w", name, err)
 			}
 			if ax == PointerAxisNone {
+				if name != "" {
+					if out.unboundPointerAxes == nil {
+						out.unboundPointerAxes = make(map[string]bool)
+					}
+					out.unboundPointerAxes[name] = true
+				}
 				continue
 			}
-			pointerAxes[name] = pointerAxisBinding{axis: ax, opts: PointerAxisOptions{Sensitivity: pa.Sensitivity, Invert: pa.Invert}}
+			if out.pointerAxes == nil {
+				out.pointerAxes = make(map[string]pointerAxisBinding, len(doc.PointerAxes))
+			}
+			out.pointerAxes[name] = pointerAxisBinding{axis: ax, opts: PointerAxisOptions{Sensitivity: pa.Sensitivity, Invert: pa.Invert}}
 		}
 	}
 
-	var gamepadAxes map[string]gamepadAxisBinding
 	if len(doc.GamepadAxes) > 0 {
-		gamepadAxes = make(map[string]gamepadAxisBinding, len(doc.GamepadAxes))
 		for _, name := range slices.Sorted(maps.Keys(doc.GamepadAxes)) {
 			ga := doc.GamepadAxes[name]
+			if ga.Axis == "" || ga.Axis == "none" {
+				if name != "" {
+					if out.unboundGpAxes == nil {
+						out.unboundGpAxes = make(map[string]bool)
+					}
+					out.unboundGpAxes[name] = true
+				}
+				continue
+			}
 			ax, err := decodeGamepadAxis(ga.Axis)
 			if err != nil {
-				return false, loaderr.Errorf(loaderr.Path("gamepad_axes", name, "axis"), "use one of "+strings.Join(gamepadAxisNames[:], ", "), "gamepad axis %q: %w", name, err)
+				return decodedBindings{}, loaderr.Errorf(loaderr.Path("gamepad_axes", name, "axis"), "use none or one of "+strings.Join(gamepadAxisNames[:], ", "), "gamepad axis %q: %w", name, err)
 			}
-			gamepadAxes[name] = gamepadAxisBinding{
+			if out.gpAxes == nil {
+				out.gpAxes = make(map[string]gamepadAxisBinding, len(doc.GamepadAxes))
+			}
+			out.gpAxes[name] = gamepadAxisBinding{
 				axis: ax,
 				opts: GamepadAxisOptions{
 					DeadZone:    ga.DeadZone,
@@ -256,12 +360,32 @@ func (a *Actions) load(raw string) (bool, error) {
 			}
 		}
 	}
+	return out, nil
+}
 
-	a.bindings = bindings
-	a.axes = axes
-	a.motionAxes = motionAxes
-	a.pointerAxes = pointerAxes
-	a.gpAxes = gamepadAxes
+func (a *Actions) load(raw string, replace bool) (bool, error) {
+	d, err := decodeBindings(raw)
+	if err != nil {
+		return false, err
+	}
+	if replace {
+		a.bindings = d.actions
+		a.unboundActions = d.unboundActions
+		a.axes = d.axes
+		a.unboundAxes = d.unboundAxes
+		a.motionAxes = d.motionAxes
+		a.unboundMotionAxes = d.unboundMotionAxes
+		a.pointerAxes = d.pointerAxes
+		a.unboundPointerAxes = d.unboundPointerAxes
+		a.gpAxes = d.gpAxes
+		a.unboundGpAxes = d.unboundGpAxes
+	} else {
+		mergeBindings(&a.bindings, &a.unboundActions, d.actions, d.unboundActions)
+		mergeBindings(&a.axes, &a.unboundAxes, d.axes, d.unboundAxes)
+		mergeBindings(&a.motionAxes, &a.unboundMotionAxes, d.motionAxes, d.unboundMotionAxes)
+		mergeBindings(&a.pointerAxes, &a.unboundPointerAxes, d.pointerAxes, d.unboundPointerAxes)
+		mergeBindings(&a.gpAxes, &a.unboundGpAxes, d.gpAxes, d.unboundGpAxes)
+	}
 	clear(a.gpSnap)
 	clear(a.motionSnap)
 	clear(a.motionInit)
@@ -276,6 +400,27 @@ func (a *Actions) load(raw string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func mergeBindings[T any](dst *map[string]T, dstUnbound *map[string]bool, src map[string]T, srcUnbound map[string]bool) {
+	if len(src) > 0 {
+		if *dst == nil {
+			*dst = make(map[string]T, len(src))
+		}
+		for name, v := range src {
+			(*dst)[name] = v
+			delete(*dstUnbound, name)
+		}
+	}
+	if len(srcUnbound) > 0 {
+		if *dstUnbound == nil {
+			*dstUnbound = make(map[string]bool, len(srcUnbound))
+		}
+		for name := range srcUnbound {
+			delete(*dst, name)
+			(*dstUnbound)[name] = true
+		}
+	}
 }
 
 func encodeInput(in Input) (savedInput, error) {

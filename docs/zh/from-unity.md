@@ -69,7 +69,7 @@ Unity 把行为挂在对象上；这里数据和行为是分开的，与 Unity �
 | `action.WasReleasedThisFrame()` | `actions.JustReleased("jump")` |
 | 1D 轴组合 | `actions.BindAxis("move_x", "left", "right")`，然后 `actions.Axis("move_x")` |
 | On-Screen Stick 和 Button | `input.VirtualPad` |
-| 保存重新绑定的覆盖设置 | 用 `actions.Save` 和 `actions.Load` 存到 `core.Storage` |
+| 保存重新绑定的覆盖设置 | 用 `actions.Save` 和 `actions.Load` 存到 `core.Storage`（`Load` 按名称合并，保留后续版本新增的默认绑定；整份替换用 `LoadReplace`） |
 
 在每次更新开始时调用 `actions.Step()`。目前可以绑定的是触控区域、鼠标按钮和设备体感。键盘和手柄绑定在 [#3](https://github.com/nsgo-dev/game/issues/3) 中跟踪；在那之前，可以用 NSGo 的 `cx.OnKey` 绑定按键，在回调里调用 `actions.Trigger(name)`，让该动作在一个步内处于按下状态。见 [input](input.md)。
 

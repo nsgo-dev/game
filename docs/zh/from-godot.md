@@ -81,7 +81,7 @@ Godot 的输入映射在这里是一个 `input.Actions` 值：把名字绑定到
 | `Input.is_action_just_released("jump")` | `actions.JustReleased("jump")` |
 | `Input.get_axis("left", "right")` | `actions.BindAxis("move_x", "left", "right")`，然后 `actions.Axis("move_x")` |
 | `TouchScreenButton` | `input.TouchRegion`，或由屏幕摇杆和按钮组成的 `VirtualPad` |
-| 保存重新映射的按键 | 用 `actions.Save` 和 `actions.Load` 存到 `core.Storage` |
+| 保存重新映射的按键 | 用 `actions.Save` 和 `actions.Load` 存到 `core.Storage`（`Load` 按名称合并，保留后续版本新增的默认绑定；整份替换用 `LoadReplace`） |
 
 目前可以绑定的是触控区域、鼠标按钮和设备体感。键盘和手柄绑定在 [#3](https://github.com/nsgo-dev/game/issues/3) 中跟踪；在那之前，可以用 NSGo 的 `cx.OnKey` 绑定按键，在回调里调用 `actions.Trigger("pause")`，让该动作在一个步内处于按下状态。见 [input](input.md)。
 

@@ -81,7 +81,7 @@ Godot's Input Map becomes an `input.Actions` value: bind names to inputs, call `
 | `Input.is_action_just_released("jump")` | `actions.JustReleased("jump")` |
 | `Input.get_axis("left", "right")` | `actions.BindAxis("move_x", "left", "right")`, then `actions.Axis("move_x")` |
 | `TouchScreenButton` | `input.TouchRegion`, or a `VirtualPad` of on-screen sticks and buttons |
-| Saving remapped controls | `actions.Save` and `actions.Load` in `core.Storage` |
+| Saving remapped controls | `actions.Save` and `actions.Load` in `core.Storage` (`Load` merges per name so defaults added later stay bound; `LoadReplace` replaces all) |
 
 Bindings today are touch regions, mouse buttons and device motion. Key and gamepad bindings are tracked in [#3](https://github.com/nsgo-dev/game/issues/3); until they land, a key bound with NSGo's `cx.OnKey` can call `actions.Trigger("pause")`, which registers the action for one step. See [input](input.md).
 

@@ -403,7 +403,7 @@ if err := actions.Save(cx.Storage(), "controls.v1"); err != nil {
 	log.Println("save controls:", err)
 }
 
-// 启动时恢复（键不存在时保留默认绑定）
+// 启动时先绑定默认键位，再合并玩家保存的绑定
 found, err := actions.Load(cx.Storage(), "controls.v1")
 if err != nil {
 	log.Println("corrupt saved controls, keeping defaults:", err)
@@ -411,4 +411,8 @@ if err != nil {
 _ = found
 ```
 
-当 `key` 不存在时，`Load` 返回 `(false, nil)` 并保留现有默认绑定；若存储内容不是有效 JSON、包含 `Load` 不认识的字段或格式版本未知，则返回 `(false, err)` 且不改动当前绑定。
+`Load` 按名称合并动作、反向动作轴、运动轴、指针轴与手柄摇杆轴：存档中出现的名称会替换当前对应绑定，未出现的名称则保留当前（默认）绑定。这样新版本新增的键位在加载旧版本存档时仍保持默认绑定。
+
+通过 `Unbind`、`UnbindAxis`、`UnbindMotionAxis`、`UnbindPointerAxis`、`UnbindGamepadAxis`（或不带输入调用 `Bind`）显式解绑的条目也会由 `Save` 记录下来（动作写为 `[{"kind":"none"}]`，反向动作轴写为 `{}`，运动轴、指针轴与手柄轴写为 `{"axis":"none"}`），因此 `Load` 会保持它们未绑定，而不会恢复默认键位。如果需要按存档快照完整替换所有绑定、丢弃存档中未出现的默认绑定，请改用 `LoadReplace`。
+
+当 `key` 不存在时，`Load` 和 `LoadReplace` 都返回 `(false, nil)` 并保留现有默认绑定；若存储内容不是有效 JSON、包含未知字段或格式版本未知，则返回 `(false, err)` 且不改动当前绑定。

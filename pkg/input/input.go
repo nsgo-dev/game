@@ -73,30 +73,35 @@ type Actions struct {
 	// MapPoint, when set, transforms a touch or mouse position from the view's coordinates before testing TouchRegion and MouseRegion bounds, such as mapping a view to a letterboxed virtual canvas. Returning false ignores the point for region tests.
 	MapPoint func(core.Point) (core.Point, bool)
 
-	bindings   map[string][]Input
-	axes       map[string]axisBinding
-	motionAxes map[string]motionAxisBinding
-	motion     *MotionInput
-	motionSnap map[string]float64
-	motionInit map[string]bool
-	motionGap  uint64
-	pads       []*VirtualPad
+	bindings          map[string][]Input
+	unboundActions    map[string]bool
+	axes              map[string]axisBinding
+	unboundAxes       map[string]bool
+	motionAxes        map[string]motionAxisBinding
+	unboundMotionAxes map[string]bool
+	motion            *MotionInput
+	motionSnap        map[string]float64
+	motionInit        map[string]bool
+	motionGap         uint64
+	pads              []*VirtualPad
 
 	// Relative mouse motion under the pointer lock: pending adds up between steps, step is the current snapshot.
-	pointerAxes   map[string]pointerAxisBinding
-	unlockPointer func()
-	pendingDX     float64
-	pendingDY     float64
-	stepDX        float64
-	stepDY        float64
+	pointerAxes        map[string]pointerAxisBinding
+	unboundPointerAxes map[string]bool
+	unlockPointer      func()
+	pendingDX          float64
+	pendingDY          float64
+	stepDX             float64
+	stepDY             float64
 
 	// Game controllers: the scope polled on each Step, the last state read, the selected controller and the stick axes bound with BindGamepadAxis.
-	gpScope *core.Scope
-	gpPads  []gamepad.Pad
-	gpID    int
-	gpOne   bool
-	gpAxes  map[string]gamepadAxisBinding
-	gpSnap  map[string]float64
+	gpScope       *core.Scope
+	gpPads        []gamepad.Pad
+	gpID          int
+	gpOne         bool
+	gpAxes        map[string]gamepadAxisBinding
+	unboundGpAxes map[string]bool
+	gpSnap        map[string]float64
 	// gpMuted holds, per controller ID, a bit mask of the buttons held across Reset, which stay inactive until released.
 	gpMuted map[int]uint32
 
@@ -147,6 +152,7 @@ func (a *Actions) Bind(name string, inputs ...Input) {
 		list[i] = normalizeInput(in)
 	}
 	a.bindings[name] = list
+	delete(a.unboundActions, name)
 	if a.rawActive == nil {
 		a.rawActive = make(map[string]bool)
 	}
@@ -154,11 +160,17 @@ func (a *Actions) Bind(name string, inputs ...Input) {
 	delete(a.latched, name)
 }
 
-// Unbind removes all inputs bound to name.
+// Unbind removes all inputs bound to name. Save records the unbinding so a later Load keeps name unbound rather than restoring a default.
 func (a *Actions) Unbind(name string) {
 	delete(a.bindings, name)
 	delete(a.rawActive, name)
 	delete(a.latched, name)
+	if name != "" {
+		if a.unboundActions == nil {
+			a.unboundActions = make(map[string]bool)
+		}
+		a.unboundActions[name] = true
+	}
 }
 
 // Bindings returns a copy of the inputs currently bound to name, or nil if name is unbound.
@@ -180,11 +192,18 @@ func (a *Actions) BindAxis(name, negative, positive string) {
 		a.axes = make(map[string]axisBinding)
 	}
 	a.axes[name] = axisBinding{negative: negative, positive: positive}
+	delete(a.unboundAxes, name)
 }
 
-// UnbindAxis removes the axis binding for name.
+// UnbindAxis removes the axis binding for name. Save records the unbinding so a later Load keeps name unbound rather than restoring a default.
 func (a *Actions) UnbindAxis(name string) {
 	delete(a.axes, name)
+	if name != "" {
+		if a.unboundAxes == nil {
+			a.unboundAxes = make(map[string]bool)
+		}
+		a.unboundAxes[name] = true
+	}
 }
 
 // AxisBinding returns the negative and positive action names bound to axis name.
