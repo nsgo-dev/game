@@ -69,8 +69,8 @@ func TestBuildReleaseScreenDryRunTwoPresetsMatchesGameReleaseCLI(t *testing.T) {
     downloadSizeMB: 80
     frameTimeP95Ms: 16.7
   presets:
-    - platform: macos
-      targets: [macos_arm64]
+    - platform: linux
+      targets: [linux_x64]
     - platform: web
 assets:
   audio:
@@ -193,10 +193,16 @@ assets:
 		t.Fatalf("ReleaseDryRunOutput mismatch:\ngot:\n%s\nwant:\n%s", got, cliCombined)
 	}
 
-	cliMac, _ := runBuiltTool(t, gameBin, "release", "-dry-run", "-target", "macos_arm64", dir)
-	cliWeb, _ := runBuiltTool(t, gameBin, "release", "-dry-run", "-target", "web", dir)
-	if got := strings.Join(snap.Presets[0].PlanCommands, "\n") + "\n"; got != cliMac {
-		t.Fatalf("macOS preset PlanCommands mismatch:\ngot:\n%s\nwant:\n%s", got, cliMac)
+	cliLinux, cliLinuxErr := runBuiltTool(t, gameBin, "release", "-dry-run", "-target", "linux_x64", dir)
+	if cliLinuxErr != "" {
+		t.Fatalf("game release -dry-run -target linux_x64 stderr = %q", cliLinuxErr)
+	}
+	cliWeb, cliWebErr := runBuiltTool(t, gameBin, "release", "-dry-run", "-target", "web", dir)
+	if cliWebErr != "" {
+		t.Fatalf("game release -dry-run -target web stderr = %q", cliWebErr)
+	}
+	if got := strings.Join(snap.Presets[0].PlanCommands, "\n") + "\n"; got != cliLinux {
+		t.Fatalf("Linux preset PlanCommands mismatch:\ngot:\n%s\nwant:\n%s", got, cliLinux)
 	}
 	if got := strings.Join(snap.Presets[1].PlanCommands, "\n") + "\n"; got != cliWeb {
 		t.Fatalf("web preset PlanCommands mismatch:\ngot:\n%s\nwant:\n%s", got, cliWeb)

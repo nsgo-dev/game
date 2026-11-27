@@ -188,9 +188,9 @@ NSGo's own `nsgo.yaml` sits beside `game.yaml` and repeats some of its settings.
 | --- | --- |
 | `name`, `id`, `version` | `name`, `id`, `appVersion` |
 | `appearance` | `window.appearance` |
-| `build.output`, `build.targets` | `export.output`, the presets' targets in order |
+| `build.output`, `build.targets` | `export.output`, the cross-host subset of the presets' targets in order (or all targets for Apple-only projects) |
 
-`SyncNSGo` writes these fields into an `nsgo.yaml`, keeping its other keys (`dev`, `icon` and the rest) and its comments, and `CheckNSGo` reports each field that disagrees. Both read an empty `build:` key as no build settings, as NSGo does. Everything else in `nsgo.yaml` stays NSGo's.
+`SyncNSGo` writes these fields into an `nsgo.yaml`—filtering `build.targets` to targets every host can build (omitting Apple targets and `android_x64`) when any preset is portable so plain `nsgo build` succeeds on Linux and Windows—while keeping its other keys (`dev`, `icon` and the rest) and its comments. `CheckNSGo` reports each field that disagrees and accepts either the portable subset or the full preset target list for `build.targets`. Both read an empty `build:` key as no build settings, as NSGo does. Everything else in `nsgo.yaml` stays NSGo's.
 
 ## The gameproject command
 

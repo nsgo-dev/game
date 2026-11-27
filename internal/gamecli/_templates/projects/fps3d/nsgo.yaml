@@ -19,4 +19,5 @@ build:
   output: dist
   # true opens the output directory after building.
   open: false
-  targets: [macos_arm64, windows_x64, ios_simulator, android_arm64, web]
+  # Targets every host can build; game release builds all game.yaml presets (including macOS and iOS on a Mac).
+  targets: [windows_x64, linux_x64, linux_arm64, android_arm64, web]

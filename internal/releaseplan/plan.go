@@ -7,7 +7,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -131,6 +133,127 @@ var ErrInvalidTarget = errors.New("invalid target")
 // ErrExperimentalTarget is wrapped when Options.Strict refuses one or more experimental target platforms.
 var ErrExperimentalTarget = errors.New("experimental target platform")
 
+// ErrHostUnavailableTarget is wrapped when an explicitly requested -target cannot be built on Options.Host.
+var ErrHostUnavailableTarget = errors.New("target cannot be built on this host")
+
+// ErrNoBuildableTargets is wrapped when every resolved preset or default target is skipped on Options.Host.
+var ErrNoBuildableTargets = errors.New("no buildable targets on this host")
+
+// Host describes a machine's ability to build host-restricted NSGo targets (macOS and Apple mobile SDKs).
+type Host struct {
+	// GOOS is the host operating system (such as "darwin", "linux", or "windows").
+	GOOS string
+	// HasAppleSDK reports whether Xcode provides the Apple SDK named sdk (such as "iphoneos", "iphonesimulator", "appletvos", "appletvsimulator", "watchos", or "watchsimulator").
+	HasAppleSDK func(sdk string) bool
+}
+
+// CurrentHost returns a Host describing the running machine. On darwin, Apple mobile SDK availability is probed lazily via `xcrun --sdk <sdk> --show-sdk-path` and cached per SDK name.
+func CurrentHost() *Host {
+	cache := make(map[string]bool)
+	return &Host{
+		GOOS: runtime.GOOS,
+		HasAppleSDK: func(sdk string) bool {
+			if ok, cached := cache[sdk]; cached {
+				return ok
+			}
+			ok := exec.Command("xcrun", "--sdk", sdk, "--show-sdk-path").Run() == nil
+			cache[sdk] = ok
+			return ok
+		},
+	}
+}
+
+// AllTargetsHost returns a Host that reports every target as buildable, useful in tests that mock nsgo build across platforms.
+func AllTargetsHost() *Host {
+	return &Host{
+		GOOS:        "darwin",
+		HasAppleSDK: func(string) bool { return true },
+	}
+}
+
+// SkippedTarget describes a target that cannot be built on the current host and why.
+type SkippedTarget struct {
+	Target string
+	Reason string
+}
+
+// FormatSkippedTarget formats the single-line message printed when game release skips an unavailable preset or default target.
+func FormatSkippedTarget(s SkippedTarget) string {
+	return fmt.Sprintf("game release: skipped %s: %s", s.Target, s.Reason)
+}
+
+// UnsignedTarget describes a target built without store/device signing configuration in nsgo.yaml.
+type UnsignedTarget struct {
+	Target string
+	Detail string
+}
+
+// FormatUnsignedNote formats the single-line note printed when a release target such as ios builds unsigned because nsgo.yaml lacks signing configuration.
+func FormatUnsignedNote(u UnsignedTarget) string {
+	return fmt.Sprintf("game release: note: %s is unsigned (%s)", u.Target, u.Detail)
+}
+
+// UnavailableTargetsError is returned when explicit -target arguments cannot be built on Options.Host.
+type UnavailableTargetsError struct {
+	Targets []SkippedTarget
+}
+
+func (e *UnavailableTargetsError) Error() string {
+	if len(e.Targets) == 1 {
+		t := e.Targets[0]
+		return fmt.Sprintf("cannot build requested target %q on this host: %s", t.Target, t.Reason)
+	}
+	var b strings.Builder
+	b.WriteString("cannot build requested targets on this host:")
+	for _, t := range e.Targets {
+		fmt.Fprintf(&b, "\n  - %s: %s", t.Target, t.Reason)
+	}
+	return b.String()
+}
+
+func (e *UnavailableTargetsError) Unwrap() error {
+	return ErrHostUnavailableTarget
+}
+
+func appleSDKFor(target string) (string, bool) {
+	switch target {
+	case "ios":
+		return "iphoneos", true
+	case "ios_simulator":
+		return "iphonesimulator", true
+	case "tvos":
+		return "appletvos", true
+	case "tvos_simulator":
+		return "appletvsimulator", true
+	case "watchos":
+		return "watchos", true
+	case "watchos_simulator":
+		return "watchsimulator", true
+	}
+	return "", false
+}
+
+func hostUnavailableReason(h *Host, target string) string {
+	if h == nil {
+		return ""
+	}
+	if PlatformOf(target) == "macos" {
+		if h.GOOS != "darwin" {
+			return "needs macOS"
+		}
+		return ""
+	}
+	if sdk, ok := appleSDKFor(target); ok {
+		if h.GOOS != "darwin" {
+			return "needs macOS with Xcode"
+		}
+		if h.HasAppleSDK == nil || !h.HasAppleSDK(sdk) {
+			return fmt.Sprintf("needs Xcode (%s SDK unavailable)", sdk)
+		}
+	}
+	return ""
+}
+
 // ExperimentalTargetsError is returned by Build when Options.Strict is true and the resolved build targets include one or more experimental platforms.
 type ExperimentalTargetsError struct {
 	Platforms []ExperimentalInfo
@@ -206,6 +329,8 @@ type NSGoSettings struct {
 	Icon NSGoIconConfig
 	// Sign is nsgo.yaml's sign section.
 	Sign NSGoSignConfig
+	// SignProfile is sign.profile (trimmed), the iOS provisioning profile path; empty means ios device builds are unsigned.
+	SignProfile string
 	// Apple is nsgo.yaml's apple section.
 	Apple NSGoAppleConfig
 }
@@ -269,6 +394,7 @@ func parseNSGoSettings(path string, data []byte) (NSGoSettings, error) {
 		ItchChannels: itchChannels,
 		Icon:         file.Icon,
 		Sign:         file.Sign,
+		SignProfile:  strings.TrimSpace(file.Sign.Profile),
 		Apple:        file.Apple,
 	}, nil
 }
@@ -313,6 +439,8 @@ type Options struct {
 	Jobs int
 	// Strict is -strict, refusing experimental target platforms with *ExperimentalTargetsError instead of printing warnings.
 	Strict bool
+	// Host, when non-nil, filters preset/default targets that this host cannot build into Plan.Skipped and fails with *UnavailableTargetsError if an explicit Targets entry cannot build.
+	Host *Host
 }
 
 // ResolveTargets resolves the ordered list of nsgo build targets from opts, settings, and nsgo.
@@ -339,6 +467,44 @@ func ResolveTargets(opts Options, settings Settings, nsgo NSGoSettings) ([]strin
 	return append([]string(nil), targets...), nil
 }
 
+func resolvePlanTargets(opts Options, settings Settings, nsgo NSGoSettings) (targets []string, skipped []SkippedTarget, err error) {
+	raw, err := ResolveTargets(opts, settings, nsgo)
+	if err != nil {
+		return nil, nil, err
+	}
+	if opts.Host == nil {
+		return raw, nil, nil
+	}
+	if opts.Targets != "" {
+		var unavailable []SkippedTarget
+		for _, t := range raw {
+			if why := hostUnavailableReason(opts.Host, t); why != "" {
+				unavailable = append(unavailable, SkippedTarget{Target: t, Reason: why})
+			}
+		}
+		if len(unavailable) > 0 {
+			return nil, nil, &UnavailableTargetsError{Targets: unavailable}
+		}
+		return raw, nil, nil
+	}
+	kept := make([]string, 0, len(raw))
+	for _, t := range raw {
+		if why := hostUnavailableReason(opts.Host, t); why != "" {
+			skipped = append(skipped, SkippedTarget{Target: t, Reason: why})
+			continue
+		}
+		kept = append(kept, t)
+	}
+	if len(kept) == 0 {
+		parts := make([]string, len(skipped))
+		for i, s := range skipped {
+			parts[i] = fmt.Sprintf("%s (%s)", s.Target, s.Reason)
+		}
+		return nil, skipped, fmt.Errorf("%w: skipped %s", ErrNoBuildableTargets, strings.Join(parts, ", "))
+	}
+	return kept, skipped, nil
+}
+
 // OutputDir returns the absolute directory nsgo build writes the release to, as Args passes it and nsgo resolves it: -output, relative to the working directory, else game.yaml's export.output, else nsgo.yaml's build.output, else dist, these relative to dir.
 func OutputDir(dir string, opts Options, settings Settings, nsgo NSGoSettings) (string, error) {
 	switch {
@@ -355,12 +521,16 @@ func OutputDir(dir string, opts Options, settings Settings, nsgo NSGoSettings) (
 	return filepath.Join(dir, DefaultOutput), nil
 }
 
-// Args returns the arguments of the go command that builds the project in dir: go -C dir tool nsgo build with the targets and output resolved from opts, then game.yaml's settings, then the defaults, the channel coming from opts, then nsgo.yaml. nsgo.yaml's build.targets is not a default: it is plain nsgo build's everyday list, which in the starter holds a simulator build and leaves out Linux. Paths in opts are relative to the working directory, and game.yaml's output to dir.
+// Args returns the arguments of the go command that builds the project in dir: go -C dir tool nsgo build with the targets and output resolved from opts, then game.yaml's settings, then the defaults, the channel coming from opts, then nsgo.yaml. nsgo.yaml's build.targets is not a default: it holds the portable cross-host list for a plain nsgo build, while game.yaml's export presets hold the full release list (including macOS and iOS). Paths in opts are relative to the working directory, and game.yaml's output to dir.
 func Args(dir string, opts Options, settings Settings, nsgo NSGoSettings) ([]string, error) {
-	targets, err := ResolveTargets(opts, settings, nsgo)
+	targets, _, err := resolvePlanTargets(opts, settings, nsgo)
 	if err != nil {
 		return nil, err
 	}
+	return buildArgs(dir, opts, settings, targets)
+}
+
+func buildArgs(dir string, opts Options, settings Settings, targets []string) ([]string, error) {
 	args := []string{"-C", dir, "tool", "nsgo", "build", "-target", strings.Join(targets, ",")}
 	switch {
 	case opts.Output != "":
@@ -548,6 +718,10 @@ type Plan struct {
 	AppVersion string
 	// Targets are the resolved nsgo build targets in build order.
 	Targets []string
+	// Skipped lists preset or default targets omitted because Options.Host cannot build them.
+	Skipped []SkippedTarget
+	// Unsigned lists build targets (such as ios without sign.profile) that will be produced unsigned rather than dropped.
+	Unsigned []UnsignedTarget
 	// Experimental lists the unique experimental platforms referenced by Targets, in first-seen order.
 	Experimental []ExperimentalInfo
 	// Env are the environment variable overrides (such as GOFLAGS=-tags=release) applied when executing Args.
@@ -576,7 +750,7 @@ func Build(dir string, opts Options, settings Settings) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	targets, err := ResolveTargets(opts, settings, nsgo)
+	targets, skipped, err := resolvePlanTargets(opts, settings, nsgo)
 	if err != nil {
 		return nil, err
 	}
@@ -584,7 +758,14 @@ func Build(dir string, opts Options, settings Settings) (*Plan, error) {
 	if opts.Strict && len(exp) > 0 {
 		return nil, &ExperimentalTargetsError{Platforms: exp}
 	}
-	args, err := Args(absDir, opts, settings, nsgo)
+	var unsigned []UnsignedTarget
+	if slices.Contains(targets, "ios") && strings.TrimSpace(nsgo.SignProfile) == "" {
+		unsigned = append(unsigned, UnsignedTarget{
+			Target: "ios",
+			Detail: "no sign.profile in nsgo.yaml; building an unsigned IPA — set sign.profile to install on devices or upload to App Store Connect",
+		})
+	}
+	args, err := buildArgs(absDir, opts, settings, targets)
 	if err != nil {
 		return nil, err
 	}
@@ -598,6 +779,8 @@ func Build(dir string, opts Options, settings Settings) (*Plan, error) {
 		AppName:          nsgo.Name,
 		AppVersion:       nsgo.Version,
 		Targets:          targets,
+		Skipped:          skipped,
+		Unsigned:         unsigned,
 		Experimental:     exp,
 		Env:              env,
 		Args:             args,

@@ -14,6 +14,11 @@ import (
 	"testing"
 	"testing/fstest"
 	"text/template"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/project"
 )
 
 // repoRoot is this repository's root, relative to this package.
@@ -111,6 +116,78 @@ func TestTemplateRegistry(t *testing.T) {
 	}
 	if names := slices.Sorted(slices.Values(templateNames())); !slices.Equal(embedded, names) {
 		t.Errorf("_templates/projects holds %q, but the registered templates are %q", embedded, names)
+	}
+}
+
+// TestTemplateExportPresets checks that every template's game.yaml declares all six primary platforms with an iOS device preset (never ios_simulator) and a Linux preset (linux_x64 and linux_arm64), and that nsgo.yaml's build.targets keeps only cross-host portable targets so plain `nsgo build` succeeds on every host.
+func TestTemplateExportPresets(t *testing.T) {
+	for _, tmpl := range projectTemplates {
+		t.Run(tmpl.name, func(t *testing.T) {
+			gameData, err := fs.ReadFile(tmpl.files, project.FileName)
+			if err != nil {
+				t.Fatalf("read %s: %v", project.FileName, err)
+			}
+			f, err := project.Parse(gameData)
+			if err != nil {
+				t.Fatalf("parse %s: %v", project.FileName, err)
+			}
+			if f.Export == nil || len(f.Export.Presets) == 0 {
+				t.Fatalf("%s has no export presets", project.FileName)
+			}
+			for _, platform := range releaseplan.DefaultPlatforms {
+				if _, ok := f.Preset(platform); !ok {
+					t.Errorf("%s: export.presets misses platform %q", project.FileName, platform)
+				}
+			}
+			if ios, ok := f.Preset("ios"); !ok {
+				t.Errorf("%s: missing ios export preset", project.FileName)
+			} else {
+				if slices.Contains(ios.Targets, "ios_simulator") {
+					t.Errorf("%s: ios export preset lists ios_simulator (%v); release preset must target devices", project.FileName, ios.Targets)
+				}
+				if len(ios.Targets) > 0 && !slices.Contains(ios.Targets, "ios") {
+					t.Errorf("%s: ios export preset targets = %v, want ios device target", project.FileName, ios.Targets)
+				}
+			}
+			if linux, ok := f.Preset("linux"); !ok {
+				t.Errorf("%s: missing linux export preset", project.FileName)
+			} else if len(linux.Targets) > 0 {
+				for _, want := range []string{"linux_x64", "linux_arm64"} {
+					if !slices.Contains(linux.Targets, want) {
+						t.Errorf("%s: linux export preset targets = %v, missing %q", project.FileName, linux.Targets, want)
+					}
+				}
+			}
+
+			nsgoData, err := fs.ReadFile(tmpl.files, project.NSGoFileName)
+			if err != nil {
+				t.Fatalf("read %s: %v", project.NSGoFileName, err)
+			}
+			if err := f.CheckNSGo(nsgoData); err != nil {
+				t.Errorf("CheckNSGo: %v", err)
+			}
+			var nsgo struct {
+				Build struct {
+					Targets []string `yaml:"targets"`
+				} `yaml:"build"`
+			}
+			if err := yaml.Unmarshal(nsgoData, &nsgo); err != nil {
+				t.Fatalf("parse %s: %v", project.NSGoFileName, err)
+			}
+			if len(nsgo.Build.Targets) == 0 {
+				t.Fatalf("%s: build.targets is empty", project.NSGoFileName)
+			}
+			for _, target := range nsgo.Build.Targets {
+				if !project.IsPortableTarget(target) {
+					t.Errorf("%s: build.targets includes non-portable target %q (%v); plain nsgo build must succeed on Linux and Windows", project.NSGoFileName, target, nsgo.Build.Targets)
+				}
+			}
+			for _, want := range []string{"linux_x64", "linux_arm64"} {
+				if !slices.Contains(nsgo.Build.Targets, want) {
+					t.Errorf("%s: build.targets = %v, missing %q", project.NSGoFileName, nsgo.Build.Targets, want)
+				}
+			}
+		})
 	}
 }
 

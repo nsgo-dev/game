@@ -118,8 +118,10 @@ export:
       targets: [macos_arm64]
     - platform: windows
       targets: [windows_x64]
+    - platform: linux
+      targets: [linux_x64, linux_arm64]
     - platform: ios
-      targets: [ios_simulator]
+      targets: [ios]
     - platform: android
       targets: [android_arm64]
     - platform: web

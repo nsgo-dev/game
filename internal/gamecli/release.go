@@ -77,6 +77,9 @@ var runNSGo = func(args, env []string, stdout, stderr io.Writer) error {
 // verifyRelease checks built desktop release binaries for the release build tag and absence of debug symbols; tests replace it when runNSGo is mocked.
 var verifyRelease = releaseplan.VerifyDesktopRelease
 
+// releaseHost probes the running machine's ability to build host-restricted Apple targets; tests replace it to simulate other hosts.
+var releaseHost = releaseplan.CurrentHost
+
 // releaseSettings are the parts of game.yaml that game release reads: the build output directory, the build targets of the export presets and the assets section, whose assets the credits file lists.
 type releaseSettings = releaseplan.Settings
 
@@ -367,12 +370,19 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 		if err != nil {
 			return err
 		}
+		opts.Host = releaseHost()
 		plan, err := releaseplan.Build(dir, opts, settings)
 		if errors.Is(err, releaseplan.ErrInvalidTarget) {
 			return usagef("-target %q names an empty target", opts.Targets)
 		}
 		if err != nil {
 			return err
+		}
+		for _, skip := range plan.Skipped {
+			fmt.Fprintln(a.stderr, releaseplan.FormatSkippedTarget(skip))
+		}
+		for _, u := range plan.Unsigned {
+			fmt.Fprintln(a.stderr, releaseplan.FormatUnsignedNote(u))
 		}
 		for _, exp := range plan.Experimental {
 			fmt.Fprintln(a.stderr, releaseplan.FormatExperimentalWarning(exp))

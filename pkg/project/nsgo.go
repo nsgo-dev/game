@@ -46,6 +46,15 @@ func TargetsOf(platform string) []string {
 	return out
 }
 
+// IsPortableTarget reports whether target (or platform name) builds on every host (macOS, Linux, and Windows) with plain Go, without macOS, Xcode, or an Android NDK.
+func IsPortableTarget(target string) bool {
+	switch platformOf(target) {
+	case "macos", "ios", "tvos", "watchos":
+		return false
+	}
+	return target != "android_x64"
+}
+
 // BuildTargets returns the NSGo build targets of every export preset in order: each preset's Targets, or its platform name when it lists none. It returns nil without export presets.
 func (f *File) BuildTargets() []string {
 	if f.Export == nil {
@@ -60,6 +69,25 @@ func (f *File) BuildTargets() []string {
 		out = append(out, p.Targets...)
 	}
 	return out
+}
+
+// PortableBuildTargets returns the subset of BuildTargets that every host can build with plain `nsgo build` (omitting Apple targets and android_x64). It returns nil when BuildTargets has no portable targets.
+func (f *File) PortableBuildTargets() []string {
+	var out []string
+	for _, t := range f.BuildTargets() {
+		if IsPortableTarget(t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// nsgoBuildTargets returns the build.targets SyncNSGo writes into nsgo.yaml: PortableBuildTargets when at least one preset target is portable, else BuildTargets (for Apple-only projects).
+func (f *File) nsgoBuildTargets() []string {
+	if portable := f.PortableBuildTargets(); len(portable) > 0 {
+		return portable
+	}
+	return f.BuildTargets()
 }
 
 // Preset returns the export preset for platform.
@@ -91,12 +119,12 @@ func (f *File) owned() nsgoOwned {
 	o.Name, o.ID, o.Version, o.Appearance = f.Name, f.ID, f.AppVersion, f.Window.Appearance
 	if f.Export != nil {
 		o.Build.Output = f.Export.Output
-		o.Build.Targets = f.BuildTargets()
+		o.Build.Targets = f.nsgoBuildTargets()
 	}
 	return o
 }
 
-// CheckNSGo reports the fields of nsgoYAML, an nsgo.yaml's contents, that disagree with f: name, id, version, appearance, build.output and build.targets, which game.yaml owns. It returns nil when they all agree.
+// CheckNSGo reports the fields of nsgoYAML, an nsgo.yaml's contents, that disagree with f: name, id, version, appearance, build.output and build.targets, which game.yaml owns. For build.targets, both the portable cross-host targets (written by SyncNSGo) and the full BuildTargets list are accepted. It returns nil when they all agree.
 func (f *File) CheckNSGo(nsgoYAML []byte) error {
 	if err := Validate(f); err != nil {
 		return err
@@ -117,7 +145,8 @@ func (f *File) CheckNSGo(nsgoYAML []byte) error {
 	diff("version", got.Version, want.Version)
 	diff("appearance", got.Appearance, want.Appearance)
 	diff("build.output", got.Build.Output, want.Build.Output)
-	if !slices.Equal(got.Build.Targets, want.Build.Targets) {
+	allTargets := f.BuildTargets()
+	if !slices.Equal(got.Build.Targets, want.Build.Targets) && !slices.Equal(got.Build.Targets, allTargets) {
 		diffs = append(diffs, fmt.Sprintf("build.targets is %v, game.yaml has %v", got.Build.Targets, want.Build.Targets))
 	}
 	if len(diffs) > 0 {
@@ -126,7 +155,7 @@ func (f *File) CheckNSGo(nsgoYAML []byte) error {
 	return nil
 }
 
-// SyncNSGo returns nsgoYAML, an nsgo.yaml's contents (empty for a new one), with the fields game.yaml owns set from f: name, id, version, appearance, build.output and build.targets. Fields f leaves empty are removed; every other key and comment is kept.
+// SyncNSGo returns nsgoYAML, an nsgo.yaml's contents (empty for a new one), with the fields game.yaml owns set from f: name, id, version, appearance, build.output and build.targets (filtered to cross-host targets when any preset is portable so plain `nsgo build` succeeds on every host). Fields f leaves empty are removed; every other key and comment is kept.
 func (f *File) SyncNSGo(nsgoYAML []byte) ([]byte, error) {
 	if err := Validate(f); err != nil {
 		return nil, err

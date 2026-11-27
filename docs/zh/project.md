@@ -188,9 +188,9 @@ NSGo 自己的 `nsgo.yaml` 与 `game.yaml` 放在同一目录，其中部分设�
 | --- | --- |
 | `name`、`id`、`version` | `name`、`id`、`appVersion` |
 | `appearance` | `window.appearance` |
-| `build.output`、`build.targets` | `export.output`、按顺序排列的各预设目标 |
+| `build.output`、`build.targets` | `export.output`、按顺序排列的各预设中的跨宿主目标（仅含 Apple 目标的项目则保留全部目标） |
 
-`SyncNSGo` 把这些字段写入 `nsgo.yaml`，保留它的其他字段（`dev`、`icon` 等）和注释；`CheckNSGo` 报告每个不一致的字段。两者都与 NSGo 一样，把空的 `build:` 字段视为没有构建设置。`nsgo.yaml` 的其余内容仍由 NSGo 负责。
+`SyncNSGo` 把这些字段写入 `nsgo.yaml`，在存在跨宿主目标时将 `build.targets` 过滤为所有宿主都能构建的目标（省略 Apple 目标和 `android_x64`），使普通 `nsgo build` 在 Linux 和 Windows 上也能成功，同时保留它的其他字段（`dev`、`icon` 等）和注释；`CheckNSGo` 报告每个不一致的字段，对 `build.targets` 同时接受跨宿主子集和完整的预设目标列表。两者都与 NSGo 一样，把空的 `build:` 字段视为没有构建设置。`nsgo.yaml` 的其余内容仍由 NSGo 负责。
 
 ## gameproject 命令
 

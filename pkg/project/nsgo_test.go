@@ -56,11 +56,16 @@ func TestSyncNSGoSetsOwnedFieldsAndKeepsTheRest(t *testing.T) {
 		"# A comment above dev.\n",
 		"# native: this machine's backend.\n",
 		"open: false\n",
-		"targets: [macos, windows_x64, web] # what to build\n",
+		"targets: [windows_x64, web] # what to build\n",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("SyncNSGo output lacks %q:\n%s", want, out)
 		}
+	}
+	// CheckNSGo also accepts an nsgo.yaml listing all BuildTargets (including Apple targets).
+	allTargetsNSGo := strings.Replace(string(out), "targets: [windows_x64, web]", "targets: [macos, windows_x64, web]", 1)
+	if err := f.CheckNSGo([]byte(allTargetsNSGo)); err != nil {
+		t.Fatalf("CheckNSGo with full BuildTargets: %v", err)
 	}
 	again, err := f.SyncNSGo(out)
 	if err != nil {
@@ -95,9 +100,26 @@ func TestSyncNSGoWritesANewFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "name: Cave Run\nid: dev.nsgo.caverun\nversion: 0.1.0\nappearance: dark\nbuild:\n  output: dist\n  targets: [macos, windows_x64, web]\n"
+	want := "name: Cave Run\nid: dev.nsgo.caverun\nversion: 0.1.0\nappearance: dark\nbuild:\n  output: dist\n  targets: [windows_x64, web]\n"
 	if string(out) != want {
 		t.Fatalf("SyncNSGo(nil) = %q, want %q", out, want)
+	}
+}
+
+func TestSyncNSGoKeepsAppleOnlyTargetsWhenNoPortableTargetsExist(t *testing.T) {
+	f := project.MustParse([]byte("version: 1\nname: Apple Only\nid: dev.example.appleonly\nappVersion: 1.0.0\nwindow: {width: 480, height: 640}\nexport:\n  output: dist\n  presets:\n    - platform: macos\n      targets: [macos_arm64]\n    - platform: ios\n      targets: [ios]\n"))
+	if got := f.PortableBuildTargets(); len(got) != 0 {
+		t.Fatalf("PortableBuildTargets = %v, want empty", got)
+	}
+	out, err := f.SyncNSGo(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "targets: [macos_arm64, ios]\n") {
+		t.Fatalf("SyncNSGo(nil) = %q, want apple-only fallback targets", out)
+	}
+	if err := f.CheckNSGo(out); err != nil {
+		t.Fatalf("CheckNSGo: %v", err)
 	}
 }
 
