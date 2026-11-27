@@ -14,7 +14,7 @@
 
 ## How to confirm
 
-- Use `rg` for the symbol, event, configuration key or package name and check whether production code really uses it (in this repository: the packages under `packages/game`, the runtime of `examples`, and the starter in `template`).
+- Use `rg` for the symbol, event, configuration key or package name and check whether production code really uses it (in this repository: the root package and the packages under `cmd/`, `internal/` and `pkg/`, the runtime of `examples`, and the starter in `template`).
 - Separate production, non-production and ambiguous hits: occurrences in tests and docs are not production evidence. Tools such as `go vet`'s unused checks or `staticcheck` help but do not replace reading the call sites.
 - Record small, certain cleanups as `TODO` / `FIXME` / `XXX`; do not open a note for them. Only a durable trade-off deserves a proposed note.
 - Hand-rolled vs a dependency: look at the net deletion (implementation, tests and docs), the dependency's health, and how well its boundary fits. Switch only if it really deletes code; a wrapper of the same complexity is no win.

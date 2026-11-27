@@ -137,7 +137,7 @@ game/
 ├─ skills/              Agent Skills package (bunx skills add nsgo-dev/game)
 ├─ docs/                bilingual site documentation (en/ and zh/)
 ├─ apps/website/        official site at https://game.nsgo.dev (TanStack Start + React)
-├─ benchmarks/          cross-engine & runtime benchmarks
+├─ benchmarks/          bench baseline and package size budgets
 └─ changelog.d/         release changelog fragments
 ```
 

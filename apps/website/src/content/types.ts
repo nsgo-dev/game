@@ -26,9 +26,9 @@ export interface DocSummary {
 
 export type PackageStatus = 'stable' | 'experimental'
 
-// A package and its stability status, such as game/sprite, stable.
+// A package and its stability status, such as game/pkg/sprite, stable.
 export interface DocPackage {
-  // path is relative to github.com/nsgo-dev/game/packages, such as game/sprite.
+  // path is relative to github.com/nsgo-dev, such as game/pkg/sprite.
   path: string
   status: PackageStatus
 }
@@ -146,7 +146,7 @@ export type PackageCategory = 'core' | 'play' | 'ui' | 'tools' | 'online' | '3d'
 
 // A package of the catalog, from docs/en/stability.md, with what it holds from the docs' index or its guide.
 export interface CatalogPackage {
-  // path is relative to github.com/nsgo-dev/game/packages, such as game/sprite.
+  // path is relative to github.com/nsgo-dev, such as game/pkg/sprite.
   path: string
   // name is the path below game, such as sprite, or game for the root package.
   name: string
