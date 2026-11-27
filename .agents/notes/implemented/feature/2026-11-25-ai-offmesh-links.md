@@ -26,7 +26,7 @@ Extend off-mesh connections across the full navigation stack (`ai`, `world3d`, `
    - `NavMeshQuery` reuses scratch slices (`shortcuts`, `segPath`, `pathLinks`) so repeated queries remain zero-allocation after warm-up.
 
 4. **NavMesh YAML persistence and scene authoring**:
-   - Add optional `Links []OffMeshLink` (`yaml:"links,omitempty"`) to `navbake.Mesh` (with `navbake.Source.Links` and flow `[x, y]` `navbake.Point`) and `navbake3d.Mesh` (updating `apps/website/public/schemas/navmesh.v1.json` via `gameschema`), keeping schema version `1` backward compatible. `Mesh.NavMesh()` in both packages registers all stored links automatically.
+   - Add optional `Links []OffMeshLink` (`yaml:"links,omitempty"`) to `navbake.Mesh` (with `navbake.Source.Links` and flow `[x, y]` `navbake.Point`) and `navbake3d.Mesh` (updating `apps/website/public/schemas/navmesh.v1.json` via `gameschema`), keeping schema version `1` backward compatible. `Mesh.NavMesh()` in both packages registers all stored links automatically, and `navbake.Mesh.TiledNavMesh()` also registers them on `ai.TiledNavMesh` ([tiled off-mesh links](../bug-fix/2026-11-28-tiled-navmesh-offmesh-links.md)).
    - Add the built-in `"nav_link"` component in `packages/game/sceneformat/navlink.go` (`NavLinkComponent`, `RegisterNavLink`, `ExtractNavLinks2D`, `ExtractBuiltNavLinks2D`, `ExtractNavLinks3D`, `ExtractBuiltNavLinks3D`) expressing `start` and `end` offsets in the object's local space so parent transforms and instanced scenes carry both endpoints together.
    - `navbake3d.Geometry.AddOffMeshLink` and `Geometry.AddSceneFile` extract scene `"nav_link"` components into baked 3D navigation meshes so `game navmesh` persists them directly into `*.navmesh.yaml`.
 
