@@ -32,13 +32,17 @@ const (
 	// DefaultBuiltInFastModel is the default model used for "Anthropic API · fast".
 	DefaultBuiltInFastModel = "claude-haiku-4-5"
 
-	builtInMaxToolIterations  = 24
-	builtInMaxResponseBytes   = 8 << 20
-	builtInMaxToolResultChars = 256 * 1024
-	builtInMaxToolImageBytes  = 8 << 20
-	maxQueuedAgentRequests    = 64
-	maxModelErrorMessageRunes = 240
-	anthropicAPIVersion       = "2023-06-01"
+	builtInMaxToolIterations          = 24
+	builtInMaxResponseBytes           = 8 << 20
+	builtInMaxToolResultChars         = 256 * 1024
+	builtInMaxArchivedToolResultChars = 8 * 1024
+	builtInMaxToolImageBytes          = 8 << 20
+	builtInMaxHistoryTurns            = 16
+	builtInMaxHistoryBytes            = 256 * 1024
+	builtInMaxTrackedThreads          = 32
+	maxQueuedAgentRequests            = 64
+	maxModelErrorMessageRunes         = 240
+	anthropicAPIVersion               = "2023-06-01"
 )
 
 var (
@@ -156,6 +160,13 @@ type AgentToolCallResult struct {
 type AgentToolExecutor interface {
 	ListTools(ctx context.Context) ([]AgentToolSpec, error)
 	CallTool(ctx context.Context, name string, args json.RawMessage) (AgentToolCallResult, error)
+}
+
+// AgentToolInstructionsProvider is an optional interface implemented by an AgentToolExecutor
+// (such as editormcp.Server's bridge) to supply the editor MCP server's instructions for the
+// built-in agent's system prompt.
+type AgentToolInstructionsProvider interface {
+	Instructions() string
 }
 
 // AgentTaskKind identifies one row of the WHO DOES WHAT routing table on Settings › Models and connections.
@@ -1132,10 +1143,39 @@ func (r *builtInAgentRunner) Run(ctx context.Context, req AgentRequest, emit fun
 		model = DefaultBuiltInModel
 	}
 
-	systemPrompt := buildBuiltInSystemPrompt(req)
-	messages := []anthropicMessage{
-		{Role: "user", Content: buildBuiltInUserContent(req)},
+	input := RenderAgentModelInput(req)
+	serverInstructions := ""
+	if provider, ok := r.tools.(AgentToolInstructionsProvider); ok {
+		serverInstructions = strings.TrimSpace(provider.Instructions())
 	}
+	allowViewportImg := true
+	if r.ed != nil {
+		allowViewportImg = r.ed.AgentPrivacy().ViewportImages
+	}
+
+	threadID := strings.TrimSpace(req.ThreadID)
+	if threadID == "" {
+		threadID = "thread-1"
+	}
+
+	var (
+		priorMessages []anthropicMessage
+		historyEpoch  uint64
+	)
+	if r.ed != nil {
+		priorMessages, historyEpoch = r.ed.snapshotBuiltInThreadHistory(threadID, req, input.HasCompactedSummary)
+	} else if !input.HasCompactedSummary && len(req.PriorTurns) > 0 {
+		priorMessages = buildMessagesFromPriorTurns(req.PriorTurns)
+	}
+
+	systemPrompt := buildBuiltInSystemPrompt(req, input, serverInstructions)
+	messages := make([]anthropicMessage, 0, len(priorMessages)+1)
+	messages = append(messages, priorMessages...)
+	turnStartIdx := len(messages)
+	messages = append(messages, anthropicMessage{
+		Role:    "user",
+		Content: buildBuiltInUserContent(input, allowViewportImg),
+	})
 
 	for iter := 0; iter < builtInMaxToolIterations; iter++ {
 		if ctx.Err() != nil {
@@ -1173,6 +1213,15 @@ func (r *builtInAgentRunner) Run(ctx context.Context, req AgentRequest, emit fun
 		}
 
 		if len(toolUses) == 0 {
+			if r.ed != nil && ctx.Err() == nil {
+				turnMsgs := make([]anthropicMessage, 0, len(messages)-turnStartIdx+1)
+				turnMsgs = append(turnMsgs, messages[turnStartIdx:]...)
+				turnMsgs = append(turnMsgs, anthropicMessage{
+					Role:    "assistant",
+					Content: finalAssistantContentForHistory(resp.Content),
+				})
+				r.ed.commitBuiltInThreadTurn(threadID, historyEpoch, r.turnID, sanitizeBuiltInTurnMessages(turnMsgs, apiKey))
+			}
 			emit(AgentEvent{Kind: AgentEventDone})
 			return nil
 		}
@@ -1506,24 +1555,36 @@ func (r *builtInAgentRunner) doModelRequest(ctx context.Context, apiKey string, 
 	return &decoded, nil
 }
 
-func buildBuiltInSystemPrompt(req AgentRequest) string {
-	var b strings.Builder
-	b.WriteString("You are the NSGo Game Editor's built-in agent. Use the editor's MCP tools to read and edit the open game project cleanly as undoable editor commands.")
+func buildBuiltInSystemPrompt(req AgentRequest, input AgentModelInput, serverInstructions string) string {
+	var sections []string
+	var header strings.Builder
+	header.WriteString("You are the NSGo Game Editor's built-in agent. Use the editor's MCP tools to read and edit the open game project cleanly as undoable editor commands.")
 	if req.ScenePath != "" {
-		fmt.Fprintf(&b, "\nOpen scene: %s", req.ScenePath)
+		fmt.Fprintf(&header, "\nOpen scene: %s", req.ScenePath)
 	}
 	if req.SelectedID != "" {
-		fmt.Fprintf(&b, "\nSelected object: %s", req.SelectedID)
+		fmt.Fprintf(&header, "\nSelected object: %s", req.SelectedID)
 	}
-	return b.String()
+	sections = append(sections, header.String())
+	if instr := strings.TrimSpace(serverInstructions); instr != "" {
+		sections = append(sections, instr)
+	}
+	if input.AlwaysContext != "" {
+		sections = append(sections, input.AlwaysContext)
+	}
+	return strings.Join(sections, "\n\n")
 }
 
-func buildBuiltInUserContent(req AgentRequest) any {
-	if len(req.Images) == 0 {
-		return req.Prompt
+func buildBuiltInUserContent(input AgentModelInput, allowViewportImage bool) any {
+	text := input.TurnPrompt
+	if len(input.Images) == 0 {
+		return text
 	}
 	var blocks []map[string]any
-	for _, img := range req.Images {
+	for _, img := range input.Images {
+		if img.ID == viewportImageChipID && !allowViewportImage {
+			continue
+		}
 		mimeType := strings.TrimSpace(img.MIMEType)
 		if mimeType == "" {
 			mimeType = img.Format.MIMEType()
@@ -1541,11 +1602,414 @@ func buildBuiltInUserContent(req AgentRequest) any {
 		})
 	}
 	if len(blocks) == 0 {
-		return req.Prompt
+		return text
 	}
-	blocks = append(blocks, map[string]any{
-		"type": "text",
-		"text": req.Prompt,
-	})
+	if text != "" {
+		blocks = append(blocks, map[string]any{
+			"type": "text",
+			"text": text,
+		})
+	}
 	return blocks
+}
+
+// --- Per-thread bounded message history for the built-in runner ---
+
+type builtInTurnRecord struct {
+	TurnID   string
+	Messages []anthropicMessage
+	Bytes    int
+}
+
+type builtInThreadHistory struct {
+	Epoch     uint64
+	LastUsed  uint64
+	Compacted bool
+	Turns     []builtInTurnRecord
+}
+
+func (e *Editor) activeBuiltInThreadIDs() []string {
+	if e == nil {
+		return nil
+	}
+	var ids []string
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id != "" && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	add(e.agent.threadID)
+	add(e.agentComposer.threadID)
+	add(e.agentThreads.activeThreadID)
+	if e.agentThreads.draftThread != nil {
+		add(e.agentThreads.draftThread.ID)
+	}
+	return ids
+}
+
+func (e *Editor) clearBuiltInHistoryForActiveThread() {
+	if e == nil {
+		return
+	}
+	e.clearBuiltInThreadHistory(e.activeBuiltInThreadIDs()...)
+}
+
+func (e *Editor) clearBuiltInThreadHistory(threadIDs ...string) {
+	if e == nil {
+		return
+	}
+	e.agent.builtInHistoryMu.Lock()
+	defer e.agent.builtInHistoryMu.Unlock()
+	if e.agent.builtInHistory == nil {
+		e.agent.builtInHistory = make(map[string]*builtInThreadHistory)
+	}
+	for _, id := range threadIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		h := e.agent.builtInHistory[id]
+		if h == nil {
+			h = &builtInThreadHistory{}
+			e.agent.builtInHistory[id] = h
+		}
+		h.Epoch++
+		h.Compacted = true
+		h.Turns = nil
+	}
+}
+
+func (e *Editor) clearAllBuiltInThreadHistory() {
+	if e == nil {
+		return
+	}
+	e.agent.builtInHistoryMu.Lock()
+	for _, h := range e.agent.builtInHistory {
+		h.Epoch++
+		h.Turns = nil
+	}
+	e.agent.builtInHistory = nil
+	e.agent.builtInHistoryMu.Unlock()
+}
+
+func (e *Editor) snapshotBuiltInThreadHistory(threadID string, req AgentRequest, hasSummary bool) ([]anthropicMessage, uint64) {
+	if e == nil {
+		return nil, 0
+	}
+	e.agent.builtInHistoryMu.Lock()
+	defer e.agent.builtInHistoryMu.Unlock()
+	if e.agent.builtInHistory == nil {
+		e.agent.builtInHistory = make(map[string]*builtInThreadHistory)
+	}
+	h := e.agent.builtInHistory[threadID]
+	if h == nil {
+		h = &builtInThreadHistory{}
+		e.agent.builtInHistory[threadID] = h
+	}
+	e.agent.builtInHistorySeq++
+	h.LastUsed = e.agent.builtInHistorySeq
+
+	if len(h.Turns) > 0 {
+		var out []anthropicMessage
+		for _, rec := range h.Turns {
+			out = append(out, cloneAnthropicMessages(rec.Messages)...)
+		}
+		return out, h.Epoch
+	}
+	if !h.Compacted && !hasSummary && len(req.PriorTurns) > 0 {
+		return buildMessagesFromPriorTurns(req.PriorTurns), h.Epoch
+	}
+	return nil, h.Epoch
+}
+
+func (e *Editor) commitBuiltInThreadTurn(threadID string, expectedEpoch uint64, turnID string, turnMsgs []anthropicMessage) {
+	if e == nil || len(turnMsgs) == 0 {
+		return
+	}
+	rec := builtInTurnRecord{
+		TurnID:   turnID,
+		Messages: turnMsgs,
+		Bytes:    estimateAnthropicMessagesBytes(turnMsgs),
+	}
+
+	e.agent.builtInHistoryMu.Lock()
+	defer e.agent.builtInHistoryMu.Unlock()
+	if e.agent.builtInHistory == nil {
+		e.agent.builtInHistory = make(map[string]*builtInThreadHistory)
+	}
+	h := e.agent.builtInHistory[threadID]
+	if h == nil {
+		if expectedEpoch != 0 {
+			return
+		}
+		h = &builtInThreadHistory{}
+		e.agent.builtInHistory[threadID] = h
+	}
+	if h.Epoch != expectedEpoch {
+		return
+	}
+	e.agent.builtInHistorySeq++
+	h.LastUsed = e.agent.builtInHistorySeq
+	h.Compacted = false
+	h.Turns = append(h.Turns, rec)
+	trimBuiltInThreadTurns(h)
+	evictOldBuiltInThreadsLocked(e.agent.builtInHistory, threadID)
+}
+
+func (e *Editor) rewindBuiltInThreadHistory(threadID string, droppedTurnIDs map[string]bool) []builtInTurnRecord {
+	if e == nil || threadID == "" {
+		return nil
+	}
+	e.agent.builtInHistoryMu.Lock()
+	defer e.agent.builtInHistoryMu.Unlock()
+	h := e.agent.builtInHistory[threadID]
+	if h == nil || len(h.Turns) == 0 {
+		return nil
+	}
+	prev := cloneBuiltInTurnRecords(h.Turns)
+	kept := make([]builtInTurnRecord, 0, len(h.Turns))
+	for _, rec := range h.Turns {
+		if droppedTurnIDs[rec.TurnID] {
+			continue
+		}
+		kept = append(kept, rec)
+	}
+	h.Turns = kept
+	h.Epoch++
+	return prev
+}
+
+func (e *Editor) restoreBuiltInThreadHistory(threadID string, prev []builtInTurnRecord) {
+	if e == nil || threadID == "" {
+		return
+	}
+	e.agent.builtInHistoryMu.Lock()
+	defer e.agent.builtInHistoryMu.Unlock()
+	if e.agent.builtInHistory == nil {
+		e.agent.builtInHistory = make(map[string]*builtInThreadHistory)
+	}
+	h := e.agent.builtInHistory[threadID]
+	if h == nil {
+		h = &builtInThreadHistory{}
+		e.agent.builtInHistory[threadID] = h
+	}
+	h.Turns = cloneBuiltInTurnRecords(prev)
+	h.Compacted = false
+	h.Epoch++
+	trimBuiltInThreadTurns(h)
+}
+
+func trimBuiltInThreadTurns(h *builtInThreadHistory) {
+	if h == nil {
+		return
+	}
+	if len(h.Turns) > builtInMaxHistoryTurns {
+		h.Turns = slices.Clone(h.Turns[len(h.Turns)-builtInMaxHistoryTurns:])
+	}
+	total := 0
+	for _, t := range h.Turns {
+		total += t.Bytes
+	}
+	for len(h.Turns) > 1 && total > builtInMaxHistoryBytes {
+		total -= h.Turns[0].Bytes
+		h.Turns = h.Turns[1:]
+	}
+}
+
+func evictOldBuiltInThreadsLocked(m map[string]*builtInThreadHistory, keepID string) {
+	for len(m) > builtInMaxTrackedThreads {
+		var oldestID string
+		var oldestSeq uint64
+		first := true
+		for id, h := range m {
+			if id == keepID {
+				continue
+			}
+			if first || h.LastUsed < oldestSeq {
+				oldestID = id
+				oldestSeq = h.LastUsed
+				first = false
+			}
+		}
+		if oldestID == "" {
+			break
+		}
+		delete(m, oldestID)
+	}
+}
+
+func buildMessagesFromPriorTurns(prior []AgentTurnSummary) []anthropicMessage {
+	var turns []builtInTurnRecord
+	for _, t := range prior {
+		prompt := strings.TrimSpace(t.Prompt)
+		if prompt == "" {
+			continue
+		}
+		reply := strings.TrimSpace(t.Summary)
+		if reply == "" && len(t.ChangedFiles) > 0 {
+			reply = "Changed files: " + strings.Join(t.ChangedFiles, ", ")
+		}
+		if reply == "" {
+			continue
+		}
+		msgs := []anthropicMessage{
+			{Role: "user", Content: prompt},
+			{Role: "assistant", Content: reply},
+		}
+		turns = append(turns, builtInTurnRecord{
+			TurnID:   t.ID,
+			Messages: msgs,
+			Bytes:    estimateAnthropicMessagesBytes(msgs),
+		})
+	}
+	h := &builtInThreadHistory{Turns: turns}
+	trimBuiltInThreadTurns(h)
+	out := make([]anthropicMessage, 0, len(h.Turns)*2)
+	for _, rec := range h.Turns {
+		out = append(out, rec.Messages...)
+	}
+	return out
+}
+
+func finalAssistantContentForHistory(blocks []anthropicContentBlock) any {
+	var kept []anthropicContentBlock
+	for _, blk := range blocks {
+		if blk.Type == "text" && strings.TrimSpace(blk.Text) == "" {
+			continue
+		}
+		kept = append(kept, blk)
+	}
+	if len(kept) == 0 {
+		return "Done."
+	}
+	return kept
+}
+
+func sanitizeBuiltInTurnMessages(msgs []anthropicMessage, secret string) []anthropicMessage {
+	out := make([]anthropicMessage, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, anthropicMessage{
+			Role:    m.Role,
+			Content: sanitizeBuiltInMessageContent(m.Content, secret),
+		})
+	}
+	return out
+}
+
+func sanitizeBuiltInMessageContent(content any, secret string) any {
+	switch c := content.(type) {
+	case string:
+		return redactSecret(c, secret)
+	case []anthropicContentBlock:
+		out := make([]anthropicContentBlock, len(c))
+		for i, blk := range c {
+			cp := blk
+			if cp.Text != "" {
+				cp.Text = redactSecret(cp.Text, secret)
+			}
+			if len(cp.Input) > 0 {
+				cp.Input = slices.Clone(cp.Input)
+			}
+			out[i] = cp
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, 0, len(c))
+		for _, blk := range c {
+			typ, _ := blk["type"].(string)
+			switch typ {
+			case "image":
+				out = append(out, map[string]any{
+					"type": "text",
+					"text": "[image omitted from earlier turn]",
+				})
+			case "text":
+				txt, _ := blk["text"].(string)
+				out = append(out, map[string]any{
+					"type": "text",
+					"text": redactSecret(txt, secret),
+				})
+			case "tool_result":
+				cp := map[string]any{
+					"type":        "tool_result",
+					"tool_use_id": blk["tool_use_id"],
+					"is_error":    blk["is_error"],
+				}
+				switch tc := blk["content"].(type) {
+				case string:
+					cp["content"] = truncateRunes(redactSecret(tc, secret), builtInMaxArchivedToolResultChars)
+				case []map[string]any:
+					sub := make([]map[string]any, 0, len(tc))
+					for _, sb := range tc {
+						st, _ := sb["type"].(string)
+						if st == "image" {
+							sub = append(sub, map[string]any{
+								"type": "text",
+								"text": "[image omitted from earlier turn]",
+							})
+							continue
+						}
+						if st == "text" {
+							txt, _ := sb["text"].(string)
+							sub = append(sub, map[string]any{
+								"type": "text",
+								"text": truncateRunes(redactSecret(txt, secret), builtInMaxArchivedToolResultChars),
+							})
+						}
+					}
+					cp["content"] = sub
+				default:
+					cp["content"] = tc
+				}
+				out = append(out, cp)
+			default:
+				cp := make(map[string]any, len(blk))
+				for k, v := range blk {
+					cp[k] = v
+				}
+				out = append(out, cp)
+			}
+		}
+		return out
+	default:
+		return content
+	}
+}
+
+func cloneBuiltInTurnRecords(in []builtInTurnRecord) []builtInTurnRecord {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]builtInTurnRecord, len(in))
+	for i, r := range in {
+		out[i] = builtInTurnRecord{
+			TurnID:   r.TurnID,
+			Messages: cloneAnthropicMessages(r.Messages),
+			Bytes:    r.Bytes,
+		}
+	}
+	return out
+}
+
+func cloneAnthropicMessages(in []anthropicMessage) []anthropicMessage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]anthropicMessage, len(in))
+	for i, m := range in {
+		out[i] = anthropicMessage{
+			Role:    m.Role,
+			Content: sanitizeBuiltInMessageContent(m.Content, ""),
+		}
+	}
+	return out
+}
+
+func estimateAnthropicMessagesBytes(msgs []anthropicMessage) int {
+	b, err := json.Marshal(msgs)
+	if err != nil {
+		return 0
+	}
+	return len(b)
 }
