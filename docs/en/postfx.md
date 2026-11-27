@@ -187,6 +187,24 @@ return postfx.View{
 - Animate `Amount` or `Row` with a `core.AnimatedNode` to fade or crossfade palettes on the frame clock with no texture re-upload.
 - To replace a textured effect's image per view without recompiling the chain, set `View.Textures` or `View.TexturesFunc` (or call `Chain.Images` when building a `core.Shader` yourself, and `Chain.ReferenceWithTextures` in headless tests).
 
+## Color-vision filter
+
+`ColorVisionEffect(mode, severity, correct)` returns a ready effect that either simulates a color-vision deficiency (`correct == false`, using the same linear-RGB Viénot/Brettel/Machado dichromacy matrices as `a11y.Simulate`) or applies daltonization correction (`correct == true`, shifting lost chromatic contrast into channels the viewer can perceive). Supported modes are `ColorVisionNone`, `ColorVisionProtanopia`, `ColorVisionDeuteranopia`, `ColorVisionTritanopia`, and `ColorVisionHighContrast` (which boosts sRGB tonal contrast around mid-gray when correcting and passes through unchanged when simulating).
+
+```go
+// Read the player's Color-Blind Mode and Strength from a11y.Assist:
+var passes []effects.Effect
+passes = append(passes, effects.Bloom())
+if cvd, ok := assist.ColorVisionFilter(); ok {
+	passes = append(passes, cvd)
+}
+post := effects.MustCompile(passes...)
+```
+
+- `severity` is clamped to `[0, 1]` (NaN acts as `0`). When `mode` is `ColorVisionNone` or `severity <= 0`, the effect passes its input through unchanged.
+- `ColorVisionMatrix(mode, severity, correct)` exposes the 3×3 linear-RGB matrix directly; neutral grays remain invariant across all deficiency modes, and premultiplied alpha is preserved.
+- Each output pixel reads its input once, so `ColorVisionEffect` can sit at the end of a chain after multi-tap passes such as `Bloom` without multiplying taps, and carries a CPU `Reference` matching `a11y.Simulate` for headless verification.
+
 ## Reference pictures
 
 Headless tests have no GPU, so `Chain.Reference(frame, width, height, uniforms)` draws the chain on the CPU with each effect's `Reference` function, at the per-effect uniforms a `View` would set, mapping each output pixel's center onto the frame as the GPU does. `Float` reads a number uniform, and a uniform left out is 0, as on the GPU. Compare the result with a golden PNG from `gametest`:

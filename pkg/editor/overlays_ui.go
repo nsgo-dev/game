@@ -101,6 +101,76 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 							Margin:     core.Symmetric(4, 6),
 						},
 					},
+					core.Text{
+						TestID: "viewport-color-vision-title",
+						ContentFunc: func() string {
+							_ = rev.Get()
+							return ed.T("overlays.colorVisionTitle")
+						},
+						Style: core.Style{
+							FontSize:      11,
+							FontWeight:    600,
+							LetterSpacing: 0.6,
+							Color:         p.TextFaint,
+							Padding:       core.Edges{Left: 6, Right: 6, Top: 2, Bottom: 4},
+						},
+					},
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						_ = rev.Get()
+						rowPal := ed.SpecPalette(cx)
+						activeMode := ed.ColorVisionPreview()
+						modes := ed.ColorVisionPreviewModes()
+						btns := make([]core.Node, 0, len(modes))
+						for _, m := range modes {
+							mode := m
+							on := mode == activeMode
+							bg := core.Transparent
+							fg := rowPal.TextMuted
+							if on {
+								bg = rowPal.LineRaised
+								fg = rowPal.TextPrimary
+							}
+							btns = append(btns, core.View{
+								TestID: "viewport-color-vision-" + mode.String(),
+								Role:   core.RoleButton,
+								Label:  ed.colorVisionPreviewLabel(mode),
+								Style: core.Style{
+									Height:       core.Pt(26),
+									Direction:    core.Row,
+									AlignItems:   core.AlignCenter,
+									Padding:      core.Symmetric(0, 8),
+									CornerRadius: 6,
+									Background:   bg,
+									Hover:        &core.Style{Background: rowPal.LineRaised},
+									FocusVisible: rowPal.FocusRing(2),
+								},
+								OnPress: func(core.PressEvent) {
+									ed.SetColorVisionPreview(mode)
+								},
+								Children: []core.Node{
+									core.Text{
+										Content: ed.colorVisionPreviewLabel(mode),
+										Style: core.Style{
+											FontSize:   12,
+											FontWeight: core.FontWeightMedium,
+											Color:      fg,
+										},
+									},
+								},
+							})
+						}
+						return core.View{
+							Style:    core.Style{Gap: 2},
+							Children: btns,
+						}
+					}),
+					core.View{
+						Style: core.Style{
+							Height:     core.Pt(1),
+							Background: p.LineRaised,
+							Margin:     core.Symmetric(4, 6),
+						},
+					},
 					core.View{
 						TestID: "viewport-overlays-footer",
 						Style: core.Style{

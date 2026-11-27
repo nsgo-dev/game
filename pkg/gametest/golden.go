@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/a11y"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -34,6 +35,17 @@ type RenderOptions struct {
 	// Images resolves core.ImageSource.URI values referenced by DrawImage ops
 	// when neither Pixels nor Data is set on the ImageSource.
 	Images map[string]image.Image
+	// ColorVision, when set to a non-normal mode (such as a11y.VisionProtanopia,
+	// a11y.VisionDeuteranopia, or a11y.VisionTritanopia), passes the rasterized
+	// frame through the color-vision filter so tests can render goldens under
+	// deficiency simulation or daltonization correction.
+	ColorVision a11y.ColorVision
+	// ColorVisionSeverity sets the filter strength in [0, 1]. When zero and
+	// ColorVision is active, it defaults to 1.0 (full deficiency).
+	ColorVisionSeverity float64
+	// ColorVisionCorrect applies daltonization correction instead of simulation
+	// when ColorVision is active.
+	ColorVisionCorrect bool
 }
 
 // RenderOps deterministically rasterizes recorded core.DrawOp operations into an RGBA image of size width by height pixels.
@@ -320,6 +332,13 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 		}
 	}
 
+	if opt.ColorVision != a11y.VisionNormal {
+		sev := opt.ColorVisionSeverity
+		if sev == 0 {
+			sev = 1.0
+		}
+		dst = ApplyColorVision(dst, opt.ColorVision, sev, opt.ColorVisionCorrect)
+	}
 	return dst
 }
 

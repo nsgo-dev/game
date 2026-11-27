@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/a11y"
-	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
@@ -1049,6 +1048,7 @@ func (e *Editor) hudStableFingerprint() uint64 {
 	writeU64(e.hud.rev)
 	writeU64(e.hud.session)
 	writeU64(e.hud.localeRev)
+	writeU64(uint64(e.colorVisionPreview))
 	writeStr(e.hud.activePath)
 	writeStr(e.hud.selectedNodeID)
 	writeStr(e.hud.locale)
@@ -1315,7 +1315,7 @@ func (e *Editor) hudProblemsForDoc(doc *gameui.ScreenDoc, activeLocale string) [
 		return nil
 	}
 	// HUD screens composite over a dark game viewport surface regardless of the editor's UI appearance.
-	hudFallbackBackdrop := theme.Dark().Panel
+	hudFallbackBackdrop := DarkSpecPalette().Panel
 	opts := gameui.ScreenCheckOptions{
 		Locales:          e.hud.localeStrings,
 		Plurals:          e.hud.localePlurals,
@@ -1396,19 +1396,19 @@ func effectiveTouchHitSize(n *gameui.ScreenNodeDoc) float32 {
 	return n.Height
 }
 
-func hudNodeContrastRatio(doc *gameui.ScreenDoc, n *gameui.ScreenNodeDoc) float64 {
+func hudNodeContrastColors(doc *gameui.ScreenDoc, n *gameui.ScreenNodeDoc) (fg, bg core.Color) {
 	if n == nil {
-		return 0
+		return 0, 0
 	}
 	th := gameui.DefaultTheme()
-	fg := th.Text
+	fg = th.Text
 	if n.TextColor != "" {
 		if parsed, err := core.ParseColor(n.TextColor); err == nil {
 			fg = parsed
 		}
 	}
-	backdrop := theme.Dark().Panel
-	bg := backdrop
+	backdrop := DarkSpecPalette().Panel
+	bg = backdrop
 	if n.Background != "" {
 		if parsed, err := core.ParseColor(n.Background); err == nil && parsed != core.Transparent {
 			if parsed&0xff < 0xff {
@@ -1420,6 +1420,14 @@ func hudNodeContrastRatio(doc *gameui.ScreenDoc, n *gameui.ScreenNodeDoc) float6
 		bg = th.Background
 	}
 	_ = doc
+	return fg, bg
+}
+
+func hudNodeContrastRatio(doc *gameui.ScreenDoc, n *gameui.ScreenNodeDoc) float64 {
+	if n == nil {
+		return 0
+	}
+	fg, bg := hudNodeContrastColors(doc, n)
 	return a11y.ContrastRatio(fg, bg)
 }
 

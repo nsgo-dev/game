@@ -2162,6 +2162,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				},
 			},
 			assetDragViewportOverlay(cx, ed, rev),
+			viewportColorVisionOverlayView(cx, ed, rev, tileAnimRev, agentPulseRev, overlayAnimRev),
 			viewport3DRenderStatsOverlay(cx, ed, rev),
 			viewportCameraCaptionView(cx, ed, rev),
 			viewportOverlaysBarView(cx, ed, rev),

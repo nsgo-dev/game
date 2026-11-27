@@ -22,15 +22,15 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/a11y"
+	"github.com/nsgo-dev/game/pkg/ai/navbake3d"
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/datatable"
-	"github.com/nsgo-dev/game/pkg/editor/internal/profiler"
-	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/math3d"
-	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
+	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/replay"
@@ -40,7 +40,6 @@ import (
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/game/pkg/tooling/library"
-	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -71,7 +70,7 @@ const (
 	ToolStampTile
 	// ToolRandomTile paints a deterministic weighted random pick from selected tiles.
 	ToolRandomTile
-	// ToolNavTestPath sets start and end world points on click to preview the path pathfind.NavMesh.FindPath finds on the built 2D navigation mesh.
+	// ToolNavTestPath sets start and end world points on click to preview the path ai.NavMesh.FindPath finds on the built 2D navigation mesh.
 	ToolNavTestPath
 	// ToolRotate rotates the selected object in 2D (and sets 3D Gizmo3DRotate).
 	ToolRotate
@@ -456,8 +455,8 @@ type Editor struct {
 	// When nil, the editor invokes `go tool nsgo publish` in the project directory (or `nsgo publish` on PATH when the project has no go.mod nsgo tool),
 	// passing the keychain credential solely via NSGo's environment variables. It is never invoked until the person confirms in Review uploads, whatever the permission profile.
 	ReleaseUploader ReleaseUploader
-	// Keychain stores and retrieves store upload credentials and built-in agent API keys outside project files; when nil, keychain.Default() is used.
-	Keychain keychain.Store
+	// Keychain stores and retrieves store upload credentials and built-in agent API keys outside project files; when nil, DefaultKeychain() is used.
+	Keychain Keychain
 	// SyncMCPConfig, when set (automatically wired by editormcp.New), writes configured external MCP servers into the open project's agent MCP configuration (.mcp.json and .codex/config.toml).
 	SyncMCPConfig func(root string, servers []AgentMCPServer, removed []string) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
@@ -812,7 +811,7 @@ type Editor struct {
 	// output holds the docked Output / Log panel history and filter state.
 	output outputPanelState
 	// profiler holds the live remote/play-mode performance telemetry, recorded frame timeline, zones table, and panel visibility.
-	profiler *profiler.State
+	profiler profilerState
 	// gameRun tracks the live `go tool game dev` child process started by RunGame / RunGameWith.
 	gameRun gameRunState
 	// goToolchain caches Go toolchain discovery and version check results for the Start Screen and Play/Create actions.
@@ -944,6 +943,8 @@ type Editor struct {
 	agentMutating int
 	// hud holds the HUD and menu multi-size layout screen state, active *.screen.yaml document, locale tables, overlays, and touch drag session.
 	hud hudLayoutState
+	// colorVisionPreview selects the active color-vision deficiency simulation mode for the scene viewport and HUD layout preview.
+	colorVisionPreview a11y.ColorVision
 	// lookThroughCamera3D makes the 3D viewport render and project through the scene's active 3D camera (LookThroughCamera3D) instead of Camera3D.
 	lookThroughCamera3D bool
 	// envPanelOpen controls whether the Scene Environment panel is shown.
@@ -1137,7 +1138,6 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 			overlays: DefaultHUDOverlays(),
 		},
 	}
-	ed.profiler = profiler.New(ed.newProfilerHost())
 	ed.agent.initDefaults()
 	ed.automations.initDefaults()
 	ed.History = ed.newTabHistory()
@@ -1228,11 +1228,11 @@ func (e *Editor) applyScope(cx *core.Scope) {
 	e.problems.setScope(cx)
 	e.gameRun.setScope(cx)
 	e.assetBuild.setScope(cx)
-	e.profiler.SetScope(cx)
-	if cx != nil && e.profiler.Connected() && !e.profiler.PlayActive() {
-		e.profiler.StartPoller()
+	e.profiler.setScope(cx)
+	if cx != nil && e.ProfilerConnected() && !e.isPlayProfilerActive() {
+		e.startProfilerPoller()
 	} else if cx == nil {
-		e.profiler.StopPoller()
+		e.stopProfilerPoller()
 	}
 	e.startScreen.setScope(cx)
 	e.firstRun.setScope(cx)
