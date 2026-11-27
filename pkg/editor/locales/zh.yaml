@@ -262,6 +262,14 @@ strings:
   cmd.gizmoSpace3d.label: 3D 操纵杆：局部 / 全局空间
   cmd.gizmoTranslate.desc: 将 3D 变换操纵杆切换为平移模式
   cmd.gizmoTranslate.label: 3D 操纵杆：平移
+  cmd.gridMapBoxFill.desc: 切换 3D 网格地图矩形填充工具，在当前层高上拖出填充矩形
+  cmd.gridMapBoxFill.label: 网格地图：矩形填充
+  cmd.gridMapErase.desc: 切换 3D 网格地图擦除工具，清除当前层高上的单元格
+  cmd.gridMapErase.label: 网格地图：擦除
+  cmd.gridMapPaint.desc: 切换 3D 网格地图绘制工具，在当前层高上绘制网格瓦片
+  cmd.gridMapPaint.label: 网格地图：绘制
+  cmd.gridMapPick.desc: 切换 3D 网格地图拾取工具，吸取单元格的瓦片与朝向
+  cmd.gridMapPick.label: 网格地图：拾取
   cmd.group.desc: 将选中的对象归组到位于其共同中心的新空父级下
   cmd.group.label: 编组选中对象
   cmd.historyPanel.desc: 切换显示你的编辑、智能体回合与保存点的统一历史时间线面板
@@ -276,6 +284,8 @@ strings:
   cmd.lightingPreview.label: 切换 2D 光照预览
   cmd.localization.desc: 切换本地化字符串表面板
   cmd.localization.label: 本地化字符串
+  cmd.lodOverlay.desc: 在 3D 视口中切换每个对象的活动 LOD 标签与颜色指示
+  cmd.lodOverlay.label: 显示 3D LOD 叠加层
   cmd.materialEditor.desc: 切换带 3D/2D 实时预览的材质编辑器面板
   cmd.materialEditor.label: 材质编辑器
   cmd.mergeConflicts.desc: 为当前进行的 Git 合并、变基、拣选、还原或储藏冲突打开逐对象场景冲突解决器
@@ -290,6 +300,8 @@ strings:
   cmd.newAgentThread.label: 新建智能体线程
   cmd.newProject.desc: 打开开始界面并从模板创建新项目
   cmd.newProject.label: 新建项目…
+  cmd.occludersOverlay.desc: 在 3D 视口中切换遮挡体体积线框显示
+  cmd.occludersOverlay.label: 显示 3D 遮挡体
   cmd.openProject.desc: 选择要在编辑器中打开的项目目录
   cmd.openProject.label: 打开项目…
   cmd.paste.desc: 将剪贴板中的对象粘贴到当前图层，或粘贴已复制的瓦片区域
@@ -298,6 +310,10 @@ strings:
   cmd.pasteInto.label: 粘贴为子级
   cmd.permissionsSettings.desc: 配置智能体 MCP 权限方案与首条匹配生效规则
   cmd.permissionsSettings.label: 权限
+  cmd.placeAlign3d.desc: 切换放置 3D 模型时是否对齐表面法线
+  cmd.placeAlign3d.label: 3D 放置：对齐表面法线
+  cmd.placeSnap3d.desc: 切换在 3D 地平面放置模型时是否吸附到网格
+  cmd.placeSnap3d.label: 3D 放置：吸附到网格
   cmd.playMark.desc: 在当前运行帧添加标记并附上最近 60 秒输入回放
   cmd.playMark.label: 标记运行瞬间
   cmd.playStop.desc: 切换编辑器内运行预览
@@ -312,6 +328,8 @@ strings:
   cmd.projectSettings.label: 项目设置
   cmd.redo.desc: 重新应用上一次撤销的编辑
   cmd.redo.label: 重做
+  cmd.renderStatsOverlay.desc: 在 3D 视口中切换 RenderStats 统计叠加层
+  cmd.renderStatsOverlay.label: 显示 3D 渲染统计
   cmd.replayTips.desc: 重置已关闭的首次审查提示以便重新显示
   cmd.replayTips.label: 重播提示
   cmd.resetLayout.desc: 恢复默认的可停靠面板布局
@@ -382,6 +400,8 @@ strings:
   cmd.sketchToolText.label: 草图工具：文本
   cmd.sketchUndoMark.desc: 撤销视口草图层的上一次标记变更
   cmd.sketchUndoMark.label: 草图：撤销上一个标记
+  cmd.snapSettings.desc: 打开或关闭吸附设置弹出面板（网格叠加层、网格步长、自动瓦片尺寸、像素、旋转与缩放吸附）
+  cmd.snapSettings.label: 吸附设置
   cmd.startScreen.desc: 显示包含最近项目、模板与演示的开始界面
   cmd.startScreen.label: 开始界面
   cmd.stopAgentTurn.desc: 停止进行中的智能体回合；已完成的改动将保持待审查状态
@@ -402,6 +422,8 @@ strings:
   cmd.toolPaintTile.label: 工具：绘制瓦片
   cmd.toolPan.desc: 切换为平移视口相机工具（或按住空格键）
   cmd.toolPan.label: 工具：平移
+  cmd.toolPickTile.desc: 切换为吸取瓦片工具（吸取指针下单元格的瓦片，并切回绘制瓦片）
+  cmd.toolPickTile.label: 工具：吸取瓦片
   cmd.toolPlace.desc: 切换为放置对象视口工具
   cmd.toolPlace.label: 工具：放置
   cmd.toolRandomTile.desc: 切换为随机瓦片画笔（确定性加权随机选取瓦片）
@@ -873,6 +895,10 @@ strings:
   menu.frameSelection: 聚焦选中
   menu.generatedAssets: 生成资源
   menu.gizmo3d: 3D 操纵杆
+  menu.gridMapBoxFill: 网格地图：矩形填充
+  menu.gridMapErase: 网格地图：擦除
+  menu.gridMapPaint: 网格地图：绘制
+  menu.gridMapPick: 网格地图：拾取
   menu.group: 编组
   menu.help: 帮助
   menu.history: 历史
@@ -881,6 +907,7 @@ strings:
   menu.lightingPreview: 2D 光照预览
   menu.lineTile: 直线瓦片
   menu.localization: 本地化字符串
+  menu.lodOverlay: 显示 3D LOD 叠加层
   menu.makeInstanceLocal: 使实例本地化
   menu.materialEditor: 材质编辑器
   menu.mergeConflicts: 解决场景合并冲突
@@ -890,6 +917,7 @@ strings:
   menu.navMeshPanel: 烘焙 3D 导航网格…
   menu.navTestPath: 测试导航路径
   menu.newProject: 新建项目…
+  menu.occludersOverlay: 显示 3D 遮挡体
   menu.openBaseScene: 打开基础场景
   menu.openInstancedScene: 打开实例化场景
   menu.openProject: 打开项目…
@@ -902,7 +930,10 @@ strings:
   menu.pasteInto: 粘贴为子级
   menu.pasteTileRegion: 粘贴瓦片区域
   menu.permissions: 权限…
+  menu.pickTile: 吸取瓦片
   menu.place: 放置
+  menu.placeAlign3d: 3D 放置：对齐表面法线
+  menu.placeSnap3d: 3D 放置：吸附到网格
   menu.play: 播放
   menu.playMark: 标记运行瞬间
   menu.playtestReport: 试玩报告
@@ -913,6 +944,7 @@ strings:
   menu.randomTile: 随机瓦片
   menu.rectTile: 矩形瓦片
   menu.redo: 重做
+  menu.renderStatsOverlay: 显示 3D 渲染统计
   menu.replayTips: 重播提示
   menu.resetLayout: 重置布局
   menu.revertOverrides: 还原所有覆盖
@@ -928,6 +960,7 @@ strings:
   menu.shortcutsSettings: 键盘快捷键…
   menu.shortcutsSheet: 键盘快捷键
   menu.sketch: 草图
+  menu.snapSettings: 吸附设置…
   menu.stampTile: 图章瓦片
   menu.startScreen: 开始界面
   menu.stop: 停止

@@ -540,10 +540,9 @@ func TestSnapToolbarPopoverAndCompactLayout(t *testing.T) {
 		t.Fatalf("editor-toolbar height = %v, want 44", h)
 	}
 
-	// Switch to 3D where the Snap Settings popover lives and toggle every setting via UI.
-	app.Press("id:view-mode-3d")
+	// Open the Snap Settings popover directly in 2D and toggle every setting via UI.
+	app.Press("id:view-snap-settings")
 	app.Settle()
-	app.Press("id:view3d-snap-settings")
 	app.Press("id:snap-show-grid")
 	app.Press("id:snap-grid-toggle")
 	app.Press("id:snap-pixel-toggle")
@@ -551,7 +550,16 @@ func TestSnapToolbarPopoverAndCompactLayout(t *testing.T) {
 	app.Press("id:snap-scale-toggle")
 
 	if !ed.ShowGrid || !ed.SnapToGrid || !ed.SnapToPixel || !ed.SnapRotation || !ed.SnapScale {
-		t.Fatalf("popover toggles did not update editor: %+v", ed.SnapSettings())
+		t.Fatalf("2D popover toggles did not update editor: %+v", ed.SnapSettings())
+	}
+
+	// Switch to 3D where the Snap Settings popover also lives and verify it opens cleanly there too.
+	app.Press("id:view-mode-3d")
+	app.Settle()
+	app.Press("id:view3d-snap-settings")
+	app.Settle()
+	if !ed.SnapSettingsPopoverOpen() {
+		t.Fatal("expected 3D view3d-snap-settings button to open snap settings popover")
 	}
 
 	// Commands toggle each setting cleanly through ExecuteCommand.

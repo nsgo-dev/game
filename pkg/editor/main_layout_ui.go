@@ -549,11 +549,17 @@ func (e *Editor) activeHeaderTool() Tool {
 		return ToolSelect
 	}
 	if e.ViewMode == ViewMode3D {
+		if e.GridMapTool() != GridMapToolNone {
+			return Tool(-1)
+		}
 		if e.Tool == ToolPan {
 			return ToolPan
 		}
 		if e.Tool == ToolSelect {
 			return ToolSelect
+		}
+		if e.Tool == ToolPlace {
+			return ToolPlace
 		}
 		switch e.GizmoMode {
 		case Gizmo3DRotate:

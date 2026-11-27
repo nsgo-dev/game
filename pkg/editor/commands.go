@@ -42,6 +42,7 @@ const (
 	CmdToolPaintTile          = "tool.paint"
 	CmdToolEraseTile          = "tool.erase"
 	CmdToolFillTile           = "tool.fill"
+	CmdToolPickTile           = "tool.pick"
 	CmdToolTerrain            = "tool.terrain"
 	CmdToolRectTile           = "tool.rect"
 	CmdToolLineTile           = "tool.line"
@@ -51,6 +52,12 @@ const (
 	CmdCutTileRegion          = "tile.cut"
 	CmdPasteTileRegion        = "tile.paste"
 	CmdToolNavTestPath        = "tool.navTestPath"
+	CmdGridMapPaint           = "gridmap.paint"
+	CmdGridMapErase           = "gridmap.erase"
+	CmdGridMapPick            = "gridmap.pick"
+	CmdGridMapBoxFill         = "gridmap.boxFill"
+	CmdTogglePlaceSnap3D      = "place3d.snap"
+	CmdTogglePlaceAlign3D     = "place3d.align"
 	CmdGizmoTranslate         = "gizmo.translate"
 	CmdGizmoRotate            = "gizmo.rotate"
 	CmdGizmoScale             = "gizmo.scale"
@@ -61,6 +68,9 @@ const (
 	CmdShadingLit             = "view.shading.lit"
 	CmdShadingUnlit           = "view.shading.unlit"
 	CmdShadingWire            = "view.shading.wireframe"
+	CmdToggleLODOverlay       = "view.3d.lod"
+	CmdToggleOccluders        = "view.3d.occluders"
+	CmdToggleRenderStats      = "view.3d.renderStats"
 	CmdNavMeshPanel           = "view.navmesh"
 	CmdNavMeshOverlay         = "view.navmesh.overlay"
 	CmdBakeNavMesh3D          = "project.bakeNavMesh3D"
@@ -68,6 +78,7 @@ const (
 	CmdToggleLightingPreview  = "view.lighting"
 	CmdToggleAllShapes        = "view.shapes"
 	CmdToggleSnapGrid         = "view.snap"
+	CmdSnapSettings           = "view.snap.settings"
 	CmdToggleShowGrid         = "view.grid"
 	CmdToggleSnapPixel        = "view.snap.pixel"
 	CmdToggleSnapRotation     = "view.snap.rotation"
@@ -841,6 +852,20 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdToolPickTile,
+			Label:       "Tool: Pick Tile",
+			Description: "Switch to the Pick Tile tool (pick the tile under the pointer, then switch to Paint Tile)",
+			Category:    "Tools",
+			Keywords:    []string{"pick", "eyedropper", "pipette", "sample", "tile", "tilemap", "2d"},
+			Scope:       ScopeTile,
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolPickTile },
+			Run: func() error {
+				e.SetTool(ToolPickTile)
+				return nil
+			},
+		},
+		{
 			ID:          CmdToolTerrain,
 			Label:       "Tool: Terrain",
 			Description: "Switch to the Terrain autotile brush",
@@ -974,6 +999,36 @@ func (e *Editor) initBuiltinCommands() {
 				e.SetViewMode(ViewMode2D)
 				e.SetTool(ToolNavTestPath)
 				return nil
+			},
+		},
+		gridMapToolCommand(e, CmdGridMapPaint, "GridMap: Paint", "Toggle the 3D GridMap Paint tool to paint mesh tiles on the active floor", GridMapToolPaint, notPlaying, "paint", "brush"),
+		gridMapToolCommand(e, CmdGridMapErase, "GridMap: Erase", "Toggle the 3D GridMap Erase tool to clear cells on the active floor", GridMapToolErase, notPlaying, "erase", "clear", "delete"),
+		gridMapToolCommand(e, CmdGridMapPick, "GridMap: Pick", "Toggle the 3D GridMap Pick tool to sample a cell's tile and orientation", GridMapToolPick, notPlaying, "pick", "eyedropper", "sample"),
+		gridMapToolCommand(e, CmdGridMapBoxFill, "GridMap: Box Fill", "Toggle the 3D GridMap Box Fill tool to fill a dragged rectangle on the active floor", GridMapToolBoxFill, notPlaying, "box", "fill", "rect", "rectangle"),
+		{
+			ID:          CmdTogglePlaceSnap3D,
+			Label:       "3D Place: Snap to Grid",
+			Description: "Toggle grid snapping for models placed on the 3D ground plane",
+			Category:    "Tools",
+			Keywords:    []string{"place", "snap", "grid", "model", "3d"},
+			Scope:       ScopeViewport3D,
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.PlaceSnap3D },
+			Run: func() error {
+				return e.SetPlaceOptions3D(e.PlaceHeight3D, !e.PlaceSnap3D, e.PlaceAlign3D)
+			},
+		},
+		{
+			ID:          CmdTogglePlaceAlign3D,
+			Label:       "3D Place: Align to Surface",
+			Description: "Toggle aligning placed 3D models to the surface normal",
+			Category:    "Tools",
+			Keywords:    []string{"place", "align", "normal", "surface", "model", "3d"},
+			Scope:       ScopeViewport3D,
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.PlaceAlign3D },
+			Run: func() error {
+				return e.SetPlaceOptions3D(e.PlaceHeight3D, e.PlaceSnap3D, !e.PlaceAlign3D)
 			},
 		},
 		{
@@ -1118,6 +1173,48 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.Shading3D == Shading3DWireframe },
 			Run: func() error {
 				e.SetShading3D(Shading3DWireframe)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleLODOverlay,
+			Label:       "Show 3D LOD Overlay",
+			Description: "Toggle per-object active LOD labels and color-coding in the 3D viewport",
+			Category:    "View",
+			Keywords:    []string{"lod", "level of detail", "overlay", "3d", "debug"},
+			Scope:       ScopeViewport3D,
+			Enabled:     inEditor,
+			Checked:     func() bool { return e.ShowLODOverlay },
+			Run: func() error {
+				e.SetShowLODOverlay(!e.ShowLODOverlay)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleOccluders,
+			Label:       "Show 3D Occluders",
+			Description: "Toggle occluder volume wireframes in the 3D viewport",
+			Category:    "View",
+			Keywords:    []string{"occluder", "occlusion", "culling", "overlay", "3d", "debug"},
+			Scope:       ScopeViewport3D,
+			Enabled:     inEditor,
+			Checked:     func() bool { return e.ShowOccluders },
+			Run: func() error {
+				e.SetShowOccluders(!e.ShowOccluders)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleRenderStats,
+			Label:       "Show 3D Render Stats",
+			Description: "Toggle the RenderStats HUD overlay in the 3D viewport",
+			Category:    "View",
+			Keywords:    []string{"stats", "renderstats", "draws", "tris", "overlay", "hud", "3d", "debug"},
+			Scope:       ScopeViewport3D,
+			Enabled:     inEditor,
+			Checked:     func() bool { return e.ShowRenderStats },
+			Run: func() error {
+				e.SetShowRenderStats(!e.ShowRenderStats)
 				return nil
 			},
 		},
@@ -1304,6 +1401,20 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.SnapScale },
 			Run: func() error {
 				e.SetSnapScale(!e.SnapScale)
+				return nil
+			},
+		},
+		{
+			ID:          CmdSnapSettings,
+			Label:       "Snap Settings",
+			Description: "Open or close the Snap Settings popover (grid overlay, grid step, auto tile size, pixel, rotation, and scale snapping)",
+			Category:    "View",
+			Keywords:    []string{"snap", "grid", "settings", "popover", "auto", "step", "pixel", "rotation", "scale", "2d", "3d"},
+			Scope:       ScopeViewport,
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.SnapSettingsPopoverOpen() },
+			Run: func() error {
+				e.ToggleSnapSettingsPopover()
 				return nil
 			},
 		},
@@ -2715,12 +2826,19 @@ var builtinCommandKeys = map[string][3]string{
 	CmdToolPaintTile:             {"cmd.toolPaintTile.label", "cmd.toolPaintTile.desc", "cmd.category.tools"},
 	CmdToolEraseTile:             {"cmd.toolEraseTile.label", "cmd.toolEraseTile.desc", "cmd.category.tools"},
 	CmdToolFillTile:              {"cmd.toolFillTile.label", "cmd.toolFillTile.desc", "cmd.category.tools"},
+	CmdToolPickTile:              {"cmd.toolPickTile.label", "cmd.toolPickTile.desc", "cmd.category.tools"},
 	CmdToolTerrain:               {"cmd.toolTerrain.label", "cmd.toolTerrain.desc", "cmd.category.tools"},
 	CmdToolRectTile:              {"cmd.toolRectTile.label", "cmd.toolRectTile.desc", "cmd.category.tools"},
 	CmdToolLineTile:              {"cmd.toolLineTile.label", "cmd.toolLineTile.desc", "cmd.category.tools"},
 	CmdToolStampTile:             {"cmd.toolStampTile.label", "cmd.toolStampTile.desc", "cmd.category.tools"},
 	CmdToolRandomTile:            {"cmd.toolRandomTile.label", "cmd.toolRandomTile.desc", "cmd.category.tools"},
 	CmdToolNavTestPath:           {"cmd.toolNavTestPath.label", "cmd.toolNavTestPath.desc", "cmd.category.tools"},
+	CmdGridMapPaint:              {"cmd.gridMapPaint.label", "cmd.gridMapPaint.desc", "cmd.category.tools"},
+	CmdGridMapErase:              {"cmd.gridMapErase.label", "cmd.gridMapErase.desc", "cmd.category.tools"},
+	CmdGridMapPick:               {"cmd.gridMapPick.label", "cmd.gridMapPick.desc", "cmd.category.tools"},
+	CmdGridMapBoxFill:            {"cmd.gridMapBoxFill.label", "cmd.gridMapBoxFill.desc", "cmd.category.tools"},
+	CmdTogglePlaceSnap3D:         {"cmd.placeSnap3d.label", "cmd.placeSnap3d.desc", "cmd.category.tools"},
+	CmdTogglePlaceAlign3D:        {"cmd.placeAlign3d.label", "cmd.placeAlign3d.desc", "cmd.category.tools"},
 	CmdGizmoTranslate:            {"cmd.gizmoTranslate.label", "cmd.gizmoTranslate.desc", "cmd.category.gizmo3d"},
 	CmdGizmoRotate:               {"cmd.gizmoRotate.label", "cmd.gizmoRotate.desc", "cmd.category.gizmo3d"},
 	CmdGizmoScale:                {"cmd.gizmoScale.label", "cmd.gizmoScale.desc", "cmd.category.gizmo3d"},
@@ -2738,6 +2856,10 @@ var builtinCommandKeys = map[string][3]string{
 	CmdShadingLit:                {"cmd.shadingLit.label", "cmd.shadingLit.desc", "cmd.category.view"},
 	CmdShadingUnlit:              {"cmd.shadingUnlit.label", "cmd.shadingUnlit.desc", "cmd.category.view"},
 	CmdShadingWire:               {"cmd.shadingWire.label", "cmd.shadingWire.desc", "cmd.category.view"},
+	CmdToggleLODOverlay:          {"cmd.lodOverlay.label", "cmd.lodOverlay.desc", "cmd.category.view"},
+	CmdToggleOccluders:           {"cmd.occludersOverlay.label", "cmd.occludersOverlay.desc", "cmd.category.view"},
+	CmdToggleRenderStats:         {"cmd.renderStatsOverlay.label", "cmd.renderStatsOverlay.desc", "cmd.category.view"},
+	CmdSnapSettings:              {"cmd.snapSettings.label", "cmd.snapSettings.desc", "cmd.category.view"},
 	CmdNavMeshPanel:              {"cmd.navMeshPanel.label", "cmd.navMeshPanel.desc", "cmd.category.view"},
 	CmdNavMeshOverlay:            {"cmd.navMeshOverlay.label", "cmd.navMeshOverlay.desc", "cmd.category.view"},
 	CmdBakeNavMesh3D:             {"cmd.bakeNavMesh3d.label", "cmd.bakeNavMesh3d.desc", "cmd.category.project"},
@@ -3095,6 +3217,33 @@ func (e *Editor) frameAABB3D(bmin, bmax [3]float32) {
 	}
 	e.Camera3D.Target = center
 	e.Camera3D.Distance = dist
+}
+
+// gridMapToolCommand builds a built-in command that toggles a 3D GridMap editing tool, switching into 3D view if needed.
+func gridMapToolCommand(e *Editor, id, label, desc string, tool GridMapTool, enabled func() bool, keywords ...string) EditorCommand {
+	return EditorCommand{
+		ID:          id,
+		Label:       label,
+		Description: desc,
+		Category:    "Tools",
+		Keywords:    append([]string{"gridmap", "tile", "mesh", "3d"}, keywords...),
+		Scope:       ScopeViewport3D,
+		Enabled:     enabled,
+		Checked:     func() bool { return e.ViewMode == ViewMode3D && e.GridMapTool() == tool },
+		Run: func() error {
+			if e.ViewMode != ViewMode3D {
+				e.SetViewMode(ViewMode3D)
+				e.SetGridMapTool(tool)
+				return nil
+			}
+			if e.GridMapTool() == tool {
+				e.SetGridMapTool(GridMapToolNone)
+			} else {
+				e.SetGridMapTool(tool)
+			}
+			return nil
+		},
+	}
 }
 
 // view3DCommand is the command that turns the 3D viewport to the axis view v, bound to shortcut; it runs only in the 3D view.

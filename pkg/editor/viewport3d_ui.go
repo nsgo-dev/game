@@ -767,6 +767,138 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 		},
 	}
 
+	overlayRow3D := func(testID, text, label string, checked func() bool, onChange func(bool)) core.Node {
+		return core.View{
+			Style: core.Style{
+				Direction:      core.Row,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifySpaceBetween,
+				Height:         core.Pt(28),
+				Gap:            12,
+				Padding:        core.Symmetric(0, 6),
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: text,
+					Style: core.Style{
+						FontSize: 12.5,
+						Color:    p.TextSecondary,
+					},
+				},
+				SpecSwitch{
+					TestID:   testID,
+					Label:    label,
+					Size:     ui.SizeSmall,
+					Checked:  checked,
+					OnChange: onChange,
+				},
+			},
+		}
+	}
+
+	overlays3DPopover := ui.Popover{
+		TestID:    "view3d-overlays",
+		Label:     "3D Overlays",
+		Placement: core.PlaceTop,
+		Align:     core.AlignCenter,
+		Trigger: ui.Button{
+			Icon:     lucide.Layers,
+			IconSize: 13,
+			Side:     28,
+			Label:    "3D Overlays",
+			Size:     ui.SizeSmall,
+			Variant:  ui.ButtonGhost,
+			Tint: func() core.Color {
+				_ = rev.Get()
+				if ed.ShowLODOverlay || ed.ShowOccluders || ed.ShowRenderStats || ed.ShowNavMesh3D {
+					return p.Accent.Fg
+				}
+				return p.TextMuted
+			},
+			Style: core.Style{
+				CornerRadius: 6,
+				FocusVisible: focusRing,
+			},
+		},
+		Style: core.Style{
+			Width:        core.Pt(220),
+			Padding:      core.All(8),
+			Gap:          4,
+			CornerRadius: 12,
+			Background:   p.Raised,
+			BorderWidth:  1,
+			BorderColor:  p.LineRaised,
+		},
+		Children: []core.Node{
+			core.Text{
+				Content: ed.T("overlays.popoverTitle"),
+				Style: core.Style{
+					FontSize:      11,
+					FontWeight:    600,
+					LetterSpacing: 0.6,
+					Color:         p.TextFaint,
+					Padding:       core.Edges{Left: 6, Right: 6, Top: 2, Bottom: 4},
+				},
+			},
+			overlayRow3D("viewport3d-toggle-lod", "LOD", "Toggle active LOD indicators in the 3D viewport", func() bool {
+				_ = rev.Get()
+				return ed.ShowLODOverlay
+			}, ed.SetShowLODOverlay),
+			overlayRow3D("viewport3d-toggle-occluders", "Occluders", "Toggle occluder volume visualization in the 3D viewport", func() bool {
+				_ = rev.Get()
+				return ed.ShowOccluders
+			}, ed.SetShowOccluders),
+			overlayRow3D("viewport3d-toggle-stats", "Render Stats", "Toggle RenderStats overlay in the 3D viewport", func() bool {
+				_ = rev.Get()
+				return ed.ShowRenderStats
+			}, ed.SetShowRenderStats),
+			overlayRow3D("viewport3d-toggle-navmesh", "3D NavMesh", "Toggle the 3D navigation mesh overlay in the viewport", func() bool {
+				_ = rev.Get()
+				return ed.ShowNavMesh3D
+			}, ed.SetShowNavMesh3D),
+		},
+	}
+
+	gridMapIconBtn := func(testID string, icon func() *core.SVG, label string, tool GridMapTool) core.Node {
+		active := func() bool {
+			_ = rev.Get()
+			return ed.GridMapTool() == tool
+		}
+		return ui.Button{
+			TestID:   testID,
+			Icon:     icon,
+			IconSize: 13,
+			Side:     28,
+			Label:    label,
+			Size:     ui.SizeSmall,
+			Variant:  ui.ButtonGhost,
+			Disabled: playing,
+			Color: func() core.Color {
+				if active() {
+					return p.LineRaised
+				}
+				return core.Transparent
+			},
+			Tint: func() core.Color {
+				if active() {
+					return p.TextPrimary
+				}
+				return p.TextMuted
+			},
+			Style: core.Style{
+				CornerRadius: 6,
+				FocusVisible: focusRing,
+			},
+			OnPress: func() {
+				if ed.GridMapTool() == tool {
+					ed.SetGridMapTool(GridMapToolNone)
+				} else {
+					ed.SetGridMapTool(tool)
+				}
+			},
+		}
+	}
+
 	cameraDisabled := func() bool {
 		_ = rev.Get()
 		return !ed.LookThroughCamera3D() && !ed.HasSceneCamera3D()
@@ -1096,6 +1228,19 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 						},
 						divider3D(p),
 						snapSettingsPopover(cx, ed, rev, "view3d-snap-settings", playing),
+						overlays3DPopover,
+						divider3D(p),
+						core.View{
+							Role:  core.RoleGroup,
+							Label: "GridMap",
+							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2},
+							Children: []core.Node{
+								gridMapIconBtn("gridmap-tool-paint", lucide.Paintbrush, "GridMap: Paint", GridMapToolPaint),
+								gridMapIconBtn("gridmap-tool-erase", lucide.Eraser, "GridMap: Erase", GridMapToolErase),
+								gridMapIconBtn("gridmap-tool-pick", lucide.Pipette, "GridMap: Pick", GridMapToolPick),
+								gridMapIconBtn("gridmap-tool-boxfill", lucide.SquareDashed, "GridMap: Box Fill", GridMapToolBoxFill),
+							},
+						},
 						divider3D(p),
 						core.Dynamic(func(cx *core.Scope) core.Node {
 							fk := focusKeyMemo.Get()
@@ -1153,6 +1298,79 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 						}),
 					},
 				},
+			},
+		},
+
+		// Contextual 3D Place options pill: Snap, Align, and Ground Height while the Place tool is active.
+		core.Show{
+			When: func() bool {
+				_ = rev.Get()
+				return !ed.Playing() && ed.Tool == ToolPlace && ed.GridMapTool() == GridMapToolNone
+			},
+			Then: func(cx *core.Scope) core.Node {
+				pp := ed.SpecPalette(cx)
+				return core.View{
+					TestID: "view3d-place-bar",
+					Role:   core.RoleGroup,
+					Label:  "3D Place options",
+					Style: core.Style{
+						Position:     core.Absolute,
+						Left:         core.Pt(16),
+						Bottom:       core.Pt(60),
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          4,
+						Padding:      core.All(4),
+						CornerRadius: 8,
+						Background:   pp.PillBg,
+						BorderWidth:  1,
+						BorderColor:  pp.LineRaised,
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: "Place",
+							Style: core.Style{
+								FontSize: 11,
+								Color:    pp.TextFaint,
+								Padding:  core.Edges{Left: 4, Right: 2},
+							},
+						},
+						segBtn("place3d-snap", staticText("Snap"), "Snap placed models to the grid", func() bool {
+							_ = rev.Get()
+							return ed.PlaceSnap3D
+						}, playing, func() {
+							ed.report(ed.SetPlaceOptions3D(ed.PlaceHeight3D, !ed.PlaceSnap3D, ed.PlaceAlign3D))
+						}),
+						segBtn("place3d-align", staticText("Align"), "Align placed models to the surface", func() bool {
+							_ = rev.Get()
+							return ed.PlaceAlign3D
+						}, playing, func() {
+							ed.report(ed.SetPlaceOptions3D(ed.PlaceHeight3D, ed.PlaceSnap3D, !ed.PlaceAlign3D))
+						}),
+						divider3D(pp),
+						core.Text{
+							Content: "Y",
+							Style: core.Style{
+								FontSize: 11,
+								Color:    pp.TextMuted,
+								Padding:  core.Edges{Left: 2, Right: 2},
+							},
+						},
+						ui.NumberInput{
+							TestID: "place3d-height",
+							Label:  "Ground height",
+							Step:   0.5,
+							Style:  core.Style{Width: core.Pt(68)},
+							Value: func() float64 {
+								_ = rev.Get()
+								return float64(ed.PlaceHeight3D)
+							},
+							OnChange: func(v float64) {
+								ed.report(ed.SetPlaceOptions3D(float32(v), ed.PlaceSnap3D, ed.PlaceAlign3D))
+							},
+						},
+					},
+				}
 			},
 		},
 	}

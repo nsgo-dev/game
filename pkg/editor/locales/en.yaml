@@ -262,6 +262,14 @@ strings:
   cmd.gizmoSpace3d.label: '3D Gizmo: Local / Global Space'
   cmd.gizmoTranslate.desc: Switch the 3D transform gizmo to Translate mode
   cmd.gizmoTranslate.label: '3D Gizmo: Translate'
+  cmd.gridMapBoxFill.desc: Toggle the 3D GridMap Box Fill tool to fill a dragged rectangle on the active floor
+  cmd.gridMapBoxFill.label: 'GridMap: Box Fill'
+  cmd.gridMapErase.desc: Toggle the 3D GridMap Erase tool to clear cells on the active floor
+  cmd.gridMapErase.label: 'GridMap: Erase'
+  cmd.gridMapPaint.desc: Toggle the 3D GridMap Paint tool to paint mesh tiles on the active floor
+  cmd.gridMapPaint.label: 'GridMap: Paint'
+  cmd.gridMapPick.desc: Toggle the 3D GridMap Pick tool to sample a cell's tile and orientation
+  cmd.gridMapPick.label: 'GridMap: Pick'
   cmd.group.desc: Wrap the selected objects under a new empty parent at their common centre
   cmd.group.label: Group Selected Objects
   cmd.historyPanel.desc: Toggle the unified History timeline of your edits, agent turns, and saved points
@@ -276,6 +284,8 @@ strings:
   cmd.lightingPreview.label: Toggle 2D Lighting Preview
   cmd.localization.desc: Toggle the Localization string table panel
   cmd.localization.label: Localization Strings
+  cmd.lodOverlay.desc: Toggle per-object active LOD labels and color-coding in the 3D viewport
+  cmd.lodOverlay.label: Show 3D LOD Overlay
   cmd.materialEditor.desc: Toggle the Material Editor panel with live 3D and 2D preview
   cmd.materialEditor.label: Material Editor
   cmd.mergeConflicts.desc: Open the object-by-object scene conflict resolver for an active Git merge, rebase, cherry-pick, revert, or stash conflict
@@ -290,6 +300,8 @@ strings:
   cmd.newAgentThread.label: New Agent Thread
   cmd.newProject.desc: Open the Start Screen to create a new project from a template
   cmd.newProject.label: New Project...
+  cmd.occludersOverlay.desc: Toggle occluder volume wireframes in the 3D viewport
+  cmd.occludersOverlay.label: Show 3D Occluders
   cmd.openProject.desc: Choose a project folder to open in the editor
   cmd.openProject.label: Open Project...
   cmd.paste.desc: Paste objects from the clipboard onto the active layer, or paste a copied tile region
@@ -298,6 +310,10 @@ strings:
   cmd.pasteInto.label: Paste as Child
   cmd.permissionsSettings.desc: Configure agent MCP permission profiles and first-match-wins rules
   cmd.permissionsSettings.label: Permissions
+  cmd.placeAlign3d.desc: Toggle aligning placed 3D models to the surface normal
+  cmd.placeAlign3d.label: '3D Place: Align to Surface'
+  cmd.placeSnap3d.desc: Toggle grid snapping for models placed on the 3D ground plane
+  cmd.placeSnap3d.label: '3D Place: Snap to Grid'
   cmd.playMark.desc: Add a mark at the current Play frame with the rolling 60 s input replay attached
   cmd.playMark.label: Mark Play Moment
   cmd.playStop.desc: Toggle play-in-editor simulation
@@ -312,6 +328,8 @@ strings:
   cmd.projectSettings.label: Project Settings
   cmd.redo.desc: Re-apply the last undone edit
   cmd.redo.label: Redo
+  cmd.renderStatsOverlay.desc: Toggle the RenderStats HUD overlay in the 3D viewport
+  cmd.renderStatsOverlay.label: Show 3D Render Stats
   cmd.replayTips.desc: Reset dismissed first-run review tips so they show again
   cmd.replayTips.label: Replay tips
   cmd.resetLayout.desc: Restore the default dock panel layout
@@ -382,6 +400,8 @@ strings:
   cmd.sketchToolText.label: 'Sketch Tool: Text'
   cmd.sketchUndoMark.desc: Undo the most recent change to the viewport sketch layer
   cmd.sketchUndoMark.label: 'Sketch: Undo Last Mark'
+  cmd.snapSettings.desc: Open or close the Snap Settings popover (grid overlay, grid step, auto tile size, pixel, rotation, and scale snapping)
+  cmd.snapSettings.label: Snap Settings
   cmd.startScreen.desc: Show the Start Screen with recent projects, templates, and demo
   cmd.startScreen.label: Start Screen
   cmd.stopAgentTurn.desc: Stop the active agent turn; changes made so far stay pending for review
@@ -402,6 +422,8 @@ strings:
   cmd.toolPaintTile.label: 'Tool: Paint Tile'
   cmd.toolPan.desc: Switch to the Pan viewport camera tool (or hold Space)
   cmd.toolPan.label: 'Tool: Pan'
+  cmd.toolPickTile.desc: Switch to the Pick Tile tool (pick the tile under the pointer, then switch to Paint Tile)
+  cmd.toolPickTile.label: 'Tool: Pick Tile'
   cmd.toolPlace.desc: Switch to the Place object viewport tool
   cmd.toolPlace.label: 'Tool: Place'
   cmd.toolRandomTile.desc: Switch to the Random Tile brush (deterministic weighted tile pick)
@@ -873,6 +895,10 @@ strings:
   menu.frameSelection: Frame Selection
   menu.generatedAssets: Generated Assets
   menu.gizmo3d: 3D Gizmo
+  menu.gridMapBoxFill: 'GridMap: Box Fill'
+  menu.gridMapErase: 'GridMap: Erase'
+  menu.gridMapPaint: 'GridMap: Paint'
+  menu.gridMapPick: 'GridMap: Pick'
   menu.group: Group
   menu.help: Help
   menu.history: History
@@ -881,6 +907,7 @@ strings:
   menu.lightingPreview: 2D Lighting Preview
   menu.lineTile: Line Tile
   menu.localization: Localization Strings
+  menu.lodOverlay: Show 3D LOD Overlay
   menu.makeInstanceLocal: Make Instance Local
   menu.materialEditor: Material Editor
   menu.mergeConflicts: Resolve Scene Merge Conflicts
@@ -890,6 +917,7 @@ strings:
   menu.navMeshPanel: 3D NavMesh Bake...
   menu.navTestPath: Test Nav Path
   menu.newProject: New Project...
+  menu.occludersOverlay: Show 3D Occluders
   menu.openBaseScene: Open Base Scene
   menu.openInstancedScene: Open Instanced Scene
   menu.openProject: Open Project...
@@ -902,7 +930,10 @@ strings:
   menu.pasteInto: Paste as Child
   menu.pasteTileRegion: Paste Tile Region
   menu.permissions: Permissions...
+  menu.pickTile: Pick Tile
   menu.place: Place
+  menu.placeAlign3d: '3D Place: Align to Surface'
+  menu.placeSnap3d: '3D Place: Snap to Grid'
   menu.play: Play
   menu.playMark: Mark Play Moment
   menu.playtestReport: Playtest Report
@@ -913,6 +944,7 @@ strings:
   menu.randomTile: Random Tile
   menu.rectTile: Rectangle Tile
   menu.redo: Redo
+  menu.renderStatsOverlay: Show 3D Render Stats
   menu.replayTips: Replay tips
   menu.resetLayout: Reset Layout
   menu.revertOverrides: Revert All Overrides
@@ -928,6 +960,7 @@ strings:
   menu.shortcutsSettings: Keyboard Shortcuts...
   menu.shortcutsSheet: Keyboard Shortcuts
   menu.sketch: Sketch
+  menu.snapSettings: Snap Settings...
   menu.stampTile: Stamp Tile
   menu.startScreen: Start Screen
   menu.stop: Stop

@@ -965,6 +965,8 @@ type Editor struct {
 	assetGen assetGenState
 	// snapInvert temporarily inverts snapping while a modifier key (Ctrl/Cmd) is held during a drag or press.
 	snapInvert bool
+	// snapSettingsPopoverOpen tracks whether the viewport Snap Settings popover is currently open.
+	snapSettingsPopoverOpen bool
 	// builtinOverlays and customOverlays hold the 2D viewport overlay definitions shown in the Overlays popover and editormcp's viewport_image.
 	builtinOverlays     []ViewportOverlay
 	customOverlays      []ViewportOverlay
@@ -1351,7 +1353,7 @@ func (e *Editor) ActiveScene() *sceneformat.BuiltScene {
 
 // SetTool switches the active viewport tool. A plugin's tool is chosen with SetPluginTool instead, so SetTool(ToolPlugin) is ignored.
 func (e *Editor) SetTool(t Tool) {
-	if e.Tool == t || t == ToolPlugin {
+	if t == ToolPlugin || (e.Tool == t && e.gridMap.tool == GridMapToolNone) {
 		return
 	}
 	e.CancelDrag2D()
@@ -1367,6 +1369,8 @@ func (e *Editor) SetTool(t Tool) {
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()
 	e.endTileStrokeForChange()
+	e.endGridMapStrokeForChange()
+	e.gridMap.tool = GridMapToolNone
 	e.Tool = t
 	switch t {
 	case ToolMove:
@@ -1412,6 +1416,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.CancelRoomDrag()
 	e.CancelSketchDrag()
 	e.overlaysPopoverOpen = false
+	e.snapSettingsPopoverOpen = false
 	e.ViewMode = mode
 	e.Status = "View: " + mode.String()
 	e.notify()
