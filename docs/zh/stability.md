@@ -66,9 +66,7 @@
 | `game/cmd/cloudsaved` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/cmd/editor` | 实验性 | [场景编辑器](editor.md) |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
-| `game/cmd/gameapi` | 实验性 | |
 | `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
-| `game/cmd/gameschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
 | `game/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |

@@ -603,7 +603,7 @@ func checkDir(dir string, files []schemaFile) error {
 		}
 	}
 	if len(problems) > 0 {
-		return fmt.Errorf("schemas in %s are out of date (run go run ./cmd/gameschema from the repository root):\n%s", dir, strings.Join(problems, "\n"))
+		return fmt.Errorf("schemas in %s are out of date (run go run ./tools/gameschema from the repository root):\n%s", dir, strings.Join(problems, "\n"))
 	}
 	return nil
 }

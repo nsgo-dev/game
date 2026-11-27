@@ -9,7 +9,7 @@ The [API reference](https://game.nsgo.dev/docs/api/) has a page for each package
 Agents read the same reference as JSON at [`/api.json`](https://game.nsgo.dev/api.json): every package with its synopsis and doc, and every declaration with its anchor, its gofmt-formatted source, its doc comment, its file and line below the repository root, and the targets that build it when not all of them do. Its `version` field is 1 and changes when a field is removed or changes meaning. To write it from a checkout, run at the repository root:
 
 ```sh
-go run ./cmd/gameapi -out api.json
+go run ./tools/gameapi -out api.json
 ```
 
 `-html` adds each doc comment rendered as HTML, as the site's pages show it. The reference is read from the files the linux, macos, windows, android, ios and web targets build in a development build; packages main, `internal` directories and `testdata` are left out.

@@ -6,6 +6,7 @@ tool github.com/nsgo-dev/nsgo/cmd/nsgo
 
 require (
 	github.com/nsgo-dev/game v0.0.0
+	github.com/nsgo-dev/nsgo v0.3.4
 	go.yaml.in/yaml/v3 v3.0.6
 )
 
@@ -19,7 +20,6 @@ require (
 	github.com/google/licenseclassifier/v2 v2.0.0 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.8.0 // indirect
 	github.com/nsgo-dev/goja v0.1.0-nsgo.2.0.20261122032045-fee2b34506fc // indirect
-	github.com/nsgo-dev/nsgo v0.3.4 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sergi/go-diff v1.1.0 // indirect

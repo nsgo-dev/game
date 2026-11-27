@@ -76,13 +76,13 @@ The import settings schema likewise checks each field on its own: known keys, th
 
 ## Checking schemas in CI
 
-`cmd/gameschema` writes the published schemas into `apps/website/public/schemas`, which the website serves at `https://game.nsgo.dev/schemas/`. After changing a format's Go types or doc comments, regenerate them from the repository root:
+`tools/gameschema` writes the published schemas into `apps/website/public/schemas`, which the website serves at `https://game.nsgo.dev/schemas/`. After changing a format's Go types or doc comments, regenerate them from the repository root:
 
 ```sh
-go run ./cmd/gameschema
+go run ./tools/gameschema
 ```
 
-The Check workflow runs `go run ./cmd/gameschema -check`, which fails when a committed schema differs from what the Go types generate, when one is missing, or when the directory holds a schema it no longer generates. A test in `cmd/gameschema` does the same check under `go tool nsgo test`.
+The Check workflow runs `go run ./tools/gameschema -check`, which fails when a committed schema differs from what the Go types generate, when one is missing, or when the directory holds a schema it no longer generates. A test in `tools/gameschema` does the same check under `go tool nsgo test` run in the `tools` module.
 
 ## Checking formats in CI
 

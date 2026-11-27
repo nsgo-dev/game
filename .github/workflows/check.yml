@@ -48,7 +48,7 @@ jobs:
             exit 1
           fi
       - name: Check the published JSON Schemas match the Go types
-        run: go run ./cmd/gameschema -check
+        run: go run ./tools/gameschema -check
       - name: Build and vet every target but iOS
         run: go tool nsgo check -target macos,windows,linux,android,web
 

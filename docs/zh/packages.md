@@ -9,7 +9,7 @@
 智能体可以在 [`/api.json`](https://game.nsgo.dev/api.json) 读取同样内容的 JSON：每个包的概要和文档，以及每个声明的锚点、经 gofmt 格式化的源码、文档注释、在仓库根目录下的文件和行号，并在不是所有目标都构建它时列出构建它的目标。其中 `version` 字段为 1，删除字段或改变字段含义时才会变化。要在本地检出中生成它，在仓库根目录运行：
 
 ```sh
-go run ./cmd/gameapi -out api.json
+go run ./tools/gameapi -out api.json
 ```
 
 加上 `-html` 会附带渲染成 HTML 的文档注释，即网站页面显示的内容。参考内容取自 linux、macos、windows、android、ios 和 web 目标在开发构建中编译的文件；main 包、`internal` 目录和 `testdata` 不包括在内。
