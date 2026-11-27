@@ -8,8 +8,8 @@ import (
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
 	"github.com/nsgo-dev/game/examples/fieldmedic/healthplugin"
-	"github.com/nsgo-dev/game/packages/game/editor"
-	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
+	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/editorcmd"
 )
 
 func main() {

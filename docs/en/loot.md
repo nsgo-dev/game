@@ -1,6 +1,6 @@
 # loot
 
-`github.com/nsgo-dev/game/packages/game/loot` rolls nested weighted drop tables with guaranteed drops and pity counters. Every roll draws from a [`random.Stream`](determinism.md), so a seed and a sequence of rolls give the same drops on every platform, in replays and on a dedicated server.
+`github.com/nsgo-dev/game/pkg/loot` rolls nested weighted drop tables with guaranteed drops and pity counters. Every roll draws from a [`random.Stream`](determinism.md), so a seed and a sequence of rolls give the same drops on every platform, in replays and on a dedicated server.
 
 ## Tables in YAML
 

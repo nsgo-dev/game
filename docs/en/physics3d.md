@@ -1,7 +1,7 @@
 # physics3d
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/physics3d"
+import "github.com/nsgo-dev/game/pkg/physics3d"
 ```
 
 Compact, deterministic 3D collision detection, raycasting, rigid-body dynamics, and a kinematic character controller written in pure Go.

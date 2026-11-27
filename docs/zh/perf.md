@@ -3,7 +3,7 @@
 `game/perf` 为高频游戏主循环提供确定性、稳态零分配的性能基础件：对象池（`Pool`、`Arena`、`SlicePool`）、2D 宽相空间索引（`SpatialHash`、`Quadtree`）以及视口精灵裁剪（`CullBatch`、`BatchCuller`、`Cull`）。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/perf"
+import "github.com/nsgo-dev/game/pkg/perf"
 ```
 
 ## 确定性对象池（`Pool`、`Arena`、`SlicePool`）

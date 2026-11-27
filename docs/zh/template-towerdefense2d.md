@@ -3,7 +3,7 @@
 `towerdefense2d` [模板](templates.md)是 Bramble Gate，一个小型 2D 塔防游戏：敌人沿着道路从出生点走向城门，玩家在道路旁的草地上建造防御塔，用敌人掉落的金钱升级，并在准备好时召唤每一波敌人。挡住全部五波即为胜利；让价值十条生命的敌人穿过城门即为失败。它可在桌面、移动端和 Web 上用键盘、手柄或触摸操作，所有美术都由代码绘制。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template towerdefense2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template towerdefense2d mygame
 cd mygame
 go tool nsgo dev
 ```
@@ -62,4 +62,4 @@ go tool nsgo dev
 - 用 `sprite.LoadAtlas` 和图片文件替换 `art.go` 中绘制的美术。
 - 在 `game.yaml` 的 `input` 部分重新绑定操作。
 
-修改之后，`go tool nsgo test ./...` 会显示文件是否仍能加载、`plan_test.go` 中的 `winningPlan` 是否仍能获胜；修改数据文件后，用 `go run github.com/nsgo-dev/game/packages/game/cmd/game index` 更新 `game.index.yaml`。
+修改之后，`go tool nsgo test ./...` 会显示文件是否仍能加载、`plan_test.go` 中的 `winningPlan` 是否仍能获胜；修改数据文件后，用 `go run github.com/nsgo-dev/game/cmd/game index` 更新 `game.index.yaml`。

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
-	"github.com/nsgo-dev/game/packages/game/gametest"
-	"github.com/nsgo-dev/game/packages/game/save"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/gametest"
+	"github.com/nsgo-dev/game/pkg/save"
+	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

@@ -3,7 +3,7 @@
 `game/math2d` provides small, zero-allocation 2D value types shared across NSGo game packages: `Vec2`, axis-aligned `Rect`, `Circle`, and 3×2 `Affine` transforms, with lossless conversions to and from NSGo's `core` geometry types.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/math2d"
+import "github.com/nsgo-dev/game/pkg/math2d"
 ```
 
 All coordinates use `float32` to match `core.Points`, `core.Point`, `core.Size`, `core.Bounds`, and `core.Drawing`. Angles are in radians, turning from `+X` toward `+Y` (clockwise in NSGo's Y-down canvas coordinates).

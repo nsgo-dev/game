@@ -1,21 +1,21 @@
 ---
 name: nsgo-game
-description: Build, run, test, inspect and drive 2D and 3D games on NSGo with github.com/nsgo-dev/game/packages/game. Use when scaffolding a game with `nsgo game`, writing fixed-step game loops, sprites, tilemaps, scenes, ECS worlds, physics, audio, 3D scenes, plain-text YAML game files, attaching `game/mcp` tools to `nsgo mcp`, or verifying a running game through MCP.
+description: Build, run, test, inspect and drive 2D and 3D games on NSGo with github.com/nsgo-dev/game. Use when scaffolding a game with `nsgo game`, writing fixed-step game loops, sprites, tilemaps, scenes, ECS worlds, physics, audio, 3D scenes, plain-text YAML game files, attaching `game/mcp` tools to `nsgo mcp`, or verifying a running game through MCP.
 ---
 
 # NSGo Game
 
-`github.com/nsgo-dev/game/packages/game` is the game layer for [NSGo](https://github.com/nsgo-dev/nsgo) apps, written in Go. A game draws into one NSGo view (`core.Canvas`, pixel buffer, shader, or GPU view), while HUDs and menus remain native NSGo views layered on top. It uses only NSGo's public API and supports macOS, iOS, Windows, Linux, Android and the web.
+`github.com/nsgo-dev/game` is the game layer for [NSGo](https://github.com/nsgo-dev/nsgo) apps, written in Go. A game draws into one NSGo view (`core.Canvas`, pixel buffer, shader, or GPU view), while HUDs and menus remain native NSGo views layered on top. It uses only NSGo's public API and supports macOS, iOS, Windows, Linux, Android and the web.
 
 Pair this skill with NSGo's own `nsgo` skill (`bunx skills add nsgo-dev/nsgo`) for UI primitives, layouts, signals, `nsgotest`, and `go tool nsgo`.
 
 Read the version-matched source in your module cache rather than guessing signatures:
 
 ```sh
-go get github.com/nsgo-dev/game/packages/game@latest
-go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
+go get github.com/nsgo-dev/game@latest
+go get -tool github.com/nsgo-dev/game/cmd/game@latest
 go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@latest
-go list -m -f '{{.Dir}}' github.com/nsgo-dev/game/packages/game
+go list -m -f '{{.Dir}}' github.com/nsgo-dev/game
 ```
 
 Published English docs for agents live at <https://game.nsgo.dev/llms.txt> (index) and <https://game.nsgo.dev/llms-full.txt> (full Markdown).
@@ -31,7 +31,7 @@ Published English docs for agents live at <https://game.nsgo.dev/llms.txt> (inde
 
 ## Quick-start workflow
 
-1. **Scaffold a project:** `nsgo game` runs through NSGo's extension mechanism (NSGo v0.3.3 or later; install `nsgo` with `brew install nsgo-dev/tap/nsgo`, `curl -fsSL https://nsgo.dev/install.sh | sh` or `go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`; the game layer and its templates require NSGo v0.3.4): inside a module whose `go.mod` declares `tool github.com/nsgo-dev/game/packages/game/cmd/game`, `nsgo game` automatically runs that module's pinned `game` tool (`go tool game` runs the same directly); outside a module, install `nsgo-game` once (`go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest`) for `nsgo game`, or run `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new my-game` directly with nothing to install.
+1. **Scaffold a project:** `nsgo game` runs through NSGo's extension mechanism (NSGo v0.3.3 or later; install `nsgo` with `brew install nsgo-dev/tap/nsgo`, `curl -fsSL https://nsgo.dev/install.sh | sh` or `go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`; the game layer and its templates require NSGo v0.3.4): inside a module whose `go.mod` declares `tool github.com/nsgo-dev/game/cmd/game`, `nsgo game` automatically runs that module's pinned `game` tool (`go tool game` runs the same directly); outside a module, install `nsgo-game` once (`go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`) for `nsgo game`, or run `go run github.com/nsgo-dev/game/cmd/game@latest new my-game` directly with nothing to install.
 
    ```sh
    nsgo game new my-game
@@ -128,6 +128,6 @@ When testing or debugging a game over `nsgo mcp` (or headlessly via `nsgotest.St
 
 Load on demand for exact APIs, flags, schemas, and tool arguments:
 
-- [references/packages.md](references/packages.md) — complete catalog of `packages/game/*` packages grouped by stage and domain, with import paths and stability status.
+- [references/packages.md](references/packages.md) — complete catalog of `pkg/*` packages grouped by stage and domain, with import paths and stability status.
 - [references/cli-and-formats.md](references/cli-and-formats.md) — `nsgo game` subcommands, companion tools, YAML file format contract, schemas, and external tool formats.
 - [references/mcp-tools.md](references/mcp-tools.md) — full `game/mcp` tool reference, `mcp.Config` wiring, component/prefab/asset registration, and `nsgotest` verification patterns.

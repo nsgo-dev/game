@@ -1,7 +1,7 @@
 # physics3d
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/physics3d"
+import "github.com/nsgo-dev/game/pkg/physics3d"
 ```
 
 纯 Go 实现的紧凑、确定性 3D 碰撞检测、射线检测、刚体动力学与运动学角色控制器。

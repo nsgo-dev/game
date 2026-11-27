@@ -4,11 +4,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/gameui"
-	"github.com/nsgo-dev/game/packages/game/l10n"
-	"github.com/nsgo-dev/game/packages/game/quality"
-	"github.com/nsgo-dev/game/packages/game/save"
-	"github.com/nsgo-dev/game/packages/game/screen"
+	"github.com/nsgo-dev/game/pkg/gameui"
+	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/quality"
+	"github.com/nsgo-dev/game/pkg/save"
+	"github.com/nsgo-dev/game/pkg/screen"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

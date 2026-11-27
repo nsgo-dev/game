@@ -3,7 +3,7 @@
 `fps3d` is a first-person shooter arena, Relay Yard: the player holds a walled yard against three waves of drones and wardens with a hitscan rifle and a projectile launcher, picking up health and ammo between fights. Clearing the last wave wins; reaching 0 health loses. It is the template to start from for a 3D shooter, and a working example of the 3D packages together: `physics3d`, `render3d`, `ai` and `input`.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template fps3d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template fps3d mygame
 cd mygame
 go tool nsgo dev
 ```

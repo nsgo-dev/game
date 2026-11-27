@@ -3,8 +3,8 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/math3d"
-	"github.com/nsgo-dev/game/packages/game/vehicle"
+	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/vehicle"
 )
 
 // driver drives a car along the racing line: it steers toward a point ahead on the line (pure pursuit) and holds the line's planned speed scaled by its pace. The rivals use it, the player's car uses it after the finish, and the tests drive the player's car with it through the keyboard, a gamepad or the touch controls.

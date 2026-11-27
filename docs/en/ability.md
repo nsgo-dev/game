@@ -1,9 +1,9 @@
 # ability
 
-`github.com/nsgo-dev/game/packages/game/ability` runs gameplay abilities: costs, cooldowns, charges, cast and channel times and conditions, activated by [input](input.md) actions and advanced one fixed [`game.Loop`](loop.md) step at a time.
+`github.com/nsgo-dev/game/pkg/ability` runs gameplay abilities: costs, cooldowns, charges, cast and channel times and conditions, activated by [input](input.md) actions and advanced one fixed [`game.Loop`](loop.md) step at a time.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/ability"
+import "github.com/nsgo-dev/game/pkg/ability"
 ```
 
 ## Ability sets

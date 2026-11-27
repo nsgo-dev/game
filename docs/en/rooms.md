@@ -3,7 +3,7 @@
 `game/rooms` splits a 2D world into rooms with their own camera bounds, as metroidvania platformers do. When the player walks from one room into the next, a `Director` clamps the `tilemap.Camera` to the new room and plays its transition: a cut, a slide or a fade.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/rooms"
+import "github.com/nsgo-dev/game/pkg/rooms"
 ```
 
 ## Room maps

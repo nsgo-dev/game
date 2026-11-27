@@ -1,6 +1,6 @@
 # NSGo Game Platformer Template
 
-A small 2D side-scrolling platformer built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game). A lantern bearer runs and jumps through three rooms of Lantern Hills, collects sparks, lights a lamp that becomes the respawn point and reaches the beacon to win. Spikes and pits cost a life; losing the last one loses the run.
+A small 2D side-scrolling platformer built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game). A lantern bearer runs and jumps through three rooms of Lantern Hills, collects sparks, lights a lamp that becomes the respawn point and reaches the beacon to win. Spikes and pits cost a life; losing the last one loses the run.
 
 It shows:
 
@@ -36,8 +36,8 @@ go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Layout

@@ -3,7 +3,7 @@
 `game/anim3d` provides 3D skeletal animation driven on `game.Loop`'s fixed steps: glTF 2.0 node and skin playback (`Player`, `ClipFromGLTF`), pose state machines with cross-fade transitions, 1D/2D blend spaces with foot-phase synchronization, bone-masked override and additive layers, timed clip events, two-bone and FABRIK inverse kinematics, and root motion extraction.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/anim3d"
+import "github.com/nsgo-dev/game/pkg/anim3d"
 ```
 
 All joint transforms follow [math3d](math3d.md) conventions (right-handed Y-up).

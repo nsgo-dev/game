@@ -1,6 +1,6 @@
 name: Website
 
-# Builds the site in apps/website, every page prerendered to static HTML, with the playground's web builds of the examples and the API reference generated from packages/game's Go doc comments, and deploys it to GitHub Pages.
+# Builds the site in apps/website, every page prerendered to static HTML, with the playground's web builds of the examples and the API reference generated from the root Go module's doc comments, and deploys it to GitHub Pages.
 on:
   push:
     branches:
@@ -9,7 +9,12 @@ on:
       - "apps/website/**"
       - "docs/**"
       - "examples/**"
-      - "packages/game/**"
+      - "*.go"
+      - "go.mod"
+      - "go.sum"
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
       - "go.work"
       - "package.json"
       - "bun.lock"
@@ -19,7 +24,12 @@ on:
       - "apps/website/**"
       - "docs/**"
       - "examples/**"
-      - "packages/game/**"
+      - "*.go"
+      - "go.mod"
+      - "go.sum"
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
       - "go.work"
       - "package.json"
       - "bun.lock"
@@ -49,14 +59,14 @@ jobs:
           bun-version: "1.4.4"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      # The playground's examples and the API reference's pages and api.json, which packages/game/cmd/gameapi generates, need Go.
+      # The playground's examples and the API reference's pages and api.json, which cmd/gameapi generates, need Go.
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
           cache-dependency-path: |
-            packages/game/go.sum
+            go.sum
             examples/*/go.sum
       # The playground runs each example's web build, which the site's build requires in CI (docs/en/playground.md).
       - name: Build the playground's examples

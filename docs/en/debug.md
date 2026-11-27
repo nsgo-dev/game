@@ -3,7 +3,7 @@
 `game/debug` provides development-only diagnostics for NSGo games: a key-toggled frame-time graph, a live scene/layer inspector, and world-space collision and sprite-bounds wireframes — all stripped to zero-cost no-ops with `-tags release`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/debug"
+import "github.com/nsgo-dev/game/pkg/debug"
 ```
 
 ## Wiring the overlay and frame-time graph

@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/leaderboard"
-	"github.com/nsgo-dev/game/packages/game/quality"
-	"github.com/nsgo-dev/game/packages/game/save"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/leaderboard"
+	"github.com/nsgo-dev/game/pkg/quality"
+	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 )

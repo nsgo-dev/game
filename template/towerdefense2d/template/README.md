@@ -1,6 +1,6 @@
 # Bramble Gate: a tower defense template
 
-A small, complete 2D tower defense game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game). Enemies walk a road from the spawn to the gate; you build towers on the grass beside it, upgrade them with the money the enemies drop, and call each wave when you are ready. Stop all five waves to win; let ten lives' worth of enemies through the gate and you lose.
+A small, complete 2D tower defense game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game). Enemies walk a road from the spawn to the gate; you build towers on the grass beside it, upgrade them with the money the enemies drop, and call each wave when you are ready. Stop all five waves to win; let ten lives' worth of enemies through the gate and you lose.
 
 It shows:
 
@@ -14,8 +14,8 @@ It shows:
 Edit the name and identifier in `game.yaml` before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Running and testing
@@ -69,4 +69,4 @@ The bindings are the `input` section of `game.yaml`: add a key or a button to an
 - **Art**: `art.go` paints every tile and projectile. Replace `makeAtlas` with `sprite.LoadAtlas` and an atlas of your own to use image files.
 - **Rules**: `world.go` holds them all, so a new kind of tower behavior is a new stat read in `World.hit` or `World.fire`.
 
-After changing a data file, run `go tool nsgo test ./...`: `TestDataFilesAreCanonical` checks the files load and are in the form the game writes, and the playthrough tests show whether `winningPlan` in `plan_test.go` still wins. Run `go run github.com/nsgo-dev/game/packages/game/cmd/game index` to update `game.index.yaml`.
+After changing a data file, run `go tool nsgo test ./...`: `TestDataFilesAreCanonical` checks the files load and are in the form the game writes, and the playthrough tests show whether `winningPlan` in `plan_test.go` still wins. Run `go run github.com/nsgo-dev/game/cmd/game index` to update `game.index.yaml`.

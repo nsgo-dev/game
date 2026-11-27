@@ -4,10 +4,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/tween"
-	"github.com/nsgo-dev/game/packages/game/undo"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/tween"
+	"github.com/nsgo-dev/game/pkg/undo"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 )

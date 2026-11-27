@@ -4,8 +4,8 @@
 
 ```go
 import (
-	"github.com/nsgo-dev/game/packages/game/pixelfx"
-	_ "github.com/nsgo-dev/game/packages/game/pixelfx/fire" // registers fire/torch and the rest of its category
+	"github.com/nsgo-dev/game/pkg/pixelfx"
+	_ "github.com/nsgo-dev/game/pkg/pixelfx/fire" // registers fire/torch and the rest of its category
 )
 ```
 
@@ -139,13 +139,13 @@ The references are `<case>-<frame>.png` in `testdata/ref/<name>` of the effect's
 Each category is one change against its issue. To port one:
 
 1. Clone pixelfx and move it to the pinned commit: `git clone https://github.com/patch-gg/pixelfx` and `git -C pixelfx switch --detach 5294518ce7c72e48b6100a744596e0acf57f2826`. Do not run its npm install scripts; the reference tool needs only Node 18 or newer, and pixelfx's render code has no dependencies.
-2. Port the category's `_lib.js` into `lib.go` of `packages/game/pixelfx/<category>` (the subpackage may already hold a few of its functions from the core change) and each effect into a file of its own named after it (`fire-ring.js` becomes `fire_ring.go`), with the upstream file and commit, the MIT license and any Sprite Fusion notice the file carries at its top. Keep pixelfx's math, the order of its float operations and of its calls to the random generator: arguments and calls are evaluated left to right in Go as in JavaScript, but a JavaScript loop condition that draws a random number draws it on every pass, and a constant expression such as `Math.PI + 0.07` must use a variable for π (Go folds constants exactly at compile time, JavaScript rounds each step).
+2. Port the category's `_lib.js` into `lib.go` of `pkg/pixelfx/<category>` (the subpackage may already hold a few of its functions from the core change) and each effect into a file of its own named after it (`fire-ring.js` becomes `fire_ring.go`), with the upstream file and commit, the MIT license and any Sprite Fusion notice the file carries at its top. Keep pixelfx's math, the order of its float operations and of its calls to the random generator: arguments and calls are evaluated left to right in Go as in JavaScript, but a JavaScript loop condition that draws a random number draws it on every pass, and a constant expression such as `Math.PI + 0.07` must use a variable for π (Go folds constants exactly at compile time, JavaScript rounds each step).
 3. Export each effect as a variable of the package (`var FireRing = &pixelfx.Effect{...}`) and register it in an `init` as `"<category>/<name>"`. A JavaScript color or alpha that is a function becomes the painter's `...Fn` method; options become `Meta.Options` with their defaults; an `act` becomes `Act`, with `Opt` for a hit's values pixelfx defaults when they are left out.
 4. Render the references: `node tools/pixelfxref/render.mjs --pixelfx <clone> <category>`, and add the category's `parity_test.go` calling `pixelfxtest.CheckEffect` and `pixelfxtest.CheckDeterministic` for each effect, with a `pixelfxtest.BenchmarkFrames` benchmark, as `pixelfx/fire` does.
-5. Import the category in `packages/game/cmd/game/pixelfx.go` so `game pixelfx` renders it, keep its row in the stability tables and its `example_test.go`, update the table above and its Chinese twin, and add a changelog fragment.
+5. Import the category in `cmd/game/pixelfx.go` so `game pixelfx` renders it, keep its row in the stability tables and its `example_test.go`, update the table above and its Chinese twin, and add a changelog fragment.
 
 When a frame differs beyond the tolerance, write it out with `PIXELFXTEST_OUT` and compare it with the reference: a shape out of place is a porting mistake (often the order of random draws), a step of a channel here and there is floating point.
 
 ## License
 
-The port is under pixelfx's MIT license: `packages/game/pixelfx/LICENSE` holds its text and `NOTICE.md` its notices, Sprite Fusion's for the simulation and the effects adapted from its VFX, and Hollow Crown's for the acting system. The Patch Pixel font of pixelfx's gallery is not MIT licensed and is not ported; the two pixel fonts drawn in code are.
+The port is under pixelfx's MIT license: `pkg/pixelfx/LICENSE` holds its text and `NOTICE.md` its notices, Sprite Fusion's for the simulation and the effects adapted from its VFX, and Hollow Crown's for the acting system. The Patch Pixel font of pixelfx's gallery is not MIT licensed and is not ported; the two pixel fonts drawn in code are.

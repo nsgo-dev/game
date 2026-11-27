@@ -1,9 +1,9 @@
 # platformer
 
-`github.com/nsgo-dev/game/packages/game/platformer` 把 [`physics.CharacterBody`](physics.md) 变成平台跳跃角色，提供土狼时间、跳跃缓冲、可变跳跃高度、贴墙下滑和蹬墙跳。每个辅助功能的时长都是 YAML 配置里的可调参数。
+`github.com/nsgo-dev/game/pkg/platformer` 把 [`physics.CharacterBody`](physics.md) 变成平台跳跃角色，提供土狼时间、跳跃缓冲、可变跳跃高度、贴墙下滑和蹬墙跳。每个辅助功能的时长都是 YAML 配置里的可调参数。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/platformer"
+import "github.com/nsgo-dev/game/pkg/platformer"
 ```
 
 坐标与 `physics` 一致：X 向右增大，Y 向下增大。速度单位是点每秒，一律写正数，方向由控制器决定。

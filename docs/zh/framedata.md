@@ -1,9 +1,9 @@
 # framedata
 
-`github.com/nsgo-dev/game/packages/game/framedata` 为格斗游戏的招式提供逐帧的攻击框、受击框和命中属性（伤害、硬直、防御硬直、击退、取消窗口）。角色的帧数据是一个 YAML 文件，由 `World` 在每个固定步长中把它解析为命中，每次结果都相同。
+`github.com/nsgo-dev/game/pkg/framedata` 为格斗游戏的招式提供逐帧的攻击框、受击框和命中属性（伤害、硬直、防御硬直、击退、取消窗口）。角色的帧数据是一个 YAML 文件，由 `World` 在每个固定步长中把它解析为命中，每次结果都相同。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/framedata"
+import "github.com/nsgo-dev/game/pkg/framedata"
 ```
 
 ## 帧数据文件

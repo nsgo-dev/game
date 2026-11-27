@@ -3,7 +3,7 @@
 `game/net` provides cross-target multiplayer networking for NSGo games: a unified `Transport` across WebSocket (native + WebAssembly), native UDP, and simulated loopback; server-authoritative delta snapshot replication with client prediction and interpolation; and deterministic lockstep and rollback netcode.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/net"
+import "github.com/nsgo-dev/game/pkg/net"
 ```
 
 ## Cross-target transports (`Transport`)

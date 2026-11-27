@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/pkg/ai"
 )
 
 // maxGameSteps bounds a played game: ten minutes of steps, well past the level's length.

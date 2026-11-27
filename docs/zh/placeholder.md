@@ -3,14 +3,14 @@
 `game/placeholder` 是一套用于原型制作的小型素材包：精灵表、附带 Tiled 图块集和示例关卡的图块集、一款像素字体、音效和一段循环音乐，以及三个 glTF 模型，每张图片和每段声音都带有[导入设置旁车文件](cli.md#assets)。每个文件都是在本仓库中用 Go 绘制、合成或建模的原创作品，全部以 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/deed.zh-hans) 贡献到公有领域：游戏可以使用、修改和发布它们，无论是否商用，都无需询问，也无需署名。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/placeholder"
+import "github.com/nsgo-dev/game/pkg/placeholder"
 ```
 
 示例和教程只使用这套素材包，或写明了许可证的自有素材；见[本仓库中的署名](#本仓库中的署名)。
 
 ## 包含内容
 
-文件位于 `packages/game/placeholder/pack`，由这个包嵌入，并由 `placeholder.FS()` 返回：
+文件位于 `pkg/placeholder/pack`，由这个包嵌入，并由 `placeholder.FS()` 返回：
 
 | 文件夹 | 文件 | 内容 |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ jump, err := placeholder.Sound("jump")       // core.AudioSource，可交给 aud
 
 ## 复制到项目中
 
-若要修改素材，或把它们构建进游戏自己的图集，可将 `packages/game/placeholder/pack` 复制到项目中，例如复制为 `art/placeholder`，再像其他素材一样用 [`game assets`](cli.md#assets) 构建。下面这段 `game.yaml` 的 assets 部分按设计意图使用每个旁车文件：
+若要修改素材，或把它们构建进游戏自己的图集，可将 `pkg/placeholder/pack` 复制到项目中，例如复制为 `art/placeholder`，再像其他素材一样用 [`game assets`](cli.md#assets) 构建。下面这段 `game.yaml` 的 assets 部分按设计意图使用每个旁车文件：
 
 ```yaml
 assets:
@@ -102,7 +102,7 @@ assets:
 
 ## 重新生成
 
-`packages/game/placeholder/internal/gen` 中的生成器（模型来自 `packages/game/internal/samplegltf`）绘制除 `CREDITS.md` 以外的每个文件，并且在每次运行、每种架构上写出相同的字节。有一个测试会把提交的素材包与它比较；修改生成器后，在 `packages/game` 中运行以下命令重写素材包：
+`pkg/placeholder/internal/gen` 中的生成器（模型来自 `internal/samplegltf`）绘制除 `CREDITS.md` 以外的每个文件，并且在每次运行、每种架构上写出相同的字节。有一个测试会把提交的素材包与它比较；修改生成器后，在仓库根目录运行以下命令重写素材包：
 
 ```sh
 go tool nsgo test ./placeholder -run TestPackMatchesGenerator -update

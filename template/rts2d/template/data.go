@@ -9,8 +9,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
-	"github.com/nsgo-dev/game/packages/game/rts"
+	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/rts"
 	"go.yaml.in/yaml/v3"
 )
 

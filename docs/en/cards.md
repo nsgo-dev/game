@@ -3,7 +3,7 @@
 `game/cards` drags cards between the slots of a board in the game view and lays them out as fanned hands, decks, piles and grids. A card dropped on a slot that accepts it snaps into place; one dropped anywhere else flies back to where it came from. Every move is a `game/tween` advanced on `game.Loop`'s fixed steps, and the mouse and touch take the same path.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/cards"
+import "github.com/nsgo-dev/game/pkg/cards"
 ```
 
 ## Boards, slots and cards

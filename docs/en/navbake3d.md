@@ -3,7 +3,7 @@
 `game/navbake3d` bakes 3D navigation meshes from a level's geometry, as Recast, Godot's `NavigationRegion3D` and Unity's `NavMeshSurface` do, so a 3D game no longer authors the convex polygons of a [world3d](world3d.md) `NavMesh` by hand. It reads the level from glTF models, scene files, terrain heightmaps, `GridMap`s and physics colliders, bakes one mesh per agent type, and saves them in a versioned YAML file that a scene names. For a 2D level, [navbake](navbake.md) bakes `ai.NavMesh` polygons instead.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/navbake3d"
+import "github.com/nsgo-dev/game/pkg/navbake3d"
 ```
 
 ## Baking a level

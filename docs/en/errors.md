@@ -1,6 +1,6 @@
 # Errors an agent can act on
 
-Every loader and validator in this module returns the same error type when a file cannot be used: `*loaderr.Error` from `github.com/nsgo-dev/game/packages/game/loaderr`. It names the file, the line and column, the field, what was wrong, what was expected and how to fix it, so a person, or an agent reading a test or build log, can open the file at that line and correct it without reading the loader's source.
+Every loader and validator in this module returns the same error type when a file cannot be used: `*loaderr.Error` from `github.com/nsgo-dev/game/pkg/loaderr`. It names the file, the line and column, the field, what was wrong, what was expected and how to fix it, so a person, or an agent reading a test or build log, can open the file at that line and correct it without reading the loader's source.
 
 ```text
 levels/cave.scene.yaml:14:7: layers[1].space: layer "hud" has invalid space "iso"; expected "world" or "screen"; fix: set space to world or screen, or remove it for world

@@ -1,10 +1,10 @@
 # 2D Rigid Bodies & Joints Architecture
 
-This document records the design decision for 2D rigid-body dynamics in `github.com/nsgo-dev/game/packages/game/physics` ([#320](https://github.com/nsgo-dev/game/issues/320), [#321](https://github.com/nsgo-dev/game/issues/321), [#322](https://github.com/nsgo-dev/game/issues/322), [#804](https://github.com/nsgo-dev/game/issues/804), [#805](https://github.com/nsgo-dev/game/issues/805)).
+This document records the design decision for 2D rigid-body dynamics in `github.com/nsgo-dev/game/pkg/physics` ([#320](https://github.com/nsgo-dev/game/issues/320), [#321](https://github.com/nsgo-dev/game/issues/321), [#322](https://github.com/nsgo-dev/game/issues/322), [#804](https://github.com/nsgo-dev/game/issues/804), [#805](https://github.com/nsgo-dev/game/issues/805)).
 
 ## Decision
 
-Implement a lightweight, pure-Go, deterministic 2D rigid-body and constraint solver (`RigidWorld`, `RigidBody`, and `Joint` types) directly inside `packages/game/physics`, rather than binding a C/C++ physics engine (such as Box2D or Chipmunk2D) via cgo or taking on an external Go dependency.
+Implement a lightweight, pure-Go, deterministic 2D rigid-body and constraint solver (`RigidWorld`, `RigidBody`, and `Joint` types) directly inside `pkg/physics`, rather than binding a C/C++ physics engine (such as Box2D or Chipmunk2D) via cgo or taking on an external Go dependency.
 
 ## Rationale
 
@@ -37,7 +37,7 @@ Implement a lightweight, pure-Go, deterministic 2D rigid-body and constraint sol
 - **Supported shapes**: oriented `Box` and `Circle`, convex `Polygon` (up to 8 vertices, optionally rounded) and `Capsule` for dynamic bodies, and `Segment` and `Chain` for static ones. Concave terrain is a `Chain` (or several convex polygons); concave dynamic bodies are out of scope for the built-in solver.
 - **Continuous collision**: fast bodies are swept against static bodies and tiles only, so a fast body can still pass through a thin dynamic or kinematic body, and the impact ends the body's motion for that step rather than spending the rest of it sliding along the surface. Set `Bullet` on a body that must never end a step inside a static body.
 - **Sleeping**: an island sleeps as a whole, so one body kept moving (a character pushing against a pile, a body under a constant `ApplyForce`) keeps every body it touches awake. A body moved in place by setting its fields wakes on the next step; changing the shape of a sleeping body does not wake it, so call `Wake` after editing one.
-- **Scale**: the broadphase and sleeping keep a step proportional to the awake bodies and their contacts. In the performance scenario (`BenchmarkRigidWorld500Bodies` and `BenchmarkRigidWorld500BodiesPacked`), 500 boxes, circles, polygons and capsules falling into a bin take about 2 ms a step while they fall and 5 to 6 ms once the pile is packed and still awake, on one core of a Ryzen 9 3900X running Linux, inside the 16.7 ms of a 60 fps frame. Games requiring large-scale multi-thousand-body simulations can integrate a dedicated physics engine alongside `packages/game`.
+- **Scale**: the broadphase and sleeping keep a step proportional to the awake bodies and their contacts. In the performance scenario (`BenchmarkRigidWorld500Bodies` and `BenchmarkRigidWorld500BodiesPacked`), 500 boxes, circles, polygons and capsules falling into a bin take about 2 ms a step while they fall and 5 to 6 ms once the pile is packed and still awake, on one core of a Ryzen 9 3900X running Linux, inside the 16.7 ms of a 60 fps frame. Games requiring large-scale multi-thousand-body simulations can integrate a dedicated physics engine alongside `github.com/nsgo-dev/game`.
 
 ## Kinematic bodies, sensors, tiles and contact events
 

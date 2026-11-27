@@ -1,6 +1,6 @@
 # cloudsave
 
-`github.com/nsgo-dev/game/packages/game/cloudsave` 是可自行部署的云存档服务：每个玩家账号都有经 HTTPS 访问的存档槽位，按版本保存。两台设备同时写同一个槽位时不会互相覆盖，超过大小上限的槽位会以明确的错误被拒绝，每个槽位最近的几个版本可以列出并恢复。游戏通过 `liveops.CloudClient`（一个 `liveops.CloudSync`）访问它，因此 `liveops.CloudSyncer` 能让本地存档与它保持一致，并按自身策略解决冲突。
+`github.com/nsgo-dev/game/pkg/cloudsave` 是可自行部署的云存档服务：每个玩家账号都有经 HTTPS 访问的存档槽位，按版本保存。两台设备同时写同一个槽位时不会互相覆盖，超过大小上限的槽位会以明确的错误被拒绝，每个槽位最近的几个版本可以列出并恢复。游戏通过 `liveops.CloudClient`（一个 `liveops.CloudSync`）访问它，因此 `liveops.CloudSyncer` 能让本地存档与它保持一致，并按自身策略解决冲突。
 
 该服务是服务端代码，放在独立的包里；游戏客户端只导入 `liveops`。它自己不保存账号：它用 `accounts/token` 离线校验[账号服务](accounts.md)签发的令牌，并把每位玩家的槽位归在令牌的 subject（即账号 ID）名下。玩家在网页和 Android 手机上登录同一个账号，读写的就是同一组槽位。
 

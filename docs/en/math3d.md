@@ -3,7 +3,7 @@
 `math3d` provides pure-Go `float32` vectors, matrices, quaternions, transforms, bounding volumes, rays, planes, and frustums with a single consistent set of conventions matching glTF 2.0, WebGPU, and Metal.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/math3d"
+import "github.com/nsgo-dev/game/pkg/math3d"
 ```
 
 ## Quick Reference

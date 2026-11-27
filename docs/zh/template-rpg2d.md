@@ -3,7 +3,7 @@
 `rpg2d` 是一个名叫 Hollowbrook 的小型俯视角 RPG：一座小镇和镇门外的草地、三个可以交谈的人物、装着物品与装备的背包、一个任务、回合制战斗和三个存档槽。它是[模板](templates.md)之一，也是这类游戏的起点。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template rpg2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template rpg2d mygame
 cd mygame
 go tool nsgo dev
 ```

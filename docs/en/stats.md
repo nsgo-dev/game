@@ -3,7 +3,7 @@
 `game/stats` keeps an entity's gameplay stats: named base values changed by additive, multiplicative and override modifiers that come from sources such as equipment and buffs. Values are recomputed the moment anything changes, and timed modifiers count fixed steps, so a buff that lasts 300 steps ends on exactly the 300th.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/stats"
+import "github.com/nsgo-dev/game/pkg/stats"
 ```
 
 ## A sheet of stats

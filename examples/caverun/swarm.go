@@ -4,9 +4,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/random"
-	"github.com/nsgo-dev/game/packages/game/screen"
-	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/pkg/random"
+	"github.com/nsgo-dev/game/pkg/screen"
+	"github.com/nsgo-dev/game/pkg/sprite"
 )
 
 const (

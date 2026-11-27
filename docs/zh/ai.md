@@ -3,7 +3,7 @@
 `game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、分层寻路 `HPA`、跳点搜索 `JPS`、通用图搜索 `GraphSearch`（支持六边形瓦片地图适配器、航点图与自定义图上的 A*、Dijkstra 和带路径的移动范围查询）、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、2D 与 3D XZ 平面基于速度障碍的局部避障（ORCA）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps）、EQS 风格的战术位置查询、掩体点与占位预订系统，以及带视觉、听觉与记忆的感知。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/ai"
+import "github.com/nsgo-dev/game/pkg/ai"
 ```
 
 `ai` 不启动后台 goroutine，也不含隐藏的全局随机源。
@@ -1198,7 +1198,7 @@ for _, ev := range guard.Events() {
 实验性包 `game/ai/perception3d` 在 `math3d.Vec3` 上运行同一个引擎，因此其感官、记忆、事件、阵营与预算的行为与上文完全一致。其 `Perception` 的视锥沿 `Forward` 方向（为零时朝向 -Z），角度在 3D 空间中测量，`EyeOffset` 通常为 +Y 方向的头部高度；`System`、`Target`、`Noise`、`Memory`、`Event` 与 `LineOfSight` 与对应的 2D 类型一一对应，并复用 `ai.SightConfig`、`ai.HearingConfig`、`ai.StimulusID`、`ai.Team` 与事件类型：
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/ai/perception3d"
+import "github.com/nsgo-dev/game/pkg/ai/perception3d"
 
 guard := &perception3d.Perception{
 	Team:        teamGuards,

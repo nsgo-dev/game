@@ -1,7 +1,7 @@
 # skeletal
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/skeletal"
+import "github.com/nsgo-dev/game/pkg/skeletal"
 ```
 
 2D 骨骼绑定、正向运动学、换肤、关键帧动画与交叉淡入混合，通过 `sprite.Batch` 绘制到 `core.Drawing` 中。
@@ -89,7 +89,7 @@ import "github.com/nsgo-dev/game/packages/game/skeletal"
 
 ### 示例角色
 
-包含 7 根骨骼、2 套皮肤（`"default"` 与 `"armored"`）及 3 段动画（`"walk"`、`"run"`、`"jump"`）的完整示例见 [runner.skel.yaml](../../packages/game/skeletal/testdata/runner.skel.yaml)。精简片段如下：
+包含 7 根骨骼、2 套皮肤（`"default"` 与 `"armored"`）及 3 段动画（`"walk"`、`"run"`、`"jump"`）的完整示例见 [runner.skel.yaml](../../pkg/skeletal/testdata/runner.skel.yaml)。精简片段如下：
 
 ```yaml
 version: 1

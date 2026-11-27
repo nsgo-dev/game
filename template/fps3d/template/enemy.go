@@ -4,8 +4,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
-	"github.com/nsgo-dev/game/packages/game/physics3d"
+	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/physics3d"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

@@ -3,7 +3,7 @@
 `game/world3d` 基于 [math3d](math3d.md) 提供 3D 世界构建原语：高度图地形、多层立体 3D 导航网格、模块化 3D 网格 `GridMap`、带视锥与距离裁剪的程序化植被散布，以及浮点原点重置与大世界区块流式加载。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/world3d"
+import "github.com/nsgo-dev/game/pkg/world3d"
 ```
 
 ## 高度图地形（`Heightmap`）

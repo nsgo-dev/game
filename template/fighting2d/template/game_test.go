@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/fighting"
-	"github.com/nsgo-dev/game/packages/game/placeholder"
+	"github.com/nsgo-dev/game/pkg/fighting"
+	"github.com/nsgo-dev/game/pkg/placeholder"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"

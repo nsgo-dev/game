@@ -3,7 +3,7 @@
 用 `playtest.yaml` 定义自动化试玩，通过确定性输入录制无头运行多组种子，并将测得的指标与游戏目标对比。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/playtest"
+import "github.com/nsgo-dev/game/pkg/playtest"
 ```
 
 ## `playtest.yaml`

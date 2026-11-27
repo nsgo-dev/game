@@ -3,7 +3,7 @@
 `game/worldmap` remembers which rooms of a game world the player has discovered and draws them as a minimap of the current area and a world map, with markers. What the player has discovered goes into a save slot and comes back on load.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/worldmap"
+import "github.com/nsgo-dev/game/pkg/worldmap"
 ```
 
 ## Map definitions

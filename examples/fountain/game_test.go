@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/gametest"
-	"github.com/nsgo-dev/game/packages/game/particles"
+	"github.com/nsgo-dev/game/pkg/gametest"
+	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )

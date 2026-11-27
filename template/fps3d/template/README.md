@@ -1,6 +1,6 @@
 # Relay Yard: an NSGo first-person shooter template
 
-A first-person shooter arena built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game): hold the relay yard against three waves of drones and wardens with a hitscan rifle and a projectile launcher.
+A first-person shooter arena built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game): hold the relay yard against three waves of drones and wardens with a hitscan rifle and a projectile launcher.
 
 It shows:
 
@@ -38,8 +38,8 @@ go tool nsgo check -target macos,windows,linux,android,web
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Layout

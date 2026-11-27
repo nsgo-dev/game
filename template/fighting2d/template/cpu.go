@@ -4,7 +4,7 @@ import (
 	"math/rand/v2"
 	"slices"
 
-	"github.com/nsgo-dev/game/packages/game/fighting"
+	"github.com/nsgo-dev/game/pkg/fighting"
 )
 
 // jumpInScript is the CPU's jump-in: a jump forward and a heavy air attack on the way down.

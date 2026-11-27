@@ -3,7 +3,7 @@
 `game/fog` 为策略游戏在正交、等距、交错等距与六边形瓦片网格上追踪战争迷雾：每个队伍此刻能看到哪些格子、以前探索过哪些格子、从未见过哪些格子。它按瓦片地图的投影精准对齐绘制迷雾，并随游戏的其余状态一起存档。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/fog"
+import "github.com/nsgo-dev/game/pkg/fog"
 ```
 
 ## 队伍、视野源与状态

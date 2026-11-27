@@ -3,7 +3,7 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/pkg/input"
 )
 
 // The actions and axes of game.yaml's input map. Each action is bound there to keys, gamepad buttons and an on-screen touch pad, so every device plays the same way; to rebind a control, edit game.yaml.

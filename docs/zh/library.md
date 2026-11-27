@@ -1,6 +1,6 @@
 # 资源与插件库
 
-`github.com/nsgo-dev/game/packages/game/tooling/library` 在库中查找共享的资源包、编辑器插件包和模板，并把它们安装到游戏项目里。库是一份任何人都能通过拉取请求添加包的文本索引；安装一个包会把它的文件写入项目，并把这些文件以及它们新增的引用记录在 `game.yaml` 中。`nsgo game library` 从命令行运行它，场景编辑器的库面板从编辑器里运行它。
+`github.com/nsgo-dev/game/pkg/tooling/library` 在库中查找共享的资源包、编辑器插件包和模板，并把它们安装到游戏项目里。库是一份任何人都能通过拉取请求添加包的文本索引；安装一个包会把它的文件写入项目，并把这些文件以及它们新增的引用记录在 `game.yaml` 中。`nsgo game library` 从命令行运行它，场景编辑器的库面板从编辑器里运行它。
 
 ## 查找与安装包
 
@@ -120,7 +120,7 @@ autoload:
 ## 向共享库添加包
 
 1. 在 `library/packs/<name>` 下添加包的目录，包括 `pack.yaml` 和文件。每个文件都必须是你有权按清单所写许可证共享的。
-2. 在 `packages/game` 目录下运行 `go run ./cmd/game library digest ../../library/packs/<name>`，并在 `library/index.yaml` 中添加带有该 `sha256` 的条目。
+2. 在仓库根目录运行 `go run ./cmd/game library digest library/packs/<name>`，并在 `library/index.yaml` 中添加带有该 `sha256` 的条目。
 3. 提交拉取请求。库的测试会获取索引中的每个包，因此摘要或清单与条目不一致会让 CI 失败。
 
 团队也可以在任何能通过 https 提供文件的地方，或在自己仓库的某个目录中维护自己的库，并用 `-index` 指向它。纯 http 只接受回环地址（如本地测试服务器），索引和包的 `source` 都是如此，每个文件限制为 64 MiB。服务器 30 秒内连不上或 1 分钟内没有响应，或某个文件 10 分钟内没有下载完，都会放弃。

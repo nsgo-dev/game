@@ -3,7 +3,7 @@
 `game/math2d` 提供在 NSGo 游戏包之间共享的轻量、零堆分配 2D 值类型：`Vec2` 向量、轴对齐矩形 `Rect`、圆 `Circle` 以及 3×2 仿射变换 `Affine`，并支持与 NSGo `core` 几何类型之间的无损互转。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/math2d"
+import "github.com/nsgo-dev/game/pkg/math2d"
 ```
 
 所有坐标均采用 `float32`，与 `core.Points`、`core.Point`、`core.Size`、`core.Bounds` 和 `core.Drawing` 保持一致。角度单位为弧度，从 `+X` 转向 `+Y`（在 NSGo 向下为 `+Y` 的画布坐标系中即顺时针方向）。

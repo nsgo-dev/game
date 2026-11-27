@@ -3,7 +3,7 @@
 Define automated playtests in `playtest.yaml`, run bots headless across seeded runs with deterministic input recordings, and check measured metrics against the game's goals.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/playtest"
+import "github.com/nsgo-dev/game/pkg/playtest"
 ```
 
 ## `playtest.yaml`

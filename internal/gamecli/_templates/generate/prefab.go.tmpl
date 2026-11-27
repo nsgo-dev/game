@@ -1,0 +1,17 @@
+package {{.Package}}
+
+import (
+	_ "embed"
+
+	"github.com/nsgo-dev/game/pkg/entities"
+)
+
+// {{.Camel}}PrefabYAML is the scene file of the {{.Title}} prefab, {{.Path}}: one object whose prefab is {{.Camel}}, which a scene instances with scene: {{.Path}}.
+//
+//go:embed {{.Path}}
+var {{.Camel}}PrefabYAML []byte
+
+// {{.Go}}Prefab spawns a {{.Title}} entity with the components added to it with entities.With and entities.WithFunc. A scene places one as an object whose prefab is {{.Camel}}, such as by instancing {{.Path}}.
+var {{.Go}}Prefab = entities.NewPrefab("{{.Camel}}")
+
+func init() { Prefabs[{{.Go}}Prefab.Name()] = {{.Go}}Prefab }

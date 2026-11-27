@@ -4,10 +4,10 @@
 
 ## 安装
 
-通过 NSGo 的扩展机制（自 NSGo v0.3.3 起）以 `nsgo game` 运行这个命令。`nsgo` 只需安装一次：用 Homebrew（`brew install nsgo-dev/tap/nsgo`），在 macOS 和 Linux 上用安装脚本（`curl -fsSL https://nsgo.dev/install.sh | sh`），或在任何系统上用 Go（`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`），见 [NSGo 的安装说明](https://nsgo.dev/zh/docs/getting-started/#安装-nsgo)。在 `go.mod` 声明了 `game` 工具的项目中，`nsgo game` 会自动运行该模块固定的工具（`go tool github.com/nsgo-dev/game/packages/game/cmd/game`）：
+通过 NSGo 的扩展机制（自 NSGo v0.3.3 起）以 `nsgo game` 运行这个命令。`nsgo` 只需安装一次：用 Homebrew（`brew install nsgo-dev/tap/nsgo`），在 macOS 和 Linux 上用安装脚本（`curl -fsSL https://nsgo.dev/install.sh | sh`），或在任何系统上用 Go（`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`），见 [NSGo 的安装说明](https://nsgo.dev/zh/docs/getting-started/#安装-nsgo)。在 `go.mod` 声明了 `game` 工具的项目中，`nsgo game` 会自动运行该模块固定的工具（`go tool github.com/nsgo-dev/game/cmd/game`）：
 
 ```sh
-go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
+go get -tool github.com/nsgo-dev/game/cmd/game
 nsgo game help
 ```
 
@@ -16,11 +16,11 @@ nsgo game help
 在项目之外（例如先用 `nsgo game new` 创建项目之前），把 `nsgo-game` 扩展二进制安装一次到 `PATH` 上，`nsgo game` 就能自动找到它：
 
 ```sh
-go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest
+go install github.com/nsgo-dev/game/cmd/nsgo-game@latest
 nsgo game new mygame
 ```
 
-也可以在任何地方直接运行 `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest`，无需预先安装。在项目中，`go tool game` 不经 `nsgo` 同样运行这个命令。
+也可以在任何地方直接运行 `go run github.com/nsgo-dev/game/cmd/game@latest`，无需预先安装。在项目中，`go tool game` 不经 `nsgo` 同样运行这个命令。
 
 ## 命令
 
@@ -198,7 +198,7 @@ nsgo game new -name "Space Rocks" -module example.com/rocks rocks
 nsgo game new -list
 ```
 
-用一个模板生成项目并写入指定目录，目录不存在时会创建，并打印每个文件的路径。随后在该目录运行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@<version>` 和 `go mod tidy`，这两步需要访问 Go 模块代理。这样项目依赖该版本的游戏层，`game` 工具与 `nsgo` 工具并列，无需修改即可用 `go tool nsgo dev` 构建运行。
+用一个模板生成项目并写入指定目录，目录不存在时会创建，并打印每个文件的路径。随后在该目录运行 `go get -tool github.com/nsgo-dev/game/cmd/game@<version>` 和 `go mod tidy`，这两步需要访问 Go 模块代理。这样项目依赖该版本的游戏层，`game` 工具与 `nsgo` 工具并列，无需修改即可用 `go tool nsgo dev` 构建运行。
 
 游戏名称默认取目录名，`-name` 可以另行指定（字母、数字、空格、`-` 和 `_`，以字母开头）。名称写入 `game.yaml` 和 `nsgo.yaml` 的 `name`，`id` 由它派生为 `dev.nsgo.<去掉空格和标点的小写名称>`。模块路径默认是小写名称、单词之间用 `-` 连接，`-module` 可以另行指定。与标准库包同名的模块路径（例如名为 Time 的游戏得到的 `time`）会被拒绝，因为这样的项目无法构建，此时需要用 `-module` 指定，例如 `-module example.com/time`。`-version` 是要依赖的游戏层版本，例如 `v0.4.0`、某个提交或 `latest`；默认是正在运行的命令自身的版本，所以 `go run …@v0.4.0 new` 或以 `v0.4.0` 安装的 `nsgo-game` 创建的项目使用 `v0.4.0`，而从本仓库的检出构建的命令则使用 `latest`。`-template` 选择模板，默认是 `starter`；未知的模板名会被拒绝，并列出现有的模板名。`-list` 打印每个模板的名称（标出默认模板）和一行说明，不创建任何文件。[项目模板](templates.md)列出了所有模板以及 `nsgo init -template` 对应的模块，并说明模板的目录结构和如何新增模板。
 
@@ -251,7 +251,7 @@ game check: 1 problem
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `nsgo game check`。这些检查也是一个包，`github.com/nsgo-dev/game/packages/game/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题；它的 `CheckWith` 还接受游戏的组件注册表，用来检查连接所指的事件和处理函数。
+Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `nsgo game check`。这些检查也是一个包，`github.com/nsgo-dev/game/pkg/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题；它的 `CheckWith` 还接受游戏的组件注册表，用来检查连接所指的事件和处理函数。
 
 ### assets
 
@@ -327,7 +327,7 @@ assets:
 
 #### 资源旁的导入设置
 
-资源可以带一个附属文件（sidecar）：放在它旁边、在它的文件名后加上 `.import.yaml` 的 YAML 文件，例如 `art/albedo.png.import.yaml`，说明如何导入它（与 Godot 的 `.import` 文件相同），以及它由谁制作、以什么许可证提供。附属文件里的设置会覆盖读取该文件的目标的同名设置，因此改一个资源的导入方式只需编辑它旁边的文件，下次运行就会重建读取它的目标。附属文件是带版本号的 YAML，由 `github.com/nsgo-dev/game/packages/game/tooling/importsettings` 包读写；它含有 `image`、`audio`、`font` 或 `model` 部分之一、一个 `credit` 部分，或者署名加上前四者之一，会拒绝不认识的字段，并可用[已发布的 Schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json` 校验。
+资源可以带一个附属文件（sidecar）：放在它旁边、在它的文件名后加上 `.import.yaml` 的 YAML 文件，例如 `art/albedo.png.import.yaml`，说明如何导入它（与 Godot 的 `.import` 文件相同），以及它由谁制作、以什么许可证提供。附属文件里的设置会覆盖读取该文件的目标的同名设置，因此改一个资源的导入方式只需编辑它旁边的文件，下次运行就会重建读取它的目标。附属文件是带版本号的 YAML，由 `github.com/nsgo-dev/game/pkg/tooling/importsettings` 包读写；它含有 `image`、`audio`、`font` 或 `model` 部分之一、一个 `credit` 部分，或者署名加上前四者之一，会拒绝不认识的字段，并可用[已发布的 Schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json` 校验。
 
 ```yaml
 # art/albedo.png.import.yaml，由纹理目标读取
@@ -496,7 +496,7 @@ Licensed under the SIL Open Font License, Version 1.1.
 ```
 ````
 
-资源按路径排序。许可证表统计每个许可证表达式下的资源数，并把单个 SPDX 标识符链接到它在 SPDX 许可证列表中的页面；随后逐字列出每段声明。`github.com/nsgo-dev/game/packages/game/tooling/credits` 包负责收集署名并写出文件，游戏若想在自己的界面里展示署名也可以使用它。
+资源按路径排序。许可证表统计每个许可证表达式下的资源数，并把单个 SPDX 标识符链接到它在 SPDX 许可证列表中的页面；随后逐字列出每段声明。`github.com/nsgo-dev/game/pkg/tooling/credits` 包负责收集署名并写出文件，游戏若想在自己的界面里展示署名也可以使用它。
 
 ### pixelfx
 
@@ -567,4 +567,4 @@ nsgo game completion fish > ~/.config/fish/completions/game.fish
 ln -s game.fish ~/.config/fish/completions/nsgo.fish
 ```
 
-如果那里已有 `nsgo` 自己的补全，就不要创建 `nsgo` 的链接。想单独输入 `game` 时，用 `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest` 安装命令，或者把 `game` 定义为运行 `nsgo game` 的 shell 函数，这样在模块内它沿用 `go.mod` 固定的版本：zsh 和 bash 中写 `game() { nsgo game "$@"; }`，fish 中写 `function game; nsgo game $argv; end`。
+如果那里已有 `nsgo` 自己的补全，就不要创建 `nsgo` 的链接。想单独输入 `game` 时，用 `go install github.com/nsgo-dev/game/cmd/game@latest` 安装命令，或者把 `game` 定义为运行 `nsgo game` 的 shell 函数，这样在模块内它沿用 `go.mod` 固定的版本：zsh 和 bash 中写 `game() { nsgo game "$@"; }`，fish 中写 `function game; nsgo game $argv; end`。

@@ -3,7 +3,7 @@
 `game/sprite` loads packed sprite atlases, plays frame animations on a fixed step, and draws Z-ordered sprite batches into an NSGo `core.Canvas`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/sprite"
+import "github.com/nsgo-dev/game/pkg/sprite"
 ```
 
 ## Atlases from TexturePacker and Aseprite
@@ -252,8 +252,7 @@ The picture is the same as one `DrawImageFrom` per sprite: the tests replay both
 `BenchmarkBatchRecord` records a frame of 1,000 and 5,000 moving sprites, a fifth of them rotated and scaled, with one `DrawImageFrom` each (`per-sprite`) and with `DrawAtlas` (`atlas`). It times only recording on the CPU, not the platform's drawing. `sprites/60Hz` is 16.7 ms divided by the recording time per sprite, an upper bound that no frame reaches, not a measured sprite count at 60 frames per second:
 
 ```sh
-cd packages/game
-go tool nsgo test ./sprite -- -run '^$' -bench BatchRecord -benchmem -cpu 1 -benchtime 2s
+go tool nsgo test ./pkg/sprite -- -run '^$' -bench BatchRecord -benchmem -cpu 1 -benchtime 2s
 ```
 
 Readings from 2026-11-23 on a shared 24-core x86-64 Linux machine; the times move with the machine's load, the allocations do not:

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/pkg/project"
 )
 
 //go:embed nsgo.yaml

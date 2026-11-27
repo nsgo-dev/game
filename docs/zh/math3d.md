@@ -3,7 +3,7 @@
 `math3d` 提供纯 Go 实现的 `float32` 向量、矩阵、四元数、变换、包围体、射线、平面与视锥体，遵循与 glTF 2.0、WebGPU 和 Metal 一致的统一数学约定。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/math3d"
+import "github.com/nsgo-dev/game/pkg/math3d"
 ```
 
 ## 速查表

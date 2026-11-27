@@ -3,12 +3,12 @@ package main
 import (
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/save"
-	"github.com/nsgo-dev/game/packages/game/screen"
-	"github.com/nsgo-dev/game/packages/game/sound"
-	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/save"
+	"github.com/nsgo-dev/game/pkg/screen"
+	"github.com/nsgo-dev/game/pkg/sound"
+	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
 )

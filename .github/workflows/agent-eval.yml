@@ -67,10 +67,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
           cache-dependency-path: |
-            packages/game/go.sum
+            go.sum
             tools/agenteval/go.sum
       - name: Test the agent evaluation suite
         working-directory: tools/agenteval
@@ -116,10 +116,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
           cache-dependency-path: |
-            packages/game/go.sum
+            go.sum
             tools/agenteval/go.sum
       - name: Run coding agent evaluation suite and report scores
         env:

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/quest"
-	"github.com/nsgo-dev/game/packages/game/save"
+	"github.com/nsgo-dev/game/pkg/quest"
+	"github.com/nsgo-dev/game/pkg/save"
 )
 
 // newTestGame returns a game that has just started a new playthrough, saving to a temporary directory.

@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/idle"
+	"github.com/nsgo-dev/game/pkg/idle"
 )
 
 // hearth is the game's state and rules, with no view and no clock of its own: the game loop and the offline replay both advance it with step, so it plays the same online, away and in tests.

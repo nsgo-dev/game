@@ -21,13 +21,13 @@ cd mygame
 go tool nsgo dev
 ```
 
-`nsgo game` outside a project uses the `nsgo-game` extension binary on `PATH` (install once with `go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest`), or `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame` does the same directly with nothing to install. Inside the created project, `nsgo game` automatically runs the module's pinned `game` tool.
+`nsgo game` outside a project uses the `nsgo-game` extension binary on `PATH` (install once with `go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`), or `go run github.com/nsgo-dev/game/cmd/game@latest new mygame` does the same directly with nothing to install. Inside the created project, `nsgo game` automatically runs the module's pinned `game` tool.
 
-The starter includes an animated sprite, tap-to-score input, and tests. Its settings live in `game.yaml`, the [project file](project.md), which `nsgo.yaml` mirrors. `new` names the game after its directory in both files' `name` and `id` and in the module path; `-name` and `-module` choose others, such as `-module example.com/mygame`. [Command Line](cli.md#new) describes every flag, and `-template` starts from another of the [templates](templates.md), which `new -list` lists. Change the identifier to your own before you ship the game: edit the game's name and identifier in `game.yaml`, then run `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` to write them into `nsgo.yaml`.
+The starter includes an animated sprite, tap-to-score input, and tests. Its settings live in `game.yaml`, the [project file](project.md), which `nsgo.yaml` mirrors. `new` names the game after its directory in both files' `name` and `id` and in the module path; `-name` and `-module` choose others, such as `-module example.com/mygame`. [Command Line](cli.md#new) describes every flag, and `-template` starts from another of the [templates](templates.md), which `new -list` lists. Change the identifier to your own before you ship the game: edit the game's name and identifier in `game.yaml`, then run `go run github.com/nsgo-dev/game/cmd/gameproject sync` to write them into `nsgo.yaml`.
 
 NSGo's own command writes the same starter from the template module, without the `game` tool: `nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame`, with an NSGo command that supports [Go module templates](https://nsgo.dev/docs/getting-started/#templates-from-go-modules), such as the installed `nsgo` of v0.3.4 or later. Its `game.yaml` and `nsgo.yaml` name the game `Starter Game` until you edit them.
 
-From a checkout of this repository, `go run ./packages/game/cmd/game new ../mygame` creates a project from the starter in `template/template/`; a command built from a checkout has no version of its own, so the project requires the latest published game layer unless `-version` names another. From the checkout itself, run the original starter with `go tool nsgo dev ./template/template`.
+From a checkout of this repository, `go run ./cmd/game new ../mygame` creates a project from the starter in `template/template/`; a command built from a checkout has no version of its own, so the project requires the latest published game layer unless `-version` names another. From the checkout itself, run the original starter with `go tool nsgo dev ./template/template`.
 
 Add `resources/` for files your game loads at runtime and `assets/` for files the tool uses to build the app, such as app icons:
 
@@ -82,7 +82,7 @@ go tool nsgo dev -target android
 
 Add `-fps` to any `nsgo dev` command to show NSGo's performance monitor over the running game.
 
-To also reload atlases, images and data files in the running game when you save them under `resources/`, run it with `nsgo game dev` (after `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game`) and start a watcher on them with `hotreload.NewDevWatcher`, as [Reloading on save](assets.md#reloading-on-save) shows.
+To also reload atlases, images and data files in the running game when you save them under `resources/`, run it with `nsgo game dev` (after `go get -tool github.com/nsgo-dev/game/cmd/game`) and start a watcher on them with `hotreload.NewDevWatcher`, as [Reloading on save](assets.md#reloading-on-save) shows.
 
 ## Draw a sprite on a fixed-step loop
 
@@ -98,8 +98,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )

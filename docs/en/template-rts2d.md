@@ -3,7 +3,7 @@
 `rts2d` is a 2D real-time strategy skirmish, Shardfront: two bases on one map, crystals to mine, barracks to build, three unit types, fog of war, box selection, control groups and a computer opponent. The side whose headquarters falls first loses; both falling in the same step is a draw. It is small enough to read in an afternoon and laid out the way a strategy game grows: the rules, the map and the opponent's priorities are YAML data files, the simulation knows nothing of views or input, and the player and the opponent give their orders through the same functions.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template rts2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template rts2d mygame
 cd mygame
 go tool nsgo dev
 ```

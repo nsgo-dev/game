@@ -3,7 +3,7 @@
 `game/quest` runs quests with objectives (collect, reach, defeat, talk), quest states and rewards. Quests are defined in a versioned YAML book, advanced by game events published on a `flow.Bus`, and saved as a small snapshot that round-trips through `save.Store`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/quest"
+import "github.com/nsgo-dev/game/pkg/quest"
 ```
 
 ## The quest book

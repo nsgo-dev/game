@@ -1,6 +1,6 @@
 # NSGo Game Racing 3D Template
 
-A small 3D racing game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game): two laps of a closed circuit against two computer-driven rivals, starting from the back of the grid.
+A small 3D racing game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game): two laps of a closed circuit against two computer-driven rivals, starting from the back of the grid.
 
 It shows:
 
@@ -38,8 +38,8 @@ go tool nsgo check -target macos,windows,linux,android,web
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Layout

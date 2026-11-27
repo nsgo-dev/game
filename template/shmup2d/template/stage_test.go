@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/bullets"
-	"github.com/nsgo-dev/game/packages/game/particles"
+	"github.com/nsgo-dev/game/pkg/bullets"
+	"github.com/nsgo-dev/game/pkg/particles"
 )
 
 // readData returns the data file name, which the game embeds.

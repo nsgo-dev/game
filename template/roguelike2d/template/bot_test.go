@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/packages/game/ability"
+	"github.com/nsgo-dev/game/pkg/ability"
 )
 
 // The bots the tests play with. They read the run, which a player cannot fully do, because their job is to reach a win and a loss on every seed the tests use, not to play fairly.

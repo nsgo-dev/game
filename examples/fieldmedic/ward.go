@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

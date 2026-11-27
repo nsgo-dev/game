@@ -1,7 +1,7 @@
 # leaderboard/selfhost
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/leaderboard/selfhost"
+import "github.com/nsgo-dev/game/pkg/leaderboard/selfhost"
 ```
 
 `leaderboard/selfhost` 是可自行部署的排行榜服务，面向跨多个平台运行、或运行在没有游戏服务的平台（Web、Windows、Linux）上的游戏。[`leaderboard`](leaderboard.md) 显示的是 Game Center 和 Play 游戏服务自己的排行榜；这个服务则为所有平台维护同一张榜，以[账号服务](accounts.md)登录的账号为键，所以浏览器里的成绩和手机上的成绩落在同一张榜上。

@@ -3,7 +3,7 @@
 `roguelike2d` 是一个小型回合制 roguelike：探索者下到微光深渊（Glimmerdeep）的五层，与栖居其中的怪物战斗，收集武器、护甲、药水、药剂和碎晶，最后从底层取走心之余烬（Heart Ember），而宝库守卫（Vault Warden）就站在它上面。每一层都由本局的种子生成，死亡是永久的：一局结束的那一刻，这一局的存档就被删除，同时保留本局总结和所有对局的记录。它基于 [`procgen`](procgen.md)、[`entities`](entities.md)、[`loot`](loot.md)、[`stats`](stats.md)、[`ability`](ability.md)、[`save`](save.md)、`random`、[`input`](input.md) 和 [`screen`](screen.md) 构建，美术由代码绘制。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template roguelike2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template roguelike2d mygame
 cd mygame
 go tool nsgo dev
 ```

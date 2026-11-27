@@ -4,11 +4,11 @@ import (
 	_ "embed"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/entities"
-	"github.com/nsgo-dev/game/packages/game/mcp"
-	"github.com/nsgo-dev/game/packages/game/scene"
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/mcp"
+	"github.com/nsgo-dev/game/pkg/scene"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )

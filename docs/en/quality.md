@@ -3,7 +3,7 @@
 `game/quality` picks a low, medium or high quality preset for the device a game runs on, moves it with the frame times the game measures, and holds whatever the player picks in settings instead.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/quality"
+import "github.com/nsgo-dev/game/pkg/quality"
 ```
 
 ## Presets

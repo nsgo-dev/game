@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/ability"
-	"github.com/nsgo-dev/game/packages/game/entities"
-	"github.com/nsgo-dev/game/packages/game/loot"
-	"github.com/nsgo-dev/game/packages/game/random"
-	"github.com/nsgo-dev/game/packages/game/stats"
+	"github.com/nsgo-dev/game/pkg/ability"
+	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/loot"
+	"github.com/nsgo-dev/game/pkg/random"
+	"github.com/nsgo-dev/game/pkg/stats"
 )
 
 // outcome is how a run stands.

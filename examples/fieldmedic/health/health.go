@@ -4,7 +4,7 @@ package health
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
 // Name is the component's key under an object's components in a scene file.

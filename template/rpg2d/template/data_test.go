@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/inventory"
-	"github.com/nsgo-dev/game/packages/game/quest"
-	"github.com/nsgo-dev/game/packages/game/stats"
-	"github.com/nsgo-dev/game/packages/game/vn"
+	"github.com/nsgo-dev/game/pkg/inventory"
+	"github.com/nsgo-dev/game/pkg/quest"
+	"github.com/nsgo-dev/game/pkg/stats"
+	"github.com/nsgo-dev/game/pkg/vn"
 )
 
 // TestContentLoads checks that every data file loads and that the files agree with each other and with the art.

@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/flow"
-	"github.com/nsgo-dev/game/packages/game/inventory"
-	"github.com/nsgo-dev/game/packages/game/quest"
-	"github.com/nsgo-dev/game/packages/game/save"
-	"github.com/nsgo-dev/game/packages/game/stats"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
-	"github.com/nsgo-dev/game/packages/game/vn"
+	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/inventory"
+	"github.com/nsgo-dev/game/pkg/quest"
+	"github.com/nsgo-dev/game/pkg/save"
+	"github.com/nsgo-dev/game/pkg/stats"
+	"github.com/nsgo-dev/game/pkg/tilemap"
+	"github.com/nsgo-dev/game/pkg/vn"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

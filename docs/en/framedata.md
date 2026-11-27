@@ -1,9 +1,9 @@
 # framedata
 
-`github.com/nsgo-dev/game/packages/game/framedata` gives fighting games per-frame hitboxes, hurtboxes and hit properties (damage, hitstun, blockstun, knockback, cancel windows) for their moves. A character's frame data is a YAML file, and a `World` resolves it into hits once per fixed step, the same way every time.
+`github.com/nsgo-dev/game/pkg/framedata` gives fighting games per-frame hitboxes, hurtboxes and hit properties (damage, hitstun, blockstun, knockback, cancel windows) for their moves. A character's frame data is a YAML file, and a `World` resolves it into hits once per fixed step, the same way every time.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/framedata"
+import "github.com/nsgo-dev/game/pkg/framedata"
 ```
 
 ## Frame data files

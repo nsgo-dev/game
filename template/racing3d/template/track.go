@@ -9,7 +9,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/vehicle"
+	"github.com/nsgo-dev/game/pkg/vehicle"
 	"go.yaml.in/yaml/v3"
 )
 

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/nsgo-dev/game/packages/game/fighting"
-	"github.com/nsgo-dev/game/packages/game/framedata"
+	"github.com/nsgo-dev/game/pkg/fighting"
+	"github.com/nsgo-dev/game/pkg/framedata"
 )
 
 // TestDataFilesAreCanonical checks that every data file is in the form its package's encoder writes, so a round trip through load and save changes nothing and a diff shows only what a person changed.

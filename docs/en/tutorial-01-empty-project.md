@@ -11,7 +11,7 @@ A game is an ordinary Go module that requires the game library and NSGo, with th
 ```sh
 mkdir starcatcher && cd starcatcher
 go mod init example.com/starcatcher
-go get github.com/nsgo-dev/game/packages/game
+go get github.com/nsgo-dev/game
 go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.4
 ```
 

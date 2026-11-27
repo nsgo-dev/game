@@ -3,7 +3,7 @@
 `game/save` stores game save slots as versioned JSON envelopes in `core.Storage` or on disk (such as `cx.DataDir()`), with sequential schema migrations and atomic backup recovery.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/save"
+import "github.com/nsgo-dev/game/pkg/save"
 ```
 
 ## Choosing a store

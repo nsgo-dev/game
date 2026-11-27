@@ -3,7 +3,7 @@
 `game/assets` loads sprite atlases, sounds, images, raw bytes, and custom game data asynchronously off the engine goroutine, organizes them into per-scene groups with reactive progress signals, releases them cleanly when a scene ends, and provides a ready-made `LoadingScreen` component.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/assets"
+import "github.com/nsgo-dev/game/pkg/assets"
 ```
 
 All `Manager` and `Group` methods run on the engine goroutine; file reading and parsing run in background goroutines and post results back via `core.Scope.Post` so animations and `game.Loop` never hitch.

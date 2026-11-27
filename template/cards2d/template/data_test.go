@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/cards"
+	"github.com/nsgo-dev/game/pkg/cards"
 )
 
 // TestDataFilesAreCanonical checks that rules.yaml and board.yaml are in the form their encoders write, so a load and a save of either changes nothing.

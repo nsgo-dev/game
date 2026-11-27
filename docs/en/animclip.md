@@ -3,7 +3,7 @@
 `game/animclip` plays animation clips, the [resource files](resources.md#animation) of type `animation`, on scene objects: any registered property keyed on a timeline, as Godot's AnimationPlayer does. The [editor](editor.md#animation-editor) keys clips with the same package, so a clip plays the same in the game as in the editor's preview.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/animclip"
+import "github.com/nsgo-dev/game/pkg/animclip"
 ```
 
 ## Properties

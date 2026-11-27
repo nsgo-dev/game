@@ -1,6 +1,6 @@
 # server
 
-`github.com/nsgo-dev/game/packages/game/server` runs a game's fixed-step updates in a plain Go process, without an NSGo app, window, [`core.Scope`](loop.md) or cgo.
+`github.com/nsgo-dev/game/pkg/server` runs a game's fixed-step updates in a plain Go process, without an NSGo app, window, [`core.Scope`](loop.md) or cgo.
 
 The `Update` function a game hands to [`game.Loop`](loop.md) runs unchanged on the server: both step it with the same fixed `1/Rate` duration, so a dedicated server and the client share one simulation.
 
@@ -204,7 +204,7 @@ Build the example as a static, cgo-free binary and run it as a small container:
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/server ./packages/game/server/cmd/dedicatedserver
+RUN CGO_ENABLED=0 go build -o /out/server ./pkg/server/cmd/dedicatedserver
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/server /server

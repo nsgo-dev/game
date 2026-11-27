@@ -3,14 +3,14 @@
 `game/placeholder` is a small asset pack to prototype with: sprite sheets, a tileset with a Tiled tileset and a sample level, a pixel font, sound effects and a music loop, and three glTF models, each image and sound with its [import settings sidecar](cli.md#assets). Every file is an original work drawn, synthesized or modeled in Go for this repository, and all of them are dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/): a game may use, change and ship them, commercially or not, without asking and without giving credit.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/placeholder"
+import "github.com/nsgo-dev/game/pkg/placeholder"
 ```
 
 The examples and the tutorial use only this pack or assets of their own whose license is written down; see [Credits in this repository](#credits-in-this-repository).
 
 ## What it holds
 
-The files live in `packages/game/placeholder/pack`, which the package embeds and `placeholder.FS()` returns:
+The files live in `pkg/placeholder/pack`, which the package embeds and `placeholder.FS()` returns:
 
 | Folder | Files | What they are |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ The pack is embedded in a game's binary only when the game imports the package, 
 
 ## Copying it into a project
 
-To change the art, or to build it into a game's own atlases, copy `packages/game/placeholder/pack` into the project, for instance as `art/placeholder`, and build it with [`game assets`](cli.md#assets) like any other art. This assets section of `game.yaml` uses every sidecar as it is meant to be read:
+To change the art, or to build it into a game's own atlases, copy `pkg/placeholder/pack` into the project, for instance as `art/placeholder`, and build it with [`game assets`](cli.md#assets) like any other art. This assets section of `game.yaml` uses every sidecar as it is meant to be read:
 
 ```yaml
 assets:
@@ -102,7 +102,7 @@ assets:
 
 ## Regenerating it
 
-The generator in `packages/game/placeholder/internal/gen` (with the models from `packages/game/internal/samplegltf`) draws every file but `CREDITS.md`, and writes the same bytes on every run and architecture. A test compares the committed pack with it; after changing the generator, rewrite the pack from `packages/game` with:
+The generator in `pkg/placeholder/internal/gen` (with the models from `internal/samplegltf`) draws every file but `CREDITS.md`, and writes the same bytes on every run and architecture. A test compares the committed pack with it; after changing the generator, rewrite the pack from the repository root with:
 
 ```sh
 go tool nsgo test ./placeholder -run TestPackMatchesGenerator -update

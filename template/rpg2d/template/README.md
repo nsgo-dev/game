@@ -1,6 +1,6 @@
 # Hollowbrook, a top-down RPG template
 
-A small, complete top-down RPG built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game): the town of Hollowbrook and the meadow beyond its gate, three people to talk to, a pack of items and equipment, one quest, turn-based battles and three save slots.
+A small, complete top-down RPG built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game): the town of Hollowbrook and the meadow beyond its gate, three people to talk to, a pack of items and equipment, one quest, turn-based battles and three save slots.
 
 The shrine lamp of Hollowbrook has gone out. Mira the healer needs three glowcaps from Whisper Meadow to light it again, and Thornhide, an old bramble boar, keeps the gatherers away. The starting stick will not beat Thornhide: earn the coins for Bram's iron sword from the moss slimes, find the leather vest in the meadow, drive Thornhide off and bring the glowcaps back to win. Fall in battle and you can load a save or start again.
 
@@ -60,6 +60,6 @@ The on-screen pad is drawn on phones and tablets, and on other devices once the 
 The game's settings live in `game.yaml`. Edit its name and identifier before shipping, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```

@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
 	"github.com/nsgo-dev/nsgo/ui"

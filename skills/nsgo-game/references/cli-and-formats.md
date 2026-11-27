@@ -2,10 +2,10 @@
 
 ## `nsgo game` CLI
 
-Inside a module whose `go.mod` declares the `game` tool, `nsgo game` automatically runs that module's pinned tool through NSGo's extension mechanism (and `go tool game` runs the same directly); outside a module, install `nsgo-game` once (`go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest`) for `nsgo game`, or run `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` directly:
+Inside a module whose `go.mod` declares the `game` tool, `nsgo game` automatically runs that module's pinned tool through NSGo's extension mechanism (and `go tool game` runs the same directly); outside a module, install `nsgo-game` once (`go install github.com/nsgo-dev/game/cmd/nsgo-game@latest`) for `nsgo game`, or run `go run github.com/nsgo-dev/game/cmd/game@latest` directly:
 
 ```sh
-go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
+go get -tool github.com/nsgo-dev/game/cmd/game@latest
 ```
 
 ### Project and development workflow
@@ -49,9 +49,9 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 
 ### Companion module tools
 
-- `go run github.com/nsgo-dev/game/packages/game/cmd/gameschema` — regenerate or `-check` the published JSON Schemas (`scene.v1.json`, `scene.v2.json`, `tileset.v1.json`, `import.v1.json`, `voxel.v1.json`).
-- `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject` — format (`fmt`) and validate `game.yaml` against `nsgo.yaml`.
-- `go run github.com/nsgo-dev/game/packages/game/cmd/sizecheck` — check WebAssembly and mobile package size budgets.
+- `go run github.com/nsgo-dev/game/cmd/gameschema` — regenerate or `-check` the published JSON Schemas (`scene.v1.json`, `scene.v2.json`, `tileset.v1.json`, `import.v1.json`, `voxel.v1.json`).
+- `go run github.com/nsgo-dev/game/cmd/gameproject` — format (`fmt`) and validate `game.yaml` against `nsgo.yaml`.
+- `go run github.com/nsgo-dev/game/cmd/sizecheck` — check WebAssembly and mobile package size budgets.
 
 ## Text file formats contract
 

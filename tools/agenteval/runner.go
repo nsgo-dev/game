@@ -254,10 +254,10 @@ func runSingleTask(ctx context.Context, opts RunOptions, task *Task) (TaskReport
 		minScore = opts.MinScoreOverride
 	}
 
-	// The agent may have rewritten go.mod, so pin packages/game to this checkout again before grading.
+	// The agent may have rewritten go.mod, so pin the root game module to this checkout again before grading.
 	if opts.Mode == ModeCommand || opts.Mode == ModeAgent {
 		if err := pinGamePackage(ctx, opts.RepoRoot, workspaceDir); err != nil {
-			return TaskReport{}, fmt.Errorf("re-pin packages/game after the agent: %w", err)
+			return TaskReport{}, fmt.Errorf("re-pin game module after the agent: %w", err)
 		}
 	}
 

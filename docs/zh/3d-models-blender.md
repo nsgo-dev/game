@@ -292,11 +292,11 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 
 ## 往返校验示例模型
 
-[占位素材包](placeholder.md)在 [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/) 中包含三个极简、字节级确定的 glTF 2.0 示例模型，由 [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go) 生成并完成往返校验。与素材包的其他文件一样，它们以 CC0 1.0 贡献到公有领域，可用 `placeholder.Model` 加载。
+[占位素材包](placeholder.md)在 [`pkg/placeholder/pack/models/`](../../pkg/placeholder/pack/models/) 中包含三个极简、字节级确定的 glTF 2.0 示例模型，由 [`internal/samplegltf/`](../../internal/samplegltf/samplegltf.go) 生成并完成往返校验。与素材包的其他文件一样，它们以 CC0 1.0 贡献到公有领域，可用 `placeholder.Model` 加载。
 
 ### 1. 静态二进制木箱（`crate.glb`）
 
-文件：[`models/crate.glb`](../../packages/game/placeholder/pack/models/crate.glb)（1,920 字节，GLB 2.0）
+文件：[`models/crate.glb`](../../pkg/placeholder/pack/models/crate.glb)（1,920 字节，GLB 2.0）
 
 - **几何尺寸**：`1 m × 1 m × 1 m` 立方体，原点位于底面中心（`X ∈ [-0.5, 0.5]`、`Y ∈ [0, 1]`、`Z ∈ [-0.5, 0.5]`），右手系 `+Y` 向上、`-Z` 向前。
 - **网格属性**：24 个顶点（每面 4 顶点以保持清晰硬法线）、12 个三角形（36 个 `UNSIGNED_SHORT` 索引）、严格 CCW 外法线绕序，包含带精确 `min`/`max` 的 `POSITION`、单位长度 `NORMAL` 与逐面 `TEXCOORD_0`。
@@ -305,7 +305,7 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 
 ### 2. 蒙皮与动画双骨机械臂（`robot_arm.gltf`）
 
-文件：[`models/robot_arm.gltf`](../../packages/game/placeholder/pack/models/robot_arm.gltf)（内嵌 base64 缓冲区，便于直接阅读 JSON）
+文件：[`models/robot_arm.gltf`](../../pkg/placeholder/pack/models/robot_arm.gltf)（内嵌 base64 缓冲区，便于直接阅读 JSON）
 
 - **节点层级**：
   ```text
@@ -320,7 +320,7 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 
 ### 3. 平面着色宝石（`gem.glb`）
 
-文件：[`models/gem.glb`](../../packages/game/placeholder/pack/models/gem.glb)（1,924 字节，GLB 2.0）
+文件：[`models/gem.glb`](../../pkg/placeholder/pack/models/gem.glb)（1,924 字节，GLB 2.0）
 
 - **几何尺寸**：宽 `0.8 m`、高 `1 m` 的六棱双锥，原点位于底部尖端（`Y ∈ [0, 1]`），腰线在 `y = 0.6`，右手系 `+Y` 向上。
 - **网格属性**：36 个顶点、12 个三角形，每个面使用独立的 3 个顶点，因此每个面都有自己的单位长度 `NORMAL`，绕序为 CCW 外向。
@@ -329,7 +329,7 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 
 ### 运行往返校验测试
 
-[`packages/game/internal/samplegltf/samplegltf_test.go`](../../packages/game/internal/samplegltf/samplegltf_test.go) 会解包已提交的模型并逐项校验：
+[`internal/samplegltf/samplegltf_test.go`](../../internal/samplegltf/samplegltf_test.go) 会解包已提交的模型并逐项校验：
 
 - GLB 魔数、版本 `2`、4 字节对齐、JSON/BIN 块边界与 BIN 零填充
 - 内嵌 data URI 的 base64 解码与缓冲区精确字节长度
@@ -339,7 +339,7 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 - 严格递增的动画时间戳、单位旋转四元数与时间范围内的 `extras.events`
 - 与确定性 Go 生成器输出的逐字节一致
 
-在 `packages/game/` 目录下运行测试：
+在仓库根目录运行测试：
 
 ```sh
 go tool nsgo test ./internal/samplegltf

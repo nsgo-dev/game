@@ -3,7 +3,7 @@
 `game/net` 为 NSGo 游戏提供跨平台多人联机能力：横跨 WebSocket（原生 + WebAssembly）、原生 UDP 与仿真回环的统一 `Transport` 接口；带客户端预测与插值的服务端权威增量状态复制；以及确定性锁步（lockstep）与回滚（rollback）网络同步。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/net"
+import "github.com/nsgo-dev/game/pkg/net"
 ```
 
 ## 跨平台传输层（`Transport`）

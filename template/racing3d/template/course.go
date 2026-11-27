@@ -3,8 +3,8 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/math3d"
-	"github.com/nsgo-dev/game/packages/game/physics3d"
+	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
 const (

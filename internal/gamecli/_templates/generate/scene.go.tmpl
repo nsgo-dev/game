@@ -1,0 +1,17 @@
+package {{.Package}}
+
+import (
+	_ "embed"
+
+	"github.com/nsgo-dev/game/pkg/sceneformat"
+)
+
+// {{.Camel}}SceneYAML is the {{.Title}} scene, {{.Path}}.
+//
+//go:embed {{.Path}}
+var {{.Camel}}SceneYAML []byte
+
+// Load{{.Go}}Scene parses the {{.Title}} scene, refusing a component its objects set that Components does not register. Pass a scene that instances or inherits other scene files through sceneformat.Resolve before sceneformat.SpawnEntities.
+func Load{{.Go}}Scene() (*sceneformat.SceneDoc, error) {
+	return sceneformat.ParseWith({{.Camel}}SceneYAML, sceneformat.ParseOptions{File: "{{.Path}}", Components: Components})
+}

@@ -18,7 +18,7 @@
 
 ---
 
-**NSGo Game** (`github.com/nsgo-dev/game/packages/game`) adds everything you need to build and ship complete 2D and 3D games in [NSGo](https://github.com/nsgo-dev/nsgo) apps—using pure Go with zero hand-written C.
+**NSGo Game** (`github.com/nsgo-dev/game`) adds everything you need to build and ship complete 2D and 3D games in [NSGo](https://github.com/nsgo-dev/nsgo) apps—using pure Go with zero hand-written C.
 
 Your game draws into one NSGo view (`Canvas`, pixel buffer, shader, or GPU view) while its HUD, pause screens, dialogues and settings remain ordinary native NSGo views with native typography, input methods and accessibility. Every package imports independently and uses only NSGo's public API, so an app that does not import a package links none of it.
 
@@ -38,7 +38,7 @@ Requires **Go 1.27+** and **NSGo `v0.3.4+`** (iOS builds require macOS and Xcode
 
 ```sh
 # 1. Create a new game project (add -template <name> to pick from 16 genres)
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new mygame
 
 # 2. Run natively with hot reload on save
 cd mygame
@@ -52,7 +52,7 @@ Or launch the visual scene editor or install the coding-agent skill:
 
 ```sh
 # Open the visual 2D/3D scene editor
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest editor
+go run github.com/nsgo-dev/game/cmd/game@latest editor
 
 # Install the Agent Skill for coding agents
 bunx skills add nsgo-dev/game
@@ -62,7 +62,7 @@ See [Getting Started](docs/en/getting-started.md) ([中文](docs/zh/getting-star
 
 ## Package Overview
 
-Import only what you need from `github.com/nsgo-dev/game/packages/game`. Browse the full interactive catalog of all 141 packages at [game.nsgo.dev/packages](https://game.nsgo.dev/packages/) or check [API Stability](docs/en/stability.md) ([中文](docs/zh/stability.md)).
+Import only what you need from `github.com/nsgo-dev/game`. Browse the full interactive catalog of all 141 packages at [game.nsgo.dev/packages](https://game.nsgo.dev/packages/) or check [API Stability](docs/en/stability.md) ([中文](docs/zh/stability.md)).
 
 | Area | Key Packages |
 | --- | --- |
@@ -124,8 +124,10 @@ Try the examples directly in your browser in the [Playground](https://game.nsgo.
 
 ```text
 game/
-├─ go.work              workspace linking packages/game, examples and templates
-├─ packages/game/       Go module github.com/nsgo-dev/game/packages/game (141 packages + CLI)
+├─ go.mod / go.work     Go module github.com/nsgo-dev/game (entry package game at root)
+├─ cmd/                 CLI binaries (game, nsgo-game, gameapi, gameschema, sizecheck, ...)
+├─ internal/            internal shared helpers and CLI implementation
+├─ pkg/                 library subpackages (github.com/nsgo-dev/game/pkg/<name>)
 ├─ template/            16 Go-module starter templates for game new / nsgo init
 ├─ examples/            8 playable sample games and the 9-chapter tutorial
 ├─ library/             shared asset, plugin and template library index

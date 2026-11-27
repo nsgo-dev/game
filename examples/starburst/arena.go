@@ -6,13 +6,13 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/particles"
-	"github.com/nsgo-dev/game/packages/game/physics"
-	"github.com/nsgo-dev/game/packages/game/quality"
-	"github.com/nsgo-dev/game/packages/game/random"
-	"github.com/nsgo-dev/game/packages/game/screen"
-	"github.com/nsgo-dev/game/packages/game/sprite"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/pkg/particles"
+	"github.com/nsgo-dev/game/pkg/physics"
+	"github.com/nsgo-dev/game/pkg/quality"
+	"github.com/nsgo-dev/game/pkg/random"
+	"github.com/nsgo-dev/game/pkg/screen"
+	"github.com/nsgo-dev/game/pkg/sprite"
+	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

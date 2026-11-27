@@ -362,6 +362,6 @@ func release(root, version, date string) error {
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("collected %d fragments and wrote the %s section of %s; review it, then merge it and tag packages/game/v%s\n", n, version, changelogFile, version)
+	fmt.Printf("collected %d fragments and wrote the %s section of %s; review it, then merge it and tag v%s\n", n, version, changelogFile, version)
 	return nil
 }

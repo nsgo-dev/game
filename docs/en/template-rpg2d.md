@@ -3,7 +3,7 @@
 `rpg2d` is a small top-down RPG called Hollowbrook: a town and the meadow beyond its gate, three people to talk to, a pack of items and equipment, one quest, turn-based battles and three save slots. It is one of the [templates](templates.md), and the starting point for a game of that kind.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template rpg2d mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template rpg2d mygame
 cd mygame
 go tool nsgo dev
 ```

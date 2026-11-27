@@ -14,7 +14,7 @@ Mobile store download ceilings and cellular install thresholds directly affect w
 
 ## Default mobile budgets
 
-Built-in defaults in `packages/game/cmd/sizecheck` target typical 2D NSGo games and can be overridden with `-budget`, `-budget-mb`, or `-abi-budget-mb`:
+Built-in defaults in `cmd/sizecheck` target typical 2D NSGo games and can be overridden with `-budget`, `-budget-mb`, or `-abi-budget-mb`:
 
 | Target | Function | Total archive | Per-ABI native libs | Category defaults (compressed) |
 | --- | --- | ---: | ---: | --- |
@@ -55,7 +55,7 @@ For this repository's minimal `./cmd/wasmprobe` CI probe, tighter baseline files
 
 ## CLI usage
 
-Run `sizecheck` from `packages/game`:
+Run `sizecheck` from the repository root:
 
 ```sh
 # Inspect an Android App Bundle using built-in defaults

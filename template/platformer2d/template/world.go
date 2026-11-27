@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/physics"
-	"github.com/nsgo-dev/game/packages/game/platformer"
-	"github.com/nsgo-dev/game/packages/game/rooms"
-	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/pkg/physics"
+	"github.com/nsgo-dev/game/pkg/platformer"
+	"github.com/nsgo-dev/game/pkg/rooms"
+	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

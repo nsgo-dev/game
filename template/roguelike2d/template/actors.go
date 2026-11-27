@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/entities"
+	"github.com/nsgo-dev/game/pkg/entities"
 )
 
 // The components of the actors on a floor. Every monster and every item lying on the floor is an entity in the floor's entities.World, and what it is comes from the components it carries: a monster has a Position and a Foe, a guardian a Guard as well, and an item a Position and a Loot. The player is not an entity, because the run holds everything about the player and the rules treat the player apart. Each component names its kind by the id data/dungeon.yaml gives it, so the run slot saves the world as readable JSON with entities.World.Snapshot.

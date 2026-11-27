@@ -3,7 +3,7 @@
 `game/screen` 将固定虚拟画布映射到任意窗口尺寸与宽高比，在视图坐标与虚拟坐标间转换指针输入，支持像素风整数缩放与像素对齐，为 HUD 图层计算安全区矩形，并应用玩家的视频设置。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/screen"
+import "github.com/nsgo-dev/game/pkg/screen"
 ```
 
 ## Viewport 与缩放模式

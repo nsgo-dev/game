@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/pkg/ai"
 )
 
 // order is one thing the player does between waves: build a tower of kind on cell, or upgrade the tower on cell when kind is empty.

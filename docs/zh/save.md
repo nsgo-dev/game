@@ -3,7 +3,7 @@
 `game/save` 将游戏存档槽以带版本号的 JSON 信封存储在 `core.Storage` 或本地目录（如 `cx.DataDir()`）中，支持逐版本数据结构迁移与原子备份恢复。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/save"
+import "github.com/nsgo-dev/game/pkg/save"
 ```
 
 ## 选择存储方式

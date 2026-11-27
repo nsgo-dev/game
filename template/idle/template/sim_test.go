@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/idle"
+	"github.com/nsgo-dev/game/pkg/idle"
 )
 
 // testData is hearth.yaml as the game reads it.

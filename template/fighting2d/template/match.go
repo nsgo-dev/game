@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/nsgo-dev/game/packages/game/fighting"
-	"github.com/nsgo-dev/game/packages/game/framedata"
+	"github.com/nsgo-dev/game/pkg/fighting"
+	"github.com/nsgo-dev/game/pkg/framedata"
 )
 
 // control is one player's input on one step: an absolute numpad direction, 4 for left and 6 for right, and the held buttons, bit i for the move set's Buttons()[i].

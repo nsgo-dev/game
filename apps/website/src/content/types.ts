@@ -65,7 +65,7 @@ export interface PlaygroundExample {
   wasm: number
 }
 
-// The API reference: what cmd/gameapi in packages/game writes from the Go packages' source and doc comments (tooling/apiref's Reference, whose doc comments say more of each field), run with -html.
+// The API reference: what cmd/gameapi writes from the Go packages' source and doc comments (pkg/tooling/apiref's Reference, whose doc comments say more of each field), run with -html.
 
 export interface ApiReference {
   version: number
@@ -84,7 +84,7 @@ interface ApiDecl {
   decl: string
   // docHTML is the doc comment rendered as HTML; its links to another package are relative to this package's page.
   docHTML?: string
-  // file is the declaration's file below packages/game, and line its line.
+  // file is the declaration's file below the repository root, and line its line.
   file: string
   line: number
   // platforms are the targets that declare it, absent when every target that builds the package does.

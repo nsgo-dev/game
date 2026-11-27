@@ -3,7 +3,7 @@
 `game/text` renders AngelCode BMFont bitmap fonts through `sprite.Batch` (with kerning, word wrapping, and alignment), signed-distance-field fonts that stay sharp at any size, on the screen or in 3D world space, and platform-rendered Unicode/CJK text through `core.Drawing.FillText`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/text"
+import "github.com/nsgo-dev/game/pkg/text"
 ```
 
 ## Bitmap fonts (AngelCode BMFont)

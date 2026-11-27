@@ -5,7 +5,7 @@
 NSGo 内置的 `nsgo mcp` 服务器只能看到原生视图，而游戏通常绘制在单个 `Canvas` 或 GPU 视图中。把 `mcp.Bridge` 挂载到 `core.Scope` 上后，它会通过 `automation.Register` 在引擎响应式图上注册游戏专用工具；当应用在 `go tool nsgo dev -automation` 或 `go tool nsgo test` 下运行时，`nsgo mcp` 会自动将这些工具与内置工具一并提供。在普通构建与发布构建中，`automation.Register` 为空操作，不会引入运行时协议开销。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/mcp"
+import "github.com/nsgo-dev/game/pkg/mcp"
 ```
 
 ## 挂载桥接器
@@ -265,7 +265,7 @@ app.Settle()
 上面的工具连接的是运行中的游戏。NSGo 游戏编辑器有自己的 MCP 服务器，即 `game/editor/editormcp` 包，智能体通过它读取和编辑编辑器中打开的项目：每次编辑都经过检查器、场景树和视口所用的同一批 `Editor` 方法，因此会立刻出现在场景树和视口中，用户按一次撤销即可撤回。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/editor/editormcp"
+import "github.com/nsgo-dev/game/pkg/editor/editormcp"
 ```
 
 ### 连接智能体
@@ -423,7 +423,7 @@ NSGo 的 `automation` 只在 `nsgo dev -automation` 和测试构建中注册应�
 
 ## 编辑器 MCP 的仅限用户规则与提议删除（#1015）
 
-在 `packages/game/editor/editormcp` 中，编辑器 MCP 服务器在任何权限配置档（`Cautious`、`Balanced`、`Autonomous`）下都会强制执行两条不可绕过的信任边界：
+在 `pkg/editor/editormcp` 中，编辑器 MCP 服务器在任何权限配置档（`Cautious`、`Balanced`、`Autonomous`）下都会强制执行两条不可绕过的信任边界：
 
 - **仅限用户硬拒绝（`*editormcp.YouOnlyError`）**：所有非只读工具调用（包括内置工具和通过 `Server.AddTool` 注册的自定义工具）在执行处理器之前都会校验显式参数路径、派生目标（含无扩展名 `refactor_rename` 与 `release_notes_draft`）以及当前打开的文档路径，若指向 `permissions.yaml`、`.nsgo/permissions.yaml`、`tools.yaml`、`mcp.yaml`、`models.yaml`、`usage.yaml` 或 `Editor.SettingsPath`，一律拒绝。
 - **`permissions_draft`**：提交一份仅限用户权限草案卡片（`Editor.SubmitPermissionsDraft`），默认不勾选任何规则，绝不直接写入 `permissions.yaml`，必须由用户手动勾选并点击应用。

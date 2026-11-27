@@ -3,7 +3,7 @@
 `fighting2d` 是一个一对一的 2D 格斗游戏，可作为格斗游戏的起点：两名原创角色，搓招触发的必杀技，取消与连段，上下段防御，三局两胜且有计时的回合，电脑对手，以及第二名玩家，可以和第一名玩家共用一个键盘、用第二个手柄，对战电脑时还可以用触屏。它主要基于识别输入的 [fighting](fighting.md) 和结算命中的 [framedata](framedata.md)，并用到 [input](input.md)、[sound](sound.md)、[screen](screen.md) 和[占位资源包](placeholder.md)的音效。
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template fighting2d myfighter
+go run github.com/nsgo-dev/game/cmd/game@latest new -template fighting2d myfighter
 cd myfighter
 go tool nsgo dev
 ```

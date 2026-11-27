@@ -3,7 +3,7 @@
 `game/input` 将触摸区域、鼠标按键、指针锁定下的鼠标相对移动、键盘按键与游戏手柄映射为命名动作（action）和轴（axis），在每个 `game.Loop` 固定步长采样一次，并支持通过 `core.Storage` 跨启动持久化。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/input"
+import "github.com/nsgo-dev/game/pkg/input"
 ```
 
 与 `core.View` 回调和 `game.Loop.Update` 一样，`Actions` 的所有方法都运行在引擎 goroutine 上。

@@ -3,7 +3,7 @@
 `idle` is Hearthkeeper, a small idle game: a fire to keep alive, generators and upgrades bought with the embers it makes, progress while the game is closed, a prestige reset and a goal that wins. Create a project from it with:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template idle mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template idle mygame
 ```
 
 or with NSGo's own command, `nsgo init -template github.com/nsgo-dev/game/template/idle -module example.com/mygame mygame`. [Templates](templates.md) lists the others.

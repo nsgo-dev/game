@@ -1,7 +1,7 @@
 # skeletal
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/skeletal"
+import "github.com/nsgo-dev/game/pkg/skeletal"
 ```
 
 2D skeletal rigs, forward kinematics, skins, keyframe animation and crossfade blending, drawn into a `core.Drawing` through `sprite.Batch`.
@@ -89,7 +89,7 @@ Every continuous keyframe accepts an optional easing curve applied to the segmen
 
 ### Sample rig
 
-A complete 7-bone character with two skins (`"default"` and `"armored"`) and three animations (`"walk"`, `"run"`, `"jump"`) lives in [runner.skel.yaml](../../packages/game/skeletal/testdata/runner.skel.yaml). A minimal excerpt:
+A complete 7-bone character with two skins (`"default"` and `"armored"`) and three animations (`"walk"`, `"run"`, `"jump"`) lives in [runner.skel.yaml](../../pkg/skeletal/testdata/runner.skel.yaml). A minimal excerpt:
 
 ```yaml
 version: 1

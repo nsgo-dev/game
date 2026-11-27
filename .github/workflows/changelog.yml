@@ -82,14 +82,14 @@ jobs:
           user_visible=()
           while IFS= read -r file; do
             case "$file" in
-              packages/*|examples/*|template/*)
+              *.go|go.mod|cmd/*|internal/*|pkg/*|examples/*|template/*)
                 user_visible+=("$file")
                 ;;
             esac
           done < <(git diff --name-only "$base" HEAD)
 
           if [ "${#user_visible[@]}" -eq 0 ]; then
-            echo "No user-visible paths changed (packages/, examples/, template/); a fragment is not required."
+            echo "No user-visible paths changed (root Go files, cmd/, internal/, pkg/, examples/, template/); a fragment is not required."
             exit 0
           fi
 

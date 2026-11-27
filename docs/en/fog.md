@@ -3,7 +3,7 @@
 `game/fog` tracks fog of war for strategy games on orthogonal, isometric, staggered, and hexagonal tile grids: which cells each team can see now, which it has explored before, and which it has never seen. It draws the fog aligned to the tilemap's projection and saves it with the rest of a game.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/fog"
+import "github.com/nsgo-dev/game/pkg/fog"
 ```
 
 ## Teams, sources and states

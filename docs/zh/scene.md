@@ -3,7 +3,7 @@
 `game/scene` 按顺序组合世界空间与屏幕空间图层，在视图坐标中对精灵和自定义绘制项做命中测试，并管理场景生命周期、叠加栈和过渡动画。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/scene"
+import "github.com/nsgo-dev/game/pkg/scene"
 ```
 
 ## Scene、图层与 Drawable

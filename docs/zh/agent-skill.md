@@ -25,7 +25,7 @@ claude mcp add nsgo -- go tool nsgo mcp
 ## 技能内容
 
 - **[`SKILL.md`](../../skills/nsgo-game/SKILL.md)**：项目核心规则（纯 Go、带版本号的纯文本 YAML 格式、`go tool nsgo check`/`test`、稳定性分级）、快速上手的 CLI 流程、最小 `game.Loop` + `mcp.Attach` 接入示例，以及确定性 MCP 验证循环。
-- **[`references/packages.md`](../../skills/nsgo-game/references/packages.md)**：`github.com/nsgo-dev/game/packages/game` 下所有包的分组目录、导入路径与稳定性状态，与[API 稳定性](stability.md)保持一致。
+- **[`references/packages.md`](../../skills/nsgo-game/references/packages.md)**：`github.com/nsgo-dev/game` 下所有包的分组目录、导入路径与稳定性状态，与[API 稳定性](stability.md)保持一致。
 - **[`references/cli-and-formats.md`](../../skills/nsgo-game/references/cli-and-formats.md)**：全部 `nsgo game` 子命令（[命令参考](cli-reference.md)）、配套模块工具、YAML 格式契约（[文件格式](formats.md)）、JSON Schema（[YAML 文件的 Schema](schemas.md)）及直接读取的外部工具格式（Tiled、LDtk、Aseprite、TexturePacker、BMFont、glTF、Yarn）。
 - **[`references/mcp-tools.md`](../../skills/nsgo-game/references/mcp-tools.md)**：`mcp.Bridge` 接入方法（[mcp](mcp.md)）与完整工具目录，覆盖场景/实体检查、固定步长循环控制、游戏坐标输入、实时生成与组件编辑、带诊断叠加层的截图、调试控制台可调参数、输入录制与回放、性能读数以及资源热重载。
 

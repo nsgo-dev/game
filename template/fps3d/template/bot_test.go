@@ -3,7 +3,7 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/physics3d"
+	"github.com/nsgo-dev/game/pkg/physics3d"
 )
 
 // bot plays the match the way a careful player does, for the playthrough tests: it turns toward the visible enemy nearest its crosshair, fires once the crosshair is on it, walks to the health pickup when hurt, and otherwise holds its ground and reloads.

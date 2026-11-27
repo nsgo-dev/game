@@ -2,7 +2,7 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directory: /packages/game
+    directory: /
     schedule:
       interval: daily
     commit-message:

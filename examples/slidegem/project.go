@@ -3,7 +3,7 @@ package main
 import (
 	_ "embed"
 
-	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/pkg/project"
 )
 
 // gameYAML is SlideGem's project file, which holds its settings: window, virtual resolution, audio bus and export presets. The board's 36 cell bindings follow its layout, so they stay in code (bindCellActions).

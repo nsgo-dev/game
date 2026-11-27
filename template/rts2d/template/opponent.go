@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game/ai"
-	"github.com/nsgo-dev/game/packages/game/rts"
+	"github.com/nsgo-dev/game/pkg/ai"
+	"github.com/nsgo-dev/game/pkg/rts"
 )
 
 // opponentState is what the computer player reads about its own side before it chooses; data/opponent.yaml scores its actions from these numbers.

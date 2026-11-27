@@ -3,8 +3,8 @@ package main
 import (
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/physics"
-	"github.com/nsgo-dev/game/packages/game/random"
+	"github.com/nsgo-dev/game/pkg/physics"
+	"github.com/nsgo-dev/game/pkg/random"
 )
 
 // The playfield is a virtual canvas of virtualWidth by virtualHeight points, split into laneCount lanes that stars and rocks fall down.

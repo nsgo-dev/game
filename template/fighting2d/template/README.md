@@ -1,6 +1,6 @@
 # Fighting Game
 
-A one-on-one 2D fighting game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game): two original fighters, special moves from motion inputs, combos, guards, rounds and a timer, against a CPU opponent or a second player on the same device.
+A one-on-one 2D fighting game built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game): two original fighters, special moves from motion inputs, combos, guards, rounds and a timer, against a CPU opponent or a second player on the same device.
 
 It shows:
 
@@ -43,8 +43,8 @@ go tool nsgo check -target macos,windows,linux,android,web
 Edit the name and identifier in `game.yaml` before shipping, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Layout

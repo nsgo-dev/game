@@ -3,7 +3,7 @@
 `game/inventory` 提供游戏道具：以带版本号的 YAML 定义道具，基于格子的堆叠容器，带类型的装备槽，以及可经 [`game/save`](save.md) 无损存取的快照。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/inventory"
+import "github.com/nsgo-dev/game/pkg/inventory"
 ```
 
 ## 道具定义

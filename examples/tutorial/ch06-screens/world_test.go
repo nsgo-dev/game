@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/random"
+	"github.com/nsgo-dev/game/pkg/random"
 )
 
 const step = time.Second / 60

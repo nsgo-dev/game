@@ -42,7 +42,7 @@ jobs:
             Thanks for your first pull request! Before it can merge:
 
             - Write the title as a Conventional Commit (such as `fix(input): ...`); a squash merge uses it as the commit message.
-            - Run `gofmt -l`, `go tool nsgo test ./...` and `go tool nsgo check` from `packages/game`, and say in the description what you ran and which platforms you could not cover.
+            - Run `gofmt -l`, `go tool nsgo test ./...` and `go tool nsgo check` from the repository root, and say in the description what you ran and which platforms you could not cover.
             - A change to `packages/`, `examples/` or `template/` adds a fragment under `changelog.d/` ([changelog.d/README.md](https://github.com/nsgo-dev/game/blob/main/changelog.d/README.md)), and a documentation change updates both `docs/en` and `docs/zh`.
             - The layout and conventions are in [CONTRIBUTING.md](https://github.com/nsgo-dev/game/blob/main/CONTRIBUTING.md).
         run: |

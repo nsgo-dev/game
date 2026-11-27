@@ -1,6 +1,6 @@
 # Shardfront: a 2D real-time strategy template
 
-A small skirmish built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game): two bases on one map, crystals to mine, barracks to build, three unit types, fog of war, box selection, control groups and a computer opponent. Destroy the opponent's headquarters before it destroys yours; both falling in the same step is a draw.
+A small skirmish built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game): two bases on one map, crystals to mine, barracks to build, three unit types, fog of war, box selection, control groups and a computer opponent. Destroy the opponent's headquarters before it destroys yours; both falling in the same step is a draw.
 
 It shows:
 
@@ -43,8 +43,8 @@ go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Layout

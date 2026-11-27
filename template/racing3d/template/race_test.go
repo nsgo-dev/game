@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/physics3d"
-	"github.com/nsgo-dev/game/packages/game/vehicle"
+	"github.com/nsgo-dev/game/pkg/physics3d"
+	"github.com/nsgo-dev/game/pkg/vehicle"
 )
 
 // maxRaceSteps bounds every simulated race: three minutes.

@@ -1,6 +1,6 @@
 # cloudsave
 
-`github.com/nsgo-dev/game/packages/game/cloudsave` is a self-hostable cloud save service: each player account has save slots over HTTPS, kept in versions. Two devices writing the same slot at once cannot overwrite each other, a slot over the size limit is refused with a clear error, and the last few versions of each slot can be listed and restored. Games talk to it through `liveops.CloudClient`, a `liveops.CloudSync`, so a `liveops.CloudSyncer` keeps local saves in step with it and resolves conflicts by its policy.
+`github.com/nsgo-dev/game/pkg/cloudsave` is a self-hostable cloud save service: each player account has save slots over HTTPS, kept in versions. Two devices writing the same slot at once cannot overwrite each other, a slot over the size limit is refused with a clear error, and the last few versions of each slot can be listed and restored. Games talk to it through `liveops.CloudClient`, a `liveops.CloudSync`, so a `liveops.CloudSyncer` keeps local saves in step with it and resolves conflicts by its policy.
 
 The service is server-side code in its own packages; a game client imports only `liveops`. It keeps no accounts of its own: it verifies the tokens of the [account service](accounts.md) offline with `accounts/token`, and files each player's slots under the token's subject, the account ID. A player signed in to the same account on the web and on an Android phone reads and writes the same slots.
 

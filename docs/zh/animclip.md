@@ -3,7 +3,7 @@
 `game/animclip` 在场景对象上播放动画片段，即类型为 `animation` 的[资源文件](resources.md#animation)：在时间轴上为任何已注册属性打关键帧，与 Godot 的 AnimationPlayer 相同。[编辑器](editor.md#动画编辑器)用同一个包为片段打关键帧，因此片段在游戏中的播放效果与编辑器预览一致。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/animclip"
+import "github.com/nsgo-dev/game/pkg/animclip"
 ```
 
 ## 属性

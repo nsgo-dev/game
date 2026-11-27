@@ -3,7 +3,7 @@
 `game/effects` draws a game's frame through a chain of shader passes, in order, with uniforms animated on the platform's frame clock. The frame is usually a pixel buffer the game writes each frame (`core.ImageSource.Pixels`), which NSGo shaders read since [nsgo#1052](https://github.com/nsgo-dev/nsgo/issues/1052).
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/effects"
+import "github.com/nsgo-dev/game/pkg/effects"
 ```
 
 ## Write an effect

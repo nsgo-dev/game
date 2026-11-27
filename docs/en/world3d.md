@@ -3,7 +3,7 @@
 `game/world3d` provides 3D world-building primitives built on [math3d](math3d.md): heightmap terrain, multi-level 3D navigation meshes, modular 3D mesh `GridMap`s, procedural scattered foliage with frustum/distance culling, and floating-origin chunk streaming.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/world3d"
+import "github.com/nsgo-dev/game/pkg/world3d"
 ```
 
 ## Heightmap terrain (`Heightmap`)

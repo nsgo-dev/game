@@ -4,12 +4,12 @@ import (
 	"embed"
 	"fmt"
 
-	"github.com/nsgo-dev/game/packages/game/flow"
-	"github.com/nsgo-dev/game/packages/game/inventory"
-	"github.com/nsgo-dev/game/packages/game/quest"
-	"github.com/nsgo-dev/game/packages/game/sprite"
-	"github.com/nsgo-dev/game/packages/game/stats"
-	"github.com/nsgo-dev/game/packages/game/vn"
+	"github.com/nsgo-dev/game/pkg/flow"
+	"github.com/nsgo-dev/game/pkg/inventory"
+	"github.com/nsgo-dev/game/pkg/quest"
+	"github.com/nsgo-dev/game/pkg/sprite"
+	"github.com/nsgo-dev/game/pkg/stats"
+	"github.com/nsgo-dev/game/pkg/vn"
 )
 
 // dataFS holds the game's data files, which a designer edits without touching the code.

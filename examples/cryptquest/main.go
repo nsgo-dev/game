@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/save"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"

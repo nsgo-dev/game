@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/ability"
-	"github.com/nsgo-dev/game/packages/game/loot"
-	"github.com/nsgo-dev/game/packages/game/stats"
+	"github.com/nsgo-dev/game/pkg/ability"
+	"github.com/nsgo-dev/game/pkg/loot"
+	"github.com/nsgo-dev/game/pkg/stats"
 )
 
 // The game's data files, embedded so the game runs the same on every target without reading files at run time. Edit them and rebuild; the tests check that each one is valid and canonical and that they agree with each other.

@@ -4,10 +4,10 @@
 
 ## Install
 
-Run the command as `nsgo game` through NSGo's extension mechanism (since NSGo v0.3.3). Install `nsgo` once, with Homebrew (`brew install nsgo-dev/tap/nsgo`), with the install script on macOS and Linux (`curl -fsSL https://nsgo.dev/install.sh | sh`) or with Go on any system (`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`), as [NSGo's setup](https://nsgo.dev/docs/getting-started/#install-nsgo) describes. In a project whose `go.mod` declares the `game` tool, `nsgo game` automatically runs that module's pinned tool (`go tool github.com/nsgo-dev/game/packages/game/cmd/game`):
+Run the command as `nsgo game` through NSGo's extension mechanism (since NSGo v0.3.3). Install `nsgo` once, with Homebrew (`brew install nsgo-dev/tap/nsgo`), with the install script on macOS and Linux (`curl -fsSL https://nsgo.dev/install.sh | sh`) or with Go on any system (`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`), as [NSGo's setup](https://nsgo.dev/docs/getting-started/#install-nsgo) describes. In a project whose `go.mod` declares the `game` tool, `nsgo game` automatically runs that module's pinned tool (`go tool github.com/nsgo-dev/game/cmd/game`):
 
 ```sh
-go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
+go get -tool github.com/nsgo-dev/game/cmd/game
 nsgo game help
 ```
 
@@ -16,11 +16,11 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 Outside a project, such as before creating one with `nsgo game new`, install the `nsgo-game` extension binary once on `PATH` so `nsgo game` finds it:
 
 ```sh
-go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest
+go install github.com/nsgo-dev/game/cmd/nsgo-game@latest
 nsgo game new mygame
 ```
 
-Or run `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` directly anywhere with nothing to install. Inside a project, `go tool game` also runs the same command without an installed `nsgo`.
+Or run `go run github.com/nsgo-dev/game/cmd/game@latest` directly anywhere with nothing to install. Inside a project, `go tool game` also runs the same command without an installed `nsgo`.
 
 ## Commands
 
@@ -198,7 +198,7 @@ nsgo game new -name "Space Rocks" -module example.com/rocks rocks
 nsgo game new -list
 ```
 
-Writes a project from a template into the directory named, creating it if needed, and prints each file's path. It then runs `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@<version>` and `go mod tidy` there, which need the Go module proxy, so the project requires that version of the game layer and has the `game` tool beside the `nsgo` tool, and builds and runs with `go tool nsgo dev` without edits.
+Writes a project from a template into the directory named, creating it if needed, and prints each file's path. It then runs `go get -tool github.com/nsgo-dev/game/cmd/game@<version>` and `go mod tidy` there, which need the Go module proxy, so the project requires that version of the game layer and has the `game` tool beside the `nsgo` tool, and builds and runs with `go tool nsgo dev` without edits.
 
 The game is named after the directory unless `-name` gives a name (letters, digits, spaces, `-` and `_`, starting with a letter), which `game.yaml` and `nsgo.yaml` hold as `name`, with `id` derived from it as `dev.nsgo.<name in lower case without spaces or punctuation>`. The module path is the name in lower case with its words joined by `-` unless `-module` gives one. A module path that is a standard-library package's, such as `time` for a game called Time, is refused because the project could not build, so such a game needs `-module`, such as `-module example.com/time`. `-version` is the version of the game layer to require, such as `v0.4.0`, a commit or `latest`; by default it is the version of the command running, so `go run …@v0.4.0 new`, or an `nsgo-game` installed at `v0.4.0`, creates a project on `v0.4.0`, and `latest` when the command was built from a checkout of this repository. `-template` chooses the template, `starter` by default, and an unknown name is refused with the names there are. `-list` prints each template's name, the default marked, beside a line saying what it is, and creates nothing. [Templates](templates.md) lists them with the module `nsgo init -template` takes for each, and describes how a template is laid out and how to add one.
 
@@ -251,7 +251,7 @@ When a reference names a file that is gone and the project index knows where it 
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-The Examples workflow runs `game check` on the sample games. To run it in a game's own CI, add the command as a tool as above and run `nsgo game check` from the game's directory. The checks are also a package, `github.com/nsgo-dev/game/packages/game/tooling/assetcheck`, whose `Check` takes an `fs.FS` and returns the problems as values, and whose `CheckWith` also takes the game's component registry to check the events and handlers that connections name.
+The Examples workflow runs `game check` on the sample games. To run it in a game's own CI, add the command as a tool as above and run `nsgo game check` from the game's directory. The checks are also a package, `github.com/nsgo-dev/game/pkg/tooling/assetcheck`, whose `Check` takes an `fs.FS` and returns the problems as values, and whose `CheckWith` also takes the game's component registry to check the events and handlers that connections name.
 
 ### assets
 
@@ -327,7 +327,7 @@ What each target was built from is kept in a cache, `.game/assets-cache.yaml` un
 
 #### Import settings beside each asset
 
-An asset may have a sidecar: a YAML file beside it, named after it with `.import.yaml` appended, such as `art/albedo.png.import.yaml`, that says how it is imported, as Godot's `.import` files do, and who made it under what license. A setting in the sidecar overrides the same setting of the target that reads the file, so one asset's import is changed by editing the file beside it, and the next run rebuilds the targets that read it. A sidecar is versioned YAML that package `github.com/nsgo-dev/game/packages/game/tooling/importsettings` reads and writes; it holds one `image`, `audio`, `font` or `model` section, a `credit` section, or a credit with one of the others, refuses a field it does not know, and is validated by the [published schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json`.
+An asset may have a sidecar: a YAML file beside it, named after it with `.import.yaml` appended, such as `art/albedo.png.import.yaml`, that says how it is imported, as Godot's `.import` files do, and who made it under what license. A setting in the sidecar overrides the same setting of the target that reads the file, so one asset's import is changed by editing the file beside it, and the next run rebuilds the targets that read it. A sidecar is versioned YAML that package `github.com/nsgo-dev/game/pkg/tooling/importsettings` reads and writes; it holds one `image`, `audio`, `font` or `model` section, a `credit` section, or a credit with one of the others, refuses a field it does not know, and is validated by the [published schema](schemas.md) `https://game.nsgo.dev/schemas/import.v1.json`.
 
 ```yaml
 # art/albedo.png.import.yaml, read by a texture target
@@ -496,7 +496,7 @@ Licensed under the SIL Open Font License, Version 1.1.
 ```
 ````
 
-The assets are sorted by path. The licenses table counts the assets under each license expression and links each single SPDX identifier to its page in the SPDX license list, and every notice follows word for word. Package `github.com/nsgo-dev/game/packages/game/tooling/credits` collects the credits and writes the file, for a game that shows them on a screen of its own.
+The assets are sorted by path. The licenses table counts the assets under each license expression and links each single SPDX identifier to its page in the SPDX license list, and every notice follows word for word. Package `github.com/nsgo-dev/game/pkg/tooling/credits` collects the credits and writes the file, for a game that shows them on a screen of its own.
 
 ### pixelfx
 
@@ -567,4 +567,4 @@ nsgo game completion fish > ~/.config/fish/completions/game.fish
 ln -s game.fish ~/.config/fish/completions/nsgo.fish
 ```
 
-Leave out the `nsgo` link when `nsgo` has a completion of its own there. To type `game` alone, install the command with `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest`, or define `game` as a shell function that runs `nsgo game`, which keeps the version a module's `go.mod` pins inside the module: `game() { nsgo game "$@"; }` in zsh and bash, and `function game; nsgo game $argv; end` in fish.
+Leave out the `nsgo` link when `nsgo` has a completion of its own there. To type `game` alone, install the command with `go install github.com/nsgo-dev/game/cmd/game@latest`, or define `game` as a shell function that runs `nsgo game`, which keeps the version a module's `go.mod` pins inside the module: `game() { nsgo game "$@"; }` in zsh and bash, and `function game; nsgo game $argv; end` in fish.

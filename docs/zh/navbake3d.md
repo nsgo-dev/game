@@ -3,7 +3,7 @@
 `game/navbake3d` 从关卡几何体烘焙 3D 导航网格，做法与 Recast、Godot 的 `NavigationRegion3D` 和 Unity 的 `NavMeshSurface` 相同，因此 3D 游戏不必再手写 [world3d](world3d.md) `NavMesh` 的凸多边形。它从 glTF 模型、场景文件、地形高度图、`GridMap` 和物理碰撞体读取关卡，为每种代理类型烘焙一个网格，并保存在场景所引用的带版本 YAML 文件里。2D 关卡请改用 [navbake](navbake.md)，它烘焙 `ai.NavMesh` 多边形。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/navbake3d"
+import "github.com/nsgo-dev/game/pkg/navbake3d"
 ```
 
 ## 烘焙关卡

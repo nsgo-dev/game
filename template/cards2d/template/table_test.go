@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nsgo-dev/game/packages/game/cards"
-	"github.com/nsgo-dev/game/packages/game/random"
+	"github.com/nsgo-dev/game/pkg/cards"
+	"github.com/nsgo-dev/game/pkg/random"
 )
 
 // Deals the tests play: a careful player, as nextMove plays, wins winDeal and runs out of moves in loseDeal.

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/platformer"
-	"github.com/nsgo-dev/game/packages/game/rooms"
+	"github.com/nsgo-dev/game/pkg/platformer"
+	"github.com/nsgo-dev/game/pkg/rooms"
 )
 
 const step = time.Second / 60

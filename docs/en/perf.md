@@ -3,7 +3,7 @@
 `game/perf` provides deterministic, zero-steady-state-allocation primitives for hot game loops: reusable object pools (`Pool`, `Arena`, `SlicePool`), 2D broad-phase spatial indices (`SpatialHash`, `Quadtree`), and viewport sprite culling (`CullBatch`, `BatchCuller`, `Cull`).
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/perf"
+import "github.com/nsgo-dev/game/pkg/perf"
 ```
 
 ## Deterministic object pools (`Pool`, `Arena`, `SlicePool`)

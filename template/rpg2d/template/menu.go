@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nsgo-dev/game/packages/game/quest"
+	"github.com/nsgo-dev/game/pkg/quest"
 )
 
 // The menu pages. Every menu is a list of entries the player moves through with up and down and picks with confirm, or presses directly.

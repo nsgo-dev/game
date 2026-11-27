@@ -5,9 +5,9 @@ import (
 	"image"
 	"image/color"
 
-	"github.com/nsgo-dev/game/packages/game/render3d"
-	"github.com/nsgo-dev/game/packages/game/scene3d"
-	"github.com/nsgo-dev/game/packages/game/scenemodel"
+	"github.com/nsgo-dev/game/pkg/render3d"
+	"github.com/nsgo-dev/game/pkg/scene3d"
+	"github.com/nsgo-dev/game/pkg/scenemodel"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gpu"
 )

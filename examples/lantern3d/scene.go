@@ -7,12 +7,12 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game/gltf"
-	"github.com/nsgo-dev/game/packages/game/math3d"
-	"github.com/nsgo-dev/game/packages/game/render3d"
-	"github.com/nsgo-dev/game/packages/game/scene3d"
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
-	"github.com/nsgo-dev/game/packages/game/scenemodel"
+	"github.com/nsgo-dev/game/pkg/gltf"
+	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/render3d"
+	"github.com/nsgo-dev/game/pkg/scene3d"
+	"github.com/nsgo-dev/game/pkg/sceneformat"
+	"github.com/nsgo-dev/game/pkg/scenemodel"
 )
 
 const (

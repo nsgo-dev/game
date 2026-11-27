@@ -1,7 +1,7 @@
 # leaderboard
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/leaderboard"
+import "github.com/nsgo-dev/game/pkg/leaderboard"
 ```
 
 `leaderboard` 向平台自带的排行榜提交分数并显示排行榜：iOS、iPadOS、tvOS 和 macOS 上是 Game Center，Android 上是 Play 游戏服务。它是 NSGo [`gameservices`](https://github.com/nsgo-dev/nsgo/tree/main/gameservices) 包上的一层薄封装，让游戏在一个 YAML 文件里一次性声明排行榜的名字，代码里不再到处传平台 ID。

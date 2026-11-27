@@ -3,7 +3,7 @@
 `fighting2d` is a one-on-one 2D fighting game to start a fighter from: two original characters, special moves from motion inputs, cancels and combos, guarding high and low, best-of-three rounds on a timer, a CPU opponent, and a second player on the same keyboard, on a second game controller or, against the CPU, on touch. It is built mainly on [fighting](fighting.md), which recognizes the inputs, and [framedata](framedata.md), which resolves the hits, with [input](input.md), [sound](sound.md), [screen](screen.md) and the [placeholder pack](placeholder.md)'s sounds.
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template fighting2d myfighter
+go run github.com/nsgo-dev/game/cmd/game@latest new -template fighting2d myfighter
 cd myfighter
 go tool nsgo dev
 ```

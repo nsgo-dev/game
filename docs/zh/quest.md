@@ -3,7 +3,7 @@
 `game/quest` 运行带目标（收集、到达、击败、对话）、任务状态与奖励的任务。任务定义在带版本号的 YAML 任务书中，由发布在 `flow.Bus` 上的游戏事件推进，并保存为一份可以经 `save.Store` 无损往返的小快照。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/quest"
+import "github.com/nsgo-dev/game/pkg/quest"
 ```
 
 ## 任务书

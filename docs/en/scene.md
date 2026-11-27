@@ -3,7 +3,7 @@
 `game/scene` composes ordered world- and screen-space layers, hit-tests sprites and custom drawables in view coordinates, and manages scene lifecycles, overlay stacks, and animated transitions.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/scene"
+import "github.com/nsgo-dev/game/pkg/scene"
 ```
 
 ## Scene, layers, and drawables

@@ -3,10 +3,10 @@ package main
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/packages/game/debug"
-	"github.com/nsgo-dev/game/packages/game/framedata"
-	"github.com/nsgo-dev/game/packages/game/input"
-	"github.com/nsgo-dev/game/packages/game/math2d"
+	"github.com/nsgo-dev/game/pkg/debug"
+	"github.com/nsgo-dev/game/pkg/framedata"
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/nsgo/core"
 )
 

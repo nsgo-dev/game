@@ -3,7 +3,7 @@
 `game/tooling/datatable` 把敌人、道具、关卡、任务等类型化游戏数据加载为你自己的 Go 结构体切片，并在游戏运行时、策划保存文件后热重载。数据表使用 YAML，策划和 AI 工具可以直接编辑，每处改动在评审中都是一行可读的差异；电子表格等工具导出的 CSV 和 JSON 也能加载。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/tooling/datatable"
+import "github.com/nsgo-dev/game/pkg/tooling/datatable"
 ```
 
 ## 数据表与类型

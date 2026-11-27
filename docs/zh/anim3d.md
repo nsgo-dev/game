@@ -3,7 +3,7 @@
 `game/anim3d` 提供运行在 `game.Loop` 固定步长上的 3D 骨骼动画系统：glTF 2.0 节点与蒙皮动画播放（`Player`、`ClipFromGLTF`）、带平滑交叉淡化的姿态状态机、支持脚步相位同步的 1D/2D 混合空间、骨骼遮罩分层与叠加片段、动画帧事件、双骨骼/FABRIK 反向动力学（IK），以及根骨骼运动（root motion）提取。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/anim3d"
+import "github.com/nsgo-dev/game/pkg/anim3d"
 ```
 
 所有骨骼变换均遵循 [math3d](math3d.md) 的右手 Y 轴向上约定。

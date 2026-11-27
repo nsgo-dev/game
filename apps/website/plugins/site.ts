@@ -9,13 +9,13 @@ import type { CatalogPackage, DocsLang, PackageCategory, SiteContent, TutorialCh
 // toTraditional converts Simplified Chinese to Traditional Chinese as Taiwan writes it, phrases included (OpenCC's s2twp).
 export const toTraditional: (text: string) => string = OpenCC.Converter({ from: 'cn', to: 'twp' })
 
-const MODULE = 'github.com/nsgo-dev/game/packages/'
+const MODULE = 'github.com/nsgo-dev/'
 
-// A row of the package table in docs/<lang>/stability.md: the package, its status, and the page that is its guide, if any. A test in packages/game keeps the table complete and the Chinese one equal to it.
+// A row of the package table in docs/<lang>/stability.md: the package, its status, and the page that is its guide, if any. A test in the root module keeps the table complete and the Chinese one equal to it.
 const STABILITY_ROW = /^\| `([^`]+)` \| (Stable|Experimental) \| (?:\[[^\]]+\]\(([a-z0-9-]+)\.md\))? ?\|$/
 
 export interface StabilityRow {
-  // path is relative to github.com/nsgo-dev/game/packages, such as game/sprite.
+  // path is relative to github.com/nsgo-dev, such as game or game/pkg/sprite.
   path: string
   stable: boolean
   guide?: string
@@ -83,7 +83,7 @@ const THREE_D = new Set('math3d scene3d anim3d world3d voxel render3d vehicle ph
 
 // category sorts a package into the catalog's groups by its path: 3D, tooling, online services, graphics and UI, the core, and gameplay for the rest.
 export function category(pkgPath: string): PackageCategory {
-  const rest = pkgPath === 'game' ? 'game' : pkgPath.replace(/^game\//, '')
+  const rest = pkgPath === 'game' ? 'game' : pkgPath.replace(/^game\/(?:pkg\/)?/, '')
   const top = rest.split('/')[0]!
   if (rest.endsWith('3d') || THREE_D.has(top)) return '3d'
   if (TOOLS.has(top)) return 'tools'
@@ -136,7 +136,7 @@ function convertTutorial(t: TutorialContent): TutorialContent {
   }
 }
 
-// importedPackages lists the game layer's packages the Go files of dir and its directories import, tests and tools/ left out, by their path below the module, such as game/sprite.
+// importedPackages lists the game layer's packages the Go files of dir and its directories import, tests and tools/ left out, by their path below github.com/nsgo-dev, such as game/pkg/sprite.
 export async function importedPackages(dir: string): Promise<string[]> {
   const found = new Set<string>()
   const visit = async (d: string) => {
@@ -147,7 +147,7 @@ export async function importedPackages(dir: string): Promise<string[]> {
       }
       if (!entry.name.endsWith('.go') || entry.name.endsWith('_test.go')) continue
       const source = await readFile(path.join(d, entry.name), 'utf8')
-      for (const m of source.matchAll(/"github\.com\/nsgo-dev\/game\/packages\/(game(?:\/[a-z0-9/]+)?)"/g)) found.add(m[1]!)
+      for (const m of source.matchAll(/"github\.com\/nsgo-dev\/(game(?:\/[a-z0-9/]+)?)"/g)) found.add(m[1]!)
     }
   }
   await visit(dir)
@@ -182,12 +182,12 @@ export async function packageSynopsis(dir: string): Promise<string> {
 export interface SiteDirs {
   docsDir: string
   examplesDir: string
-  // packagesDir is the directory of github.com/nsgo-dev/game/packages.
-  packagesDir: string
+  // repoDir is the repository root (module github.com/nsgo-dev/game).
+  repoDir: string
 }
 
 // loadSite reads the content of the site's own pages from the repository.
-export async function loadSite({ docsDir, examplesDir, packagesDir }: SiteDirs): Promise<SiteContent> {
+export async function loadSite({ docsDir, examplesDir, repoDir }: SiteDirs): Promise<SiteContent> {
   const read = (lang: 'en' | 'zh', file: string) => readFile(path.join(docsDir, lang, file), 'utf8')
   const rows = parseStability(await read('en', 'stability.md'))
   if (rows.length === 0) throw new Error('docs/en/stability.md has no package rows')
@@ -209,11 +209,12 @@ export async function loadSite({ docsDir, examplesDir, packagesDir }: SiteDirs):
   }
   const packages: CatalogPackage[] = []
   for (const row of rows) {
-    const en = index.en.get(row.path) || (await guideSentence('en', row.guide)) || (await packageSynopsis(path.join(packagesDir, row.path)))
+    const pkgDir = row.path === 'game' ? repoDir : path.join(repoDir, row.path.slice('game/'.length))
+    const en = index.en.get(row.path) || (await guideSentence('en', row.guide)) || (await packageSynopsis(pkgDir))
     const zh = index.zh.get(row.path) || (await guideSentence('zh', row.guide))
     packages.push({
       path: row.path,
-      name: row.path === 'game' ? 'game' : row.path.slice('game/'.length),
+      name: row.path === 'game' ? 'game' : row.path.replace(/^game\/(?:pkg\/)?/, ''),
       stable: row.stable,
       category: category(row.path),
       ...(row.guide ? { guide: row.guide } : {}),

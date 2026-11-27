@@ -29,9 +29,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Check Go formatting
         run: |
           unformatted=$(git ls-files -z -- '*.go' | xargs -0 -r gofmt -l)
@@ -48,10 +48,8 @@ jobs:
             exit 1
           fi
       - name: Check the published JSON Schemas match the Go types
-        working-directory: packages/game
         run: go run ./cmd/gameschema -check
       - name: Build and vet every target but iOS
-        working-directory: packages/game
         run: go tool nsgo check -target macos,windows,linux,android,web
 
   apple:
@@ -66,9 +64,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Build and vet iOS
-        working-directory: packages/game
         run: go tool nsgo check -target ios,ios_simulator

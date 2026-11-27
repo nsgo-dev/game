@@ -1,6 +1,6 @@
 # 编辑器与场景格式
 
-本文档记录 NSGo 游戏编辑器的范围决策（[#159](https://github.com/nsgo-dev/game/issues/159)），并说明 `github.com/nsgo-dev/game/packages/game/sceneformat` 实现的第 1 版 YAML 场景格式（[#160](https://github.com/nsgo-dev/game/issues/160)）。
+本文档记录 NSGo 游戏编辑器的范围决策（[#159](https://github.com/nsgo-dev/game/issues/159)），并说明 `github.com/nsgo-dev/game/pkg/sceneformat` 实现的第 1 版 YAML 场景格式（[#160](https://github.com/nsgo-dev/game/issues/160)）。
 
 ## 编辑器范围决策（#159）
 
@@ -30,7 +30,7 @@ NSGo 原生编辑器直接读写 `sceneformat.SceneDoc` 文件，聚焦于可视
 ## 场景格式（`version: 4`）（#160）
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/sceneformat"
+import "github.com/nsgo-dev/game/pkg/sceneformat"
 ```
 
 ### 顶层字段
@@ -810,7 +810,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **移至子级（Move under）**：子菜单（`MoveUnderCandidates`、`MoveObjectUnder`）列出所有合法的候选父对象——排除自身、后代以及会超出 `MaxObjectDepth` 的目标——并标注当前父对象、锁定状态、子对象数量或所在图层；重设父对象只占一个撤销步骤，一次撤销即可原样还原。
 - **选择相同预制体（Select same prefab）**：当对象设置了 `prefab` 或 `scene` 时，`SelectSamePrefab` 会选中场景中所有共享同一引用的对象（`SelectedIDs`、`SelectObjects`、`IsObjectSelected`）。
 - **隐藏/显示（`h`）、锁定/解锁、查找用法（`shift+f12`）、重命名（`f2`）与向智能体询问此项（`mod+l`）**：切换会话可见性（`ToggleObjectHidden`）和锁定状态（`ToggleObjectLocked`），在打开的项目中查找对该对象 ID、预制体或实例化场景的引用（`FindObjectUsages` / `ShowObjectUsages`，对场景/预制体路径打开查找用法界面，对普通 ID 打开搜索面板，未打开项目时省略），在场景树中开启行内重命名（`RequestRenameObject`），或将 `AgentPromptRequest` 草稿发送给 `Editor.OnAskAgent`（`AskAgentAboutObject`）。上下文菜单会实时读取自定义快捷键（`EffectiveShortcut`），对场景实例与继承/外部对象保留覆盖操作（打开实例化场景、转为本地对象、将覆盖应用到源场景、打开源场景、还原覆盖）并禁用外部对象的本地结构编辑，同时在场景树行中保留树顺序、剪切、粘贴为子对象、取消编组、修改 ID、移动到图层与删除操作。
-- **MCP 对等能力（`packages/game/editor/editormcp`）**：每个上下文菜单操作都调用一个导出的 `Editor` 方法，并由编辑器 MCP 服务器同步暴露（`object_copy_yaml`、`object_paste_yaml`、`object_duplicate`、`object_group`、`object_move_under`、`object_select_same_prefab`、`object_visibility` 与 `object_find_usages`，配合既有的 `scene_edit` 以及 `selection_get` 的 `selectedIds`）。
+- **MCP 对等能力（`pkg/editor/editormcp`）**：每个上下文菜单操作都调用一个导出的 `Editor` 方法，并由编辑器 MCP 服务器同步暴露（`object_copy_yaml`、`object_paste_yaml`、`object_duplicate`、`object_group`、`object_move_under`、`object_select_same_prefab`、`object_visibility` 与 `object_find_usages`，配合既有的 `scene_edit` 以及 `selection_get` 的 `selectedIds`）。
 
 ### 多对象选择与批量编辑（#867）
 
@@ -945,7 +945,7 @@ func main() {
 
 `game.yaml` 在 `editor.plugins` 下列出插件，因此游戏的编辑器打开项目时插件总是启用的。不应在缺少插件时启动的编辑器命令，设置 `editorcmd.Options.RequirePlugins`，或在 `OpenProject` 之后检查 `MissingPlugins`，不为空就失败退出。项目有 `cmd/editor` main 包时，`nsgo game editor` 会用 `go run ./cmd/editor` 运行该命令，就像运行 `game generate editor` 写出的命令一样，并把同样的命令行（`-library` 以及项目、场景文件、剪辑和对象 ID）传给它，所以 `cmd/editor` 应当用 `editorcmd.Main` 或 `editorcmd.Run` 解析命令行。没有导入 `editorcmd` 的 `cmd/editor` 不会被运行：`nsgo game editor` 会说明这一点，并自己打开项目。
 
-[Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic)（`examples/fieldmedic`）就是按这种方式组织的可运行游戏。它的病人带有 `health` 组件（`health` 包），它的 `cmd/editor` 注册了 `health` 插件（`healthplugin` 包）：一个停靠在检查器右侧的 Ward 面板，列出每个病人的生命值，其中的 Heal All 按钮在 `Editor.History` 上执行一个可撤销步骤，一次治好所有病人；一个 `health` 组件的检查器，带生命值和上限两个字段以及剩余生命值的条形图；以及一个 Admit 工具，在视口按下处放置一个病人，并在工具启用时为每个病人画出轮廓。它的测试在编辑器中打开游戏自己的项目，操作面板、检查器和工具。编辑器自身的测试中也有一个更小的 `health` 插件（`packages/game/editor/plugin_test.go`）。
+[Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic)（`examples/fieldmedic`）就是按这种方式组织的可运行游戏。它的病人带有 `health` 组件（`health` 包），它的 `cmd/editor` 注册了 `health` 插件（`healthplugin` 包）：一个停靠在检查器右侧的 Ward 面板，列出每个病人的生命值，其中的 Heal All 按钮在 `Editor.History` 上执行一个可撤销步骤，一次治好所有病人；一个 `health` 组件的检查器，带生命值和上限两个字段以及剩余生命值的条形图；以及一个 Admit 工具，在视口按下处放置一个病人，并在工具启用时为每个病人画出轮廓。它的测试在编辑器中打开游戏自己的项目，操作面板、检查器和工具。编辑器自身的测试中也有一个更小的 `health` 插件（`pkg/editor/plugin_test.go`）。
 
 ## 库面板（#493）
 
@@ -1039,7 +1039,7 @@ func main() {
 
 在构建与发布界面完成 Web 或 Android 构建后，开发者可以直接在本机浏览器、同一 Wi-Fi 下的手机或 USB 连接的 Android 设备上试玩：
 
-- **仅限局域网的 HTTP 服务与纯 Go 二维码**：非演练 Web 构建完成后会自动启动仅限局域网的 HTTP 服务（`StartWebBuildServer` / `StopWebBuildServer` / `WebBuildServerState`），严格绑定在 RFC 1918 私有局域网 IPv4 地址（离线时回退到 `127.0.0.1`，可通过 `Editor.LANAddressResolver` 与 `Editor.WebBuildServePort` 自定义）。公网绑定地址会被拒绝（`ErrNonLANAddress`），非局域网客户端请求返回 `403 Forbidden`，越界符号链接会被拦截；点击 **Stop serving**、关闭编辑器（`Close()`）、切换项目或卸载 `EditorView` 时会立即关闭监听并释放端口。Web 结果卡片使用纯 Go 确定性 ISO/IEC 18004 二维码编码器（`packages/game/internal/qrcode`、`EncodeBuildQR`）与 Spec 令牌在高对比度浅色静区卡片上渲染可扫描二维码，并提供局域网地址、**Copy URL**（`CopyWebBuildURL`）以及 **Stop serving** / **Start serving** 按钮。
+- **仅限局域网的 HTTP 服务与纯 Go 二维码**：非演练 Web 构建完成后会自动启动仅限局域网的 HTTP 服务（`StartWebBuildServer` / `StopWebBuildServer` / `WebBuildServerState`），严格绑定在 RFC 1918 私有局域网 IPv4 地址（离线时回退到 `127.0.0.1`，可通过 `Editor.LANAddressResolver` 与 `Editor.WebBuildServePort` 自定义）。公网绑定地址会被拒绝（`ErrNonLANAddress`），非局域网客户端请求返回 `403 Forbidden`，越界符号链接会被拦截；点击 **Stop serving**、关闭编辑器（`Close()`）、切换项目或卸载 `EditorView` 时会立即关闭监听并释放端口。Web 结果卡片使用纯 Go 确定性 ISO/IEC 18004 二维码编码器（`internal/qrcode`、`EncodeBuildQR`）与 Spec 令牌在高对比度浅色静区卡片上渲染可扫描二维码，并提供局域网地址、**Copy URL**（`CopyWebBuildURL`）以及 **Stop serving** / **Start serving** 按钮。
 - **局域网 Play 模式 MCP 桥接**：托管的 Web 构建保持 `index.html` 与资源文件字节完全不变，同时在响应头暴露 `X-NSGo-MCP-Bridge: /__nsgo_mcp/info` 与 `X-NSGo-Play-Mode: debug`。手机浏览器在 Play 模式下读取 `/__nsgo_mcp/info`（或加载 `/__nsgo_mcp/bridge.js`），使用每会话随机令牌向 `POST /__nsgo_mcp/session` 握手注册，并通过 `/__nsgo_mcp/rpc`、`/__nsgo_mcp/poll`、`/__nsgo_mcp/reply`（对应 Go 接口 `Editor.WebBridgeSessions`、`Editor.CallWebBridgeTool`、`Editor.WebBridgeHandler`）与编辑器和代理双向通信，让代理同样可以检查和调试手机上运行的构建。
 - **RUN ON DEVICE 设备目标**：在构建结果右侧展示实时设备列表与状态（`BuildDeviceState`）：
   - **本机浏览器**（`LaunchBuildOnDevice("browser")`，可注入 `Editor.OpenBrowserURL`）：在本地浏览器打开局域网测试链接（`ready` -> `running`）。
@@ -1664,7 +1664,7 @@ func main() {
 
 ## 设计令牌（#1002）
 
-编辑器中的每一处色彩、字号、间距阶梯、圆角、高度与动效时长都统一来自嵌入的 YAML 主题文件与常量定义（`packages/game/editor/spec_theme.yaml` 与 `packages/game/editor/spec_theme.go`），与 `docs/design/editor/Spec.dc.html` 及 `docs/design/editor/Viewport3D.dc.html` 保持一致：
+编辑器中的每一处色彩、字号、间距阶梯、圆角、高度与动效时长都统一来自嵌入的 YAML 主题文件与常量定义（`pkg/editor/spec_theme.yaml` 与 `pkg/editor/spec_theme.go`），与 `docs/design/editor/Spec.dc.html` 及 `docs/design/editor/Viewport3D.dc.html` 保持一致：
 
 - **嵌入 YAML 主题（`spec_theme.yaml`、`SpecTheme`、`SpecPalette`）**：通过 `core.ParseTheme` 解析并在 `EditorView` 根作用域通过 `cx.SetTheme(SpecTheme())` 生效。NSGo 的所有 `core.Palette` 与 `ui.ColorsOf` 角色（`Background`、`Surface`、`Raised`、`Line`、`Border`、`Text`、`TextMuted`、`Accent`、`AccentText`、`Success`、`Warning`、`Danger`、`Focus`）均在深色与浅色外观下直接映射到规范调色板；`Editor.SpecPalette(cx)`（以及 `DarkSpecPalette()`、`LightSpecPalette()`、`SpecPaletteFor(dark)`）同时提供 NSGo 未命名的规范角色（`TextPrimary` / 强文本、`TextSecondary` / 正文、`TextMuted` / 次级文本、`TextFaint` / 弱化文本、`OnTextPrimary`、`Viewport`、`ViewportDot`、`PillBg`、`HoverOverlay`、`ActiveOverlay`、`PrimaryHover`、`AccentHover`、`AccentPressed`、`Viewport3DGround`、`Viewport3DGrid`、`Accent`、`Agent`、`Added`、`Changed`、`Removed`/`Problem`、含专用 `Fill` 与 `Edge` 的 `Warning`，以及 3D 坐标轴令牌 `AxisX`、`AxisY`、`AxisZ`）。
 - **深色模式色彩令牌（`Spec.dc.html` 与 `Viewport3D.dc.html`）**：
@@ -1678,4 +1678,4 @@ func main() {
   - 间距：仅使用 `4`、`8`、`12`、`16`、`24` px（`SpecSpace4`–`SpecSpace24`）。
   - 圆角与几何：控件 `6`（`SpecRadiusControl`）、按钮 `8`（`SpecRadiusButton`）、卡片与轻提示 `12`（`SpecRadiusCard`）、对话框 `18`（`SpecRadiusDialog`）；行与工具按钮高 `28`（`SpecRowHeight`，最小命中热区 `SpecMinHitSize = 28`）、按钮高 `30`–`32`（`SpecButtonHeight`、`SpecButtonTallHeight`）、顶栏高 `44`（`SpecHeaderHeight`）；`1` px 内描边（`SpecBorderWidth`）。
   - 动效：悬停与按压 `120 ms`（`SpecMotionHover`）、面板/浮层/轻提示 `180 ms`（`SpecMotionPanel`）、智能体叠加层淡入 `240 ms`（`SpecMotionOverlay`）、智能体脉冲 `1.6 s`（`SpecMotionAgentPulse`，透明度 `100%` ↔ `45%`）。开启 `Env.ReduceMotion` 时，`SpecMotionDuration` 返回 `0`，`SpecAgentPulseOpacity` 保持 `1.0` 不闪烁。
-- **禁止硬编码 UI 颜色字面量**：`packages/game/editor` 中除 `spec_theme.go` 外的所有非测试 `.go` 文件在绘制界面元素、操纵杆、叠加层与调试视图时仅使用 `SpecPalette` 令牌（场景内容数据如 `scene.BackgroundColor` 保留为场景数据）。`TestSpecNoHardcodedColorLiteralsInEditor` 通过 AST 静态扫描整个编辑器包，一旦在 `spec_theme.go` 之外出现任何 `core.RGB`/`core.RGBA` 调用或硬编码 UI 十六进制颜色即令测试失败。
+- **禁止硬编码 UI 颜色字面量**：`pkg/editor` 中除 `spec_theme.go` 外的所有非测试 `.go` 文件在绘制界面元素、操纵杆、叠加层与调试视图时仅使用 `SpecPalette` 令牌（场景内容数据如 `scene.BackgroundColor` 保留为场景数据）。`TestSpecNoHardcodedColorLiteralsInEditor` 通过 AST 静态扫描整个编辑器包，一旦在 `spec_theme.go` 之外出现任何 `core.RGB`/`core.RGBA` 调用或硬编码 UI 十六进制颜色即令测试失败。

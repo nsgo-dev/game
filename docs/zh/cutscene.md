@@ -3,7 +3,7 @@
 `game/cutscene` 在游戏里播放预渲染的视频过场动画与引擎内时间轴过场动画，既可以放在场景之中，也可以放在两个场景之间。视频过场动画在 NSGo 自带的视频视图（`core.Video`）中覆盖播放，播放期间暂停 `Loop` 和 `Mixer`。时间轴过场动画在 `game.Loop` 固定步长上针对 `sceneformat.BuiltScene` 或 `sceneformat.SceneDoc` 确定性地运行，驱动相机、角色、本地化对白、音效和音乐轨道。两种过场动画均可跳过，并在结束时回调游戏。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/cutscene"
+import "github.com/nsgo-dev/game/pkg/cutscene"
 ```
 
 ## 过场动画文件

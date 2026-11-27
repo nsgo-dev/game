@@ -3,7 +3,7 @@
 `idle` 是 Hearthkeeper，一个小型放置游戏：守着一堆火，用它产出的余烬购买生产器和升级，游戏关闭期间照样有进度，可以转生重置，买下目标即获胜。用它创建项目：
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template idle mygame
+go run github.com/nsgo-dev/game/cmd/game@latest new -template idle mygame
 ```
 
 或用 NSGo 自带的命令：`nsgo init -template github.com/nsgo-dev/game/template/idle -module example.com/mygame mygame`。其他模板见[项目模板](templates.md)。

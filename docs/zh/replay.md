@@ -3,7 +3,7 @@
 `game/replay` 将固定步长下的游戏输入以增量格式记录到 YAML 文本文件中，并支持确定性回放，用于问题复现、幽灵竞速（ghost）和自动化回归测试。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/replay"
+import "github.com/nsgo-dev/game/pkg/replay"
 ```
 
 ## ActionSource 抽象

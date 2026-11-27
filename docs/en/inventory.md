@@ -3,7 +3,7 @@
 `game/inventory` holds gameplay items: item definitions in versioned YAML, slot-based containers of stacks, typed equipment slots, and snapshots that round-trip through [`game/save`](save.md).
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/inventory"
+import "github.com/nsgo-dev/game/pkg/inventory"
 ```
 
 ## Item definitions

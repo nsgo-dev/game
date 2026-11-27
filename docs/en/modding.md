@@ -3,12 +3,12 @@
 `game/modding` loads and runs capability-sandboxed TSX/JS game mods on top of NSGo's `tsx` runtime, with `mod.yaml` manifest validation, topological dependency resolution, fault isolation, persisted enable/disable state, and a `"game"` module API.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/modding"
+import "github.com/nsgo-dev/game/pkg/modding"
 ```
 
 ## Mod manifest (`mod.yaml`) and capabilities
 
-Each mod lives in its own directory with a `mod.yaml` (`ModManifest`) and an entry script (`mod.tsx` or `mod.js`). The sample mod in [`packages/game/modding/testdata/mods/boss-rush/`](../../packages/game/modding/testdata/mods/boss-rush/) is the manifest and script shown on this page, and the package's tests load it:
+Each mod lives in its own directory with a `mod.yaml` (`ModManifest`) and an entry script (`mod.tsx` or `mod.js`). The sample mod in [`pkg/modding/testdata/mods/boss-rush/`](../../pkg/modding/testdata/mods/boss-rush/) is the manifest and script shown on this page, and the package's tests load it:
 
 ```yaml
 manifestVersion: 1

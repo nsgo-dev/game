@@ -1,7 +1,7 @@
 # vehicle
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/vehicle"
+import "github.com/nsgo-dev/game/pkg/vehicle"
 ```
 
 Raycast cars on a [`physics3d`](physics3d.md) world: wheel colliders, spring-damper suspension, longitudinal and lateral tire friction and a car controller, plus race checkpoints, lap times and ghost replays.

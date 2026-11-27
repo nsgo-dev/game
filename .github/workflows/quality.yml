@@ -28,12 +28,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Run golden tests
-        working-directory: packages/game
-        run: go tool nsgo test ./gametest
+        run: go tool nsgo test ./pkg/gametest
 
   benchmarks:
     name: Performance baselines
@@ -47,15 +46,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Run benchmarks and check baselines
-        working-directory: packages/game
-        run: go tool game bench -baseline ../../benchmarks/baseline.yaml ./sprite ./tilemap ./bullets ./rts ./navbake3d
+        run: go tool game bench -baseline benchmarks/baseline.yaml ./pkg/sprite ./pkg/tilemap ./pkg/bullets ./pkg/rts ./pkg/navbake3d
       - name: Check the self-hosted leaderboard's 50 ms query budget on a million entries
-        working-directory: packages/game
-        run: go test -run='^$' -bench='Top|Around|Friends' -benchtime=50x ./leaderboard/selfhost
+        run: go test -run='^$' -bench='Top|Around|Friends' -benchtime=50x ./pkg/leaderboard/selfhost
 
   replays:
     name: Input recordings
@@ -69,12 +66,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Play the recordings headless
-        working-directory: packages/game
-        run: go tool game replay ./replay
+        run: go tool game replay ./pkg/replay
 
   web-size-budget:
     name: WebAssembly size budget
@@ -88,14 +84,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Check wasm size against budget
-        working-directory: packages/game
         run: |
           set -o pipefail
-          go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -markdown | tee -a "$GITHUB_STEP_SUMMARY"
+          go run ./cmd/sizecheck -kind wasm -budget benchmarks/web-budget.json -markdown | tee -a "$GITHUB_STEP_SUMMARY"
 
   android-size-budget:
     name: Android AAB size budget
@@ -109,11 +104,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Build Android AAB and check size budget
-        working-directory: packages/game
         run: |
           set -euo pipefail
           trap 'rm -rf ./cmd/wasmprobe/.sizecheck-android' EXIT
@@ -123,7 +117,7 @@ jobs:
             echo "no Android .aab produced" >&2
             exit 1
           fi
-          go run ./cmd/sizecheck -kind aab -budget ../../benchmarks/android-aab-budget.json -markdown "$aab" | tee -a "$GITHUB_STEP_SUMMARY"
+          go run ./cmd/sizecheck -kind aab -budget benchmarks/android-aab-budget.json -markdown "$aab" | tee -a "$GITHUB_STEP_SUMMARY"
 
   ios-size-budget:
     name: iOS IPA size budget
@@ -137,11 +131,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Build iOS IPA and check size budget
-        working-directory: packages/game
         run: |
           set -euo pipefail
           trap 'rm -rf ./cmd/wasmprobe/.sizecheck-ios' EXIT
@@ -151,7 +144,7 @@ jobs:
             echo "no iOS .ipa produced" >&2
             exit 1
           fi
-          go run ./cmd/sizecheck -kind ipa -budget ../../benchmarks/ios-ipa-budget.json -markdown "$ipa" | tee -a "$GITHUB_STEP_SUMMARY"
+          go run ./cmd/sizecheck -kind ipa -budget benchmarks/ios-ipa-budget.json -markdown "$ipa" | tee -a "$GITHUB_STEP_SUMMARY"
 
   fuzz:
     name: Fuzz file loaders
@@ -165,51 +158,36 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version-file: packages/game/go.mod
+          go-version-file: go.mod
           cache: true
-          cache-dependency-path: packages/game/go.sum
+          cache-dependency-path: go.sum
       - name: Fuzz LoadAtlas
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzLoadAtlas$ -fuzztime=10s ./sprite
+        run: go test -run=^$ -fuzz=^FuzzLoadAtlas$ -fuzztime=10s ./pkg/sprite
       - name: Fuzz LoadTiled
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzLoadTiled$ -fuzztime=10s ./tilemap
+        run: go test -run=^$ -fuzz=^FuzzLoadTiled$ -fuzztime=10s ./pkg/tilemap
       - name: Fuzz LoadTiled TMX
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzLoadTiledTMX$ -fuzztime=10s ./tilemap
+        run: go test -run=^$ -fuzz=^FuzzLoadTiledTMX$ -fuzztime=10s ./pkg/tilemap
       - name: Fuzz LoadTiled compressed data
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzLoadTiledCompressed$ -fuzztime=10s ./tilemap
+        run: go test -run=^$ -fuzz=^FuzzLoadTiledCompressed$ -fuzztime=10s ./pkg/tilemap
       - name: Fuzz replay Decode
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzDecode$ -fuzztime=10s ./replay
+        run: go test -run=^$ -fuzz=^FuzzDecode$ -fuzztime=10s ./pkg/replay
       - name: Fuzz ParseManifest
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzParseManifest$ -fuzztime=10s ./modding
+        run: go test -run=^$ -fuzz=^FuzzParseManifest$ -fuzztime=10s ./pkg/modding
       - name: Fuzz LoadSDFFont
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzLoadSDFFont$ -fuzztime=10s ./text
+        run: go test -run=^$ -fuzz=^FuzzLoadSDFFont$ -fuzztime=10s ./pkg/text
       - name: Fuzz fog snapshots
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzUnmarshalJSON$ -fuzztime=10s ./fog
+        run: go test -run=^$ -fuzz=^FuzzUnmarshalJSON$ -fuzztime=10s ./pkg/fog
       - name: Fuzz framedata Parse
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzParse$ -fuzztime=10s ./framedata
+        run: go test -run=^$ -fuzz=^FuzzParse$ -fuzztime=10s ./pkg/framedata
       - name: Fuzz bullet pattern Parse
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzParse$ -fuzztime=10s ./bullets
+        run: go test -run=^$ -fuzz=^FuzzParse$ -fuzztime=10s ./pkg/bullets
       - name: Fuzz ParseBoardDoc
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzParseBoardDoc$ -fuzztime=10s ./cards
+        run: go test -run=^$ -fuzz=^FuzzParseBoardDoc$ -fuzztime=10s ./pkg/cards
       - name: Fuzz ParseRules
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzParseRules$ -fuzztime=10s ./procgen
+        run: go test -run=^$ -fuzz=^FuzzParseRules$ -fuzztime=10s ./pkg/procgen
       - name: Fuzz bench baseline Decode
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzDecode$ -fuzztime=10s ./tooling/bench
+        run: go test -run=^$ -fuzz=^FuzzDecode$ -fuzztime=10s ./pkg/tooling/bench
       - name: Fuzz game check on scenes
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzCheckScene$ -fuzztime=10s ./tooling/assetcheck
+        run: go test -run=^$ -fuzz=^FuzzCheckScene$ -fuzztime=10s ./pkg/tooling/assetcheck
       - name: Fuzz game check on Tiled maps
-        working-directory: packages/game
-        run: go test -run=^$ -fuzz=^FuzzCheckTiledMap$ -fuzztime=10s ./tooling/assetcheck
+        run: go test -run=^$ -fuzz=^FuzzCheckTiledMap$ -fuzztime=10s ./pkg/tooling/assetcheck

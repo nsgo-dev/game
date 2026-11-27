@@ -5,7 +5,7 @@
 在同一种 CPU 架构上，文件逐字节相同。游戏自身的浮点运算在 arm64 和 amd64 上可能不同，因为 Go 编译器在 arm64 上可能把一次乘法和一次加法合并成一条 FMA 指令；要在多台机器间共用的基准转储，需要对这类乘积做显式转换，例如 `x += float64(v * speed * dt)`，转换会先把乘积舍入，从而阻止合并。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/statedump"
+import "github.com/nsgo-dev/game/pkg/statedump"
 ```
 
 ## 无窗口运行

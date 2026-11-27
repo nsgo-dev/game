@@ -57,32 +57,11 @@
 
 ## 包列表
 
-路径相对于 `github.com/nsgo-dev/game/packages`。模块中的一个测试会检查这张表，确保每个包恰好有一行。
+路径相对于 `github.com/nsgo-dev`。模块中的一个测试会检查这张表，确保每个包恰好有一行。
 
 | 包 | 状态 | 指南 |
 | --- | --- | --- |
 | `game` | 稳定 | [Loop](loop.md) |
-| `game/a11y` | 实验性 | [a11y](a11y.md) |
-| `game/ability` | 实验性 | [ability](ability.md) |
-| `game/accounts` | 实验性 | [accounts](accounts.md) |
-| `game/accounts/cmd/accountsd` | 实验性 | [accounts](accounts.md) |
-| `game/accounts/pgstore` | 实验性 | [accounts](accounts.md) |
-| `game/accounts/sqlitestore` | 实验性 | [accounts](accounts.md) |
-| `game/accounts/sqlstore` | 实验性 | [accounts](accounts.md) |
-| `game/accounts/storetest` | 实验性 | [accounts](accounts.md) |
-| `game/accounts/token` | 实验性 | [accounts](accounts.md) |
-| `game/achievements` | 实验性 | [achievements](achievements.md) |
-| `game/ai` | 稳定 | [ai](ai.md) |
-| `game/ai/perception3d` | 实验性 | [ai](ai.md) |
-| `game/anim3d` | 实验性 | [anim3d](anim3d.md) |
-| `game/animclip` | 实验性 | [animclip](animclip.md) |
-| `game/assets` | 实验性 | [assets](assets.md) |
-| `game/bullets` | 实验性 | [bullets](bullets.md) |
-| `game/cards` | 实验性 | [cards](cards.md) |
-| `game/cloudsave` | 实验性 | [cloudsave](cloudsave.md) |
-| `game/cloudsave/cmd/cloudsaved` | 实验性 | [cloudsave](cloudsave.md) |
-| `game/cloudsave/sqlstore` | 实验性 | [cloudsave](cloudsave.md) |
-| `game/cloudsave/storetest` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/gameapi` | 实验性 | |
 | `game/cmd/gameproject` | 实验性 | [项目文件](project.md) |
@@ -90,116 +69,137 @@
 | `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |
 | `game/cmd/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | 实验性 | [包体积预算](package-size-budgets.md) |
-| `game/cutscene` | 实验性 | [cutscene](cutscene.md) |
-| `game/debug` | 实验性 | [debug](debug.md) |
-| `game/editor` | 实验性 | [editor](editor.md) |
-| `game/editor/editorcmd` | 实验性 | [editor](editor.md) |
-| `game/editor/editormcp` | 实验性 | [mcp](mcp.md) |
-| `game/effects` | 实验性 | [effects](effects.md) |
-| `game/entities` | 实验性 | [entities](entities.md) |
-| `game/fighting` | 实验性 | [fighting](fighting.md) |
-| `game/flow` | 稳定 | [flow](flow.md) |
-| `game/fog` | 实验性 | [fog](fog.md) |
-| `game/framedata` | 实验性 | [framedata](framedata.md) |
-| `game/gametest` | 实验性 | |
-| `game/gameui` | 实验性 | [gameui](gameui.md) |
-| `game/gltf` | 实验性 | [从 Blender 导入 3D 模型](3d-models-blender.md) |
-| `game/idle` | 实验性 | [idle](idle.md) |
-| `game/input` | 稳定 | [input](input.md) |
-| `game/inventory` | 实验性 | [inventory](inventory.md) |
-| `game/l10n` | 实验性 | [l10n](l10n.md) |
-| `game/leaderboard` | 实验性 | [leaderboard](leaderboard.md) |
-| `game/leaderboard/selfhost` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
-| `game/leaderboard/selfhost/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
-| `game/lights2d` | 实验性 | [lights2d](lights2d.md) |
-| `game/liveops` | 实验性 | [liveops](liveops.md) |
-| `game/loaderr` | 稳定 | [可据以行动的错误](errors.md) |
-| `game/loot` | 实验性 | [loot](loot.md) |
-| `game/math2d` | 稳定 | [math2d](math2d.md) |
-| `game/math3d` | 实验性 | [math3d](math3d.md) |
-| `game/mcp` | 实验性 | [mcp](mcp.md) |
-| `game/modding` | 实验性 | [modding](modding.md) |
-| `game/navbake` | 实验性 | [navbake](navbake.md) |
-| `game/navbake3d` | 实验性 | [navbake3d](navbake3d.md) |
-| `game/net` | 实验性 | [net](net.md) |
-| `game/particles` | 实验性 | [particles](particles.md) |
-| `game/perf` | 实验性 | [perf](perf.md) |
-| `game/physics` | 稳定 | [physics](physics.md) |
-| `game/physics3d` | 实验性 | [physics3d](physics3d.md) |
-| `game/pixelfx` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/arcane` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/critters` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/explosions` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/fire` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/holy` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/ice` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/impacts` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/lightning` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/melee` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/moves` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/nature` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/pickups` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/projectiles` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/scifi` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/shadow` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/spawn` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/status` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/transitions` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/ui` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/water` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/pixelfx/weather` | 实验性 | [pixelfx](pixelfx.md) |
-| `game/placeholder` | 实验性 | [占位素材](placeholder.md) |
-| `game/platformer` | 实验性 | [platformer](platformer.md) |
-| `game/playtest` | 实验性 | [playtest](playtest.md) |
-| `game/presence` | 实验性 | [presence](presence.md) |
-| `game/procgen` | 实验性 | [procgen](procgen.md) |
-| `game/project` | 实验性 | [项目文件](project.md) |
-| `game/quality` | 实验性 | [quality](quality.md) |
-| `game/quest` | 实验性 | [quest](quest.md) |
-| `game/random` | 稳定 | [确定性指南](determinism.md) |
-| `game/refs` | 实验性 | [项目文件](project.md) |
-| `game/render3d` | 实验性 | [render3d](render3d.md) |
-| `game/replay` | 实验性 | [replay](replay.md) |
-| `game/resource` | 实验性 | [resources](resources.md) |
-| `game/rhythm` | 实验性 | [rhythm](rhythm.md) |
-| `game/rooms` | 实验性 | [rooms](rooms.md) |
-| `game/rts` | 实验性 | [rts](rts.md) |
-| `game/save` | 稳定 | [save](save.md) |
-| `game/scene` | 稳定 | [scene](scene.md) |
-| `game/scene3d` | 实验性 | [scene3d](scene3d.md) |
-| `game/sceneformat` | 实验性 | [editor](editor.md) |
-| `game/scenemodel` | 实验性 | [scenemodel](scenemodel.md) |
-| `game/screen` | 稳定 | [screen](screen.md) |
-| `game/server` | 实验性 | [server](server.md) |
-| `game/server/cmd/dedicatedserver` | 实验性 | [server](server.md) |
-| `game/skeletal` | 实验性 | [skeletal](skeletal.md) |
-| `game/sound` | 稳定 | [sound](sound.md) |
-| `game/sprite` | 稳定 | [sprite](sprite.md) |
-| `game/statedump` | 实验性 | [statedump](statedump.md) |
-| `game/stats` | 实验性 | [stats](stats.md) |
-| `game/text` | 实验性 | [text](text.md) |
-| `game/tilemap` | 稳定 | [tilemap](tilemap.md) |
-| `game/tileshape` | 实验性 | [tileshape](tileshape.md) |
-| `game/tooling/apiref` | 实验性 | |
-| `game/tooling/assetbuild` | 实验性 | [命令行](cli.md) |
-| `game/tooling/assetcheck` | 实验性 | [命令行](cli.md) |
-| `game/tooling/audioconv` | 实验性 | |
-| `game/tooling/bench` | 实验性 | [命令行](cli.md) |
-| `game/tooling/credits` | 实验性 | [命令行](cli.md) |
-| `game/tooling/datatable` | 实验性 | |
-| `game/tooling/devstate` | 实验性 | |
-| `game/tooling/hotreload` | 实验性 | |
-| `game/tooling/importsettings` | 实验性 | [命令行](cli.md) |
-| `game/tooling/jsonschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
-| `game/tooling/ktx2` | 实验性 | |
-| `game/tooling/library` | 实验性 | [资源与插件库](library.md) |
-| `game/tooling/manifest` | 实验性 | |
-| `game/tooling/pack` | 实验性 | |
-| `game/tween` | 稳定 | [tween](tween.md) |
-| `game/undo` | 实验性 | [undo](undo.md) |
-| `game/vehicle` | 实验性 | [vehicle](vehicle.md) |
-| `game/vn` | 实验性 | [vn](vn.md) |
-| `game/vn/cmd/vnsample` | 实验性 | [vn](vn.md) |
-| `game/voxel` | 实验性 | [voxel](voxel.md) |
-| `game/world3d` | 实验性 | [world3d](world3d.md) |
-| `game/worldmap` | 实验性 | [worldmap](worldmap.md) |
+| `game/pkg/a11y` | 实验性 | [a11y](a11y.md) |
+| `game/pkg/ability` | 实验性 | [ability](ability.md) |
+| `game/pkg/accounts` | 实验性 | [accounts](accounts.md) |
+| `game/pkg/accounts/cmd/accountsd` | 实验性 | [accounts](accounts.md) |
+| `game/pkg/accounts/pgstore` | 实验性 | [accounts](accounts.md) |
+| `game/pkg/accounts/sqlitestore` | 实验性 | [accounts](accounts.md) |
+| `game/pkg/accounts/sqlstore` | 实验性 | [accounts](accounts.md) |
+| `game/pkg/accounts/storetest` | 实验性 | [accounts](accounts.md) |
+| `game/pkg/accounts/token` | 实验性 | [accounts](accounts.md) |
+| `game/pkg/achievements` | 实验性 | [achievements](achievements.md) |
+| `game/pkg/ai` | 稳定 | [ai](ai.md) |
+| `game/pkg/ai/perception3d` | 实验性 | [ai](ai.md) |
+| `game/pkg/anim3d` | 实验性 | [anim3d](anim3d.md) |
+| `game/pkg/animclip` | 实验性 | [animclip](animclip.md) |
+| `game/pkg/assets` | 实验性 | [assets](assets.md) |
+| `game/pkg/bullets` | 实验性 | [bullets](bullets.md) |
+| `game/pkg/cards` | 实验性 | [cards](cards.md) |
+| `game/pkg/cloudsave` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/pkg/cloudsave/cmd/cloudsaved` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/pkg/cloudsave/sqlstore` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/pkg/cloudsave/storetest` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/pkg/cutscene` | 实验性 | [cutscene](cutscene.md) |
+| `game/pkg/debug` | 实验性 | [debug](debug.md) |
+| `game/pkg/editor` | 实验性 | [editor](editor.md) |
+| `game/pkg/editor/editorcmd` | 实验性 | [editor](editor.md) |
+| `game/pkg/editor/editormcp` | 实验性 | [mcp](mcp.md) |
+| `game/pkg/effects` | 实验性 | [effects](effects.md) |
+| `game/pkg/entities` | 实验性 | [entities](entities.md) |
+| `game/pkg/fighting` | 实验性 | [fighting](fighting.md) |
+| `game/pkg/flow` | 稳定 | [flow](flow.md) |
+| `game/pkg/fog` | 实验性 | [fog](fog.md) |
+| `game/pkg/framedata` | 实验性 | [framedata](framedata.md) |
+| `game/pkg/gametest` | 实验性 | |
+| `game/pkg/gameui` | 实验性 | [gameui](gameui.md) |
+| `game/pkg/gltf` | 实验性 | [从 Blender 导入 3D 模型](3d-models-blender.md) |
+| `game/pkg/idle` | 实验性 | [idle](idle.md) |
+| `game/pkg/input` | 稳定 | [input](input.md) |
+| `game/pkg/inventory` | 实验性 | [inventory](inventory.md) |
+| `game/pkg/l10n` | 实验性 | [l10n](l10n.md) |
+| `game/pkg/leaderboard` | 实验性 | [leaderboard](leaderboard.md) |
+| `game/pkg/leaderboard/selfhost` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
+| `game/pkg/leaderboard/selfhost/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
+| `game/pkg/lights2d` | 实验性 | [lights2d](lights2d.md) |
+| `game/pkg/liveops` | 实验性 | [liveops](liveops.md) |
+| `game/pkg/loaderr` | 稳定 | [可据以行动的错误](errors.md) |
+| `game/pkg/loot` | 实验性 | [loot](loot.md) |
+| `game/pkg/math2d` | 稳定 | [math2d](math2d.md) |
+| `game/pkg/math3d` | 实验性 | [math3d](math3d.md) |
+| `game/pkg/mcp` | 实验性 | [mcp](mcp.md) |
+| `game/pkg/modding` | 实验性 | [modding](modding.md) |
+| `game/pkg/navbake` | 实验性 | [navbake](navbake.md) |
+| `game/pkg/navbake3d` | 实验性 | [navbake3d](navbake3d.md) |
+| `game/pkg/net` | 实验性 | [net](net.md) |
+| `game/pkg/particles` | 实验性 | [particles](particles.md) |
+| `game/pkg/perf` | 实验性 | [perf](perf.md) |
+| `game/pkg/physics` | 稳定 | [physics](physics.md) |
+| `game/pkg/physics3d` | 实验性 | [physics3d](physics3d.md) |
+| `game/pkg/pixelfx` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/arcane` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/critters` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/explosions` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/fire` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/holy` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/ice` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/impacts` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/lightning` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/melee` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/moves` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/nature` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/pickups` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/projectiles` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/scifi` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/shadow` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/spawn` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/status` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/transitions` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/ui` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/water` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/pixelfx/weather` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pkg/placeholder` | 实验性 | [占位素材](placeholder.md) |
+| `game/pkg/platformer` | 实验性 | [platformer](platformer.md) |
+| `game/pkg/playtest` | 实验性 | [playtest](playtest.md) |
+| `game/pkg/presence` | 实验性 | [presence](presence.md) |
+| `game/pkg/procgen` | 实验性 | [procgen](procgen.md) |
+| `game/pkg/project` | 实验性 | [项目文件](project.md) |
+| `game/pkg/quality` | 实验性 | [quality](quality.md) |
+| `game/pkg/quest` | 实验性 | [quest](quest.md) |
+| `game/pkg/random` | 稳定 | [确定性指南](determinism.md) |
+| `game/pkg/refs` | 实验性 | [项目文件](project.md) |
+| `game/pkg/render3d` | 实验性 | [render3d](render3d.md) |
+| `game/pkg/replay` | 实验性 | [replay](replay.md) |
+| `game/pkg/resource` | 实验性 | [resources](resources.md) |
+| `game/pkg/rhythm` | 实验性 | [rhythm](rhythm.md) |
+| `game/pkg/rooms` | 实验性 | [rooms](rooms.md) |
+| `game/pkg/rts` | 实验性 | [rts](rts.md) |
+| `game/pkg/save` | 稳定 | [save](save.md) |
+| `game/pkg/scene` | 稳定 | [scene](scene.md) |
+| `game/pkg/scene3d` | 实验性 | [scene3d](scene3d.md) |
+| `game/pkg/sceneformat` | 实验性 | [editor](editor.md) |
+| `game/pkg/scenemodel` | 实验性 | [scenemodel](scenemodel.md) |
+| `game/pkg/screen` | 稳定 | [screen](screen.md) |
+| `game/pkg/server` | 实验性 | [server](server.md) |
+| `game/pkg/server/cmd/dedicatedserver` | 实验性 | [server](server.md) |
+| `game/pkg/skeletal` | 实验性 | [skeletal](skeletal.md) |
+| `game/pkg/sound` | 稳定 | [sound](sound.md) |
+| `game/pkg/sprite` | 稳定 | [sprite](sprite.md) |
+| `game/pkg/statedump` | 实验性 | [statedump](statedump.md) |
+| `game/pkg/stats` | 实验性 | [stats](stats.md) |
+| `game/pkg/text` | 实验性 | [text](text.md) |
+| `game/pkg/tilemap` | 稳定 | [tilemap](tilemap.md) |
+| `game/pkg/tileshape` | 实验性 | [tileshape](tileshape.md) |
+| `game/pkg/tooling/apiref` | 实验性 | |
+| `game/pkg/tooling/assetbuild` | 实验性 | [命令行](cli.md) |
+| `game/pkg/tooling/assetcheck` | 实验性 | [命令行](cli.md) |
+| `game/pkg/tooling/audioconv` | 实验性 | |
+| `game/pkg/tooling/bench` | 实验性 | [命令行](cli.md) |
+| `game/pkg/tooling/credits` | 实验性 | [命令行](cli.md) |
+| `game/pkg/tooling/datatable` | 实验性 | |
+| `game/pkg/tooling/devstate` | 实验性 | |
+| `game/pkg/tooling/hotreload` | 实验性 | |
+| `game/pkg/tooling/importsettings` | 实验性 | [命令行](cli.md) |
+| `game/pkg/tooling/jsonschema` | 实验性 | [YAML 文件的 Schema](schemas.md) |
+| `game/pkg/tooling/ktx2` | 实验性 | |
+| `game/pkg/tooling/library` | 实验性 | [资源与插件库](library.md) |
+| `game/pkg/tooling/manifest` | 实验性 | |
+| `game/pkg/tooling/pack` | 实验性 | |
+| `game/pkg/tween` | 稳定 | [tween](tween.md) |
+| `game/pkg/undo` | 实验性 | [undo](undo.md) |
+| `game/pkg/vehicle` | 实验性 | [vehicle](vehicle.md) |
+| `game/pkg/vn` | 实验性 | [vn](vn.md) |
+| `game/pkg/vn/cmd/vnsample` | 实验性 | [vn](vn.md) |
+| `game/pkg/voxel` | 实验性 | [voxel](voxel.md) |
+| `game/pkg/world3d` | 实验性 | [world3d](world3d.md) |
+| `game/pkg/worldmap` | 实验性 | [worldmap](worldmap.md) |

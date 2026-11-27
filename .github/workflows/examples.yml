@@ -38,7 +38,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/caverun/go.sum
-            packages/game/go.sum
+            go.sum
       - name: Test Cave Run
         working-directory: examples/caverun
         run: go tool nsgo test ./...
@@ -59,19 +59,17 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/caverun/go.sum
-            packages/game/go.sum
+            go.sum
       - name: Check the examples' scenes, maps and atlases
-        working-directory: packages/game
-        run: go run ./cmd/game check ../../examples
+        run: go run ./cmd/game check examples
       - name: Check Cave Run targets
         working-directory: examples/caverun
         run: go tool nsgo check -target macos,windows,linux,android,web
       # Built through game release, so that its go -C <dir> tool nsgo build runs against a real game module.
       - name: Build Cave Run web bundle with game release
-        working-directory: packages/game
         run: |
-          go run ./cmd/game release -target web -output ../../examples/caverun/dist ../../examples/caverun
-          test -f ../../examples/caverun/dist/releases/cave-run-0.1.0-web.zip
+          go run ./cmd/game release -target web -output examples/caverun/dist examples/caverun
+          test -f examples/caverun/dist/releases/cave-run-0.1.0-web.zip
       - name: Upload Cave Run web artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -95,7 +93,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/caverun/go.sum
-            packages/game/go.sum
+            go.sum
       - name: Check Cave Run iOS targets
         working-directory: examples/caverun
         run: go tool nsgo check -target ios,ios_simulator
@@ -122,7 +120,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/tutorial/go.sum
-            packages/game/go.sum
+            go.sum
       - name: Test every chapter
         working-directory: examples/tutorial
         run: go tool nsgo test ./...
@@ -143,7 +141,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/tutorial/go.sum
-            packages/game/go.sum
+            go.sum
       - name: Check every chapter's targets
         working-directory: examples/tutorial
         run: go tool nsgo check -target macos,windows,linux,android,web
@@ -176,7 +174,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/tutorial/go.sum
-            packages/game/go.sum
+            go.sum
       - name: Check every chapter's iOS targets
         working-directory: examples/tutorial
         run: go tool nsgo check -target ios,ios_simulator
@@ -197,7 +195,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/fountain/go.sum
-            packages/game/go.sum
+            go.sum
       - name: Test Fountain
         working-directory: examples/fountain
         run: go tool nsgo test ./...
@@ -221,7 +219,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/fieldmedic/go.sum
-            packages/game/go.sum
+            go.sum
       # The game, its health editor plugin in the scene editor, and the game's own editor command.
       - name: Test Field Medic
         working-directory: examples/fieldmedic
@@ -246,7 +244,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             examples/lantern3d/go.sum
-            packages/game/go.sum
+            go.sum
       - name: Test Lantern 3D
         working-directory: examples/lantern3d
         run: go tool nsgo test ./...

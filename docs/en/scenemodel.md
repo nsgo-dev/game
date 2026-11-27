@@ -3,7 +3,7 @@
 `game/scenemodel` gives the objects of a [scene file](editor.md) their 3D look, so a 3D level is a text file a person or an AI can edit and review, as a 2D one is, instead of being assembled in Go. An object names a built-in primitive in `mesh`, a glTF 2.0 model in `model`, or a modular 3D grid map in `gridMap`, and `scenemodel.Build` turns the scene into a `scene3d` node tree whose nodes carry their geometry, materials and bounds, ready for `render3d.Queue` or the package's own `Renderer`.
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/scenemodel"
+import "github.com/nsgo-dev/game/pkg/scenemodel"
 ```
 
 ## Fields

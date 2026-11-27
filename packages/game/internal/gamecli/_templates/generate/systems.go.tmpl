@@ -1,6 +1,0 @@
-package {{.Package}}
-
-import "github.com/nsgo-dev/game/packages/game/entities"
-
-// Systems runs the game's systems over an entities.World in their declared order: call Systems.Step(world, dt) from the game.Loop's Update. Each system game generate writes adds itself here, and entities.After and entities.Before where it is added order it against the others.
-var Systems = entities.NewScheduler()

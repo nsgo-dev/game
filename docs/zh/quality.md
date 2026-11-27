@@ -3,7 +3,7 @@
 `game/quality` 按游戏所运行的设备挑选低、中、高三档画质预设，再根据游戏实测的帧时间调整档位；玩家在设置里选定档位时则改为固定使用玩家的选择。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/quality"
+import "github.com/nsgo-dev/game/pkg/quality"
 ```
 
 ## 预设

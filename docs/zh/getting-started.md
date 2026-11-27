@@ -21,13 +21,13 @@ cd mygame
 go tool nsgo dev
 ```
 
-在项目之外，`nsgo game` 使用 `PATH` 上的 `nsgo-game` 扩展二进制（用 `go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest` 安装一次），也可以直接运行 `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame`，无需预先安装。在创建好的项目内，`nsgo game` 会自动运行模块固定的 `game` 工具。
+在项目之外，`nsgo game` 使用 `PATH` 上的 `nsgo-game` 扩展二进制（用 `go install github.com/nsgo-dev/game/cmd/nsgo-game@latest` 安装一次），也可以直接运行 `go run github.com/nsgo-dev/game/cmd/game@latest new mygame`，无需预先安装。在创建好的项目内，`nsgo game` 会自动运行模块固定的 `game` 工具。
 
-起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中，`nsgo.yaml` 与之保持一致。`new` 用目录名作为这两个文件里的 `name` 和 `id`，以及模块路径；`-name` 和 `-module` 可以另行指定，例如 `-module example.com/mygame`。所有参数见[命令行](cli.md#new)；`-template` 可以从其他[项目模板](templates.md)开始，`new -list` 会列出它们。发布游戏之前，把应用标识改成你自己的：在 `game.yaml` 中修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
+起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中，`nsgo.yaml` 与之保持一致。`new` 用目录名作为这两个文件里的 `name` 和 `id`，以及模块路径；`-name` 和 `-module` 可以另行指定，例如 `-module example.com/mygame`。所有参数见[命令行](cli.md#new)；`-template` 可以从其他[项目模板](templates.md)开始，`new -list` 会列出它们。发布游戏之前，把应用标识改成你自己的：在 `game.yaml` 中修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
 
 NSGo 自带的命令也能从模板模块写出同一个起手模板，但不包含 `game` 工具：`nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame`。这需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令，例如安装好的 v0.3.4 或更新版本的 `nsgo`。它写出的 `game.yaml` 和 `nsgo.yaml` 把游戏命名为 `Starter Game`，需要你自己修改。
 
-如果你已经检出了本仓库，`go run ./packages/game/cmd/game new ../mygame` 会用 `template/template/` 中的起手模板创建项目；从检出的仓库构建的命令没有自己的版本号，所以除非用 `-version` 指定，项目会依赖最新发布的游戏层。也可以在仓库根目录运行 `go tool nsgo dev ./template/template`，直接启动模板游戏。
+如果你已经检出了本仓库，`go run ./cmd/game new ../mygame` 会用 `template/template/` 中的起手模板创建项目；从检出的仓库构建的命令没有自己的版本号，所以除非用 `-version` 指定，项目会依赖最新发布的游戏层。也可以在仓库根目录运行 `go tool nsgo dev ./template/template`，直接启动模板游戏。
 
 把游戏在运行时加载的文件放入 `resources/`，把应用图标等构建时需要的文件放入 `assets/`：
 
@@ -82,7 +82,7 @@ go tool nsgo dev -target android
 
 给任意 `nsgo dev` 命令加上 `-fps`，可以在运行中的游戏画面上叠加 NSGo 的性能监视器。
 
-如果还想在保存 `resources/` 下的图集、图片和数据文件时让运行中的游戏重新加载它们，用 `nsgo game dev` 运行游戏（先执行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game`），并用 `hotreload.NewDevWatcher` 在这些文件上启动监视器，做法见[保存时重新加载](assets.md#保存时重新加载)。
+如果还想在保存 `resources/` 下的图集、图片和数据文件时让运行中的游戏重新加载它们，用 `nsgo game dev` 运行游戏（先执行 `go get -tool github.com/nsgo-dev/game/cmd/game`），并用 `hotreload.NewDevWatcher` 在这些文件上启动监视器，做法见[保存时重新加载](assets.md#保存时重新加载)。
 
 ## 用 Loop 和 sprite.Batch 绘制精灵
 
@@ -98,8 +98,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/packages/game"
-	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )

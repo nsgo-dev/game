@@ -1,6 +1,6 @@
 # Spark Slide
 
-A 2D grid puzzle built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game/packages/game`](https://github.com/nsgo-dev/game), made from the `puzzle2d` template.
+A 2D grid puzzle built with [NSGo](https://github.com/nsgo-dev/nsgo) and [`github.com/nsgo-dev/game`](https://github.com/nsgo-dev/game), made from the `puzzle2d` template.
 
 A spark slides across the board until a wall stops it, lighting every lamp it passes. Light all of a level's lamps before its moves run out to win it; a slide into a void, or running out of moves with a lamp still dark, loses it. A win in the level's par earns three stars, a win a little over par two, and any other win one; each win unlocks the next level, and the level select keeps the best stars of each.
 
@@ -29,8 +29,8 @@ The keyboard and game controller bindings are the input map in `game.yaml`; edit
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
 ```
 
 ## Running and testing

@@ -3,7 +3,7 @@
 `game/tilemap` 负责带视锥裁剪的正交、等距、交错与六边形瓦片地图绘制、Tiled `.tmx`/`.tmj` 地图（含内嵌或外部 `.tsx`/`.tsj` 图块集）、YAML 图块集（`*.tileset.yaml`）与动画瓦片加载、瓦片碰撞标志与射线查询，以及支持平滑跟随、边界限制和屏幕震动的 2D 相机。
 
 ```go
-import "github.com/nsgo-dev/game/packages/game/tilemap"
+import "github.com/nsgo-dev/game/pkg/tilemap"
 ```
 
 ## Camera

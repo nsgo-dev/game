@@ -5,7 +5,7 @@
 //   node tools/pixelfxref/render.mjs --pixelfx <pixelfx clone> fire            every effect of a category
 //   node tools/pixelfxref/render.mjs --pixelfx <pixelfx clone> rig core        the core's own references: the rig, the painter and the simulation
 //
-// It writes packages/game/pixelfx/<category>/testdata/ref/<name>/<case>-<frame>.png, and for rig and core packages/game/pixelfx/testdata/ref/rig and testdata/ref/core (or under --out <dir>). The cases and frames are the ones packages/game/pixelfx/internal/pixelfxtest renders: keep the two in step.
+// It writes pkg/pixelfx/<category>/testdata/ref/<name>/<case>-<frame>.png, and for rig and core pkg/pixelfx/testdata/ref/rig and testdata/ref/core (or under --out <dir>). The cases and frames are the ones pkg/pixelfx/internal/pixelfxtest renders: keep the two in step.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -57,7 +57,7 @@ function sheetSamples(n) {
   return [...new Set(SAMPLES.map((f) => Math.min(n - 1, Math.round(n * f))))];
 }
 
-// The poses the rig reference draws: every weapon, both hands, turns, the air and the switches. packages/game/pixelfx/rig_test.go has the same list: keep the two in step.
+// The poses the rig reference draws: every weapon, both hands, turns, the air and the switches. pkg/pixelfx/rig_test.go has the same list: keep the two in step.
 function rigPoses(READY) {
   return {
     stand: {},
@@ -100,7 +100,7 @@ async function renderRig(dir, out) {
   }
 }
 
-// The core reference: every shape of the painter, and every particle kind, debris kind, light and blaze of the simulation, drawn without an effect around them. packages/game/pixelfx/core_test.go draws the same: keep the two in step.
+// The core reference: every shape of the painter, and every particle kind, debris kind, light and blaze of the simulation, drawn without an effect around them. pkg/pixelfx/core_test.go draws the same: keep the two in step.
 function drawShapes(core, p) {
   const { RAMP, WHITE, PATCH, INK, star, ngon, sparkle, flare, band, crystal, stockActor } = core;
   const F = RAMP.fire, I = RAMP.ice;
