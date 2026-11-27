@@ -8,24 +8,24 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// ParseManifest reads and validates a mod's manifest, including the capabilities the mod asks for.
+// ParseManifest reads and validates a mod's manifest, including built-in and dotted host capabilities the mod asks for.
 func ExampleParseManifest() {
 	m, err := modding.ParseManifest([]byte(`manifestVersion: 1
 id: more-slimes
 name: More Slimes
 version: 1.2.0
 entry: mod.ts
-capabilities: [spawnEntity, readState]
+capabilities: [spawnEntity, readState, inventory.read]
 gameVersion: ^1.0.0
 `))
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(m.ID, m.Version, m.Capabilities.Names())
+	fmt.Println(m.ID, m.Version, m.Capabilities.Names(), m.HostCapabilities)
 	fmt.Println(m.Capabilities.Has(modding.CapSpawnEntity), m.Capabilities.Has(modding.CapStorage))
 	// Output:
-	// more-slimes 1.2.0 [readState spawnEntity]
+	// more-slimes 1.2.0 [readState spawnEntity] [inventory.read]
 	// true false
 }
 

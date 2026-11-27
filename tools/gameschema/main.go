@@ -27,6 +27,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/jsonschema"
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/modding"
 	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/playtest"
@@ -334,6 +335,21 @@ var formats = []format{
 		typ:     reflect.TypeFor[wire.Schema](),
 		pkg:     "online/netplay/wire",
 		version: wire.CurrentVersion,
+	},
+	{
+		url:   modding.SchemaURL,
+		title: "NSGo game mod manifest (version 1)",
+		typ:   reflect.TypeFor[modding.ModManifest](),
+		pkg:   "modding",
+		types: modManifestTypes,
+	},
+}
+
+// modManifestTypes maps modding.Capability (a Go bitmask) to its YAML sequence form of built-in and dotted host capability names.
+var modManifestTypes = map[reflect.Type]*jsonschema.Schema{
+	reflect.TypeFor[modding.Capability](): {
+		Types: []jsonschema.Type{jsonschema.TypeArray},
+		Items: &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeString}},
 	},
 }
 

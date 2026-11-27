@@ -402,7 +402,7 @@ plurals:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 模组目录根部的 `mod.yaml` | `manifestVersion: 1` | `modding.ParseManifest`、`modding.EncodeManifest` | [modding](modding.md) |
+| 模组目录根部的 `mod.yaml` | `manifestVersion: 1` | `modding.ParseManifest`、`modding.EncodeManifest` | [modding](modding.md)；Schema `https://game.nsgo.dev/schemas/mod.v1.json` |
 
 ```yaml
 manifestVersion: 1

@@ -63,6 +63,8 @@ The format is strict: `ParseManifest` refuses unknown or misspelled fields, dupl
 
 Capabilities are bitflags on `Capability`: `CapReadState` (`readState`), `CapWriteState` (`writeState`), `CapSpawnEntity` (`spawnEntity`), `CapEmitEvent` (`emitEvent`), `CapUI` (`ui`), `CapAudio` (`audio`), and `CapStorage` (`storage`). Calls outside a mod's granted capabilities fail with `*PermissionError` without crashing the host.
 
+`capabilities` in `mod.yaml` also accepts dotted host-defined capability names (`<namespace>.<name>`, dot-separated lower camel case segments such as `inventory.read` or `editor.contextAction`). Built-in names decode into `ModManifest.Capabilities`, while dotted names decode into `ModManifest.HostCapabilities` and are encoded after the built-in names in sorted byte order so round trips stay deterministic. A mod that requests a host capability not declared in `ManagerOptions.Capabilities` fails alone at load with `ErrUnknownCapability`, while sibling mods still load.
+
 A mod without `CapStorage` runs with `tsx.Sandbox.DisableStorage` set, so every method on the `"nsgo"` module's `Storage` (`getItem`, `setItem`, `removeItem`, `clear`, `keys`) rejects with `tsx: Storage is disabled for this sandbox`, in addition to the `"game"` module's `storageGet`, `storageSet`, and `storageRemove` failing with `*PermissionError`. Disabling storage leaves any data already in the mod's partition in place, so granting `CapStorage` again exposes it once more.
 
 ## The `"game"` TSX module
@@ -96,6 +98,44 @@ mountPanel("boss-timer", () => (
   </View>
 ), "hud");
 ```
+
+## Host-registered TSX modules and custom capabilities
+
+Games and runtime plugins can expose their own typed TSX modules alongside `"game"`, each gated by host-defined capabilities declared on `ManagerOptions.Capabilities` (`HostCapability`) and `ManagerOptions.Modules` (`ModModule`). The sample mod in [`pkg/modding/testdata/mods/loot-tracker/`](../../pkg/modding/testdata/mods/loot-tracker/) demonstrates a mod that requests `inventory.read` and imports a host `"mygame/inventory"` module.
+
+```go
+mgr := modding.NewManager(cx, modding.ManagerOptions{
+	Capabilities: []modding.HostCapability{
+		{Name: "inventory.read", Doc: "Read items in the player's inventory"},
+		{Name: "inventory.write", Doc: "Add or remove items in the player's inventory"},
+	},
+	Modules: []modding.ModModule{
+		{
+			Name:       "mygame/inventory",
+			Capability: "inventory.read",
+			Doc:        "Read-only inventory queries.",
+			Funcs: map[string]any{
+				"countItem": func(cx *core.Scope, item string) (int, error) {
+					api, err := modding.Caller(cx)
+					if err != nil {
+						return 0, err
+					}
+					if err := api.RequireHost("inventory.read", "inventory.countItem"); err != nil {
+						return 0, err
+					}
+					return inventory.Count(item), nil
+				},
+			},
+		},
+	},
+})
+```
+
+- `NewManager` validates `Capabilities` and `Modules`, refusing duplicate module names, collisions with `"game"` or NSGo's reserved `"nsgo"` prefix, invalid capability names, or modules without a declared capability. If a TSX runtime may already have started before `NewManager` runs (for example, in multi-session apps or tests), call `modding.RegisterModule` in `init()` so NSGo's TSX registry receives the module signatures before startup; each `NewManager` then binds its own live closures per manager without cross-manager state leakage.
+- A mod's sandbox `Modules` allowlist contains `"game"` plus every host module whose `Capability` (or any entry of `Capabilities`, for multi-permission modules) the mod both requests in `mod.yaml` and is granted. An ungranted import therefore fails immediately at load rather than at first call.
+- Host functions receive `*core.Scope` as their first parameter (or right after `context.Context` for async functions) and call `modding.Caller(cx)` to reach the calling mod's `*ModAPI` and `api.RequireHost(capability, action)` to enforce fine-grained checks that return `*PermissionError` (`ErrPermission` and `core.CodeAccessDenied`).
+- Narrow host permissions globally with `ManagerOptions.GrantHost` (leave `nil` for no narrowing, or pass `[]string{}` to deny all host capabilities) and per mod at runtime with `Manager.SetHostGrant(id, caps)`. Narrowing a loaded mod with `SetHostGrant` takes effect immediately on the next call to any host module function; inspect declared capabilities via `Manager.HostCapabilities()` and effective per-mod grants via `ModInfo.HostCapabilities`.
+- Write TypeScript declarations for `"game"` and every host module into a directory with `modding.WriteModAPIDTS(dir, opts)`, which writes `game.d.ts` plus one `<module>.d.ts` per host module from `tsx.Declarations()`. `WriteGameAPIDTS` remains available when only `"game"` is needed.
 
 ## Managing mod lifecycle in Go (`Manager`)
 
