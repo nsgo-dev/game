@@ -141,12 +141,23 @@ func (w *World) sweepFastBody(b *Body, from Vec3, jointIgnored map[pairKey]struc
 	k := min(int(math.Ceil(float64(dist/stepLen))), maxSweepSteps)
 	for s := 1; s < k; s++ {
 		p := from.Add(d.Scale(float32(s) / float32(k)))
+		var hitSleeper *Body
 		blocked := sweepOverlapsCandidates(b, b.Shape.Transformed(p, b.Rot), candBodies, candTMs, candHFs, candVoxels, func(key any, depth float32) bool {
 			d0, ok := start[key]
-			return !ok || depth > d0+slop
+			if !ok || depth > d0+slop {
+				if hb, isBody := key.(*Body); isBody && hb.Sleeping && !hb.Static && !hb.Kinematic {
+					hitSleeper = hb
+				}
+				return true
+			}
+			return false
 		})
 		if blocked {
 			b.Pos = p
+			if hitSleeper != nil {
+				hitSleeper.Wake()
+				w.wakeIslands()
+			}
 			return
 		}
 	}

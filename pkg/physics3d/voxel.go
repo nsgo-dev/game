@@ -993,14 +993,14 @@ func (w *World) VoxelColliders() []*VoxelCollider {
 }
 
 // WakeInBox wakes every sleeping dynamic body whose world bounds overlap
-// bounds, and transitively wakes any sleeping dynamic bodies currently resting
-// on them via active contacts.
+// bounds, and transitively wakes any sleeping dynamic bodies connected to them
+// through active contacts or joints.
 func (w *World) WakeInBox(bounds Box) {
 	if w == nil || len(w.bodies) == 0 {
 		return
 	}
 	w.bp.ensureInit(w)
-	var woken []int
+	var woken []*Body
 	w.bp.queryDynamicAABB(bounds, func(p *bpProxy) bool {
 		b := p.body
 		if b == nil || b.Static || b.Kinematic || !b.Sleeping {
@@ -1008,29 +1008,14 @@ func (w *World) WakeInBox(bounds Box) {
 		}
 		if aabbOverlap(bounds, p.worldBounds) {
 			b.Wake()
-			woken = append(woken, b.ID)
+			woken = append(woken, b)
 		}
 		return true
 	})
-	if len(woken) == 0 || len(w.activeContacts) == 0 {
+	if len(woken) == 0 {
 		return
 	}
-	// Transitively wake sleeping bodies stacked on top of woken bodies.
-	for head := 0; head < len(woken); head++ {
-		id := woken[head]
-		for _, rec := range w.activeContacts {
-			if rec.isTrigger {
-				continue
-			}
-			if rec.a != nil && rec.a.ID == id && rec.b != nil && rec.b.Sleeping && !rec.b.Static && !rec.b.Kinematic {
-				rec.b.Wake()
-				woken = append(woken, rec.b.ID)
-			} else if rec.b != nil && rec.b.ID == id && rec.a != nil && rec.a.Sleeping && !rec.a.Static && !rec.a.Kinematic {
-				rec.a.Wake()
-				woken = append(woken, rec.a.ID)
-			}
-		}
-	}
+	w.wakeIslandsOf(woken)
 }
 
 // wakeForVoxels wakes sleeping dynamic bodies that were supported by a

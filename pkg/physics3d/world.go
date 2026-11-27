@@ -16,10 +16,6 @@ const (
 	maxPositionCorrection   = 0.2
 	warmStartMatchTolSq     = 0.04 * 0.04
 	maxManifoldPoints       = 4
-	sleepVelThreshold       = 0.05
-	sleepAngVelThreshold    = 0.05
-	sleepTimeThreshold      = 0.4
-	wakeVelThreshold        = 0.2
 	// sleepMaxDepth is the deepest residual contact a body may keep and still fall asleep; a sleeping body left deeper than sleepWakeDepth by a neighbor wakes so the solver can push it out (#546).
 	sleepMaxDepth  = 0.005
 	sleepWakeDepth = 2 * sleepMaxDepth
@@ -97,8 +93,15 @@ type Body struct {
 	// so it can transition cleanly to dynamic simulation).
 	Kinematic bool
 	// Sleeping marks a dynamic body currently at rest; the solver skips
-	// integrating it until woken by Wake, ApplyImpulse, or an active collision.
+	// integrating it until woken by Wake, ApplyImpulse, or an active collision
+	// or disturbance reaching its island.
 	Sleeping bool
+	// AllowSleep reports whether a dynamic body may fall asleep when resting.
+	// NewDynamicBody initializes it to true; on a zero-initialized Body literal
+	// it defaults to true unless SetAllowSleep(false) is called or AllowSleep is
+	// modified after AddBody. Setting AllowSleep to false keeps this body and
+	// every body in its contact/joint island awake.
+	AllowSleep bool
 	// Layer is the collision layer bitmask this body belongs to (0 defaults to LayerAll).
 	Layer LayerMask
 	// Mask is the collision layer bitmask this body collides with (0 defaults to LayerAll).
@@ -115,6 +118,7 @@ type Body struct {
 	UserData any
 
 	gravityScaleSet    bool
+	allowSleepSet      bool
 	customCenterOfMass bool
 	customInertia      bool
 	sleepTimer         float32
@@ -125,16 +129,20 @@ type Body struct {
 	lastRot        Quat
 	havePose       bool
 	restingOnVoxel bool
+	islandStamp    uint64
+	islandIdx      int
 }
 
 // NewStaticBody returns a static Body placed at pos with default friction.
 func NewStaticBody(shape Shape, pos Vec3) Body {
 	return Body{
-		Shape:    shape,
-		Pos:      pos,
-		Rot:      QuatIdentity(),
-		Static:   true,
-		Friction: 0.5,
+		Shape:         shape,
+		Pos:           pos,
+		Rot:           QuatIdentity(),
+		Static:        true,
+		Friction:      0.5,
+		AllowSleep:    true,
+		allowSleepSet: true,
 	}
 }
 
@@ -162,6 +170,8 @@ func NewDynamicBody(shape Shape, pos Vec3, mass float32) Body {
 		AngularDamping:  0.05,
 		GravityScale:    1,
 		gravityScaleSet: true,
+		AllowSleep:      true,
+		allowSleepSet:   true,
 	}
 }
 
@@ -382,6 +392,21 @@ type World struct {
 	// SolverIterations is the number of velocity and positional solver passes
 	// per Step; values <= 0 default to 8.
 	SolverIterations int
+	// DisableSleep keeps every body awake. Step wakes bodies that were sleeping
+	// when it is set.
+	DisableSleep bool
+	// SleepLinearThreshold is the linear speed in units per second below which
+	// a body counts as resting; zero, a negative value, NaN, or an infinity
+	// means DefaultSleepLinearThreshold.
+	SleepLinearThreshold float32
+	// SleepAngularThreshold is the angular speed in radians per second below
+	// which a body counts as resting; zero, a negative value, NaN, or an
+	// infinity means DefaultSleepAngularThreshold.
+	SleepAngularThreshold float32
+	// TimeToSleep is how many seconds every body of an island must rest before
+	// the island sleeps; zero, a negative value, NaN, or an infinity means
+	// DefaultTimeToSleep.
+	TimeToSleep float32
 	// OnContact is invoked deterministically for non-trigger ContactEvents
 	// (ContactEnter, ContactStay, ContactExit). Calling RemoveBody inside
 	// OnContact immediately emits ContactExit for active overlaps of the removed
@@ -423,6 +448,10 @@ type World struct {
 	pendingEventsBuf      []pendingContactEvent
 	dispatchingContacts   bool
 	removedDuringDispatch map[int]struct{}
+	islandStamp           uint64
+	islandParent          []int
+	islandRest            []float32
+	islandAwake           []uint8
 }
 
 // NewWorld returns a World with standard Y-up gravity (0, -9.81, 0) and 8
@@ -551,6 +580,14 @@ func (w *World) AddBody(b Body) *Body {
 		b.GravityScale = 1
 	}
 	b.gravityScaleSet = true
+	if !b.AllowSleep && !b.allowSleepSet {
+		b.AllowSleep = true
+	}
+	b.allowSleepSet = true
+	if !b.AllowSleep || w.DisableSleep {
+		b.Sleeping = false
+		b.sleepTimer = 0
+	}
 
 	stored := new(Body)
 	*stored = b
@@ -686,16 +723,16 @@ func (w *World) Step(dt time.Duration) {
 	// Reconcile any external pose/shape/static/trigger mutations once per step.
 	w.bp.syncAllBodies(w)
 
-	// Wake sleeping bodies that a moving kinematic body touches, that are jointed
-	// to a moving body, or whose voxel terrain support changed, before anything
-	// treats them as immovable.
-	w.wakeForMotion()
-	w.wakeForVoxels()
-
-	// Prepare joints first so active motors can wake sleeping bodies before integration.
-	for _, j := range w.joints {
-		j.Prepare(dtSec)
-	}
+	// Wake sleeping bodies and islands disturbed since the last step (direct
+	// pose/velocity edits, DisableSleep, AllowSleep, kinematic/static motion,
+	// voxels, active joint motors/drives), then wake any sleeping island
+	// touched by an awake or moving body before velocity integration and
+	// narrowphase contact collection so an awake body is never solved against
+	// a sleeping one.
+	w.wakeDisturbed(dtSec)
+	jointIgnored := w.buildJointIgnoredPairs()
+	pairs := w.bp.findBodyPairs()
+	w.wakeTouched(pairs, jointIgnored)
 
 	dynCount := len(w.bp.dynamicList)
 	if cap(w.bp.dynPrevPos) < dynCount {
@@ -750,9 +787,7 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
-	jointIgnored := w.buildJointIgnoredPairs()
-
-	// 2. Deterministic broadphase + narrowphase pair detection with up to 4-point
+	// 2. Deterministic narrowphase pair detection with up to 4-point
 	// contact manifolds and per-point warm-start lookup.
 	if w.nextActiveContacts == nil {
 		w.nextActiveContacts = make(map[contactKey]activeContactRecord)
@@ -762,7 +797,6 @@ func (w *World) Step(dt time.Duration) {
 	currentPairs := w.nextActiveContacts
 
 	contacts := w.contactsBuf[:0]
-	pairs := w.bp.findBodyPairs()
 	recordContact := func(a, b *Body, ci, cj int, shapeA, shapeB Shape, c Contact, isTrig bool) {
 		key, swapped := canonicalContactKey(a.ID, ci, b.ID, cj)
 		evA, evB, evChildA, evChildB, evNorm := a, b, ci, cj, c.Normal
@@ -781,21 +815,7 @@ func (w *World) Step(dt time.Duration) {
 		}
 
 		if isTrig {
-			if a.IsTrigger && a.Area.Active() && b.Sleeping && isMoving(a) {
-				b.Wake()
-			}
-			if b.IsTrigger && b.Area.Active() && a.Sleeping && isMoving(b) {
-				a.Wake()
-			}
 			return
-		}
-
-		// Wake a sleeping dynamic body struck by a moving dynamic or kinematic body. This runs before the inactive-pair skip, which would otherwise let a kinematic body pass through sleeping ones.
-		if a.Sleeping && isMoving(b) {
-			a.Wake()
-		}
-		if b.Sleeping && isMoving(a) {
-			b.Wake()
 		}
 		if (a.Static || a.Kinematic || a.Sleeping) && (b.Static || b.Kinematic || b.Sleeping) {
 			return
@@ -1316,8 +1336,16 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
-	// Refresh per-point warm-start cache with active body-body contacts only.
-	clear(w.cache)
+	// Refresh per-point warm-start cache with active body-body contacts, keeping
+	// cached impulses for sleeping/fixed pairs that remain in contact so a
+	// waking island resumes with its resting support.
+	for k := range w.cache {
+		ck, _ := canonicalContactKey(k.a, k.childA, k.b, k.childB)
+		rec, still := currentPairs[ck]
+		if !still || rec.isTrigger || rec.a.awakeDynamic() || rec.b.awakeDynamic() {
+			delete(w.cache, k)
+		}
+	}
 	for i := range contacts {
 		c := &contacts[i]
 		if c.isStaticTri || c.isVoxel || c.b == nil {
@@ -1502,41 +1530,20 @@ func (w *World) Step(dt time.Duration) {
 
 	// 5b. Residual penetration check and scoped shock propagation (position half).
 	w.resolveResidualPenetration(contacts, shock, shockMask, up)
-	clear(contacts)
-	w.contactsBuf = contacts[:0]
 
 	// Refresh dynamic broadphase proxies with final post-solver poses so
 	// post-Step raycasts, overlaps, and character queries see exact positions.
 	w.bp.syncDynamicBodies(w, prevPos)
 
-	// 6. Put settled bodies to sleep so resting stacks have zero drift.
-	const (
-		sleepVelSq    = sleepVelThreshold * sleepVelThreshold
-		sleepAngVelSq = sleepAngVelThreshold * sleepAngVelThreshold
-	)
-	invDtSq := 1 / (dtSec * dtSec)
-	for di, pid := range w.bp.dynamicList {
-		b := w.bp.proxies[pid].body
-		if b.Static || b.Kinematic || b.Sleeping {
-			continue
-		}
-		dispSq := b.Pos.Sub(prevPos[di]).LenSq() * invDtSq
-		// A body still sunk into a neighbor stays awake: asleep, the solver would skip the pair and freeze that penetration in place.
-		if b.Vel.LenSq() < sleepVelSq && dispSq < sleepVelSq && b.AngVel.LenSq() < sleepAngVelSq && b.residualDepth <= sleepMaxDepth {
-			b.sleepTimer += dtSec
-			if b.sleepTimer >= sleepTimeThreshold {
-				b.Sleeping = true
-				b.Vel = Vec3{}
-				b.AngVel = Vec3{}
-			}
-		} else {
-			b.sleepTimer = 0
-		}
-	}
+	// 6. Put settled islands to sleep so resting stacks have zero drift.
+	w.updateSleep(contacts, prevPos, dtSec)
+	clear(contacts)
+	w.contactsBuf = contacts[:0]
 
 	// 7. A sleeping body whose solid contact (or active area trigger overlap) ended this step lost a support or force zone, so it wakes instead of hanging in place.
 	// For compound bodies with multiple child contacts against the same neighbor, only wake when the body pair has no remaining solid contact on any child, so a slightly recessed child lifting clear on the first sleeping step does not cause a sleep/wake loop.
 	var currentSolidPairs map[pairKey]struct{}
+	wokeEnded := false
 	for k, rec := range w.activeContacts {
 		if _, still := currentPairs[k]; still {
 			continue
@@ -1562,10 +1569,15 @@ func (w *World) Step(dt time.Duration) {
 		}
 		if rec.a != nil && rec.a.Sleeping {
 			rec.a.Wake()
+			wokeEnded = true
 		}
 		if rec.b != nil && rec.b.Sleeping {
 			rec.b.Wake()
+			wokeEnded = true
 		}
+	}
+	if wokeEnded {
+		w.wakeIslands()
 	}
 	for _, b := range w.bodies {
 		if !b.havePose || b.lastPos != b.Pos || b.lastRot != b.Rot {
@@ -2201,11 +2213,16 @@ func (w *World) resolveResidualPenetration(contacts []solverContact, order []int
 			visit(i, &contacts[i])
 		}
 	}
+	wokeResidual := false
 	for _, pid := range w.bp.dynamicList {
 		b := w.bp.proxies[pid].body
 		if b.Sleeping && b.residualDepth > sleepWakeDepth {
 			b.Wake()
+			wokeResidual = true
 		}
+	}
+	if wokeResidual {
+		w.wakeIslands()
 	}
 }
 
@@ -2280,34 +2297,6 @@ func (c *solverContact) current() Contact {
 		return testShapeTriangleSolid(c.a.worldChildShape(c.childA), c.tri)
 	default:
 		return testShapesSolid(c.a.worldChildShape(c.childA), c.b.worldChildShape(c.childB))
-	}
-}
-
-// isMoving reports whether b is moving fast enough to wake a sleeping body it touches: an awake dynamic body above the wake threshold, or a kinematic body with velocity or one moved directly since the last step.
-func isMoving(b *Body) bool {
-	const wakeVelSq = wakeVelThreshold * wakeVelThreshold
-	switch {
-	case b == nil || b.Static || b.Sleeping:
-		return false
-	case b.Vel.LenSq() > wakeVelSq || b.AngVel.LenSq() > wakeVelSq:
-		return true
-	case b.Kinematic:
-		return b.havePose && (b.Pos != b.lastPos || b.Rot != b.lastRot)
-	default:
-		return false
-	}
-}
-
-// wakeForMotion wakes sleeping bodies jointed to a moving body; contacts with moving bodies wake in the pair loop of Step.
-func (w *World) wakeForMotion() {
-	for _, j := range w.joints {
-		a, b := j.Bodies()
-		if a != nil && a.Sleeping && isMoving(b) {
-			a.Wake()
-		}
-		if b != nil && b.Sleeping && isMoving(a) {
-			b.Wake()
-		}
 	}
 }
 
