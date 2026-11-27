@@ -12,3 +12,4 @@
 
 - `game/editor`: Added visible `Text` labels to checkboxes in the Inspector (Flip X/Y, multi-select Flip X/Y, Layer Repeat X/Y), Snap settings popover, Material editor, and Particle editor.
 - `game/editor`: Fixed Scene Tree row clipping of lock icons in the 232 px left rail, First Run Connect step text overflowing its card border, initial `Camera · W × H` caption overlap with the top-left overlay legend, and low contrast on the idle `"No tasks"` status bar dot.
+- `game/editor`: Fixed local agent CLI detection (`claude`, `codex`) and subprocess `PATH` resolution when launched as a desktop GUI app with a minimal system `PATH`, surfaced detected local agents and re-scan controls in First Run Connect, Connect Agent dialog, and Settings › Models and connections, fixed unintended borders on ghost buttons (`specBtnGhost`) and selected radio dots, and made Start Screen / First Run screens react live to Dark/Light theme changes.

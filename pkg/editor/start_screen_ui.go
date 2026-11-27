@@ -59,21 +59,27 @@ func templateSwatchColor(p SpecPalette, name string) core.Color {
 // live-validated New Project bar with a single primary Create button, and streaming `game new` output.
 func StartScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	ed.ensureStartScreenInit()
-	p := ed.SpecPalette(cx)
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
+	})
 
-	return core.View{
-		TestID: "editor-start-screen",
-		Style: core.Style{
-			Direction:  core.Row,
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: p.Bg,
-		},
-		Children: []core.Node{
-			startSidebarView(cx, ed, rev),
-			startMainPaneView(cx, ed, rev),
-		},
-	}
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := SpecPaletteFor(darkMemo.Get())
+		return core.View{
+			TestID: "editor-start-screen",
+			Style: core.Style{
+				Direction:  core.Row,
+				Width:      core.Pct(100),
+				Height:     core.Pct(100),
+				Background: p.Bg,
+			},
+			Children: []core.Node{
+				startSidebarView(cx, ed, rev),
+				startMainPaneView(cx, ed, rev),
+			},
+		}
+	})
 }
 
 func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {

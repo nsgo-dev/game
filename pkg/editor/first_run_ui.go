@@ -49,8 +49,13 @@ func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		_ = rev.Get()
 		return ed.FirstRunStage()
 	})
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
+	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = darkMemo.Get()
 		switch stageMemo.Get() {
 		case FirstRunStagePlan:
 			return firstRunPlanView(cx, ed, rev)
@@ -227,23 +232,44 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 				},
 				Children: []core.Node{
 					core.View{
-						Style: core.Style{Gap: 4},
+						Style: core.Style{
+							Direction:      core.Row,
+							AlignItems:     core.AlignStart,
+							JustifyContent: core.JustifySpaceBetween,
+							Gap:            12,
+						},
 						Children: []core.Node{
-							core.Text{
-								Content: "Connect an agent",
-								Style: core.Style{
-									FontSize:   14,
-									FontWeight: core.FontWeightSemibold,
-									Color:      p.TextPrimary,
+							core.View{
+								Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Gap: 4},
+								Children: []core.Node{
+									core.Text{
+										Content: "Connect an agent",
+										Style: core.Style{
+											FontSize:   14,
+											FontWeight: core.FontWeightSemibold,
+											Color:      p.TextPrimary,
+										},
+									},
+									core.Text{
+										Content: "The agent does the editing through this editor. Use one you already have, or paste an API key.",
+										Style: core.Style{
+											FontSize: 12.5,
+											Color:    p.TextMuted,
+										},
+									},
 								},
 							},
-							core.Text{
-								Content: "The agent does the editing through this editor. Use one you already have, or paste an API key.",
-								Style: core.Style{
-									FontSize: 12.5,
-									Color:    p.TextMuted,
+							specPanelButton(p, specPanelButtonSpec{
+								TestID:  "first-run-connect-refresh",
+								Label:   "Re-detect local agents",
+								Tooltip: "Re-detect local agents",
+								Icon:    lucide.RefreshCw,
+								Variant: specBtnGhost,
+								Compact: true,
+								OnPress: func() {
+									ed.RefreshDetectedLocalAgents()
 								},
-							},
+							}),
 						},
 					},
 					// Radio list of agent choices.
@@ -268,15 +294,23 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 							if disabled {
 								nameColor = p.TextMuted
 							}
+							desc := opt.Description
+							if opt.Kind != "apikey" && opt.Detected && opt.ExecutablePath != "" {
+								desc = desc + " · " + shortenHomePath(opt.ExecutablePath)
+							}
 
 							var radioDot core.Node
 							if selected {
+								dotBg := p.TextPrimary
+								if !p.Dark {
+									dotBg = p.Panel
+								}
 								radioDot = core.View{
 									Style: core.Style{
 										Width:        core.Pt(16),
 										Height:       core.Pt(16),
 										CornerRadius: 8,
-										Background:   p.TextPrimary,
+										Background:   dotBg,
 										BorderWidth:  5,
 										BorderColor:  p.Accent.Fg,
 										FlexShrink:   0,
@@ -302,7 +336,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 							rowChildren := []core.Node{
 								radioDot,
 								core.View{
-									Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
+									Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Gap: 2},
 									Children: []core.Node{
 										core.Text{
 											Content: opt.Name,
@@ -313,7 +347,9 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 											},
 										},
 										core.Text{
-											Content: opt.Description,
+											Content:       desc,
+											MaxLines:      1,
+											EllipsizeMode: core.EllipsizeTail,
 											Style: core.Style{
 												FontSize: 11.5,
 												Color:    p.TextMuted,
