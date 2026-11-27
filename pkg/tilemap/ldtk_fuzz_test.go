@@ -46,6 +46,8 @@ func checkFuzzedLDtkMap(t *testing.T, m *tilemap.Tilemap) int {
 func FuzzLoadLDtk(f *testing.F) {
 	f.Add([]byte(sampleLDtkJSON))
 	f.Add([]byte(groupedLDtkJSON))
+	f.Add([]byte(stackedLDtkJSON))
+	f.Add([]byte(pivotEntitiesLDtkJSON))
 	f.Add(makeAdjacentLDtkProject("Free", 0, 0, 64, 0))
 	f.Add(makeAdjacentLDtkProject("GridVania", 0, 0, 64, 0))
 	f.Add([]byte(`{"defaultGridSize":16,"worldLayout":null,"levels":[],"worlds":[{"identifier":"Overworld","worldLayout":"Free","levels":[{"identifier":"Meadow","iid":"m1","uid":1,"worldX":0,"worldY":0,"pxWid":64,"pxHei":64,"layerInstances":[]}]}]}`))
