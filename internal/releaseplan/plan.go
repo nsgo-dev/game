@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,10 @@ import (
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
 )
+
+// ReleaseTag is the Go build tag passed to nsgo build so development-only code (pkg/debug, pkg/tooling/hotreload, pkg/tooling/devstate, and physics/AI debug drawing) compiles its release stubs.
+// Native release-only build tags in nsgo.yaml are tracked upstream in https://github.com/nsgo-dev/nsgo/issues/2695.
+const ReleaseTag = "release"
 
 // DefaultPlatforms are what game release builds when neither -target nor game.yaml's export presets say otherwise, as nsgo build -target names them: macos, windows, linux and android expand to their architectures, and ios and web are one target each.
 var DefaultPlatforms = []string{"macos", "windows", "linux", "web", "ios", "android"}
@@ -150,6 +155,10 @@ func (e *ExperimentalTargetsError) Unwrap() error {
 
 // NSGoSettings are the parts of nsgo.yaml that game release reads.
 type NSGoSettings struct {
+	// Name is nsgo.yaml's name, used by nsgo build to name package directories and desktop executables.
+	Name string
+	// Version is nsgo.yaml's version, used by nsgo build to name package directories.
+	Version string
 	// Channel is updates.channel, the channel nsgo build hands the packages out through when -channel does not say.
 	Channel string
 	// Output is build.output, the directory nsgo build writes to when neither -output nor game.yaml's export.output says, relative to the project unless absolute; empty is nsgo's default, dist.
@@ -167,6 +176,8 @@ func ReadNSGoSettings(dir string) (NSGoSettings, error) {
 		return NSGoSettings{}, err
 	}
 	var file struct {
+		Name    string `yaml:"name"`
+		Version string `yaml:"version"`
 		Updates struct {
 			Channel string `yaml:"channel"`
 		} `yaml:"updates"`
@@ -177,7 +188,12 @@ func ReadNSGoSettings(dir string) (NSGoSettings, error) {
 	if err := yaml.Unmarshal(data, &file); err != nil {
 		return NSGoSettings{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return NSGoSettings{Channel: file.Updates.Channel, Output: file.Build.Output}, nil
+	return NSGoSettings{
+		Name:    file.Name,
+		Version: file.Version,
+		Channel: file.Updates.Channel,
+		Output:  file.Build.Output,
+	}, nil
 }
 
 // Settings are the parts of game.yaml that game release reads: the build output directory, the build targets of the export presets and the assets section, whose assets the credits file lists.
@@ -310,17 +326,158 @@ func ShellQuote(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
+// ReleaseEnv returns the default environment overrides applied to release invocations of nsgo build.
+func ReleaseEnv() []string {
+	return []string{"GOFLAGS=-tags=" + ReleaseTag}
+}
+
+// GOFLAGSWithReleaseTag returns a GOFLAGS value equivalent to existing with ReleaseTag merged into its -tags setting. Non-tag flags and any existing tags are preserved without duplicating ReleaseTag.
+func GOFLAGSWithReleaseTag(existing string) string {
+	return MergeGOFLAGS(existing, "-tags="+ReleaseTag)
+}
+
+// MergeGOFLAGS combines base and extra GOFLAGS values, keeping all non-tag flags and merging the effective -tags lists of both without duplicates. Within each input, a later -tags= replaces an earlier one, matching Go's own GOFLAGS parsing.
+func MergeGOFLAGS(base, extra string) string {
+	baseOther, baseTags := splitGOFLAGS(base)
+	extraOther, extraTags := splitGOFLAGS(extra)
+
+	out := make([]string, 0, len(baseOther)+len(extraOther)+1)
+	out = append(out, baseOther...)
+	out = append(out, extraOther...)
+
+	mergedTags := make([]string, 0, len(baseTags)+len(extraTags))
+	for _, tag := range baseTags {
+		if !slices.Contains(mergedTags, tag) {
+			mergedTags = append(mergedTags, tag)
+		}
+	}
+	for _, tag := range extraTags {
+		if !slices.Contains(mergedTags, tag) {
+			mergedTags = append(mergedTags, tag)
+		}
+	}
+	if len(mergedTags) > 0 {
+		out = append(out, "-tags="+strings.Join(mergedTags, ","))
+	}
+	return strings.Join(out, " ")
+}
+
+func splitGOFLAGS(flags string) (other, tags []string) {
+	for _, field := range strings.Fields(flags) {
+		norm := field
+		if strings.HasPrefix(norm, "--") {
+			norm = norm[1:]
+		}
+		if value, ok := strings.CutPrefix(norm, "-tags="); ok {
+			tags = tags[:0]
+			for _, raw := range strings.Split(value, ",") {
+				if tag := strings.TrimSpace(raw); tag != "" && !slices.Contains(tags, tag) {
+					tags = append(tags, tag)
+				}
+			}
+			continue
+		}
+		other = append(other, field)
+	}
+	return other, tags
+}
+
+// WithReleaseEnv returns a copy of baseEnv with GOFLAGS updated so nsgo build compiles with ReleaseTag. When baseEnv is nil, os.Environ() is used.
+func WithReleaseEnv(baseEnv []string) []string {
+	return ApplyEnv(baseEnv, ReleaseEnv())
+}
+
+// ApplyEnv returns a copy of baseEnv with overrides ("KEY=VALUE") applied. When baseEnv is nil, os.Environ() is used. A GOFLAGS override is merged into any existing GOFLAGS entry via MergeGOFLAGS so caller flags such as -mod=mod or custom build tags are preserved.
+func ApplyEnv(baseEnv, overrides []string) []string {
+	if baseEnv == nil {
+		baseEnv = os.Environ()
+	}
+	if len(overrides) == 0 {
+		return slices.Clone(baseEnv)
+	}
+	overrideKeys := make(map[string]string, len(overrides))
+	overrideOrder := make([]string, 0, len(overrides))
+	for _, entry := range overrides {
+		k, v, ok := strings.Cut(entry, "=")
+		if !ok || k == "" {
+			continue
+		}
+		upper := strings.ToUpper(k)
+		if _, seen := overrideKeys[upper]; !seen {
+			overrideOrder = append(overrideOrder, upper)
+		}
+		if upper == "GOFLAGS" {
+			overrideKeys[upper] = MergeGOFLAGS(overrideKeys[upper], v)
+		} else {
+			overrideKeys[upper] = v
+		}
+	}
+
+	var existingGOFLAGS string
+	out := make([]string, 0, len(baseEnv)+len(overrideOrder))
+	for _, entry := range baseEnv {
+		k, v, ok := strings.Cut(entry, "=")
+		if !ok {
+			out = append(out, entry)
+			continue
+		}
+		upper := strings.ToUpper(k)
+		if _, overridden := overrideKeys[upper]; overridden {
+			if upper == "GOFLAGS" {
+				existingGOFLAGS = v
+			}
+			continue
+		}
+		out = append(out, entry)
+	}
+
+	for _, upper := range overrideOrder {
+		v := overrideKeys[upper]
+		if upper == "GOFLAGS" {
+			out = append(out, "GOFLAGS="+MergeGOFLAGS(existingGOFLAGS, v))
+			continue
+		}
+		// Preserve original casing from the last override with this key.
+		key := upper
+		for _, entry := range overrides {
+			if k, _, ok := strings.Cut(entry, "="); ok && strings.EqualFold(k, upper) {
+				key = k
+			}
+		}
+		out = append(out, key+"="+v)
+	}
+	return out
+}
+
+// formatEnvCommand formats env assignments followed by cmdArgs as a POSIX shell line.
+func formatEnvCommand(env, cmdArgs []string) string {
+	parts := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if k, v, ok := strings.Cut(entry, "="); ok && k != "" {
+			parts = append(parts, k+"="+ShellQuote([]string{v}))
+		}
+	}
+	parts = append(parts, ShellQuote(cmdArgs))
+	return strings.Join(parts, " ")
+}
+
 // Plan is a validated release build plan ready for dry-run printing or execution.
 type Plan struct {
 	// Dir is the absolute project directory.
 	Dir string
+	// AppName is nsgo.yaml's name, used to locate built desktop binaries under OutputDir.
+	AppName string
+	// AppVersion is nsgo.yaml's version, used to locate built desktop binaries under OutputDir.
+	AppVersion string
 	// Targets are the resolved nsgo build targets in build order.
 	Targets []string
 	// Experimental lists the unique experimental platforms referenced by Targets, in first-seen order.
 	Experimental []ExperimentalInfo
+	// Env are the environment variable overrides (such as GOFLAGS=-tags=release) applied when executing Args.
+	Env []string
 	// Args are the arguments passed to the `go` command.
 	Args []string
-	// CommandLine is the POSIX-quoted `go ...` command printed by -dry-run.
+	// CommandLine is the POSIX-quoted command (with Env prefix) printed by -dry-run.
 	CommandLine string
 	// OutputDir is the resolved absolute directory where release packages are written.
 	OutputDir string
@@ -358,12 +515,16 @@ func Build(dir string, opts Options, settings Settings) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	env := ReleaseEnv()
 	p := &Plan{
 		Dir:              absDir,
+		AppName:          nsgo.Name,
+		AppVersion:       nsgo.Version,
 		Targets:          targets,
 		Experimental:     exp,
+		Env:              env,
 		Args:             args,
-		CommandLine:      ShellQuote(append([]string{"go"}, args...)),
+		CommandLine:      formatEnvCommand(env, append([]string{"go"}, args...)),
 		OutputDir:        outDir,
 		AssetsConfigured: settings.Assets != nil,
 	}

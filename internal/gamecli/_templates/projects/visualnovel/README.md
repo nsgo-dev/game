@@ -21,7 +21,7 @@ go tool nsgo test ./...
 go tool nsgo check -target macos,windows,linux,android,web
 ```
 
-Build release artifacts into `dist/` with `go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web`.
+Build release artifacts into `dist/` with `go tool game release` or `GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web`.
 
 ## Controls
 

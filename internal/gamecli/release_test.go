@@ -28,16 +28,24 @@ func newGameDir(t *testing.T, gameYAML string) string {
 	return dir
 }
 
-// recordNSGo replaces runNSGo for the test with one that records its arguments and returns err.
+// recordNSGo replaces runNSGo for the test with one that records its arguments, asserts the release tag env is present, and returns err. It also stubs verifyRelease since no real binaries are produced.
 func recordNSGo(t *testing.T, err error) *[][]string {
 	t.Helper()
 	var calls [][]string
 	saved := runNSGo
-	runNSGo = func(args []string, stdout, stderr io.Writer) error {
+	savedVerify := verifyRelease
+	runNSGo = func(args, env []string, stdout, stderr io.Writer) error {
+		if !slices.Contains(env, "GOFLAGS=-tags=release") {
+			t.Errorf("runNSGo env = %q, want GOFLAGS=-tags=release", env)
+		}
 		calls = append(calls, slices.Clone(args))
 		return err
 	}
-	t.Cleanup(func() { runNSGo = saved })
+	verifyRelease = func(*releaseplan.Plan) error { return nil }
+	t.Cleanup(func() {
+		runNSGo = saved
+		verifyRelease = savedVerify
+	})
 	return &calls
 }
 
@@ -185,7 +193,7 @@ func TestReleaseDryRunPrintsTheCommand(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Fatalf("-dry-run ran %q", *calls)
 	}
-	want := "go -C " + shellQuote([]string{dir}) + " tool nsgo build -target web -output 'my dist'\n"
+	want := "GOFLAGS=-tags=release go -C " + shellQuote([]string{dir}) + " tool nsgo build -target web -output 'my dist'\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout, want)
 	}
@@ -466,7 +474,7 @@ export:
 		if len(*calls) != 0 {
 			t.Fatalf("-dry-run ran %q", *calls)
 		}
-		wantStdout := "go -C " + shellQuote([]string{dir}) + " tool nsgo build -target tvos\n"
+		wantStdout := "GOFLAGS=-tags=release go -C " + shellQuote([]string{dir}) + " tool nsgo build -target tvos\n"
 		if stdout.String() != wantStdout {
 			t.Fatalf("stdout = %q, want %q", stdout, wantStdout)
 		}
@@ -541,6 +549,61 @@ func TestReleaseStrictFailsOnExperimentalPlatforms(t *testing.T) {
 			t.Fatalf("unexpected experimental message on primary platforms:\n%s", stderr)
 		}
 	})
+}
+
+func TestReleaseFailsWhenBinaryVerificationFails(t *testing.T) {
+	dir := newGameDir(t, assetsProjectHead+`export:
+  presets:
+    - platform: linux
+      targets: [linux_x64]
+assets:
+  audio:
+    - in: sfx/beep.wav
+      out: assets/beep.wav
+`)
+	if err := os.MkdirAll(filepath.Join(dir, "sfx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sfx", "beep.wav"), []byte("RIFF"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sfx", "beep.wav.import.yaml"), []byte("version: 1\ncredit: {author: Ana, license: CC0-1.0}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotEnv []string
+	var verifiedPlan *releaseplan.Plan
+	savedRun := runNSGo
+	savedVerify := verifyRelease
+	runNSGo = func(args, env []string, stdout, stderr io.Writer) error {
+		gotEnv = slices.Clone(env)
+		return nil
+	}
+	verifyRelease = func(p *releaseplan.Plan) error {
+		verifiedPlan = p
+		return releaseplan.ErrDebugSymbolLinked
+	}
+	t.Cleanup(func() {
+		runNSGo = savedRun
+		verifyRelease = savedVerify
+	})
+
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"release", dir}, a); code != 1 {
+		t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+	}
+	if !slices.Contains(gotEnv, "GOFLAGS=-tags=release") {
+		t.Fatalf("runNSGo env = %q, want GOFLAGS=-tags=release", gotEnv)
+	}
+	if verifiedPlan == nil {
+		t.Fatal("verifyRelease was not called")
+	}
+	if !strings.Contains(stderr.String(), "game release: verify release: ") || !strings.Contains(stderr.String(), releaseplan.ErrDebugSymbolLinked.Error()) {
+		t.Fatalf("stderr = %q, want verify release error", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dist", "CREDITS.md")); !os.IsNotExist(err) {
+		t.Fatalf("CREDITS.md should not be written when release verification fails: %v", err)
+	}
 }
 
 func FuzzParseReleaseSettings(f *testing.F) {

@@ -137,11 +137,17 @@ overlay.DrawSteering(d, debug.SteeringDebug{
 
 ## 在发布构建中彻底裁剪
 
-发布构建时传入 `-tags release`：
+使用 `release` 构建标签时，发布包会裁剪掉 `pkg/debug`、`pkg/tooling/hotreload`、`pkg/tooling/devstate` 以及物理与 AI 的调试绘制代码：
+
+- **`game release` 以及场景编辑器的导出面板 / 构建与发布界面**会自动为 `nsgo build` 传入 `GOFLAGS=-tags=release`，并且 `game release` 会在构建完成后校验桌面端二进制，若缺少 `release` 标签或链接了仅限开发期的调试符号则直接失败。
+- **直接运行 `nsgo build` 或 `go build`** 目前不会自动附加 `release` 标签（上游跟踪见 [nsgo-dev/nsgo#2695](https://github.com/nsgo-dev/nsgo/issues/2695)），请在单次调用的环境变量中通过 `GOFLAGS` 传入：
 
 ```sh
+GOFLAGS=-tags=release go tool nsgo build -target macos,windows,linux,web
 go build -tags release ./...
 ```
+
+不要把 `release` 写进 `nsgo.yaml` 的 `build.tags`：NSGo 会把 `build.tags` 应用到包括 `nsgo dev` 和 `nsgo test` 在内的所有 `go` 命令上，导致开发期运行与测试也失去调试浮层。
 
 启用 `-tags release` 后，`debug.Enabled()` 返回 `false`，`Overlay.View(cx)` 返回 `nil`，`Overlay`、`FrameStats` 和 `ShapeOverlay` 的所有方法均替换为空实现，浮层 UI、帧耗时图与线框绘制代码不会被链接进发布包。
 

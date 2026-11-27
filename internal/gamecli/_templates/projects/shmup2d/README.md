@@ -41,7 +41,7 @@ Run the tests, vet across platforms and build:
 ```sh
 go tool nsgo test ./...
 go tool nsgo check -target macos,windows,linux,android,web
-go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
+GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 ```
 
 `go test -run '^$' -fuzz FuzzParseStage .` fuzzes the stage format, and `go test -run '^$' -bench Step .` measures a step of the boss fight.

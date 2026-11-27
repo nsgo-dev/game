@@ -76,17 +76,27 @@ go tool nsgo check -target macos,windows,linux,web,ios,android
 
 ## 构建发布包
 
-`nsgo build` 会构建剥离调试符号的正式版二进制，在 `<output>/<name>-<version>-<target>` 下为每个目标生成目录，并输出可分发的发布文件。
+`nsgo game release`（以及场景编辑器的导出面板 / 构建与发布界面）会自动以 `GOFLAGS=-tags=release` 调用 `nsgo build`，从而把仅限开发期的包（`pkg/debug`、`pkg/tooling/hotreload`、`pkg/tooling/devstate` 以及物理与 AI 调试绘制）替换为零开销空实现，并在构建完成后校验桌面端二进制未链接调试符号，同时在产物旁写出 `CREDITS.md`：
+
+```sh
+# 按 game.yaml 的导出预设构建（未配置时默认构建全部六个主要平台）
+go tool game release
+
+# 构建商店提交格式的包，而非直接下载的安装器
+go tool game release -channel store -target macos,windows,linux,ios,android
+```
+
+`nsgo build` 会构建剥离调试符号的正式版二进制，在 `<output>/<name>-<version>-<target>` 下为每个目标生成目录，并输出可分发的发布文件。在 NSGo 支持 `nsgo.yaml` 的发布专用标签之前（见 [nsgo-dev/nsgo#2695](https://github.com/nsgo-dev/nsgo/issues/2695)），直接调用 `nsgo build` 时请传入 `GOFLAGS=-tags=release`（不要把 `release` 加入 `nsgo.yaml` 的 `build.tags`，因为该字段也会作用于 `nsgo dev` 和 `nsgo test`）：
 
 ```sh
 # 按 nsgo.yaml 中配置的目标构建
-go tool nsgo build
+GOFLAGS=-tags=release go tool nsgo build
 
 # 构建当前机器上 Go 与 Xcode 支持的全部目标
-go tool nsgo build -target all
+GOFLAGS=-tags=release go tool nsgo build -target all
 
 # 构建商店提交格式的包，而非直接下载的安装器
-go tool nsgo build -channel store -target macos,windows,linux,ios,android
+GOFLAGS=-tags=release go tool nsgo build -channel store -target macos,windows,linux,ios,android
 ```
 
 `-channel` 控制打包格式与更新通道：

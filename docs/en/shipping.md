@@ -76,17 +76,27 @@ Run headless tests with `go tool nsgo test`, or run tests on a real platform wit
 
 ## Build release packages
 
-`nsgo build` compiles stripped release binaries and writes one directory per target under `<output>/<name>-<version>-<target>`, plus distributable release files.
+`nsgo game release` (and the scene editor's Export / Build and Release screens) runs `nsgo build` with `GOFLAGS=-tags=release`, compiling out development-only packages (`pkg/debug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing), verifying built desktop binaries against leaked debug symbols, and writing `CREDITS.md` beside the packages:
+
+```sh
+# Build every export preset in game.yaml (or all six primary targets by default)
+go tool game release
+
+# Build store-formatted packages instead of direct installers
+go tool game release -channel store -target macos,windows,linux,ios,android
+```
+
+`nsgo build` compiles stripped release binaries and writes one directory per target under `<output>/<name>-<version>-<target>`, plus distributable release files. Until NSGo supports release-only tags in `nsgo.yaml` ([nsgo-dev/nsgo#2695](https://github.com/nsgo-dev/nsgo/issues/2695)), pass `GOFLAGS=-tags=release` whenever you invoke `nsgo build` directly (do not add `release` to `nsgo.yaml`'s `build.tags`, which also applies to `nsgo dev` and `nsgo test`):
 
 ```sh
 # Build every target configured in nsgo.yaml
-go tool nsgo build
+GOFLAGS=-tags=release go tool nsgo build
 
 # Build all targets Go and Xcode can build on this machine
-go tool nsgo build -target all
+GOFLAGS=-tags=release go tool nsgo build -target all
 
 # Build store-formatted packages instead of direct installers
-go tool nsgo build -channel store -target macos,windows,linux,ios,android
+GOFLAGS=-tags=release go tool nsgo build -channel store -target macos,windows,linux,ios,android
 ```
 
 `-channel` chooses how packages are formatted and updated:

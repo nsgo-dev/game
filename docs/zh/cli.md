@@ -120,7 +120,7 @@ go tool game release -channel store -release-notes notes/0.2.0.md
 go tool game release -target macos_arm64,web -output build -dry-run
 ```
 
-在指定目录（默认是当前目录，其中有游戏的 `nsgo.yaml`）里，通过一次 `nsgo build` 为所有平台构建游戏：未另行指定时，构建两种架构的 macOS、Windows 和 Linux，以及 Web、iOS 和 arm64 的 Android。每个目标的包写到 `<output>/<name>-<version>-<target>`，发布时上传的文件（磁盘映像、安装程序、Debian 和 Arch 包、AppImage、IPA、APK 和网站的 zip，各带一个 `.sha256`）写到 `<output>/releases`，目录结构与 `nsgo build` 相同。任一目标失败都会终止本次运行，退出码为 1。游戏的模块必须把 NSGo 作为工具（`go.mod` 里有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`，起始模板已带上），因为命令运行的是 `go -C <dir> tool nsgo build`，构建使用模块自己的 NSGo 版本；`-dry-run` 只打印这条命令而不运行。
+在指定目录（默认是当前目录，其中有游戏的 `nsgo.yaml`）里，通过一次 `nsgo build` 为所有平台构建游戏：未另行指定时，构建两种架构的 macOS、Windows 和 Linux，以及 Web、iOS 和 arm64 的 Android。每个目标的包写到 `<output>/<name>-<version>-<target>`，发布时上传的文件（磁盘映像、安装程序、Debian 和 Arch 包、AppImage、IPA、APK 和网站的 zip，各带一个 `.sha256`）写到 `<output>/releases`，目录结构与 `nsgo build` 相同。任一目标失败都会终止本次运行，退出码为 1。游戏的模块必须把 NSGo 作为工具（`go.mod` 里有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`，起始模板已带上），因为命令运行的是 `GOFLAGS=-tags=release go -C <dir> tool nsgo build`，构建使用模块自己的 NSGo 版本并裁剪仅限开发期的包（`pkg/debug`、`pkg/tooling/hotreload`、`pkg/tooling/devstate` 以及物理与 AI 调试绘制）；`-dry-run` 只打印这条命令而不运行。构建包含桌面目标时，`game release` 会在构建后校验生成的桌面可执行文件的 Go 构建信息与符号表，缺少 `release` 标签或链接了调试符号时会失败。
 
 目标取自 `-target`；没有时取 `nsgo.yaml` 旁边 `game.yaml` 的 `export` 预设，按顺序，没有 `targets` 的预设构建其平台名；再没有时取上面的六个平台，但渠道（`-channel`，没有时取 `nsgo.yaml` 的 `updates.channel`）为 `steam` 时只取 macOS、Windows 和 Linux，因为 `nsgo build` 只用桌面目标制作 Steam depot。命令不使用 `nsgo.yaml` 的 `build.targets`：它是日常直接运行 `nsgo build` 时的目标列表，起始模板里的这份包含模拟器构建、不含 Linux，所以发布用的目标列表应写在预设里。输出目录取自 `-output`；没有时取 `game.yaml` 的 `export.output`；再没有时取 `nsgo.yaml` 的 `build.output`：
 

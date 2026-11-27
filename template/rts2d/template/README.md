@@ -37,7 +37,7 @@ go tool nsgo dev -target ios_simulator
 go tool nsgo dev -target android
 go tool nsgo test ./...             # headless tests, playthroughs included
 go tool nsgo check -target macos,windows,linux,android,web
-go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
+GOFLAGS=-tags=release go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 ```
 
 The game's settings live in `game.yaml`, its project file. Edit the name and identifier there before shipping it, then write them into `nsgo.yaml` and check the project:

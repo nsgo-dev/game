@@ -137,11 +137,17 @@ All AI panel views and steering draw helpers compile to zero-cost no-ops under `
 
 ## Stripping debug code in release builds
 
-Build release binaries with `-tags release`:
+Release builds strip `pkg/debug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing when built with the `release` Go build tag:
+
+- **`game release` and the scene editor's Export / Build and Release screens** pass `GOFLAGS=-tags=release` to `nsgo build` automatically, and `game release` checks built desktop binaries afterwards to fail if the `release` tag is missing or a debug-only symbol was linked.
+- **Plain `nsgo build` or `go build`** does not set `release` automatically yet (tracked upstream in [nsgo-dev/nsgo#2695](https://github.com/nsgo-dev/nsgo/issues/2695)), so pass it through `GOFLAGS` for the invocation:
 
 ```sh
+GOFLAGS=-tags=release go tool nsgo build -target macos,windows,linux,web
 go build -tags release ./...
 ```
+
+Do not put `release` in `nsgo.yaml`'s `build.tags`: NSGo applies `build.tags` to every `go` command it runs, including `nsgo dev` and `nsgo test`, which would strip the overlay from development runs and tests as well.
 
 Under `-tags release`, `debug.Enabled()` returns `false`, `Overlay.View(cx)` returns `nil`, and every `Overlay`, `FrameStats`, and `ShapeOverlay` method compiles to an empty no-op — so none of the overlay UI, frame graph, or wireframe drawing code is linked into your shipping binary.
 
