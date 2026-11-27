@@ -2,6 +2,8 @@
 
 This document records the scope decision for NSGo's game editor ([#159](https://github.com/nsgo-dev/game/issues/159)) and specifies the version 1 YAML scene format ([#160](https://github.com/nsgo-dev/game/issues/160)) implemented in `github.com/nsgo-dev/game/pkg/sceneformat`.
 
+Prebuilt desktop installers for **NSGo Game Editor** (`cmd/editor`)—signed and notarized `.dmg` images for macOS (`arm64` / `x64`), `-setup.exe` installers for Windows (`x64` / `arm64`), and `.deb` / `.pkg.tar.gz` / `.AppImage` packages for Linux (`x64` / `arm64`)—are published on [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest), alongside one-line installers (`install.sh` / `install.ps1`) and prebuilt `nsgo-game` CLI archives. You can also launch the editor directly via `nsgo game editor` or `go run ./cmd/editor`.
+
 ## Editor Scope Decision (#159)
 
 NSGo takes **option (b) growing into (c)**: keep Go code and Tiled first-class, define a clean human-editable YAML scene format shared by hand-authored scenes and tooling, and build a lightweight NSGo-native scene editor on top of it.

@@ -48,10 +48,13 @@ go tool nsgo dev
 go tool nsgo dev -target web
 ```
 
-Or launch the visual scene editor or install the coding-agent skill:
+Or download the standalone desktop **NSGo Game Editor** from [GitHub Releases](https://github.com/nsgo-dev/game/releases/latest) (macOS `.dmg`, Windows `-setup.exe`, Linux `.AppImage`/`.deb`/`.pkg.tar.gz`), launch it from Go, or install the coding-agent skill:
 
 ```sh
-# Open the visual 2D/3D scene editor
+# Install the standalone NSGo Game Editor (macOS / Linux)
+curl -fsSL https://github.com/nsgo-dev/game/releases/latest/download/install.sh | sh
+
+# Or run the scene editor directly via Go
 go run github.com/nsgo-dev/game/cmd/game@latest editor
 
 # Install the Agent Skill for coding agents
