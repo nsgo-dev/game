@@ -13,6 +13,7 @@
 | `.tscn` 场景、`PackedScene` | YAML 场景文档（`sceneformat`），构建为图层 | [编辑器与场景格式](editor.md) |
 | `get_tree().change_scene_to_file()` | 带过渡效果的 `scene.Manager.Switch` | [scene](scene.md) |
 | `Node2D` 树、`CanvasLayer` | 世界空间或屏幕空间的 `scene.Scene` 图层 | [scene](scene.md) |
+| `VisibleOnScreenNotifier2D`、`VisibleOnScreenEnabler2D` | 场景对象的内置 `on_screen` 组件（`entered`/`exited` 事件与 `pause` 列表），或 Go 中的 `scene.ScreenNotifier` | [scene](scene.md#场景文件中的在屏通知器) |
 | `Node3D` 树、分组 | `scene3d.Node` 树、`FindByTag` | [scene3d](scene3d.md) |
 | `Control`、`TextureProgressBar` | [gameui](gameui.md) 控件；`gameui.ImageProgress` 用 under/progress/over 三层图像按方向或径向填充进度 | [gameui](gameui.md) |
 | 把场景当模板实例化 | `entities.Prefab`，或场景对象的 `prefab` 字段 | [实体](entities.md) |

@@ -243,6 +243,33 @@ YAML 场景还可以设置 `ambientColor`，并在对象上附加内置的 `ligh
 
 YAML 场景可以在对象上直接声明可行走或障碍物 `navregion2d` 多边形，并可选扣除瓦片地图的实心碰撞几何（`subtractTileCollision: true`）。`sceneformat.Build` 会通过 [`game/ai/navbake`](navbake.md) 将其烘焙为 `BuiltScene.NavBake2D`（`*navbake.Mesh`）与 `BuiltScene.NavMesh2D`（`*ai.NavMesh`），从而使编辑器的 2D 导航网格叠加层和 **Test Path** 工具得到与游戏完全一致的寻路结果（[`game/editor`](editor.md#内置-2d-导航区域组件888)）。
 
+## 场景文件中的在屏通知器
+
+对象的内置 `on_screen` 组件会以相机视野为参照，监视对象局部空间中的一个矩形，并在它进入或离开画面时发出通知，与 Godot 的 `VisibleOnScreenNotifier2D` 相同：
+
+```yaml
+objects:
+  - id: torch
+    x: 100
+    y: 50
+    particles: {file: fx/fire.particles.yaml, atlas: fx}
+    components:
+      on_screen:
+        x: -16          # 被监视的局部空间矩形（默认为原点处的 16x16）
+        y: -16
+        width: 32
+        height: 32
+        margin: 32      # 迟滞带：离开视野超过该距离后才发出 exited
+        pause: [particles]   # 离屏时 BuiltScene.Update 跳过的部分：particles、skeleton
+connections:
+  - {from: torch, event: on_screen.entered, to: hud, handler: show_torch}
+  - {from: torch, event: on_screen.exited, to: hud, handler: hide_torch}
+```
+
+`sceneformat.Build` 会把通知器收集到 `BuiltScene.Notifiers`，`BuiltScene.Update` 以场景自身的相机视野（虚拟视口经过 `BuiltScene.Camera`）为参照逐个步进：矩形开始与某个视野重叠时发出 `entered`（或第一次更新时已在视野内），离开所有视野（含 `margin` 迟滞带）时发出 `exited`。旋转或缩放后的对象矩形用包含其角点的轴对齐矩形覆盖，旋转或缩放的相机可视范围也按同样方式计算，因此判定始终是廉价的矩形相交。事件经由场景的 `connections` 分发：把 `Connect` 返回的 `Signals` 赋给 `BuiltScene.ScreenSignals`，通知器状态翻转时就会运行连接的处理器。只要任一视野能看到对象就算在屏，因此分屏游戏把每个视口的相机传给 `BuiltScene.UpdateWithViews(dt, views...)`。`pause` 列出的部分（`particles` 表示对象的粒子发射器，`skeleton` 表示骨骼动画）在离屏期间不更新，回到画面时从停下的位置继续，对应 Godot 的 `VisibleOnScreenEnabler2D`。
+
+不使用场景文件的游戏可以用 `scene.ScreenNotifier` 获得同样的行为：一个带有世界坐标 `Rect`、`Margin` 以及 `OnEnter`、`OnExit` 回调的 Go 值，每次更新调用一次 `Step(views ...*tilemap.Camera)`。
+
 ## 将场景组件生成到 ECS
 
 `sceneformat.ComponentType` 可以声明可选的 `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` 工厂函数，将 YAML 组件转换为 `game/entities` 中的强类型 ECS 组件状态（[实体](entities.md#从-yaml-场景生成实体)）。将组件注册表传入 `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})`（或传入 `sceneformat.SpawnConnected`，它会自动转发注册表）即可启用。在生成第一个实体之前，所有组件都会先按注册表校验并填充默认值；随后实体按深度优先的文档顺序生成，同一对象上的组件按组件名升序执行 `Spawn`。若任一 `Spawn` 返回错误，已生成的实体会全部销毁回滚，并返回包含图层名、对象 ID 与组件名的错误。`SpawnEntities(doc, world)` 仍等价于 `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`。
