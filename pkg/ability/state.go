@@ -60,38 +60,57 @@ func (c *Caster) Snapshot() State {
 
 // Restore replaces the Caster's state with st, without sending events. It refuses, and changes nothing, when st's rate or abilities differ from the Caster's or a value is out of the range a Caster could reach. Called from OnEvent, it still delivers the events that happened before it, after the current one.
 func (c *Caster) Restore(st *State) error {
+	p, err := c.prepareRestore(st)
+	if err != nil {
+		return err
+	}
+	c.commitRestore(p)
+	return nil
+}
+
+type preparedCaster struct {
+	step      uint64
+	abilities []AbilityState
+	active    int
+	phase     Phase
+	elapsed   int
+}
+
+func (c *Caster) prepareRestore(st *State) (*preparedCaster, error) {
 	if st == nil {
-		return errNilState
+		return nil, errNilState
 	}
 	if st.Rate != c.rate {
-		return errState("rate %d, want %d", st.Rate, c.rate)
+		return nil, errState("rate %d, want %d", st.Rate, c.rate)
 	}
 	if len(st.Abilities) != len(c.slots) {
-		return errState("%d abilities, want %d", len(st.Abilities), len(c.slots))
+		return nil, errState("%d abilities, want %d", len(st.Abilities), len(c.slots))
 	}
+	abilities := make([]AbilityState, len(st.Abilities))
 	for i, a := range st.Abilities {
 		s := &c.slots[i]
 		if a.ID != s.id {
-			return errState("ability %d is %q, want %q", i, a.ID, s.id)
+			return nil, errState("ability %d is %q, want %q", i, a.ID, s.id)
 		}
 		if a.Charges < 0 || a.Charges > s.maxCharges {
-			return errState("ability %q charges %d is outside 0..%d", a.ID, a.Charges, s.maxCharges)
+			return nil, errState("ability %q charges %d is outside 0..%d", a.ID, a.Charges, s.maxCharges)
 		}
 		if a.Cooldown < 0 || a.Cooldown > s.cooldownSteps {
-			return errState("ability %q cooldown %d is outside 0..%d", a.ID, a.Cooldown, s.cooldownSteps)
+			return nil, errState("ability %q cooldown %d is outside 0..%d", a.ID, a.Cooldown, s.cooldownSteps)
 		}
 		if a.Recharge < 0 || a.Recharge > s.rechargeSteps {
-			return errState("ability %q recharge %d is outside 0..%d", a.ID, a.Recharge, s.rechargeSteps)
+			return nil, errState("ability %q recharge %d is outside 0..%d", a.ID, a.Recharge, s.rechargeSteps)
 		}
 		if (a.Recharge > 0) != (a.Charges < s.maxCharges) {
-			return errState("ability %q has %d of %d charges with recharge %d", a.ID, a.Charges, s.maxCharges, a.Recharge)
+			return nil, errState("ability %q has %d of %d charges with recharge %d", a.ID, a.Charges, s.maxCharges, a.Recharge)
 		}
+		abilities[i] = a
 	}
 	active, phase, elapsed := -1, PhaseIdle, 0
 	if st.Active != nil {
 		i, ok := c.index[st.Active.Ability]
 		if !ok {
-			return errState("active ability %q is not in the set", st.Active.Ability)
+			return nil, errState("active ability %q is not in the set", st.Active.Ability)
 		}
 		s := &c.slots[i]
 		var limit int
@@ -101,20 +120,40 @@ func (c *Caster) Restore(st *State) error {
 		case PhaseChanneling:
 			limit = s.channelSteps
 		default:
-			return errState("active ability %q phase %q is not %q or %q", s.id, st.Active.Phase, PhaseCasting, PhaseChanneling)
+			return nil, errState("active ability %q phase %q is not %q or %q", s.id, st.Active.Phase, PhaseCasting, PhaseChanneling)
 		}
 		if st.Active.Elapsed < 0 || st.Active.Elapsed >= limit {
-			return errState("active ability %q %s elapsed %d is outside 0..%d", s.id, st.Active.Phase, st.Active.Elapsed, limit-1)
+			return nil, errState("active ability %q %s elapsed %d is outside 0..%d", s.id, st.Active.Phase, st.Active.Elapsed, limit-1)
 		}
 		active, phase, elapsed = i, st.Active.Phase, st.Active.Elapsed
 	}
-	c.step = st.Step
-	for i, a := range st.Abilities {
+	return &preparedCaster{
+		step:      st.Step,
+		abilities: abilities,
+		active:    active,
+		phase:     phase,
+		elapsed:   elapsed,
+	}, nil
+}
+
+func (c *Caster) commitRestore(p *preparedCaster) {
+	c.step = p.step
+	for i, a := range p.abilities {
 		s := &c.slots[i]
 		s.charges, s.cooldown, s.recharge = a.Charges, a.Cooldown, a.Recharge
 	}
-	c.active, c.phase, c.elapsed = active, phase, elapsed
-	return nil
+	c.active, c.phase, c.elapsed = p.active, p.phase, p.elapsed
+}
+
+func (c *Caster) resetState() {
+	c.step = 0
+	c.active, c.phase, c.elapsed = -1, PhaseIdle, 0
+	for i := range c.slots {
+		s := &c.slots[i]
+		s.charges = s.maxCharges
+		s.cooldown = 0
+		s.recharge = 0
+	}
 }
 
 // errState builds a Restore error.

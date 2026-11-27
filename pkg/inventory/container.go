@@ -380,25 +380,33 @@ func (c *Container) Snapshot() ContainerState {
 
 // Restore replaces the container's contents with st after checking every entry: the slot must be in range and listed once, the item defined by the catalog, and the count in [1, the item's maximum stack]. On error the container is left unchanged.
 func (c *Container) Restore(st ContainerState) error {
+	slots, err := c.prepareRestore(st)
+	if err != nil {
+		return err
+	}
+	c.slots = slots
+	return nil
+}
+
+func (c *Container) prepareRestore(st ContainerState) ([]Stack, error) {
 	slots := make([]Stack, len(c.slots))
 	seen := make(map[int]struct{}, len(st.Slots))
 	for _, e := range st.Slots {
 		if err := c.checkSlot(e.Slot); err != nil {
-			return err
+			return nil, err
 		}
 		if _, dup := seen[e.Slot]; dup {
-			return fmt.Errorf("inventory: restore lists slot %d twice", e.Slot)
+			return nil, fmt.Errorf("inventory: restore lists slot %d twice", e.Slot)
 		}
 		seen[e.Slot] = struct{}{}
 		def, ok := c.catalog.def(e.Item)
 		if !ok {
-			return fmt.Errorf("%w: %q in slot %d", ErrUnknownItem, e.Item, e.Slot)
+			return nil, fmt.Errorf("%w: %q in slot %d", ErrUnknownItem, e.Item, e.Slot)
 		}
 		if e.Count < 1 || e.Count > def.EffectiveMaxStack() {
-			return fmt.Errorf("%w: %d %q in slot %d (max stack %d)", ErrInvalidCount, e.Count, e.Item, e.Slot, def.EffectiveMaxStack())
+			return nil, fmt.Errorf("%w: %d %q in slot %d (max stack %d)", ErrInvalidCount, e.Count, e.Item, e.Slot, def.EffectiveMaxStack())
 		}
 		slots[e.Slot] = Stack{Item: e.Item, Count: e.Count}
 	}
-	c.slots = slots
-	return nil
+	return slots, nil
 }

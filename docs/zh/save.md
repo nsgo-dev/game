@@ -113,3 +113,69 @@ err := store.LoadChecked("slot1", &snap, func() error {
 - **统一范围与规范名称**：`CaptionScale` 裁剪在 `[MinCaptionScale, MaxCaptionScale]`（`0.5`–`3.0`），`GameSpeed` 裁剪在 `[MinGameSpeed, MaxGameSpeed]`（`0.25`–`2.0`），`ScreenShake` 裁剪在 `[0, 1]`。`NormalizeColorBlindMode` 同时接受 `"none"` 与 `"normal"`（统一规范为 `"none"`），以及 `"protanopia"`、`"deuteranopia"`、`"tritanopia"` 和 `"high-contrast"`（含 `"highcontrast"` / `"high_contrast"`）。
 - **辅助字段与旧文件迁移**：提供 `Captions`、`SFXCaptions`、`ReduceFlashes`、`Invincibility`、`AutoAim` 与 `HoldToToggle` 强类型字段；加载包含旧版 `Custom["reduce_flashes"]` 的设置文件时会自动迁移到 `Accessibility.ReduceFlashes`。
 - **跟随系统默认值**：未显式覆盖时，`EffectiveReduceMotion(env)`、`EffectiveHighContrast(env)` 与 `EffectiveCaptionScale(env)` 会跟随 `env.ReduceMotion()`、`env.IncreaseContrast()` 和 `env.FontScale()`；调用 `SetReduceMotion`、`SetHighContrast` 或 `SetCaptionScale` 可记录显式覆盖值（包括 `false` 或 `1.0`），调用对应的 `Clear*` 方法可恢复跟随系统。
+
+## 整局存档注册表（`save.Game`）
+
+无需为每个子系统手写合并结构体和成对的快照/恢复代码，只需把可存档的子系统一次性注册到 `save.Game`，即可一次调用完成整局存档与读档：
+
+```go
+saver := save.NewGame()
+saver.Register("bag", 1, bag.SavePart())
+saver.Register("gear", 1, gear.SavePart())
+saver.Register("quests", 1, quests.SavePart())
+saver.Register("dialogue", 1, dialogueRunner.SavePart())
+saver.Register("persistence", 1, persistence)
+saver.Register("player", 1, save.ValuePart(&player))
+
+if err := saver.Save(store, "slot1"); err != nil {
+	return err
+}
+if err := saver.Load(store, "slot1"); err != nil {
+	return err
+}
+```
+
+- **槽位布局**：`Game.Save` 在 `Store` 信封的 `data` 内写入 `{"parts": {"<name>": {"version": N, "data": ...}}}`，各部件键按确定性顺序写出。
+- **内置 `SavePart()` 适配器**：`inventory.Container`、`inventory.Equipment`、`quest.Log`、`stats.Sheet`、`ability.Caster`、`flow.Machine[S]`、`flow.DialogueRunner` 与 `entities.World` 均提供 `SavePart() save.Part`。`save.Persistence` 直接实现了 `save.Part`、`save.StagedPart` 与 `save.Resetter`。
+- **自定义部件**：使用 `save.ValuePart(&state)` 包装值指针，使用 `save.FuncPart(saveFn, loadFn, resetFn...)` 包装读写回调，或使用 `save.StagedFuncPart(saveFn, prepareFn, resetFn...)` 实现先校验后提交的两阶段恢复。
+- **全有或全无读档**：`Game.Load` 通过 `Store.LoadChecked` 执行，在修改任何运行中状态前先完成所有部件的解码、迁移与校验，再按注册顺序统一提交。内置适配器都实现了 `save.StagedPart`（`PrepareLoad`），失败不会改动任何子系统；普通 `save.Part` 会在提交前拍摄快照，任一部件失败时自动回滚。若主存档在部件校验阶段失败，`Store.LoadChecked` 会自动回退到备份副本。
+- **分部件版本、迁移与新增部件**：升级单个部件的结构时，只需提高该部件版本号并传入 `save.WithPartMigration(from, fn)`（或调用 `saver.RegisterMigration(name, from, fn)`）。当旧槽位中缺少新版本才加入的部件时，`Game.Load` 会按顺序使用 `save.WithPartDefault(v)`、调用 `save.Resetter` 的 `ResetState()`（所有内置适配器均已实现），或保持原样。部件版本号高于当前注册版本返回 `ErrFutureVersion`，缺少迁移步骤返回 `ErrMissingMigration`，且均不会静默回退到旧备份。
+- **迁移旧版扁平存档与读取摘要**：在 `Store` 级 `save.Migration` 中调用 `save.EncodeParts`，可将旧版扁平结构体无缝迁移为 `Game` 的分部件槽位；使用 `saver.PeekPart(store, slot, "player", &summary)` 可在不改动运行中游戏的情况下读取单个部件（含迁移）用于存档菜单摘要。
+
+## 按场景持久化的对象状态（`save.Persistence`）
+
+`save.Persistence` 按规范化的场景路径与对象 ID 记录对象的持久化状态，包括已销毁标记（`MarkDestroyed` / `IsDestroyed`）、移动后的 2D/3D 位置与旋转（`SetPosition` / `SetPosition3D` / `SetRotation`）、组件字段覆盖（`SetComponentField` / `ComponentField`）、RPG Maker 风格的独立开关（`SetSwitch` / `Switch`）以及每对象变量（`SetVar` / `Var`）。
+
+将其注册到 `save.Game`，并在进入和离开场景时与 `sceneformat` 配合使用：
+
+```go
+// 进入场景时：
+spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{
+	Components:  reg,
+	Persistence: persistence,
+	ScenePath:   "scenes/cave.scene.yaml",
+})
+
+// 离开场景前：
+sceneformat.CapturePersistence(doc, world, spawned, persistence, "scenes/cave.scene.yaml")
+```
+
+`sceneformat.ApplyPersistence` 与 `sceneformat.BuildWithPersistence` 会在克隆后的 `SceneDoc` 上应用相同的持久化变更（跳过已销毁对象并清理指向它们的信号连接），不会修改原始已解析的场景文档。`Components` 与 `Vars` 中的整数在 JSON 往返后会保持为 Go `int`，重新加载后仍能通过 `sceneformat.FieldInt` 校验。
+
+## 往返测试辅助（`pkg/save/savetest`）
+
+在测试中使用 `savetest.RoundTrip` 可尽早发现遗漏字段或未能正确恢复的部件：
+
+```go
+import "github.com/nsgo-dev/game/pkg/save/savetest"
+
+func TestSaveRoundTrip(t *testing.T) {
+	g := newTestGame(t)
+	// ……推进游戏，使各子系统状态偏离默认值……
+	savetest.RoundTrip(t, g.saver, func() *save.Game {
+		return newTestGame(t).saver
+	})
+}
+```
+
+传入新鲜实例工厂时，`RoundTrip` 会把 `g` 写入临时存储、加载到全新的 `*save.Game`、校验两边注册的部件名与版本号完全一致，并逐一比对每个部件加载前后的 JSON 状态。省略工厂直接调用 `savetest.RoundTrip(t, g)` 时，会在重新加载前调用所有 `save.Resetter` 部件的 `ResetState()`。

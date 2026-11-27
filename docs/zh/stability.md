@@ -179,6 +179,7 @@
 | `game/pkg/rooms` | 实验性 | [rooms](rooms.md) |
 | `game/pkg/rts` | 实验性 | [rts](rts.md) |
 | `game/pkg/save` | 稳定 | [save](save.md) |
+| `game/pkg/save/savetest` | 实验性 | [save](save.md) |
 | `game/pkg/scene` | 稳定 | [scene](scene.md) |
 | `game/pkg/scene3d` | 实验性 | [scene3d](scene3d.md) |
 | `game/pkg/sceneformat` | 实验性 | [editor](editor.md) |

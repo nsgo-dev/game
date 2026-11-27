@@ -8,6 +8,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/scene3d"
 )
 
@@ -26,6 +27,12 @@ type ObjectRef struct {
 type SpawnOptions struct {
 	// Components validates every object's components, resolves defaults, and invokes each registered ComponentType.Spawn factory on its spawned entity. When nil, SpawnEntitiesWith behaves like SpawnEntities and ignores object components.
 	Components *ComponentRegistry
+	// Persistence, when non-nil alongside ScenePath, applies persisted per-scene object state
+	// (omitting destroyed objects and applying moved transforms and component field overrides)
+	// to a copy of the SceneDoc before spawning entities.
+	Persistence *save.Persistence
+	// ScenePath identifies the scene inside Persistence (such as "scenes/cave.scene.yaml").
+	ScenePath string
 }
 
 // resolvedSpawn pairs a registered component's Spawn factory with its resolved fields for one scene object.
@@ -57,6 +64,9 @@ func SpawnEntitiesWith(doc *SceneDoc, w *entities.World, opts SpawnOptions) (map
 	}
 	if w.Disposed() {
 		return nil, fmt.Errorf("sceneformat: spawn entities: %w", entities.ErrWorldDisposed)
+	}
+	if opts.Persistence != nil && opts.ScenePath != "" {
+		doc = ApplyPersistence(doc, opts.Persistence, opts.ScenePath)
 	}
 	var plan map[string][]resolvedSpawn
 	if opts.Components != nil {

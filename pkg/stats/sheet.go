@@ -61,10 +61,11 @@ type Sheet struct {
 }
 
 type stat struct {
-	def   Def
-	value float64
-	mods  []*entry
-	dirty bool
+	def      Def
+	initBase float64
+	value    float64
+	mods     []*entry
+	dirty    bool
 }
 
 type entry struct {
@@ -103,7 +104,7 @@ func (s *Sheet) Define(d Def) error {
 	if d.Max != nil {
 		d.Max = Float(*d.Max)
 	}
-	st := &stat{def: d}
+	st := &stat{def: d, initBase: d.Base}
 	st.value = st.compute()
 	s.stats = append(s.stats, st)
 	s.byName[d.Name] = st

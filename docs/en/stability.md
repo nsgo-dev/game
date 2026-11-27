@@ -179,6 +179,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/rooms` | Experimental | [rooms](rooms.md) |
 | `game/pkg/rts` | Experimental | [rts](rts.md) |
 | `game/pkg/save` | Stable | [save](save.md) |
+| `game/pkg/save/savetest` | Experimental | [save](save.md) |
 | `game/pkg/scene` | Stable | [scene](scene.md) |
 | `game/pkg/scene3d` | Experimental | [scene3d](scene3d.md) |
 | `game/pkg/sceneformat` | Experimental | [editor](editor.md) |

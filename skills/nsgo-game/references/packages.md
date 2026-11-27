@@ -122,7 +122,8 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 
 | Package | Status | Purpose |
 | --- | --- | --- |
-| `game/pkg/save` | Stable | Versioned JSON save slots, schema migrations, player settings and atomic backup recovery |
+| `game/pkg/save` | Stable | Versioned JSON save slots, schema migrations, player settings, part registries and scene object persistence |
+| `game/pkg/save/savetest` | Experimental | Round-trip test helpers for `save.Game` registries |
 | `game/pkg/online/netplay` | Experimental | Cross-target WebSocket/UDP/loopback transports, snapshot replication, lockstep/rollback |
 | `game/pkg/online/netplay/wire` | Experimental | YAML wire message schemas (`*.wire.yaml`), integer-only `qfloat`/`fixed` quantization, bit packing and zero-allocation Go codec generation |
 | `game/pkg/online/wsclient` | Experimental | Plain RFC 6455 WebSocket client for third-party servers, same API on native and web |
