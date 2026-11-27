@@ -377,7 +377,7 @@ func (r *loopRun) frame(at time.Time) {
 			r.acc += add
 		}
 		for r.acc >= step {
-			if steps == r.loop.maxSteps() {
+			if steps >= r.loop.maxSteps() {
 				r.acc %= step
 				break
 			}
