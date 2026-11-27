@@ -392,6 +392,38 @@ camera.Pitch += actions.Delta("pitch")
 
 指针轴会与其他绑定一起保存和加载。
 
+## 运动传感器（倾斜与陀螺仪）
+
+使用 `BindMotionAxis` 将加速度计/重力倾斜（`TiltX`、`TiltY`、`TiltZ`）和陀螺仪角速度（`GyroX`、`GyroY`、`GyroZ`）绑定到命名轴，然后调用 `WatchMotion` 订阅 NSGo 的运动传感器流：
+
+```go
+actions.BindMotionAxis("steer", input.TiltX, input.MotionAxisOptions{DeadZone: 0.08, MaxRange: 0.6})
+actions.BindMotionAxis("pitch", input.TiltY, input.MotionAxisOptions{MaxRange: 0.5})
+actions.BindMotionAxis("yaw", input.GyroZ, input.MotionAxisOptions{MaxRange: math.Pi})
+
+motion, err := actions.WatchMotion(cx, input.MotionOptions{
+	Orientation: input.MotionOrientationLandscapeLeft,
+	Smoothing:   0.25,
+	Interval:    16 * time.Millisecond,
+})
+if err != nil {
+	return err
+}
+
+// 游戏暂停时停止传感器，恢复时自动重启并保留校准。
+loop.OnPause = motion.SetPaused
+```
+
+- **屏幕方向映射**：NSGo 在设备的右手自然坐标系下上报运动向量（竖屏时 `+X` 向右、`+Y` 向上、`+Z` 指向屏幕外）。设置 `MotionOptions.Orientation` 可在平滑与校准之前将倾斜和陀螺仪向量旋转到屏幕坐标系：
+  - `MotionOrientationPortrait`（零值，默认）：自然竖屏坐标系（`+X`、`+Y`、`+Z`）。
+  - `MotionOrientationPortraitUpsideDown`：旋转 180°（`-X`、`-Y`、`+Z`）。
+  - `MotionOrientationLandscapeLeft`：逆时针旋转 90°，设备顶部在屏幕左侧（`-Y`、`+X`、`+Z`），与 Android、HarmonyOS 和 Web 上 NSGo 的 `core.OrientationLandscapeLeft` 一致。
+  - `MotionOrientationLandscapeRight`：顺时针旋转 90°，设备顶部在屏幕右侧（`+Y`、`-X`、`+Z`）。
+  - `MotionOrientationAuto`：根据 `cx.Env().Window()` 的宽高比（或无作用域时通过 `SetWindowSize` 传入的尺寸）推断竖屏或横屏。由于 NSGo 尚未上报当前处于哪一侧横屏，窗口宽大于高时采用 `MotionOptions.LandscapeSide`（默认 `MotionOrientationLandscapeLeft`，也可设为 `MotionOrientationLandscapeRight`）。运行时可通过 `SetOrientation` 切换方向、`Orientation()` 查询当前生效的方向；生效方向变化时会自动重置平滑历史。
+- **校准**：调用 `motion.Calibrate()`（或 `actions.CalibrateMotion()`）可在屏幕坐标系中记录玩家当前的中立握持姿态，使 `TiltX`、`TiltY`、`TiltZ` 在该姿态下读数为 `0`。若尚未收到倾斜样本，则会在收到下一条倾斜样本时自动完成校准。`ResetCalibration` 清除中立偏移。
+- **暂停与后台**：应用进入 `core.LifecycleBackground` 时 NSGo 会自动暂停 `WatchMotion`，作用域销毁时自动停止。将 `loop.OnPause = motion.SetPaused` 接上后，打开暂停菜单时同样会停止传感器流（清空实时和快照读数，同时保留校准与选项），恢复游玩时自动重新订阅。调用 `Stop()` 会永久停止监听，直到再次调用 `Start(cx)`。
+- **叠加与测试**：运动轴会与同名的 `BindAxis`、`BindGamepadAxis`、`BindPointerAxis` 及 `VirtualPad` 摇杆叠加（限制在 `[-1, 1]` 内），并随 `Save` / `Load` 持久化。在无实时传感器的单元测试或回放中，可用 `NewMotionInput`（或调用 `actions.OnMotion`）直接注入 `core.MotionSample`。
+
 ## 保存与加载绑定
 
 使用 `Save` 和 `Load` 将自定义按键绑定（包括手柄按键与摇杆轴）以 JSON 形式持久化到 `core.Storage`：
