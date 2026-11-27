@@ -201,16 +201,19 @@ func (g *chunkGrid) tileToChunk(col, row int) (ChunkCoord, int, int) {
 	return ChunkCoord{X: col >> g.shift, Y: row >> g.shift}, col & g.mask, row & g.mask
 }
 
-// NewChunkedTileLayer returns a visible sparse chunked TileLayer at full opacity using a power-of-two chunkSize
+// NewChunkedTileLayer returns a visible sparse chunked TileLayer at full opacity with parallax (1, 1), using a power-of-two chunkSize
 // (defaulting to DefaultChunkSize when chunkSize <= 0).
 func NewChunkedTileLayer(name string, chunkSize int) TileLayer {
 	sz := normalizeChunkSize(chunkSize)
 	return TileLayer{
-		Name:      name,
-		ChunkSize: sz,
-		Opacity:   1,
-		Visible:   true,
-		chunks:    newChunkGrid(sz),
+		Name:        name,
+		ChunkSize:   sz,
+		ParallaxX:   1,
+		ParallaxY:   1,
+		HasParallax: true,
+		Opacity:     1,
+		Visible:     true,
+		chunks:      newChunkGrid(sz),
 	}
 }
 
