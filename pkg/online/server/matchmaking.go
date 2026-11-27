@@ -209,13 +209,17 @@ func defaultRule(tickets []*Ticket, roomSize int, window func(*Ticket) float64) 
 	})
 
 	var matches []Matchup
+	capHint := min(roomSize, len(remaining))
+	chosen := make([]int, 0, capHint)
+	room := make([]*Ticket, 0, capHint)
 	for i := 0; i < len(remaining); {
 		anchor := remaining[i]
-		if len(anchor.Party) > roomSize {
+		if len(anchor.Party) == 0 || len(anchor.Party) > roomSize {
 			i++
 			continue
 		}
-		room := []*Ticket{anchor}
+		chosen = append(chosen[:0], i)
+		room = append(room[:0], anchor)
 		count := len(anchor.Party)
 		for j := i + 1; j < len(remaining) && count < roomSize; j++ {
 			t := remaining[j]
@@ -226,17 +230,27 @@ func defaultRule(tickets []*Ticket, roomSize int, window func(*Ticket) float64) 
 			if math.Abs(t.Rating-anchor.Rating) > limit {
 				continue
 			}
+			chosen = append(chosen, j)
 			room = append(room, t)
 			count += len(t.Party)
-			remaining = append(remaining[:j], remaining[j+1:]...)
-			j--
 		}
 		if count != roomSize {
 			i++
 			continue
 		}
 		matches = append(matches, combineMatchup(room))
-		remaining = append(remaining[:i], remaining[i+1:]...)
+		write := i
+		nextChosen := 0
+		for read := i; read < len(remaining); read++ {
+			if nextChosen < len(chosen) && read == chosen[nextChosen] {
+				nextChosen++
+				continue
+			}
+			remaining[write] = remaining[read]
+			write++
+		}
+		clear(remaining[write:])
+		remaining = remaining[:write]
 	}
 	return matches
 }
