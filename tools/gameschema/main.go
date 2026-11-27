@@ -28,6 +28,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/jsonschema"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/modding"
+	"github.com/nsgo-dev/game/pkg/online/liveops"
 	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/playtest"
@@ -353,6 +354,15 @@ var formats = []format{
 		pkg:          "plugin/manifest",
 		version:      pluginmanifest.ManifestVersion,
 		versionField: "manifestVersion",
+	},
+	{
+		url:     liveops.RemindersSchemaURL,
+		title:   "NSGo game local reminders (version 1)",
+		typ:     reflect.TypeFor[liveops.RemindersConfig](),
+		pkg:     "online/liveops",
+		version: liveops.RemindersVersion,
+		// ParseReminders decodes delay straight into time.Duration, which go.yaml.in/yaml/v3 reads only from a string.
+		types: durationStringTypes,
 	},
 }
 

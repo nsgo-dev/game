@@ -14,6 +14,8 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 | **统计分析**（[#198](https://github.com/nsgo-dev/game/issues/198)） | 纳入范围 | 与服务商无关、严格以显式同意为前提的事件 API，同意状态保存在 `core.Storage`。未显式同意前不会发送也不会缓存任何事件。 |
 | **云存档**（[#196](https://github.com/nsgo-dev/game/issues/196)） | 纳入范围 | 与服务商无关的 `CloudSync` 接口、基于 NSGo `cloud` 包的 `PlatformCloud`（macOS/iOS 上的 iCloud、Android 上的 Google Play Games 存档服务以及 `nsgotest` 内存存储）、面向 Steam Auto-Cloud 及其他目录同步商店的 `DirCloud`、访问自部署 [cloudsave](cloudsave.md) 服务的 `CloudClient`（[#557](https://github.com/nsgo-dev/game/issues/557)），以及 `CloudSyncer` 冲突解决（[#539](https://github.com/nsgo-dev/game/issues/539)）。 |
 | **应用内购买**（[#369](https://github.com/nsgo-dev/game/issues/369)） | 纳入范围 | 基于 NSGo 购买服务的 `Purchases`：消耗型商品恰好一次入账到存档，解锁项与订阅来自商店权益，支持恢复购买、“询问后购买”和可选的服务器校验。 |
+| **本地提醒**（[#1310](https://github.com/nsgo-dev/game/issues/1310)） | 纳入范围 | 基于 NSGo `core.Scope.ShowNotification` 的 `Reminders`：带版本号的 YAML 声明（`RemindersConfig`）、仅在首次 `Schedule` 或显式 `RequestPermission` 时申请权限、持久化玩家开关、本地时间 `QuietHours` 免打扰时段，以及应用回到前台时的取消/重排/保留规则。 |
+| **远程推送**（[#1310](https://github.com/nsgo-dev/game/issues/1310)） | 等待上游 | 等待 NSGo 落地远程推送（[nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)）并确定开放设计决策（[nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)）。在此之前，远程推送在所有平台上均不可用。 |
 | **广告**（[#199](https://github.com/nsgo-dev/game/issues/199)） | 不纳入核心层 | 广告网络（AdMob、AppLovin 等）依赖专有原生 SDK，并伴随繁重的商店政策与隐私合规义务，不放入核心 `game` 模块；需要广告的游戏可直接通过 NSGo 嵌入原生 SDK 视图。 |
 
 ## 崩溃报告
@@ -219,3 +221,42 @@ showNoAds := !shop.Owned("com.example.noads")
 测试通过 `nsgotest` 驱动购买：用 `nsgotest.Environment(core.Environment{Purchases: true})` 启动应用并设置 `app.Products`；用 `app.PurchaseAnswer` 模拟取消或“询问后购买”，用 `app.UpdatePurchase` 模拟批准或退款，用 `nsgotest.UnfinishedTransactions` 加 `nsgotest.Storage` 模拟完成交易前被杀掉的一次运行，用 `app.Entitlements` 加 `Restore` 模拟重装。`liveops/purchases_test.go` 覆盖了以上每种情况。
 
 要在 StoreKit Testing 下手动验证恢复购买：在 iOS 应用的 Xcode scheme 中加入包含一个非消耗型商品的 StoreKit 配置文件，以 `apple.purchases: true` 构建，在模拟器中购买该商品，删除并重新安装应用，然后按下游戏的“恢复购买”按钮，`Owned` 会再次报告拥有该商品。NSGo v0.3.0 在 Android 上没有商店（Google Play Billing 等待 [nsgo#1369](https://github.com/nsgo-dev/nsgo/issues/1369)）。
+
+## 本地提醒
+
+`Reminders` 基于 NSGo 的 `core.Scope.ShowNotification` 调度、取消和重排本地召回通知。只要 `cx.Env().CanScheduleNotifications()` 为 true，它就能工作：在 macOS、iOS、watchOS、Android 和 Windows 上由系统原生调度（应用关闭后依然生效），在 Linux 和 Web 上于应用或页面运行期间生效。
+
+- **带版本号的 YAML 声明**：在 `reminders.yaml`（Schema `https://game.nsgo.dev/schemas/reminders.v1.json`）中声明提醒，用 `ParseReminders` 或 `LoadRemindersFS` 加载，用 `EncodeReminders` 确定性写出。每条 `ReminderDef` 包含唯一 `id`、本地化键 `title` 和可选 `body`、正数延迟 `delay` 或 24 小时制本地挂钟时间 `at`（二者互斥；按周触发时可搭配 `weekday`）、可选 `repeat`（`daily` 或 `weekly`）、可选 `onOpen`（`cancel`、`reschedule` 或 `keep`，省略时默认为 `cancel`）以及可选 `silent`。未知键、重复键、YAML 锚点/别名和不支持的版本号都会被拒绝。
+- **权限申请时机**：`NewReminders` 绝不在启动时查询或弹窗申请通知权限。只有在游戏首次调用 `Schedule` / `ScheduleWith`（且提醒处于开启状态并受平台支持）或显式调用 `RequestPermission` 时才会申请权限。并发调用会合并为一次系统请求，`Permission()` 以响应式方式暴露最近观察到的 `core.NotificationPermission`。
+- **玩家开关与免打扰时段**：`Enabled()` / `SetEnabled(bool)` 将玩家开关持久化到 `core.Storage`；关闭提醒会立即取消所有已调度的提醒，并阻止后续 `Schedule` 弹窗申请权限。`QuietHours` 定义每日本地时间窗口 `[Start, End)`（支持跨午夜，如 `"22:00"` 到 `"08:00"`），落在窗口内的提醒会自动顺延到 `End` 触发。`SetQuietHours` 会持久化玩家自定义设置（传入 `nil` 会保存 `"off"`，避免重启后回退到配置文件默认值），并在不弹窗申请权限的前提下顺延已落入新窗口的待触发提醒。
+- **回到前台时自动对账**：`Reminders` 监听 `cx.Env().Lifecycle()`，在启动和每次应用回到前台时对已调度提醒进行对账——取消 `onOpen: cancel`、按当前 `WallTime()` 无感重排 `onOpen: reschedule`，并保留 `onOpen: keep`。
+- **平台能力与点击事件**：`CanScheduleNotifications()` 响应式转发 `cx.Env().CanScheduleNotifications()`，方便游戏在不支持定时通知的平台（如 tvOS）隐藏相关设置。玩家点击已送达的提醒通知时，`RemindersOptions.OnPress` 会收到 `ReminderPress{ID}`；内部使用专用通知 ID 前缀（`DefaultReminderPrefix`），确保 `CancelAll` 和点击路由不会干扰应用的其他通知。
+
+```go
+cfg, err := liveops.LoadRemindersFS(assetsFS, "reminders.yaml")
+if err != nil {
+	return err
+}
+reminders, err := liveops.NewReminders(cx, liveops.RemindersOptions{
+	Config:   cfg,
+	Localize: func(key string) string { return loc.T(key) },
+	OnPress: func(ev liveops.ReminderPress) {
+		openReminderDestination(ev.ID)
+	},
+})
+if err != nil {
+	return err
+}
+
+// 在不支持定时通知的平台上隐藏开关：
+showReminderToggle := reminders.CanScheduleNotifications()
+
+// 仅在合适时机申请权限并调度（绝不在启动时弹窗）：
+_ = reminders.Schedule("daily_reward", func(scheduled bool) { /* 更新界面 */ })
+```
+
+测试通过 `nsgotest` 无头驱动提醒：用 `nsgotest.Environment(core.Environment{ScheduledNotifications: true})` 和 `nsgotest.WallTime(...)` 启动应用，用 `app.FastForward(...)` 推进时间，用 `app.SetEnvironment(...)` 模拟切后台与回前台，用 `app.PressNotification(...)` 模拟点击通知，并用 `nsgotest.Storage(...)` 验证重启后的持久化行为。`liveops/reminders_test.go` 覆盖了上述每条路径。
+
+### 远程推送（等待上游）
+
+远程推送通知（`liveops.Push`）目前在所有平台上均不可用，且有意暂不提供实现。游戏层封装——包括向游戏服务器上报设备令牌、把推送负载路由到线上活动处理器，以及将远程通知点击统一转为 `ReminderPress`——需等待 NSGo 实现远程推送（[nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)）并敲定其开放 API 设计决策（[nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)）。

@@ -36,6 +36,7 @@ import "github.com/nsgo-dev/game/pkg/jsonschema"
 | 粒子发射器（2D），版本 1 | `https://game.nsgo.dev/schemas/particles.v1.json` | `*.particles.yaml` / `*.emitter.yaml`，由 `particles.UnmarshalConfigYAML` 和 `particles.LoadConfigFS` 读取 |
 | 网络线路消息 Schema，版本 1 | `https://game.nsgo.dev/schemas/wire.v1.json` | `*.wire.yaml`，由 `wire.Parse` 和 `cmd/gamewire` 读取（见 [netplay/wire](netplay-wire.md)） |
 | 模组清单，版本 1 | `https://game.nsgo.dev/schemas/mod.v1.json` | 模组目录根部的 `mod.yaml`，由 `modding.ParseManifest` 读取（见 [modding](modding.md)） |
+| 本地提醒，版本 1 | `https://game.nsgo.dev/schemas/reminders.v1.json` | `reminders.yaml`，由 `liveops.ParseReminders` 和 `liveops.LoadRemindersFS` 读取（见 [liveops](liveops.md#本地提醒)） |
 | 数据表 | 用 `datatable.Schema[T]` 按行类型生成 | `*.yaml`，由 `datatable.LoadYAML` 读取 |
 
 其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、骨骼绑定（#475）和本地化表（#473）。

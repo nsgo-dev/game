@@ -17,6 +17,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/jsonschema"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/modding"
+	"github.com/nsgo-dev/game/pkg/online/liveops"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/playtest"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -1050,7 +1051,6 @@ func TestPermissionsSchemaShapeAndValidation(t *testing.T) {
 		}
 	}
 }
-
 func TestModManifestSchemaShapeAndValidation(t *testing.T) {
 	s := schemaAt(t, modding.SchemaURL)
 	if s.Schema != jsonschema.Draft07 || s.ID != modding.SchemaURL {
@@ -1094,6 +1094,57 @@ func TestModManifestSchemaShapeAndValidation(t *testing.T) {
 	} {
 		if err := s.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("mod manifest schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestRemindersSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, liveops.RemindersSchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != liveops.RemindersSchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(liveops.RemindersVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("reminders schema accepts unknown top-level keys")
+	}
+	for _, p := range s.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("RemindersConfig.%s has no description", p.Name)
+		}
+	}
+	for _, defName := range []string{"QuietHours", "ReminderDef"} {
+		def := s.Definitions[defName]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with description", defName, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", defName)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", defName, p.Name)
+			}
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, "pkg", "online", "liveops", "testdata", "reminders.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("reminders schema refused testdata/reminders.yaml: %v", err)
+	}
+	for _, bad := range []string{
+		"version: 1\nunknownKey: true\n",
+		"version: 2\nreminders: []\n",
+		"version: 1\nquietHours:\n  start: \"22:00\"\n",
+		"version: 1\nreminders:\n  - id: daily\n    title: k\n    repeat: hourly\n",
+		"version: 1\nreminders:\n  - id: daily\n    title: k\n    onOpen: snooze\n",
+		"version: 1\nreminders:\n  - id: daily\n    title: k\n    weekday: funday\n",
+	} {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("reminders schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

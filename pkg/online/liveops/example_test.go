@@ -60,3 +60,29 @@ func ExampleCrashReporter() {
 	//   3 wave 2
 	// panicked: true
 }
+
+// ParseReminders loads a versioned reminders YAML document and QuietHours defers a reminder that would fire during quiet hours until they end.
+func ExampleParseReminders() {
+	cfg, err := liveops.ParseReminders([]byte(`
+version: 1
+quietHours:
+  start: "22:00"
+  end: "08:00"
+reminders:
+  - id: energy_full
+    title: reminder.energy.title
+    body: reminder.energy.body
+    delay: 2h
+    onOpen: keep
+`))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	def, _ := cfg.Lookup("energy_full")
+	fireAt := time.Date(2026, 1, 1, 21, 0, 0, 0, time.UTC).Add(def.Delay)
+	allowed := cfg.QuietHours.NextAllowed(fireAt)
+	fmt.Println(def.ID, def.EffectiveOnOpen(), allowed.Format("2006-01-02 15:04"))
+	// Output:
+	// energy_full keep 2026-01-02 08:00
+}
