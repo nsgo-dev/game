@@ -383,8 +383,8 @@ func TestMergeSetupAndNewInGitRepo(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(attrs), "*.scene.yaml merge=nsgo-scene") {
-			t.Errorf(".gitattributes:\n%s", attrs)
+		if string(attrs) != defaultGitAttributesContent() {
+			t.Errorf(".gitattributes:\n%s\nwant:\n%s", attrs, defaultGitAttributesContent())
 		}
 
 		// Second run does not duplicate lines.
@@ -395,6 +395,99 @@ func TestMergeSetupAndNewInGitRepo(t *testing.T) {
 		attrs2, _ := os.ReadFile(filepath.Join(dir, ".gitattributes"))
 		if !bytes.Equal(attrs, attrs2) {
 			t.Errorf("second -setup changed .gitattributes:\n%s", attrs2)
+		}
+
+		// Verify Git itself resolves LF for YAML, nsgo-scene merge for scenes, and binary (-text) for media.
+		if got := gitCmd(dir, "check-attr", "text", "eol", "merge", "--", "game.yaml"); !strings.Contains(got, "text: auto") || !strings.Contains(got, "eol: lf") {
+			t.Errorf("git check-attr game.yaml:\n%s", got)
+		}
+		if got := gitCmd(dir, "check-attr", "text", "eol", "merge", "--", "scenes/level.scene.yaml"); !strings.Contains(got, "text: auto") || !strings.Contains(got, "eol: lf") || !strings.Contains(got, "merge: nsgo-scene") {
+			t.Errorf("git check-attr scenes/level.scene.yaml:\n%s", got)
+		}
+		if got := gitCmd(dir, "check-attr", "text", "diff", "merge", "--", "art/hero.png"); !strings.Contains(got, "text: unset") || !strings.Contains(got, "diff: unset") || !strings.Contains(got, "merge: unset") {
+			t.Errorf("git check-attr art/hero.png:\n%s", got)
+		}
+	})
+
+	t.Run("setup_upgrades_legacy_gitattributes", func(t *testing.T) {
+		dir := t.TempDir()
+		gitCmd(dir, "init")
+		legacy := "# Merge NSGo scene files object by object instead of line by line.\n# Enable the driver once per clone with: go tool game merge -setup\n*.scene.yaml merge=nsgo-scene\n*.scene.yml merge=nsgo-scene\n"
+		attrPath := filepath.Join(dir, ".gitattributes")
+		if err := os.WriteFile(attrPath, []byte(legacy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		a, stdout, stderr := newTestApp(t)
+		if code := run([]string{"merge", "-setup", dir}, a); code != 0 {
+			t.Fatalf("merge -setup exit %d: %s", code, stderr)
+		}
+		if !strings.Contains(stdout.String(), "updated ") {
+			t.Errorf("stdout = %q, want updated message", stdout)
+		}
+		attrs, err := os.ReadFile(attrPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(attrs)
+		if strings.Count(s, "*.scene.yaml merge=nsgo-scene") != 1 || strings.Count(s, "*.scene.yml merge=nsgo-scene") != 1 {
+			t.Errorf("scene merge rules duplicated:\n%s", s)
+		}
+		lfIdx := strings.Index(s, "* text=auto eol=lf")
+		pngIdx := strings.Index(s, "*.png binary")
+		if lfIdx < 0 || pngIdx < 0 || lfIdx > pngIdx {
+			t.Errorf("expected * text=auto eol=lf before *.png binary:\n%s", s)
+		}
+		for _, pat := range binaryMediaPatterns {
+			if !strings.Contains(s, pat+" binary\n") {
+				t.Errorf(".gitattributes missing %s binary", pat)
+			}
+		}
+
+		// Idempotent on second run.
+		a, stdout, stderr = newTestApp(t)
+		if code := run([]string{"merge", "-setup", dir}, a); code != 0 {
+			t.Fatalf("second merge -setup exit %d: %s", code, stderr)
+		}
+		if strings.Contains(stdout.String(), "updated ") {
+			t.Errorf("second -setup unexpectedly updated .gitattributes: %q", stdout)
+		}
+		attrs2, _ := os.ReadFile(attrPath)
+		if !bytes.Equal(attrs, attrs2) {
+			t.Errorf("second -setup changed .gitattributes:\n%s", attrs2)
+		}
+	})
+
+	t.Run("setup_preserves_custom_precedence", func(t *testing.T) {
+		dir := t.TempDir()
+		gitCmd(dir, "init")
+		custom := "*.png binary\n*.bat text eol=crlf\n"
+		attrPath := filepath.Join(dir, ".gitattributes")
+		if err := os.WriteFile(attrPath, []byte(custom), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		a, _, stderr := newTestApp(t)
+		if code := run([]string{"merge", "-setup", dir}, a); code != 0 {
+			t.Fatalf("merge -setup exit %d: %s", code, stderr)
+		}
+		attrs, err := os.ReadFile(attrPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(attrs)
+		if strings.Count(s, "*.png binary") != 1 {
+			t.Errorf("*.png binary duplicated:\n%s", s)
+		}
+		// Custom *.bat eol=crlf and *.png binary must still override * text=auto eol=lf.
+		if got := gitCmd(dir, "check-attr", "eol", "--", "run.bat"); !strings.Contains(got, "eol: crlf") {
+			t.Errorf("git check-attr run.bat:\n%s", got)
+		}
+		if got := gitCmd(dir, "check-attr", "text", "--", "hero.png"); !strings.Contains(got, "text: unset") {
+			t.Errorf("git check-attr hero.png:\n%s", got)
+		}
+		if got := gitCmd(dir, "check-attr", "eol", "--", "game.yaml"); !strings.Contains(got, "eol: lf") {
+			t.Errorf("git check-attr game.yaml:\n%s", got)
 		}
 	})
 
@@ -458,7 +551,7 @@ func TestMergeSetupAndNewInGitRepo(t *testing.T) {
 	t.Run("check_fails_without_driver_and_passes_after_setup", func(t *testing.T) {
 		dir := t.TempDir()
 		gitCmd(dir, "init")
-		if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte(sceneGitAttributesContent), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte(defaultGitAttributesContent()), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -553,7 +646,7 @@ func TestMergeEndToEndWithGit(t *testing.T) {
 	driverCmd := shellWord(filepath.ToSlash(bin), "linux") + " merge %O %A %B %P"
 	mustGit("config", "merge.nsgo-scene.driver", driverCmd)
 
-	if err := os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte(sceneGitAttributesContent), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte(defaultGitAttributesContent()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sceneRel := filepath.Join("scenes", "level_01.scene.yaml")

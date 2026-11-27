@@ -37,7 +37,7 @@ type IndexEntry struct {
 	Path string `yaml:"path"`
 	// UID is the stable ID in the header of a scene or resource file.
 	UID string `yaml:"uid,omitempty"`
-	// SHA256 is the lower-case hexadecimal SHA-256 of the contents of any other file, such as an image.
+	// SHA256 is the lower-case hexadecimal SHA-256 of the contents of any other file, such as an image (with CRLF normalized to LF for text files).
 	SHA256 string `yaml:"sha256,omitempty"`
 }
 

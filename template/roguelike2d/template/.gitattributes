@@ -1,3 +1,34 @@
+# Keep text files on LF line endings across operating systems so canonical YAML
+# checks and project indexes agree regardless of Git's core.autocrlf setting.
+* text=auto eol=lf
+
+# Keep binary media untouched by line-ending conversion.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.bmp binary
+*.ktx2 binary
+*.dds binary
+*.hdr binary
+*.pic binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.m4a binary
+*.aac binary
+*.flac binary
+*.opus binary
+*.mp4 binary
+*.webm binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.glb binary
+*.bin binary
+
 # Merge NSGo scene files object by object instead of line by line.
 # Enable the driver once per clone with: go tool game merge -setup
 *.scene.yaml merge=nsgo-scene

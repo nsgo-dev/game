@@ -3,8 +3,6 @@ package refs
 import (
 	"bytes"
 	"cmp"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -332,8 +330,7 @@ func (pl *planner) indexes(edited map[string][]byte) ([]Write, error) {
 		}
 		var h string
 		if data, ok := edited[r.Target]; ok {
-			sum := sha256.Sum256(data)
-			h = hex.EncodeToString(sum[:])
+			h = hashContent(r.Target, data)
 		} else {
 			var err error
 			if h, err = p.sha(r.Target); err != nil {
