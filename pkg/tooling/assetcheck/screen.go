@@ -32,6 +32,15 @@ func (c *checker) loadLocaleTables(yamlFiles []string) {
 			c.yamlError(p, data, err)
 			continue
 		}
+		if unused := l10n.CheckStringTablePlurals(tbl); len(unused) > 0 {
+			var root yaml.Node
+			_ = yaml.Unmarshal(data, &root)
+			lines := yamlLineCount(data)
+			for _, u := range unused {
+				line := min(yamlLine(&root, []string{"plurals", u.Key, u.Category.String()}), lines)
+				c.problem(p, line, "plural %q (locale %q): CLDR category %q is never selected for integer counts", u.Key, u.Locale, u.Category)
+			}
+		}
 		proj := c.projectRoot(path.Dir(p))
 		pl := c.localeTables[proj]
 		if pl == nil {

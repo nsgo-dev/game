@@ -37,11 +37,11 @@
   "additionalProperties": false,
   "definitions": {
     "PluralForms": {
-      "description": "PluralForms holds localized message templates keyed by CLDR plural category. Any unset category falls back to Other (or One if Other is empty).",
+      "description": "PluralForms holds localized message templates keyed by CLDR cardinal plural category. Any unset category falls back to Other (or One if Other is empty). When count is 0 and Zero is non-empty, Plural always selects Zero regardless of locale.",
       "type": "object",
       "properties": {
         "zero": {
-          "description": "Zero is the template used when count is 0 (if provided) or matches the CLDR zero category.",
+          "description": "Zero is the template used when count is 0 (if non-empty, for any locale) or matches the CLDR zero category.",
           "type": "string"
         },
         "one": {

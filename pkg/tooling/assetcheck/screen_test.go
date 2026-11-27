@@ -185,3 +185,55 @@ nodes:
 		t.Fatalf("Summary = %q, want 1 screen", report.Summary())
 	}
 }
+
+func TestCheckReportsUnusedPluralFormsInLocaleTables(t *testing.T) {
+	enTable := `version: 1
+locale: en
+plurals:
+  coins:
+    zero: No coins
+    one: '{count} coin'
+    few: '{count} coins (dead)'
+    other: '{count} coins'
+`
+	csTable := `version: 1
+locale: cs
+plurals:
+  coins:
+    one: '{count} mince'
+    few: '{count} mince'
+    many: '{count} mince (decimal only)'
+    other: '{count} mincí'
+`
+	ruTable := `version: 1
+locale: ru
+plurals:
+  coins:
+    one: '{count} монета'
+    few: '{count} монеты'
+    many: '{count} монет'
+    other: '{count} монет'
+`
+	fsys := fstest.MapFS{
+		"locales/en.yaml": {Data: []byte(enTable)},
+		"locales/cs.yaml": {Data: []byte(csTable)},
+		"locales/ru.yaml": {Data: []byte(ruTable)},
+	}
+
+	report, err := assetcheck.Check(fsys)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(report.Problems) != 2 {
+		t.Fatalf("got %d problems, want 2:\n%v", len(report.Problems), report.Problems)
+	}
+	got := report.Problems[0].String() + "\n" + report.Problems[1].String()
+	for _, sub := range []string{
+		`locales/cs.yaml:7: plural "coins" (locale "cs"): CLDR category "many" is never selected for integer counts`,
+		`locales/en.yaml:7: plural "coins" (locale "en"): CLDR category "few" is never selected for integer counts`,
+	} {
+		if !strings.Contains(got, sub) {
+			t.Errorf("missing expected problem %q in:\n%s", sub, got)
+		}
+	}
+}
