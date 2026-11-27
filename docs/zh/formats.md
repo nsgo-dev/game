@@ -2819,7 +2819,7 @@ runs:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 模型旁边的 JSON 旁注文件，或 glTF 动画的 `extras` | 旁注文件中为 `version: 1` | `anim3d.LoadEventsSidecar`、`anim3d.MarshalEventsSidecar`、`anim3d.LoadEventsFromGLTFExtras` | [anim3d](anim3d.md)、[从 Blender 导入 3D 模型](3d-models-blender.md) |
+| 模型旁边的 JSON 旁注文件，或 glTF 动画的 `extras` | 旁注文件中为 `version: 1`（`anim3d.EventsSidecarVersion`），拒绝未知字段与重复键 | `anim3d.LoadEventsSidecar`、`anim3d.MarshalEventsSidecar`、`anim3d.LoadEventsFromGLTFExtras` | [anim3d](anim3d.md)、[从 Blender 导入 3D 模型](3d-models-blender.md) |
 
 ```json
 {

@@ -116,6 +116,7 @@ var formatVersions = map[string]string{
 	"ai.BTSnapshotVersion":                          "",
 	"ai.GOAPVersion":                                "ai#goap",
 	"ai.UtilityVersion":                             "ai",
+	"anim3d.EventsSidecarVersion":                   "anim3d",
 	"animclip.StateMachineVersion":                  "animclip",
 	"bullets.FormatVersion":                         "bullets",
 	"cards.FormatVersion":                           "cards",
@@ -427,8 +428,71 @@ func readStringTable(_ *testing.T, data []byte) error {
 }
 
 func readClipEvents(_ *testing.T, data []byte) error {
-	_, err := anim3d.LoadEventsSidecar(data)
-	return err
+	if _, err := anim3d.LoadEventsSidecar(data); err != nil {
+		return err
+	}
+	// Verify the sidecar loader refuses unknown fields and unsupported versions.
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	withUnknown := make(map[string]json.RawMessage, len(obj)+1)
+	for k, v := range obj {
+		withUnknown[k] = v
+	}
+	withUnknown["formattestUnknownField"] = json.RawMessage("true")
+	mutated, err := json.Marshal(withUnknown)
+	if err != nil {
+		return err
+	}
+	if _, err := anim3d.LoadEventsSidecar(mutated); err == nil {
+		return errors.New("LoadEventsSidecar accepted an unknown top-level field")
+	}
+
+	withFutureVersion := make(map[string]json.RawMessage, len(obj))
+	for k, v := range obj {
+		withFutureVersion[k] = v
+	}
+	withFutureVersion["version"] = json.RawMessage(strconv.Itoa(anim3d.EventsSidecarVersion + 1))
+	mutated, err = json.Marshal(withFutureVersion)
+	if err != nil {
+		return err
+	}
+	if _, err := anim3d.LoadEventsSidecar(mutated); err == nil {
+		return errors.New("LoadEventsSidecar accepted an unsupported future version")
+	}
+
+	// Also verify unknown fields inside a clip event object are refused.
+	if rawClips, ok := obj["clips"]; ok {
+		var clips map[string][]map[string]json.RawMessage
+		if err := json.Unmarshal(rawClips, &clips); err == nil {
+			for clipName, events := range clips {
+				if len(events) == 0 {
+					continue
+				}
+				events[0]["formattestUnknownField"] = json.RawMessage("true")
+				clips[clipName] = events
+				encodedClips, err := json.Marshal(clips)
+				if err != nil {
+					return err
+				}
+				withUnknownEvent := make(map[string]json.RawMessage, len(obj))
+				for k, v := range obj {
+					withUnknownEvent[k] = v
+				}
+				withUnknownEvent["clips"] = encodedClips
+				mutated, err = json.Marshal(withUnknownEvent)
+				if err != nil {
+					return err
+				}
+				if _, err := anim3d.LoadEventsSidecar(mutated); err == nil {
+					return errors.New("LoadEventsSidecar accepted an unknown clip event field")
+				}
+				break
+			}
+		}
+	}
+	return nil
 }
 
 func readPackManifest(_ *testing.T, data []byte) error {

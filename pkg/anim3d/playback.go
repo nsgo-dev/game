@@ -1,7 +1,6 @@
 package anim3d
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -37,7 +36,8 @@ var (
 // exact STEP or CUBICSPLINE interpolation, morph target weights, or per-node
 // world and skin joint matrices are needed. Any timed events stored in the
 // animation's glTF extras (see LoadEventsFromGLTFExtras) are attached to the
-// returned Clip. Loop defaults to false.
+// returned Clip; malformed "events" or "nsgo_events" entries return a
+// *loaderr.Error instead of being dropped. Loop defaults to false.
 func ClipFromGLTF(doc *gltf.Document, animIndex int) (*Clip, error) {
 	if doc == nil {
 		return nil, ErrNilDocument
@@ -163,18 +163,11 @@ func ClipFromGLTF(doc *gltf.Document, animIndex int) (*Clip, error) {
 	}
 
 	if len(anim.Extras) > 0 {
-		var extras gltfAnimationExtras
-		if err := json.Unmarshal(anim.Extras, &extras); err == nil {
-			if len(extras.Events) > 0 {
-				clip.Events = append(clip.Events, extras.Events...)
-			}
-			if len(extras.NsgoEvents) > 0 {
-				clip.Events = append(clip.Events, extras.NsgoEvents...)
-			}
-			if len(clip.Events) > 0 {
-				SortClipEvents(clip.Events)
-			}
+		events, err := parseGLTFAnimationExtras(animIndex, anim.Extras, nil)
+		if err != nil {
+			return nil, err
 		}
+		clip.Events = events
 	}
 
 	return clip, nil

@@ -2819,7 +2819,7 @@ Each line records one plaintext transport packet (`t` elapsed nanoseconds since 
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| A JSON sidecar beside a model, or the `extras` of a glTF animation | `version: 1` in a sidecar | `anim3d.LoadEventsSidecar`, `anim3d.MarshalEventsSidecar`, `anim3d.LoadEventsFromGLTFExtras` | [anim3d](anim3d.md), [3D Models from Blender](3d-models-blender.md) |
+| A JSON sidecar beside a model, or the `extras` of a glTF animation | `version: 1` (`anim3d.EventsSidecarVersion`) in a sidecar; unknown fields and duplicate keys refused | `anim3d.LoadEventsSidecar`, `anim3d.MarshalEventsSidecar`, `anim3d.LoadEventsFromGLTFExtras` | [anim3d](anim3d.md), [3D Models from Blender](3d-models-blender.md) |
 
 ```json
 {
