@@ -489,6 +489,22 @@ func encodeTiledLayers(m *Tilemap) ([]tmjLayer, error) {
 	return out, nil
 }
 
+func encodeTiledParallax(out *tmjLayer, px, py float32, hasParallax bool) {
+	px, py = effectiveParallax(px, py, hasParallax)
+	if px != 1 {
+		if px == 0 {
+			px = 0
+		}
+		out.ParallaxX = &px
+	}
+	if py != 1 {
+		if py == 0 {
+			py = 0
+		}
+		out.ParallaxY = &py
+	}
+}
+
 func encodeTiledTileLayer(m *Tilemap, l *TileLayer) (tmjLayer, error) {
 	op := l.Opacity
 	vis := l.Visible
@@ -505,14 +521,7 @@ func encodeTiledTileLayer(m *Tilemap, l *TileLayer) (tmjLayer, error) {
 		Visible:    &vis,
 		Properties: encodeTiledProperties(l.Properties),
 	}
-	if l.ParallaxX != 0 && l.ParallaxX != 1 {
-		px := l.ParallaxX
-		out.ParallaxX = &px
-	}
-	if l.ParallaxY != 0 && l.ParallaxY != 1 {
-		py := l.ParallaxY
-		out.ParallaxY = &py
-	}
+	encodeTiledParallax(&out, l.ParallaxX, l.ParallaxY, l.HasParallax)
 	if l.Tinted || l.TintColor != 0 {
 		out.TintColor = formatTiledColor(l.TintColor)
 	}
@@ -571,14 +580,7 @@ func encodeTiledImageLayer(l *ImageLayer) tmjLayer {
 		Visible:     &vis,
 		Properties:  encodeTiledProperties(l.Properties),
 	}
-	if l.ParallaxX != 0 && l.ParallaxX != 1 {
-		px := l.ParallaxX
-		out.ParallaxX = &px
-	}
-	if l.ParallaxY != 0 && l.ParallaxY != 1 {
-		py := l.ParallaxY
-		out.ParallaxY = &py
-	}
+	encodeTiledParallax(&out, l.ParallaxX, l.ParallaxY, l.HasParallax)
 	if l.Tinted || l.TintColor != 0 {
 		out.TintColor = formatTiledColor(l.TintColor)
 	}
@@ -602,14 +604,7 @@ func encodeTiledObjectLayer(l ObjectLayer) tmjLayer {
 		Objects:    objs,
 		Properties: encodeTiledProperties(l.Properties),
 	}
-	if l.ParallaxX != 0 && l.ParallaxX != 1 {
-		px := l.ParallaxX
-		out.ParallaxX = &px
-	}
-	if l.ParallaxY != 0 && l.ParallaxY != 1 {
-		py := l.ParallaxY
-		out.ParallaxY = &py
-	}
+	encodeTiledParallax(&out, l.ParallaxX, l.ParallaxY, l.HasParallax)
 	if l.Tinted || l.TintColor != 0 {
 		out.TintColor = formatTiledColor(l.TintColor)
 	}

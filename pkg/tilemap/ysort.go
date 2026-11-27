@@ -360,7 +360,7 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 		boundMaxCol, boundMaxRow = lw-1, lh-1
 	}
 
-	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, layer.HasParallax, cam)
 	extraL, extraR, extraT, extraB := m.maxTilePadding()
 	layerIdx := m.layerIndexFor(layer)
 

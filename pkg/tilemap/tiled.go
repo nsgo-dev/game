@@ -657,9 +657,15 @@ func parseTileCollisionGroup(raw *tiledLayer) (ObjectLayer, error) {
 	if raw.ParallaxX != nil {
 		px = *raw.ParallaxX
 	}
+	if px == 0 {
+		px = 0
+	}
 	py := float32(1)
 	if raw.ParallaxY != nil {
 		py = *raw.ParallaxY
+	}
+	if py == 0 {
+		py = 0
 	}
 	var tint core.Color
 	tinted := false
@@ -728,17 +734,18 @@ func parseTileCollisionGroup(raw *tiledLayer) (ObjectLayer, error) {
 		}
 	}
 	return ObjectLayer{
-		Name:       raw.Name,
-		OffsetX:    raw.OffsetX,
-		OffsetY:    raw.OffsetY,
-		ParallaxX:  px,
-		ParallaxY:  py,
-		Opacity:    opacity,
-		TintColor:  tint,
-		Tinted:     tinted,
-		Visible:    visible,
-		Objects:    objs,
-		Properties: props,
+		Name:        raw.Name,
+		OffsetX:     raw.OffsetX,
+		OffsetY:     raw.OffsetY,
+		ParallaxX:   px,
+		ParallaxY:   py,
+		HasParallax: true,
+		Opacity:     opacity,
+		TintColor:   tint,
+		Tinted:      tinted,
+		Visible:     visible,
+		Objects:     objs,
+		Properties:  props,
 	}, nil
 }
 
@@ -1023,9 +1030,15 @@ func loadTiledLayers(ctx *tiledLoadCtx, layers []tiledLayer, parentOX, parentOY,
 		if raw.ParallaxX != nil {
 			px *= *raw.ParallaxX
 		}
+		if px == 0 {
+			px = 0
+		}
 		py := parentPY
 		if raw.ParallaxY != nil {
 			py *= *raw.ParallaxY
+		}
+		if py == 0 {
+			py = 0
 		}
 		tint, tinted := parentTint, parentTinted
 		if raw.TintColor != "" {
@@ -1089,22 +1102,23 @@ func loadTiledLayers(ctx *tiledLoadCtx, layers []tiledLayer, parentOX, parentOY,
 				return err
 			}
 			m.addTileLayer(TileLayer{
-				Name:       raw.Name,
-				Width:      lw,
-				Height:     lh,
-				StartX:     raw.StartX,
-				StartY:     raw.StartY,
-				Data:       data,
-				OffsetX:    ox,
-				OffsetY:    oy,
-				ParallaxX:  px,
-				ParallaxY:  py,
-				Opacity:    opacity,
-				TintColor:  tint,
-				Tinted:     tinted,
-				Visible:    visible,
-				YSort:      ySortFromProperties(props),
-				Properties: props,
+				Name:        raw.Name,
+				Width:       lw,
+				Height:      lh,
+				StartX:      raw.StartX,
+				StartY:      raw.StartY,
+				Data:        data,
+				OffsetX:     ox,
+				OffsetY:     oy,
+				ParallaxX:   px,
+				ParallaxY:   py,
+				HasParallax: true,
+				Opacity:     opacity,
+				TintColor:   tint,
+				Tinted:      tinted,
+				Visible:     visible,
+				YSort:       ySortFromProperties(props),
+				Properties:  props,
 			})
 
 		case "imagelayer":
@@ -1123,21 +1137,22 @@ func loadTiledLayers(ctx *tiledLoadCtx, layers []tiledLayer, parentOX, parentOY,
 				}
 			}
 			m.addImageLayer(ImageLayer{
-				Name:       raw.Name,
-				Image:      img,
-				Width:      raw.ImageWidth,
-				Height:     raw.ImageHeight,
-				OffsetX:    ox,
-				OffsetY:    oy,
-				ParallaxX:  px,
-				ParallaxY:  py,
-				RepeatX:    raw.RepeatX,
-				RepeatY:    raw.RepeatY,
-				Opacity:    opacity,
-				TintColor:  tint,
-				Tinted:     tinted,
-				Visible:    visible,
-				Properties: props,
+				Name:        raw.Name,
+				Image:       img,
+				Width:       raw.ImageWidth,
+				Height:      raw.ImageHeight,
+				OffsetX:     ox,
+				OffsetY:     oy,
+				ParallaxX:   px,
+				ParallaxY:   py,
+				HasParallax: true,
+				RepeatX:     raw.RepeatX,
+				RepeatY:     raw.RepeatY,
+				Opacity:     opacity,
+				TintColor:   tint,
+				Tinted:      tinted,
+				Visible:     visible,
+				Properties:  props,
 			})
 
 		case "objectgroup":
@@ -1271,17 +1286,18 @@ func loadTiledLayers(ctx *tiledLoadCtx, layers []tiledLayer, parentOX, parentOY,
 				objs[i] = obj
 			}
 			m.addObjectLayer(ObjectLayer{
-				Name:       raw.Name,
-				OffsetX:    ox,
-				OffsetY:    oy,
-				ParallaxX:  px,
-				ParallaxY:  py,
-				Opacity:    opacity,
-				TintColor:  tint,
-				Tinted:     tinted,
-				Visible:    visible,
-				Objects:    objs,
-				Properties: props,
+				Name:        raw.Name,
+				OffsetX:     ox,
+				OffsetY:     oy,
+				ParallaxX:   px,
+				ParallaxY:   py,
+				HasParallax: true,
+				Opacity:     opacity,
+				TintColor:   tint,
+				Tinted:      tinted,
+				Visible:     visible,
+				Objects:     objs,
+				Properties:  props,
 			})
 
 		case "group":
@@ -1472,6 +1488,7 @@ func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float
 	layer.OffsetY = oy
 	layer.ParallaxX = px
 	layer.ParallaxY = py
+	layer.HasParallax = true
 	layer.Opacity = opacity
 	layer.TintColor = tint
 	layer.Tinted = tinted

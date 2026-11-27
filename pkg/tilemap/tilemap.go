@@ -422,7 +422,7 @@ func (ts *Tileset) tileSource(localID uint32) (img core.ImageSource, sx, sy, sw,
 
 // TileLayer is one row-major grid of tile GIDs drawn in map order, or a sparse chunked layer when ChunkSize > 0.
 //
-// Its zero value is hidden and transparent; NewTileLayer and NewChunkedTileLayer return visible layers at full opacity.
+// Its zero value is hidden and transparent with unset parallax defaulting to (1, 1); NewTileLayer and NewChunkedTileLayer return visible layers at full opacity with parallax (1, 1) and HasParallax set.
 type TileLayer struct {
 	Name   string
 	Width  int
@@ -436,8 +436,12 @@ type TileLayer struct {
 	OffsetY   float32
 	ParallaxX float32
 	ParallaxY float32
-	Opacity   float32
-	TintColor core.Color
+	// HasParallax distinguishes explicit parallax factors (including 0, which fixes the layer to the screen)
+	// from an unset zero value on a struct literal, where a 0 factor defaults to 1.
+	// NewTileLayer, NewChunkedTileLayer, LoadTiled, and LoadLDtk default ParallaxX and ParallaxY to 1 with HasParallax true.
+	HasParallax bool
+	Opacity     float32
+	TintColor   core.Color
 	// Tinted distinguishes an explicit TintColor (including transparent black #00000000) from an untinted layer.
 	// Setting TintColor to a non-zero color also tints the layer when Tinted is false.
 	Tinted  bool
@@ -452,22 +456,25 @@ type TileLayer struct {
 }
 
 // ImageLayer is an image layer (such as a sky, parallax backdrop, or foreground overlay) drawn in map layer order.
+//
+// Its zero value is hidden and transparent with unset parallax defaulting to (1, 1); NewImageLayer returns a visible layer at full opacity with parallax (1, 1) and HasParallax set.
 type ImageLayer struct {
-	Name       string
-	Image      core.ImageSource
-	Width      float32
-	Height     float32
-	OffsetX    float32
-	OffsetY    float32
-	ParallaxX  float32
-	ParallaxY  float32
-	RepeatX    bool
-	RepeatY    bool
-	Opacity    float32
-	TintColor  core.Color
-	Tinted     bool
-	Visible    bool
-	Properties Properties
+	Name        string
+	Image       core.ImageSource
+	Width       float32
+	Height      float32
+	OffsetX     float32
+	OffsetY     float32
+	ParallaxX   float32
+	ParallaxY   float32
+	HasParallax bool
+	RepeatX     bool
+	RepeatY     bool
+	Opacity     float32
+	TintColor   core.Color
+	Tinted      bool
+	Visible     bool
+	Properties  Properties
 }
 
 type layerKind uint8
@@ -483,18 +490,34 @@ type layerRef struct {
 	index int
 }
 
-// NewTileLayer returns a visible TileLayer at full opacity. When data is nil it allocates a width*height slice.
+// NewTileLayer returns a visible TileLayer at full opacity with parallax (1, 1). When data is nil it allocates a width*height slice.
 func NewTileLayer(name string, width, height int, data []uint32) TileLayer {
 	if data == nil && width > 0 && height > 0 {
 		data = make([]uint32, width*height)
 	}
 	return TileLayer{
-		Name:    name,
-		Width:   width,
-		Height:  height,
-		Data:    data,
-		Opacity: 1,
-		Visible: true,
+		Name:        name,
+		Width:       width,
+		Height:      height,
+		Data:        data,
+		ParallaxX:   1,
+		ParallaxY:   1,
+		HasParallax: true,
+		Opacity:     1,
+		Visible:     true,
+	}
+}
+
+// NewImageLayer returns a visible ImageLayer at full opacity with parallax (1, 1).
+func NewImageLayer(name string, image core.ImageSource) ImageLayer {
+	return ImageLayer{
+		Name:        name,
+		Image:       image,
+		ParallaxX:   1,
+		ParallaxY:   1,
+		HasParallax: true,
+		Opacity:     1,
+		Visible:     true,
 	}
 }
 
@@ -567,18 +590,34 @@ func (o Object) WorldPoints() []core.Point {
 }
 
 // ObjectLayer is a Tiled objectgroup layer.
+//
+// Its zero value is hidden and transparent with unset parallax defaulting to (1, 1); NewObjectLayer returns a visible layer at full opacity with parallax (1, 1) and HasParallax set.
 type ObjectLayer struct {
-	Name       string
-	OffsetX    float32
-	OffsetY    float32
-	ParallaxX  float32
-	ParallaxY  float32
-	Opacity    float32
-	TintColor  core.Color
-	Tinted     bool
-	Visible    bool
-	Objects    []Object
-	Properties Properties
+	Name        string
+	OffsetX     float32
+	OffsetY     float32
+	ParallaxX   float32
+	ParallaxY   float32
+	HasParallax bool
+	Opacity     float32
+	TintColor   core.Color
+	Tinted      bool
+	Visible     bool
+	Objects     []Object
+	Properties  Properties
+}
+
+// NewObjectLayer returns a visible ObjectLayer at full opacity with parallax (1, 1).
+func NewObjectLayer(name string, objects ...Object) ObjectLayer {
+	return ObjectLayer{
+		Name:        name,
+		ParallaxX:   1,
+		ParallaxY:   1,
+		HasParallax: true,
+		Opacity:     1,
+		Visible:     true,
+		Objects:     objects,
+	}
 }
 
 type cellKey struct {
@@ -923,7 +962,7 @@ func (m *Tilemap) DrawObjectLayer(d *core.Drawing, layer *ObjectLayer, cam *Came
 	if layer == nil || !layer.Visible || layer.Opacity <= 0 || isInvisibleTint(layer.TintColor, layer.Tinted) || len(layer.Objects) == 0 {
 		return
 	}
-	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, layer.HasParallax, cam)
 
 	hasCam := cam != nil
 	var vbMinX, vbMinY, vbMaxX, vbMaxY float64
@@ -1050,16 +1089,30 @@ func (m *Tilemap) DrawObjectLayer(d *core.Drawing, layer *ObjectLayer, cam *Came
 	}
 }
 
-func effectiveLayerOffset(ox, oy, px, py float32, cam *Camera) (float32, float32) {
+func effectiveParallax(px, py float32, hasParallax bool) (float32, float32) {
+	if hasParallax {
+		return px, py
+	}
+	if px == 0 {
+		px = 1
+	}
+	if py == 0 {
+		py = 1
+	}
+	return px, py
+}
+
+func effectiveLayerOffset(ox, oy, px, py float32, hasParallax bool, cam *Camera) (float32, float32) {
 	if cam == nil {
 		return ox, oy
 	}
+	px, py = effectiveParallax(px, py, hasParallax)
 	cx := cam.X + cam.shakeX
 	cy := cam.Y + cam.shakeY
-	if px != 0 && px != 1 {
+	if px != 1 {
 		ox += float32(cx * (1 - px))
 	}
-	if py != 0 && py != 1 {
+	if py != 1 {
 		oy += float32(cy * (1 - py))
 	}
 	return ox, oy
@@ -1073,7 +1126,7 @@ func (m *Tilemap) DrawImageLayer(d *core.Drawing, layer *ImageLayer, cam *Camera
 	if layer.Image.URI == "" && len(layer.Image.Data) == 0 && layer.Image.Pixels == nil {
 		return
 	}
-	ox, oy := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	ox, oy := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, layer.HasParallax, cam)
 
 	w, h := layer.Width, layer.Height
 	if w <= 0 || h <= 0 {
@@ -1220,7 +1273,7 @@ func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 		return
 	}
 
-	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, layer.HasParallax, cam)
 
 	if cache := m.layerCacheFor(layer); cache != nil && !cache.Dirty && cache.Pixels != nil {
 		m.drawCachedLayer(d, layer, cache, cam, offX, offY)
@@ -1293,7 +1346,7 @@ func (m *Tilemap) drawChunkedLayer(d *core.Drawing, layer *TileLayer, cam *Camer
 	if layer.chunks == nil || len(layer.chunks.chunks) == 0 {
 		return
 	}
-	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, layer.HasParallax, cam)
 	if m.Orientation != OrientationOrthogonal {
 		m.drawProjectedLayer(d, layer, cam, offX, offY)
 		return

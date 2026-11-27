@@ -568,14 +568,17 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 			}
 			data := buildLDtkTileData(li.GridTiles, lw, lh, layerGrid, ts, def)
 			m.addTileLayer(TileLayer{
-				Name:    li.Identifier,
-				Width:   lw,
-				Height:  lh,
-				Data:    data,
-				OffsetX: ox,
-				OffsetY: oy,
-				Opacity: opacity,
-				Visible: visible,
+				Name:        li.Identifier,
+				Width:       lw,
+				Height:      lh,
+				Data:        data,
+				OffsetX:     ox,
+				OffsetY:     oy,
+				ParallaxX:   1,
+				ParallaxY:   1,
+				HasParallax: true,
+				Opacity:     opacity,
+				Visible:     visible,
 			})
 
 		case "AutoLayer":
@@ -586,14 +589,17 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 			}
 			data := buildLDtkTileData(li.AutoLayerTiles, lw, lh, layerGrid, ts, def)
 			m.addTileLayer(TileLayer{
-				Name:    li.Identifier,
-				Width:   lw,
-				Height:  lh,
-				Data:    data,
-				OffsetX: ox,
-				OffsetY: oy,
-				Opacity: opacity,
-				Visible: visible,
+				Name:        li.Identifier,
+				Width:       lw,
+				Height:      lh,
+				Data:        data,
+				OffsetX:     ox,
+				OffsetY:     oy,
+				ParallaxX:   1,
+				ParallaxY:   1,
+				HasParallax: true,
+				Opacity:     opacity,
+				Visible:     visible,
 			})
 
 		case "IntGrid":
@@ -621,14 +627,17 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 				}
 				data := buildLDtkTileData(li.AutoLayerTiles, lw, lh, layerGrid, ts, def)
 				m.addTileLayer(TileLayer{
-					Name:    li.Identifier,
-					Width:   lw,
-					Height:  lh,
-					Data:    data,
-					OffsetX: ox,
-					OffsetY: oy,
-					Opacity: opacity,
-					Visible: visible,
+					Name:        li.Identifier,
+					Width:       lw,
+					Height:      lh,
+					Data:        data,
+					OffsetX:     ox,
+					OffsetY:     oy,
+					ParallaxX:   1,
+					ParallaxY:   1,
+					HasParallax: true,
+					Opacity:     opacity,
+					Visible:     visible,
 				})
 			}
 
@@ -662,12 +671,15 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 				}
 			}
 			m.Objects = append(m.Objects, ObjectLayer{
-				Name:    li.Identifier,
-				OffsetX: ox,
-				OffsetY: oy,
-				Opacity: opacity,
-				Visible: visible,
-				Objects: objs,
+				Name:        li.Identifier,
+				OffsetX:     ox,
+				OffsetY:     oy,
+				ParallaxX:   1,
+				ParallaxY:   1,
+				HasParallax: true,
+				Opacity:     opacity,
+				Visible:     visible,
+				Objects:     objs,
 			})
 		}
 	}
