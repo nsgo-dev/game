@@ -74,14 +74,15 @@ func (r *CLIAgentRunner) Run(ctx context.Context, req AgentRequest, emit func(Ag
 	if err != nil {
 		return err
 	}
-	ephemeralFiles, cleanup, err := materializeEphemeralCLIImages(req.Images)
+	input := RenderAgentModelInput(req)
+	ephemeralFiles, cleanup, err := materializeEphemeralCLIImages(input.Images)
 	if err != nil {
 		return err
 	}
 	if cleanup != nil {
 		defer cleanup()
 	}
-	args, err := buildCLIArgsWithEphemeral(kind, req, ephemeralFiles)
+	args, err := buildCLIArgsForInput(kind, req, input, ephemeralFiles)
 	if err != nil {
 		return err
 	}
@@ -235,13 +236,16 @@ func buildCLIArgs(kind ExternalAgentKind, req AgentRequest) ([]string, error) {
 }
 
 func buildCLIArgsWithEphemeral(kind ExternalAgentKind, req AgentRequest, ephemeral []cliRefImage) ([]string, error) {
+	return buildCLIArgsForInput(kind, req, RenderAgentModelInput(req), ephemeral)
+}
+
+func buildCLIArgsForInput(kind ExternalAgentKind, req AgentRequest, input AgentModelInput, ephemeral []cliRefImage) ([]string, error) {
 	if err := validateCLISessionID(req.SessionID); err != nil {
 		return nil, err
 	}
-	prompt := req.Prompt
 	var refs []cliRefImage
-	if len(req.Images) > 0 && req.ProjectRoot != "" {
-		for _, img := range req.Images {
+	if len(input.Images) > 0 && req.ProjectRoot != "" {
+		for _, img := range input.Images {
 			if img.Path == "" {
 				continue
 			}
@@ -289,6 +293,7 @@ func buildCLIArgsWithEphemeral(kind ExternalAgentKind, req AgentRequest, ephemer
 	}
 
 	if kind == ExternalAgentCodex {
+		prompt := input.FullPrompt
 		if req.SessionID != "" {
 			return []string{"exec", "resume", "--json", "--", req.SessionID, appendRefPrompt(prompt)}, nil
 		}
@@ -311,6 +316,9 @@ func buildCLIArgsWithEphemeral(kind ExternalAgentKind, req AgentRequest, ephemer
 	if req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)
 	}
-	prompt = appendRefPrompt(prompt)
+	if input.AlwaysContext != "" {
+		args = append(args, "--append-system-prompt="+input.AlwaysContext)
+	}
+	prompt := appendRefPrompt(input.TurnPrompt)
 	return append(args, "--", prompt), nil
 }

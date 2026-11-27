@@ -2734,6 +2734,11 @@ func (e *Editor) CompactAgentThread() (string, error) {
 		return "", errors.New("editor: nil editor")
 	}
 	turns := e.agentComposer.turns
+	fromLiveTurns := false
+	if len(turns) < 2 && len(e.agent.turns) >= 2 {
+		turns = agentThreadTurnsFromLive(e.agent.turns)
+		fromLiveTurns = true
+	}
 	hasReportedConv := e.agentComposer.reportedUsage != nil && e.agentComposer.reportedUsage.Conversation > 0
 	if len(turns) < 2 && !hasReportedConv {
 		return "", errors.New("editor: nothing earlier to compact")
@@ -2762,10 +2767,11 @@ func (e *Editor) CompactAgentThread() (string, error) {
 	}
 
 	e.agentComposer.compactedSummary = summary
-	if len(last) > 0 {
+	if !fromLiveTurns && len(last) > 0 {
 		e.agentComposer.turns = slices.Clone(last)
 	}
 	e.agentComposer.threadRev++
+	e.clearBuiltInHistoryForActiveThread()
 
 	if customUsage != nil {
 		u := *customUsage
@@ -2801,7 +2807,11 @@ func (e *Editor) StartFreshAgentThread() (string, error) {
 	if e == nil {
 		return "", errors.New("editor: nil editor")
 	}
-	summary := buildThreadSummary(e.agentComposer.compactedSummary, e.agentComposer.turns)
+	summaryTurns := e.agentComposer.turns
+	if len(summaryTurns) == 0 && len(e.agent.turns) > 0 {
+		summaryTurns = agentThreadTurnsFromLive(e.agent.turns)
+	}
+	summary := buildThreadSummary(e.agentComposer.compactedSummary, summaryTurns)
 	if summary == "" {
 		summary = e.agentComposer.summarySeed
 	}
@@ -2815,6 +2825,7 @@ func (e *Editor) StartFreshAgentThread() (string, error) {
 		}
 	}
 
+	oldThreadIDs := e.activeBuiltInThreadIDs()
 	e.StopAgentRun()
 	e.agentComposer.threadSeq++
 	e.agentComposer.threadID = fmt.Sprintf("thread-%d", e.agentComposer.threadSeq)
@@ -2836,6 +2847,7 @@ func (e *Editor) StartFreshAgentThread() (string, error) {
 	e.agentComposer.hoveredChipID = ""
 	e.agentComposer.breakdownOpen = false
 	e.agentComposer.pickerOpen = false
+	e.clearBuiltInThreadHistory(append(oldThreadIDs, e.agentComposer.threadID)...)
 
 	seedTokens := max(256, estimateTextTokens(summary))
 	if e.agentComposer.reportedUsage != nil {
@@ -2846,6 +2858,26 @@ func (e *Editor) StartFreshAgentThread() (string, error) {
 	e.Status = e.T("composer.startedFreshStatus")
 	e.notify()
 	return summary, nil
+}
+
+func agentThreadTurnsFromLive(live []AgentTurn) []AgentThreadTurn {
+	out := make([]AgentThreadTurn, 0, len(live))
+	for _, t := range live {
+		if strings.TrimSpace(t.Prompt) == "" {
+			continue
+		}
+		reply := strings.TrimSpace(t.Summary)
+		if reply == "" {
+			reply = strings.TrimSpace(t.Reply)
+		}
+		out = append(out, AgentThreadTurn{
+			ID:        t.ID,
+			Prompt:    t.Prompt,
+			Reply:     reply,
+			Timestamp: t.CreatedAt,
+		})
+	}
+	return out
 }
 
 func buildThreadSummary(existing string, turns []AgentThreadTurn) string {

@@ -1,7 +1,9 @@
 package editor_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -438,5 +440,376 @@ func TestBuiltInAgentHardeningEndpointRedactionAndLimits(t *testing.T) {
 	// MemorySecretStore.String() must redact values.
 	if s := ed.AgentSecretStore.(*editor.MemorySecretStore).String(); strings.Contains(s, secret) || !strings.Contains(s, "[REDACTED]") {
 		t.Fatalf("MemorySecretStore.String leaked or did not redact: %q", s)
+	}
+}
+
+type fakeBuiltInToolsWithInstructions struct {
+	instructions string
+}
+
+func (f *fakeBuiltInToolsWithInstructions) Instructions() string {
+	return f.instructions
+}
+
+func (f *fakeBuiltInToolsWithInstructions) ListTools(_ context.Context) ([]editor.AgentToolSpec, error) {
+	return []editor.AgentToolSpec{
+		{
+			Name:        "scene_edit",
+			Description: "Edit the open scene",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		},
+	}, nil
+}
+
+func (f *fakeBuiltInToolsWithInstructions) CallTool(_ context.Context, name string, _ json.RawMessage) (editor.AgentToolCallResult, error) {
+	return editor.AgentToolCallResult{Text: "tool-ok:" + name}, nil
+}
+
+type capturedAnthropicCall struct {
+	System   string `json:"system"`
+	Messages []struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	} `json:"messages"`
+}
+
+func extractImageBlocksBase64(t *testing.T, raw json.RawMessage) [][]byte {
+	t.Helper()
+	var blocks []struct {
+		Type   string `json:"type"`
+		Source struct {
+			Type      string `json:"type"`
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil
+	}
+	var out [][]byte
+	for _, b := range blocks {
+		if b.Type == "image" && b.Source.Type == "base64" && b.Source.Data != "" {
+			dec, err := base64.StdEncoding.DecodeString(b.Source.Data)
+			if err != nil {
+				t.Fatalf("decode base64 image block: %v", err)
+			}
+			out = append(out, dec)
+		}
+	}
+	return out
+}
+
+// #1742 Contract & follow-up test for the built-in runner:
+// - Delivers server instructions + Always chips (brief.yaml, AGENTS.md) in system prompt
+// - Delivers attached chips (object, prefab, problem, playtest) and viewport PNG image block in user message
+// - Carries turn 1 (including tool call/result and reply, with old images stripped) into turn 2 follow-up
+// - Drops raw history on Compact thread (delivering compacted summary) and Start fresh (delivering thread summary)
+// - Truncates history on RewindAgentTurn and restores it on RedoAgentRewind
+// - Respects PrivacyViewportImages=false by omitting the viewport PNG block while keeping text chips
+func TestBuiltInAgentDeliversComposerContextViewportAndFollowUpHistory(t *testing.T) {
+	dir, ed := setupComposerProject(t)
+	// Add a real broken scene file so assetcheck surfaces a real Problem chip.
+	if err := os.WriteFile(filepath.Join(dir, "scenes", "broken_check.scene.yaml"), []byte("version: 4\nunknownBadField: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed.CheckProblems()
+	ed.WaitForProblems()
+	ed.AddComposerPlaytestRun(editor.ComposerPlaytestRun{
+		ID:      "run-9",
+		Name:    "Boss smoke",
+		Summary: "1 failure",
+		Detail:  "PLAYTEST-MARKER-STUCK-AT-DOOR",
+	})
+
+	const serverInstr = "Before every request, read project_context so your edits follow brief.yaml and AGENTS.md."
+	ed.AgentTools = &fakeBuiltInToolsWithInstructions{instructions: serverInstr}
+	ed.AgentSecretStore = editor.NewMemorySecretStore(map[string]string{
+		editor.AgentAPIKeySecretAccount: "sk-ant-contract-test-key",
+	})
+
+	var mu sync.Mutex
+	var calls []capturedAnthropicCall
+	var triggerToolCall atomic.Bool
+	triggerToolCall.Store(true)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var c capturedAnthropicCall
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		calls = append(calls, c)
+		callNum := len(calls)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if callNum == 1 && triggerToolCall.Swap(false) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":          "msg_turn1_tool",
+				"model":       editor.DefaultBuiltInModel,
+				"stop_reason": "tool_use",
+				"content": []map[string]any{
+					{
+						"type":  "tool_use",
+						"id":    "toolu_door_1",
+						"name":  "scene_edit",
+						"input": map[string]any{"op": "set"},
+					},
+				},
+			})
+			return
+		}
+		reply := "Done."
+		switch callNum {
+		case 2:
+			reply = "TURN1-REPLY-UNLOCKED-DOOR"
+		case 3:
+			reply = "TURN2-REPLY-PAINTED-RED"
+		case 4:
+			reply = "TURN3-REPLY-AFTER-COMPACT"
+		case 5:
+			reply = "TURN4-REPLY-AFTER-FRESH"
+		case 6:
+			reply = "TURN5-REPLY-GOLD-COINS"
+		case 7:
+			reply = "TURN6-REPLY-SILVER-COINS"
+		case 8:
+			reply = "TURN7-REPLY-NO-VP"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":          "msg_reply",
+			"model":       editor.DefaultBuiltInModel,
+			"stop_reason": "end_turn",
+			"content":     []map[string]any{{"type": "text", "text": reply}},
+		})
+	}))
+	defer srv.Close()
+
+	ed.BuiltInAgentEndpoint = srv.URL
+	ed.BuiltInHTTPClient = srv.Client()
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800))
+
+	// Switch scene edits to built-in default route via API key mode.
+	ed.OpenConnectDialogAt(editor.ConnectStepAPIKey)
+	app.Settle()
+	app.Press("id:connect-done")
+	app.Settle()
+
+	waitDone := func(wantTurns int) {
+		t.Helper()
+		app.WaitUntil(5*time.Second, func() bool {
+			turns := ed.AgentTurns()
+			return !ed.AgentWorking() && len(turns) == wantTurns && turns[wantTurns-1].Done
+		})
+		app.Settle()
+	}
+
+	// Attach object chip (door), prefab chip, problem chip, playtest chip, and ensure Viewport image is ON.
+	ed.SelectObject("door")
+	if _, ok := ed.AcceptSuggestedChip(); !ok {
+		t.Fatal("AcceptSuggestedChip(door) failed")
+	}
+	for _, m := range ed.SearchMentions("slime", editor.MentionGroupPrefabs) {
+		ed.AcceptMentionItem(m.ID)
+	}
+	probItems := ed.SearchMentions("", editor.MentionGroupProblems)
+	if len(probItems) == 0 {
+		t.Fatal("expected at least one Problem mention from broken_check.scene.yaml")
+	}
+	ed.AcceptMentionItem(probItems[0].ID)
+	for _, m := range ed.SearchMentions("", editor.MentionGroupPlaytests) {
+		ed.AcceptMentionItem(m.ID)
+	}
+	ed.SetViewportImageIncluded(true)
+
+	// Capture expected viewport PNG bytes from AssembleAgentRequest.
+	previewReq := ed.AssembleAgentRequest("Unlock the door")
+	if len(previewReq.ViewportImage) == 0 {
+		t.Fatal("expected non-empty ViewportImage from AssembleAgentRequest")
+	}
+
+	// Turn 1: invokes tool_use then replies TURN1-REPLY-UNLOCKED-DOOR.
+	if err := ed.SubmitAgentPrompt("Unlock the door"); err != nil {
+		t.Fatalf("Turn 1 SubmitAgentPrompt: %v", err)
+	}
+	waitDone(1)
+
+	mu.Lock()
+	if len(calls) != 2 {
+		mu.Unlock()
+		t.Fatalf("expected 2 API calls for turn 1 (tool_use + final), got %d", len(calls))
+	}
+	c1 := calls[0]
+	mu.Unlock()
+
+	// System prompt must carry server instructions AND Always chips (brief.yaml, AGENTS.md).
+	for _, want := range []string{
+		serverInstr,
+		"Keep combat crisp and readable",
+		"Keep edits focused and deterministic.",
+	} {
+		if !strings.Contains(c1.System, want) {
+			t.Errorf("Turn 1 system prompt missing %q:\n%s", want, c1.System)
+		}
+	}
+	// User message must carry attached chips and prompt, WITHOUT duplicating Always chips.
+	if len(c1.Messages) != 1 || c1.Messages[0].Role != "user" {
+		t.Fatalf("Turn 1 messages = %+v, want 1 user message", c1.Messages)
+	}
+	u1Raw := string(c1.Messages[0].Content)
+	for _, want := range []string{
+		"id: door",
+		"opens_after_pulls: 2",
+		"name: slime",
+		"broken_check.scene.yaml",
+		"PLAYTEST-MARKER-STUCK-AT-DOOR",
+		"Unlock the door",
+	} {
+		if !strings.Contains(u1Raw, want) {
+			t.Errorf("Turn 1 user content missing %q:\n%s", want, u1Raw)
+		}
+	}
+	if strings.Contains(u1Raw, "Keep combat crisp and readable") {
+		t.Errorf("Turn 1 user content duplicated brief.yaml Always chip already in system prompt")
+	}
+	imgs1 := extractImageBlocksBase64(t, c1.Messages[0].Content)
+	if len(imgs1) == 0 || !slices.ContainsFunc(imgs1, func(b []byte) bool { return bytes.Equal(b, previewReq.ViewportImage) }) {
+		t.Fatalf("Turn 1 user content missing base64 viewport PNG block (got %d image blocks)", len(imgs1))
+	}
+
+	// Turn 2 (follow-up): must carry Turn 1's user prompt, tool call, tool result, and assistant reply.
+	if err := ed.SubmitAgentPrompt("Now paint it red"); err != nil {
+		t.Fatalf("Turn 2 SubmitAgentPrompt: %v", err)
+	}
+	waitDone(2)
+
+	mu.Lock()
+	if len(calls) != 3 {
+		mu.Unlock()
+		t.Fatalf("expected 3 total API calls after turn 2, got %d", len(calls))
+	}
+	c2 := calls[2]
+	mu.Unlock()
+
+	if len(c2.Messages) != 5 {
+		t.Fatalf("Turn 2 messages count = %d, want 5 ([u1, a1_tool, u1_toolres, a1_text, u2])", len(c2.Messages))
+	}
+	if !strings.Contains(string(c2.Messages[0].Content), "Unlock the door") {
+		t.Errorf("Turn 2 history[0] missing Turn 1 prompt: %s", string(c2.Messages[0].Content))
+	}
+	// Archived Turn 1 user message must have stripped base64 image blobs so RAM/tokens stay bounded.
+	if len(extractImageBlocksBase64(t, c2.Messages[0].Content)) != 0 {
+		t.Errorf("Turn 2 history[0] retained raw base64 image from earlier turn")
+	}
+	if !strings.Contains(string(c2.Messages[1].Content), "toolu_door_1") {
+		t.Errorf("Turn 2 history[1] missing Turn 1 tool_use: %s", string(c2.Messages[1].Content))
+	}
+	if !strings.Contains(string(c2.Messages[2].Content), "tool-ok:scene_edit") {
+		t.Errorf("Turn 2 history[2] missing Turn 1 tool_result: %s", string(c2.Messages[2].Content))
+	}
+	if !strings.Contains(string(c2.Messages[3].Content), "TURN1-REPLY-UNLOCKED-DOOR") {
+		t.Errorf("Turn 2 history[3] missing Turn 1 reply: %s", string(c2.Messages[3].Content))
+	}
+	if !strings.Contains(string(c2.Messages[4].Content), "Now paint it red") {
+		t.Errorf("Turn 2 current user message missing follow-up prompt: %s", string(c2.Messages[4].Content))
+	}
+
+	// Compact thread: drops raw built-in message history and delivers compacted summary in Turn 3.
+	summary, err := ed.CompactAgentThread()
+	if err != nil {
+		t.Fatalf("CompactAgentThread: %v", err)
+	}
+	if !strings.Contains(summary, "Unlock the door") {
+		t.Fatalf("CompactAgentThread summary missing earlier turn: %q", summary)
+	}
+	if err := ed.SubmitAgentPrompt("Add coins along the floor"); err != nil {
+		t.Fatalf("Turn 3 SubmitAgentPrompt: %v", err)
+	}
+	waitDone(3)
+
+	mu.Lock()
+	c3 := calls[3]
+	mu.Unlock()
+
+	if len(c3.Messages) != 1 {
+		t.Fatalf("Turn 3 after Compact expected 1 message (raw history dropped), got %d", len(c3.Messages))
+	}
+	u3Raw := string(c3.Messages[0].Content)
+	if !strings.Contains(u3Raw, "# Compacted earlier requests") || !strings.Contains(u3Raw, "Unlock the door") || !strings.Contains(u3Raw, "Add coins along the floor") {
+		t.Fatalf("Turn 3 missing compacted summary or prompt: %s", u3Raw)
+	}
+
+	// Start fresh with summary: opens a new thread, drops prior history, and delivers # Thread summary.
+	if _, err := ed.StartFreshAgentThread(); err != nil {
+		t.Fatalf("StartFreshAgentThread: %v", err)
+	}
+	if err := ed.SubmitAgentPrompt("Build level 2"); err != nil {
+		t.Fatalf("Turn 4 SubmitAgentPrompt: %v", err)
+	}
+	waitDone(1)
+
+	mu.Lock()
+	c4 := calls[4]
+	mu.Unlock()
+
+	if len(c4.Messages) != 1 {
+		t.Fatalf("Turn 4 after Start fresh expected 1 message, got %d", len(c4.Messages))
+	}
+	u4Raw := string(c4.Messages[0].Content)
+	if !strings.Contains(u4Raw, "# Thread summary") || !strings.Contains(u4Raw, "Build level 2") {
+		t.Fatalf("Turn 4 missing fresh thread summary or prompt: %s", u4Raw)
+	}
+
+	// Follow-up in fresh thread, then rewind conversation to before Turn 5 and verify Turn 5 is dropped from history.
+	if err := ed.SubmitAgentPrompt("Make coins gold"); err != nil {
+		t.Fatalf("Turn 5 SubmitAgentPrompt: %v", err)
+	}
+	waitDone(2)
+
+	turn5ID := ed.AgentTurns()[1].ID
+	if err := ed.RewindAgentTurn(turn5ID, editor.AgentRewindConversationOnly); err != nil {
+		t.Fatalf("RewindAgentTurn: %v", err)
+	}
+	if err := ed.SubmitAgentPrompt("Make coins silver"); err != nil {
+		t.Fatalf("Turn 6 SubmitAgentPrompt: %v", err)
+	}
+	waitDone(2)
+
+	mu.Lock()
+	c6 := calls[6]
+	mu.Unlock()
+
+	// Turn 6 should carry Turn 4 (2 messages) + Turn 6 (1 message) = 3 messages, and NOT Turn 5 ("Make coins gold").
+	if len(c6.Messages) != 3 {
+		t.Fatalf("Turn 6 after rewind expected 3 messages, got %d", len(c6.Messages))
+	}
+	allC6, _ := json.Marshal(c6.Messages)
+	if !strings.Contains(string(allC6), "TURN4-REPLY-AFTER-FRESH") || strings.Contains(string(allC6), "Make coins gold") {
+		t.Fatalf("Turn 6 history did not reflect rewind cleanly: %s", string(allC6))
+	}
+
+	// PrivacyViewportImages=false omits viewport PNG base64 block while preserving text chips and prompt.
+	if err := ed.SetAgentPrivacy(editor.PrivacyViewportImages, false); err != nil {
+		t.Fatalf("SetAgentPrivacy(ViewportImages, false): %v", err)
+	}
+	if err := ed.SubmitAgentPrompt("Check privacy"); err != nil {
+		t.Fatalf("Turn 7 SubmitAgentPrompt: %v", err)
+	}
+	waitDone(3)
+
+	mu.Lock()
+	c7 := calls[7]
+	mu.Unlock()
+
+	lastMsg := c7.Messages[len(c7.Messages)-1]
+	if imgs := extractImageBlocksBase64(t, lastMsg.Content); len(imgs) != 0 {
+		t.Fatalf("viewport PNG leaked when PrivacyViewportImages=false (got %d image blocks)", len(imgs))
+	}
+	if !strings.Contains(string(lastMsg.Content), "Check privacy") {
+		t.Fatalf("Turn 7 prompt missing when PrivacyViewportImages=false: %s", string(lastMsg.Content))
 	}
 }

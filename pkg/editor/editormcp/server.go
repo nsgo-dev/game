@@ -289,6 +289,13 @@ type serverToolExecutor struct {
 	s *Server
 }
 
+func (e *serverToolExecutor) Instructions() string {
+	if e == nil || e.s == nil || e.s.isClosed() {
+		return ""
+	}
+	return instructions
+}
+
 func (e *serverToolExecutor) ListTools(_ context.Context) ([]editor.AgentToolSpec, error) {
 	if e == nil || e.s == nil || e.s.isClosed() {
 		return nil, errors.New("editormcp: the editor's server is closed")

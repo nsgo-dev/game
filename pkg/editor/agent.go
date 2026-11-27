@@ -503,6 +503,10 @@ type agentState struct {
 	registeredTools   []AgentToolInfo
 	builtInKeyChecked bool
 	builtInKeyPresent bool
+	// Per-thread bounded message history for the built-in Anthropic API runner (#1742).
+	builtInHistoryMu  sync.Mutex
+	builtInHistory    map[string]*builtInThreadHistory
+	builtInHistorySeq uint64
 	notify            agentNotifyState
 	// Failure states, offline queue, viewport pointing, and turn review tracking.
 	offline              bool
@@ -691,6 +695,7 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.connectAPIKey = ""
 	e.agent.sessionID = ""
 	e.agent.turns = nil
+	e.clearAllBuiltInThreadHistory()
 	e.agent.queued = nil
 	e.agent.composerText = ""
 	e.composerDraft = ""

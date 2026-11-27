@@ -112,6 +112,8 @@ type agentRewindRecord struct {
 	threadID                string
 	previousThreadSessionID string
 	hadThreadSession        bool
+	builtInHistoryThreadID  string
+	previousBuiltInHistory  []builtInTurnRecord
 
 	redoFiles          map[string]fileSnapshot
 	hadDocRestore      bool
@@ -714,6 +716,17 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 		e.clearActivePlanForRewind(droppedTurnIDs, droppedPlanIDs)
 		e.agent.turns = e.agent.turns[:idx]
 		e.agent.sessionID = targetTurn.SessionIDBefore
+		histThreadID := targetTurn.ThreadID
+		if histThreadID == "" {
+			histThreadID = e.agent.threadID
+		}
+		if histThreadID == "" {
+			histThreadID = e.AgentThreadID()
+		}
+		if histThreadID != "" {
+			rec.builtInHistoryThreadID = histThreadID
+			rec.previousBuiltInHistory = e.rewindBuiltInThreadHistory(histThreadID, droppedTurnIDs)
+		}
 		if targetTurn.ThreadID != "" {
 			if t := e.findPersistedAgentThread(targetTurn.ThreadID); t != nil {
 				rec.threadID = t.ID
@@ -834,6 +847,9 @@ func (e *Editor) RedoAgentRewind() error {
 		e.agent.sessionID = rec.previousSessionID
 		e.agent.checkpoints = cloneCheckpointMap(rec.previousCheckpoints)
 		e.agent.liveStopped = rec.previousLiveStopped
+		if rec.builtInHistoryThreadID != "" {
+			e.restoreBuiltInThreadHistory(rec.builtInHistoryThreadID, rec.previousBuiltInHistory)
+		}
 		if rec.hadThreadSession && rec.threadID != "" {
 			if t := e.findPersistedAgentThread(rec.threadID); t != nil {
 				if t.SessionID != rec.previousThreadSessionID {

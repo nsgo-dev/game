@@ -29,6 +29,7 @@ func TestBuiltInAgentEndToEndWithNSGoTestSecretsAndMCPTools(t *testing.T) {
 
 	var mu sync.Mutex
 	var gotAPIKeys []string
+	var gotSystemPrompts []string
 	var sawSceneEditTool bool
 	var sawDeleteFileTool bool
 	var sawToolResult bool
@@ -36,8 +37,9 @@ func TestBuiltInAgentEndToEndWithNSGoTestSecretsAndMCPTools(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
-			Model string `json:"model"`
-			Tools []struct {
+			Model  string `json:"model"`
+			System string `json:"system"`
+			Tools  []struct {
 				Name string `json:"name"`
 			} `json:"tools"`
 			Messages []struct {
@@ -54,6 +56,7 @@ func TestBuiltInAgentEndToEndWithNSGoTestSecretsAndMCPTools(t *testing.T) {
 		calls++
 		callNum := calls
 		gotAPIKeys = append(gotAPIKeys, r.Header.Get("x-api-key"))
+		gotSystemPrompts = append(gotSystemPrompts, payload.System)
 		for _, tool := range payload.Tools {
 			if tool.Name == editormcp.ToolSceneEdit {
 				sawSceneEditTool = true
@@ -161,6 +164,9 @@ func TestBuiltInAgentEndToEndWithNSGoTestSecretsAndMCPTools(t *testing.T) {
 	}
 	if sawDeleteFileTool {
 		t.Fatal("disabled default-off tool game_delete_file was advertised to built-in agent")
+	}
+	if len(gotSystemPrompts) == 0 || !strings.Contains(gotSystemPrompts[0], "project_context") {
+		t.Fatalf("built-in runner system prompt missing editormcp server instructions (project_context): %q", gotSystemPrompts)
 	}
 	mu.Unlock()
 
