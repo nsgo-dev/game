@@ -321,6 +321,23 @@ func (r *Registry) Register(pattern string, rt *RowType) error {
 	return nil
 }
 
+// Lookup returns the RowType registered for pattern (after path normalization) and reports whether pattern is registered.
+func (r *Registry) Lookup(pattern string) (*RowType, bool) {
+	if r == nil {
+		return nil, false
+	}
+	norm := normalizePattern(pattern)
+	if norm == "" {
+		return nil, false
+	}
+	for _, e := range r.entries {
+		if e.pattern == norm {
+			return e.rowType, true
+		}
+	}
+	return nil, false
+}
+
 // Match returns the first registered RowType whose pattern matches filePath, or nil.
 func (r *Registry) Match(filePath string) *RowType {
 	if r == nil || filePath == "" {

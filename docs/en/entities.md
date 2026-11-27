@@ -69,9 +69,11 @@ entities.Each2[Position, Velocity](world, func(e entities.Entity, p *Position, v
 `Scheduler` runs named systems in a deterministic topological order on each `game.Loop` fixed step.
 
 - `AddSystem(name, fn, opts...)` registers a system with optional `Before(other)` and `After(other)` constraints. Targets may be registered in any order.
+- `HasSystem(name)` reports whether a system with `name` is already registered on the scheduler.
 - `Build()` validates constraints and resolves execution order with Kahn's algorithm, breaking ties by registration order. Unknown targets return `ErrUnknownSystem` and cycles return `ErrSystemCycle`.
 - `Order()` returns the resolved names and `String()` formats them as `"a -> b -> c"` for debug overlays.
 - `Step(w, dt)` resolves if needed and runs each system in order with zero steady-state allocations.
+- For reusable plugins, `game/pkg/plugin` adds four standard stage anchor pairs (`StageInput` -> `StageUpdate` -> `StagePhysics` -> `StageLate`) once per scheduler so plugin systems can attach to a stage without knowing the game's system names; see [Plugins](plugins.md#standard-scheduler-stages).
 
 ```go
 sched := entities.NewScheduler()

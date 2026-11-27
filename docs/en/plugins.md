@@ -3,8 +3,105 @@
 A Go plugin is a Go module that extends a game's runtime, the scene editor, or the `game` CLI. Because iOS and web targets link all native code at compile time, Go plugins are ordinary Go packages wired into the game project through `go.mod` rather than dynamically loaded shared libraries.
 
 ```go
-import "github.com/nsgo-dev/game/pkg/plugin/manifest"
+import (
+	"github.com/nsgo-dev/game/pkg/plugin"
+	"github.com/nsgo-dev/game/pkg/plugin/manifest"
+)
 ```
+
+## Runtime plugins (`pkg/plugin`)
+
+A plugin's runtime Go package exports a constructor returning a `plugin.Plugin` (conventionally `func Plugin() plugin.Plugin`), and the game installs every active plugin onto a `plugin.Host` with `plugin.Install`. `pkg/plugin` never imports `pkg/editor`, `pkg/mcp`, or `pkg/playtest`, so shipped binaries link only the runtime packages they use.
+
+```go
+func Plugin() plugin.Plugin {
+	return plugin.Plugin{
+		Name:   "health",
+		Module: "example.com/healthkit",
+		API:    plugin.APIVersion,
+		Components: []sceneformat.ComponentType{
+			Type(), // carries Fields, Events, Handlers and optional Spawn
+		},
+		Systems: []plugin.System{
+			{Name: "health.regen", Stage: plugin.StageUpdate, Fn: regenSystem},
+		},
+		Codecs: func(w *entities.World) error {
+			return entities.RegisterCodec[Stats](w, "health")
+		},
+	}
+}
+```
+
+### Installing onto a `Host`
+
+A `plugin.Host` groups the registries a game wants plugins to populate; any `nil` field skips that kind of contribution:
+
+- `Host.Components` (`*sceneformat.ComponentRegistry`): merges each plugin's `Components` (preserving `ComponentType.Spawn`) in plugin and slice order.
+- `Host.Scheduler` (`*entities.Scheduler`): ensures the four standard stage anchor pairs exist once per scheduler, then registers each plugin's `Systems` in plugin and slice order.
+- `Host.DataTables` (`*datatable.Registry`): registers each plugin's `RowTypes` in sorted file-pattern order.
+- `Host.Console` (`*debug.Console`): registers each plugin's `Console` commands in slice order, refusing collisions with built-in or previously registered commands.
+- `Host.OnWorld(w)` runs every installed plugin's `Codecs` callback on `w` in installation order. Call `OnWorld` on every `entities.World` the game creates (including fresh worlds restored from save snapshots).
+- `Host.Plugins()` returns installed plugin metadata (`Name`, `Module`, and `Version` resolved from `runtime/debug.ReadBuildInfo`, returning `"(devel)"` for local builds or replace directives without a version). `Host.Has(name)` reports whether a plugin is installed.
+
+```go
+host := &plugin.Host{
+	Components: sceneformat.NewComponentRegistry(),
+	Scheduler:  entities.NewScheduler(),
+	DataTables: datatable.NewRegistry(),
+	Console:    debug.NewConsole(),
+}
+if err := plugin.Install(host, health.Plugin()); err != nil {
+	return err
+}
+
+world := entities.NewWorld()
+if err := host.OnWorld(world); err != nil {
+	return err
+}
+```
+
+### Validation, determinism and process-global registries
+
+- **Pre-flight checks**: `Install` checks `Plugin.API == plugin.APIVersion`, validates plugin names and module paths, refuses duplicate plugin names, and verifies that every component, system, pixel effect, data table pattern, and console command name is free before mutating any registry. On any conflict or validation error, nothing is registered.
+- **Deterministic order**: plugins are processed in argument order, slice fields (`Components`, `Systems`, `Console`) in declaration order, and maps (`PixelFX`, `RowTypes`) in sorted key order. `Plugin.Install` (the escape hatch `func(*Host) error`) runs last after all declarative contributions are committed.
+- **Process-global idempotency (`PixelFX`)**: `pixelfx` effects live in a process-global registry. `Install` tracks the owning `(Name, Module)` of every plugin-registered effect so re-installing the same plugin in a second test or after an editor reload is a no-op rather than a panic, while a different plugin or collision with a built-in effect fails cleanly before registering anything.
+- **No `Version` field**: just like `plugin.yaml`, `plugin.Plugin` has no `Version` field. Versions come from `go.mod` via `plugin.ModuleVersion(modulePath)`. `plugin.APIVersion` is bumped only on breaking changes to the plugin contract.
+
+### Standard scheduler stages
+
+Third-party systems often need to run in a predictable phase without knowing the host game's own system names. `plugin.Install` (or `plugin.EnsureStages(sched)`) adds four anchor pairs once per `*entities.Scheduler` in fixed order:
+
+1. `plugin.StageInput` (`"input"`) — reading input and translating player intent.
+2. `plugin.StageUpdate` (`"update"`) — general gameplay systems.
+3. `plugin.StagePhysics` (`"physics"`) — physics, movement, and collision resolution.
+4. `plugin.StageLate` (`"late"`) — camera follow, transform synchronization, and cleanup.
+
+Setting `System.Stage` constrains the system with `entities.After(stage.Start())` and `entities.Before(stage.End())`. Within the same stage, systems run in registration order unless further ordered with `Before` and `After`. Games can also reference `stage.Start()` and `stage.End()` from their own `Scheduler.AddSystem` calls.
+
+### Development-time contributions (`pkg/plugin/devtools`)
+
+MCP bridge prefabs (`pkg/mcp`) and playtest bots (`pkg/playtest`) depend on heavier inspection and replay packages that shipped game binaries should not link (see [Package Size Budgets](package-size-budgets.md)). Those contributions live in the separate `github.com/nsgo-dev/game/pkg/plugin/devtools` package:
+
+```go
+import "github.com/nsgo-dev/game/pkg/plugin/devtools"
+
+devHost := &devtools.Host{Bridge: bridge}
+if err := devtools.Install(devHost, devtools.Plugin{
+	Name:   "healthkit",
+	Module: "example.com/healthkit",
+	API:    plugin.APIVersion,
+	Prefabs: []devtools.PrefabSpec{
+		{Prefab: patientPrefab},
+	},
+	Bots: map[string]playtest.BotFactory{
+		"healthkit-medic": newMedicBot,
+	},
+}); err != nil {
+	return err
+}
+```
+
+`devtools.Install` enforces the same API version check, atomic pre-flight conflict detection, deterministic ordering, and process-global ownership rules for `playtest` bot profiles (preventing collisions with built-in profiles or another plugin while allowing idempotent re-installs of the same plugin), without importing `pkg/editor`.
 
 ## The `plugin.yaml` manifest
 

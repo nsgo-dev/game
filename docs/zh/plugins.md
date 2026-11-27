@@ -3,8 +3,105 @@
 Go 插件是用于扩展游戏运行时、场景编辑器或 `game` 命令行工具的 Go 模块。由于 iOS 和 Web 目标要求所有原生代码在编译期静态链接，Go 插件是以普通 Go 包的形式通过 `go.mod` 接入游戏项目的，而不是在运行时动态加载共享库。
 
 ```go
-import "github.com/nsgo-dev/game/pkg/plugin/manifest"
+import (
+	"github.com/nsgo-dev/game/pkg/plugin"
+	"github.com/nsgo-dev/game/pkg/plugin/manifest"
+)
 ```
+
+## 运行时插件（`pkg/plugin`）
+
+插件的运行时 Go 包导出一个返回 `plugin.Plugin` 的构造函数（约定为 `func Plugin() plugin.Plugin`），游戏通过 `plugin.Install` 将所有启用的插件安装到 `plugin.Host` 上。`pkg/plugin` 不导入 `pkg/editor`、`pkg/mcp` 或 `pkg/playtest`，确保发布的二进制只链接实际用到的运行时包。
+
+```go
+func Plugin() plugin.Plugin {
+	return plugin.Plugin{
+		Name:   "health",
+		Module: "example.com/healthkit",
+		API:    plugin.APIVersion,
+		Components: []sceneformat.ComponentType{
+			Type(), // 包含 Fields、Events、Handlers 及可选的 Spawn
+		},
+		Systems: []plugin.System{
+			{Name: "health.regen", Stage: plugin.StageUpdate, Fn: regenSystem},
+		},
+		Codecs: func(w *entities.World) error {
+			return entities.RegisterCodec[Stats](w, "health")
+		},
+	}
+}
+```
+
+### 安装到 `Host`
+
+`plugin.Host` 聚合游戏希望插件填充的注册表；任意为 `nil` 的字段都会跳过对应类别的贡献：
+
+- `Host.Components`（`*sceneformat.ComponentRegistry`）：按插件参数顺序与切片顺序合并每个插件的 `Components`（保留 `ComponentType.Spawn`）。
+- `Host.Scheduler`（`*entities.Scheduler`）：为每个调度器一次性添加四组标准阶段锚点，随后按插件与切片顺序注册各插件的 `Systems`。
+- `Host.DataTables`（`*datatable.Registry`）：按文件路径模式排序依次注册每个插件的 `RowTypes`。
+- `Host.Console`（`*debug.Console`）：按切片顺序注册每个插件的 `Console` 命令，拒绝与内置命令或已有命令重名。
+- `Host.OnWorld(w)` 按安装顺序在 `w` 上执行每个已安装插件的 `Codecs` 回调。每次游戏创建新的 `entities.World`（包括从存档恢复的新世界）时都应调用 `OnWorld`。
+- `Host.Plugins()` 返回已安装插件的元数据（`Name`、`Module` 以及通过 `runtime/debug.ReadBuildInfo` 读取的 `Version`；本地构建或无版本号的 `replace` 指令返回 `"(devel)"`）。`Host.Has(name)` 报告插件是否已安装。
+
+```go
+host := &plugin.Host{
+	Components: sceneformat.NewComponentRegistry(),
+	Scheduler:  entities.NewScheduler(),
+	DataTables: datatable.NewRegistry(),
+	Console:    debug.NewConsole(),
+}
+if err := plugin.Install(host, health.Plugin()); err != nil {
+	return err
+}
+
+world := entities.NewWorld()
+if err := host.OnWorld(world); err != nil {
+	return err
+}
+```
+
+### 校验、确定性与进程全局注册表
+
+- **注册前校验**：`Install` 会先检查 `Plugin.API == plugin.APIVersion`、校验插件名与模块路径、拒绝重复插件名，并确认所有组件、系统、像素特效、数据表模式与控制台命令名均未被占用，之后才会写入任何注册表。出现任何冲突或校验错误时，不会产生半成品注册。
+- **确定性顺序**：按参数顺序处理插件、按声明顺序处理切片字段（`Components`、`Systems`、`Console`）、按排序后的键顺序处理映射（`PixelFX`、`RowTypes`）。`Plugin.Install` 逃生舱（`func(*Host) error`）在所有声明式贡献提交之后最后执行。
+- **进程全局幂等（`PixelFX`）**：`pixelfx` 特效保存在进程全局注册表中。`Install` 会记录每个插件注册特效的归属 `(Name, Module)`，因此在第二个测试或编辑器重载后重复安装同一插件时会自动跳过而不会 panic；若其他插件或内置特效已占用该 ID，则在写入任何状态前明确报错。
+- **不设 `Version` 字段**：与 `plugin.yaml` 一致，`plugin.Plugin` 不包含 `Version` 字段，版本号统一通过 `plugin.ModuleVersion(modulePath)` 从 `go.mod` 构建信息读取。`plugin.APIVersion` 仅在插件契约发生破坏性变更时递增。
+
+### 标准调度阶段
+
+第三方系统通常希望在不了解宿主游戏内部系统名称的前提下插入到确定阶段。`plugin.Install`（或 `plugin.EnsureStages(sched)`）会为每个 `*entities.Scheduler` 一次性添加四组固定顺序的阶段锚点：
+
+1. `plugin.StageInput`（`"input"`）——读取输入并转换玩家意图。
+2. `plugin.StageUpdate`（`"update"`）——常规玩法逻辑系统。
+3. `plugin.StagePhysics`（`"physics"`）——物理、移动与碰撞解算。
+4. `plugin.StageLate`（`"late"`）——相机跟随、变换同步与收尾清理。
+
+设置 `System.Stage` 会自动为系统添加 `entities.After(stage.Start())` 与 `entities.Before(stage.End())` 约束。同一阶段内的系统默认按注册顺序执行，也可通过 `Before` 和 `After` 进一步约束。游戏自身的 `Scheduler.AddSystem` 调用同样可以引用 `stage.Start()` 与 `stage.End()`。
+
+### 开发期贡献（`pkg/plugin/devtools`）
+
+MCP 桥接预制体（`pkg/mcp`）与自动试玩机器人（`pkg/playtest`）依赖较重的检查与回放包，发布版游戏二进制不应链接这些代码（见[包体积预算](package-size-budgets.md)）。这些贡献拆分在独立的 `github.com/nsgo-dev/game/pkg/plugin/devtools` 包中：
+
+```go
+import "github.com/nsgo-dev/game/pkg/plugin/devtools"
+
+devHost := &devtools.Host{Bridge: bridge}
+if err := devtools.Install(devHost, devtools.Plugin{
+	Name:   "healthkit",
+	Module: "example.com/healthkit",
+	API:    plugin.APIVersion,
+	Prefabs: []devtools.PrefabSpec{
+		{Prefab: patientPrefab},
+	},
+	Bots: map[string]playtest.BotFactory{
+		"healthkit-medic": newMedicBot,
+	},
+}); err != nil {
+	return err
+}
+```
+
+`devtools.Install` 遵循同样的 API 版本校验、原子化注册前冲突检查、确定性顺序，以及 `playtest` 机器人注册表的进程全局归属规则（阻止覆盖内置或其他插件的机器人，同时允许同一插件幂等重装），且不导入 `pkg/editor`。
 
 ## `plugin.yaml` 清单
 

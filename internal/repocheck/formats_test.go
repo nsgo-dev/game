@@ -167,6 +167,7 @@ var formatVersions = map[string]string{
 	"platformer.CurrentVersion":                     "platformer",
 	"playtest.CurrentVersion":                       "playtest",
 	"playtest.ReportVersion":                        "playtest#report",
+	"plugin.APIVersion":                             "",
 	"plugin/manifest.ManifestVersion":               "plugin/manifest",
 	"procgen.RoomTemplatesVersion":                  "procgen#rooms",
 	"procgen.RulesVersion":                          "procgen",
@@ -228,6 +229,7 @@ var notFormatVersions = map[string]string{
 	"online/netplay/wire.ReplicationMessageVersion": "the version of the replication v2 nibble header on the wire, generated from pkg/online/netplay/wire/replication.wire.yaml; docs/en/netplay-wire.md documents it",
 	"physics.SnapshotVersion":                       "the version of in-memory/JSON 2D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics.md documents it",
 	"physics3d.SnapshotVersion":                     "the version of in-memory/JSON 3D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics3d.md documents it",
+	"plugin.APIVersion":                             "the Go API contract version of runtime and editor plugins rather than a standalone file format; docs/en/plugins.md documents it",
 	"vehicle.SnapshotVersion":                       "the version of in-memory/JSON vehicle simulation snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/determinism.md documents it",
 }
 
