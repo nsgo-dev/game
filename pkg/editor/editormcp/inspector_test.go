@@ -39,9 +39,10 @@ func TestObjectSetFieldAndLocateYAML(t *testing.T) {
 		t.Fatalf("object_locate_yaml YAML missing hero:\n%s", loc.YAML)
 	}
 
-	// Edit object field via object_set_field (defaulting to selected object).
+	// Edit object field via object_set_field; outside an agent turn it names its object, since the selection is never a write target.
 	beforeIdx := f.ed.History.Index()
 	res := call(t, cs, editormcp.ToolObjectSetField, map[string]any{
+		"id":    "hero",
 		"field": "x",
 		"value": 128,
 	})
@@ -73,6 +74,7 @@ func TestObjectSetFieldAndLocateYAML(t *testing.T) {
 
 	// Edit custom property via object_set_field.
 	res = call(t, cs, editormcp.ToolObjectSetField, map[string]any{
+		"id":       "hero",
 		"property": true,
 		"field":    "tier",
 		"value":    3,
