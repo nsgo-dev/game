@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - `Pause(true)` and `ResetInput` run before the ad shows and `Pause(false)` before the result is reported, so the loop and the mixer stay paused and no key stays held while the ad covers the game.
 
 Not yet available: an `ads.yaml` declaring unit IDs and placements, banner ads, and the mini-game `AdHost`, which waits on NSGo's mini-game ad API ([nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)). Grant currency rewards on the server, keyed by your own show ID, so a reward is not granted twice.
+
+### Signed remote configuration core
+
+`liveops/remoteconfig` provides typed defaults, staged activation and deterministic SHA-256 bucketing for account or install IDs. Stage a fetched document, then call `Activate` at a safe boundary so a level never changes configuration mid-run. Hosts should verify the document signature before staging it.
