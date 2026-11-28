@@ -624,8 +624,16 @@ func TestWebTransportUnreliableNotBlockedByLostPacket(t *testing.T) {
 
 	// Send one small unreliable datagram right behind the dropped reliable packet (sending just one avoids triggering QUIC's 3-packet fast-retransmit threshold before the client processes the datagram).
 	firstUnrel := []byte("UNREL:0")
+	sentBefore := srv.outCounters.datagramsSent.Load()
 	if err := srv.Send(cli.LocalID(), ChannelUnreliable, firstUnrel); err != nil {
 		t.Fatalf("Send unreliable 0: %v", err)
+	}
+	sentDeadline := time.Now().Add(2 * time.Second)
+	for srv.outCounters.datagramsSent.Load() == sentBefore && time.Now().Before(sentDeadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if srv.outCounters.datagramsSent.Load() == sentBefore {
+		t.Fatal("unreliable datagram was not handed to QUIC")
 	}
 
 	// Wait for the unreliable datagram to arrive first; then send a few more and wait for the retransmitted reliable packet.

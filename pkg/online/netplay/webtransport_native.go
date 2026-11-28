@@ -794,6 +794,7 @@ func (s *WebTransportServer) writeDatagramLoop(c *wtClientConn) {
 		}
 		err := c.sess.SendDatagram(item.data)
 		if err == nil {
+			s.outCounters.datagramsSent.Add(1)
 			continue
 		}
 		if tooLarge, ok := errors.AsType[*quic.DatagramTooLargeError](err); ok {

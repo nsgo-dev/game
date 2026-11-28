@@ -23,8 +23,9 @@ type outboxItem struct {
 
 // outboxCounters are a server's outbox counters, shared by the outboxes of all its clients so that they outlive any one connection. The server counts overflows itself, once per session it ends.
 type outboxCounters struct {
-	dropped   atomic.Uint64
-	overflows atomic.Uint64
+	dropped       atomic.Uint64
+	overflows     atomic.Uint64
+	datagramsSent atomic.Uint64
 }
 
 // pushResult is what outbox.push did with a frame.
