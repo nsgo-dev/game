@@ -116,8 +116,9 @@ type EditResult struct {
 	// Objects are the IDs of the objects the edits added, in order.
 	Objects []string `json:"added,omitempty"`
 	// Revision is the editor's revision after the edits.
-	Revision uint64        `json:"revision"`
-	Changes  []FieldChange `json:"changes,omitempty"`
+	Revision uint64 `json:"revision"`
+	// Changes are the fields the edits set, one per field in edit order, each read back from the resolved scene before and after its edit. add, remove, reparent and move_to_layer edits report none.
+	Changes []FieldChange `json:"changes,omitempty"`
 }
 
 // objectFields are the object fields set changes, in the order replies list them.
