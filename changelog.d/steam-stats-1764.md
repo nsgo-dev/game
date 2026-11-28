@@ -1,1 +1,3 @@
-新增 Steamworks 成就、统计、排行榜和富状态的可注入引擎边界。
+### Added
+
+- `game/pkg/online/steam`: an injectable Steamworks `Driver` boundary and a `Platform` for achievements, int and float stats, `StoreStats`, leaderboard uploads and queries, and rich presence, with completion callbacks posted to the engine scope; no native adapter ships yet (#1764).

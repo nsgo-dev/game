@@ -137,6 +137,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/online/netplay` | Experimental | [netplay](netplay.md) |
 | `game/pkg/online/netplay/wire` | Experimental | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | Experimental | [presence](presence.md) |
+| `game/pkg/online/steam` | Experimental | [steam](steamworks.md) |
 | `game/pkg/online/storeverify/wechatpay` | Experimental | [liveops](liveops.md) |
 | `game/pkg/online/wsclient` | Experimental | [wsclient](wsclient.md) |
 | `game/pkg/particles` | Experimental | [particles](particles.md) |
