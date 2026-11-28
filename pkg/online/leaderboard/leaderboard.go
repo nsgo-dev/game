@@ -60,6 +60,8 @@ const (
 	ProviderGameCenter
 	// ProviderPlayGames is Google Play Games Services on Android.
 	ProviderPlayGames
+	// ProviderSteam is Valve Steamworks on desktop.
+	ProviderSteam
 	// ProviderMiniGame is WeChat or Douyin mini-game friend rankings backed by host user cloud storage and the open data context.
 	ProviderMiniGame
 )
@@ -71,6 +73,8 @@ func (p Provider) String() string {
 		return "gameCenter"
 	case ProviderPlayGames:
 		return "playGames"
+	case ProviderSteam:
+		return "steam"
 	case ProviderMiniGame:
 		return "miniGame"
 	}

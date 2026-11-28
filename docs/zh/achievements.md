@@ -148,3 +148,8 @@ got := app.GameServicesAchievements() // [{ID: "com.example.mygame.first_match",
 ```
 
 `App.SetGameServicesError` 和 `App.SetGameServicesAuthError` 可以模拟服务故障和取消登录。[SlideGem 示例](https://github.com/nsgo-dev/game/tree/main/examples/slidegem)就是这样在 Game Center 和 Play Games 上各解锁它的第一个成就。
+
+## Steam 成就 ID
+
+若通过 Steamworks 上报成就，可在 `platforms` 下添加可选的 `steam` ID。现有 Game Center 与 Play Games 条目仍然有效，缺少 Steam ID 时该成就不会向 Steam 上报。
+共享目录支持通过 `platforms.steam` 声明 Steam 成就 ID，配置 Steamworks 适配器后即可分发。

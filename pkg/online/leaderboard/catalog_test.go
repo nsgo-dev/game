@@ -141,7 +141,7 @@ func TestParseRefusesInvalidCatalogs(t *testing.T) {
 		want string
 	}{
 		"empty":                  {"  \n", "empty catalog"},
-		"unknown field":          {"version: 1\nleaderboards:\n  - name: a\n    gameCenter: x\n    steam: y\n", `unknown field "steam"`},
+		"unknown field":          {"version: 1\nleaderboards:\n  - name: a\n    gameCenter: x\n    xbox: y\n", `unknown field "xbox"`},
 		"unknown miniGame field": {"version: 1\nleaderboards:\n  - name: a\n    miniGame:\n      key: best\n      extra: 1\n", `unknown field "extra"`},
 		"unknown top":            {"version: 1\nboards: []\n", `unknown field "boards"`},
 		"missing version":        {"leaderboards:\n  - name: a\n    gameCenter: x\n", "unsupported version 0"},
@@ -237,4 +237,22 @@ func FuzzParseRoundTrip(f *testing.F) {
 			t.Fatalf("Encode is not stable: %v\n%s\n%s", err, out, again)
 		}
 	})
+}
+
+func TestSteamLeaderboardRoundTrip(t *testing.T) {
+	data := []byte("version: 1\nleaderboards:\n  - name: high-score\n    steam: global_high\n")
+	c, err := leaderboard.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Leaderboards[0].ID(leaderboard.ProviderSteam); got != "global_high" {
+		t.Fatalf("steam ID = %q", got)
+	}
+	out, err := c.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("steam: global_high")) {
+		t.Fatalf("encoded steam ID missing: %s", out)
+	}
 }

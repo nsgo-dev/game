@@ -1,6 +1,7 @@
 package achievements_test
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -69,7 +70,7 @@ func TestParseRefusesInvalidFiles(t *testing.T) {
 		"duplicate id":     "version: 1\nachievements:\n  - id: a\n  - id: a\n",
 		"negative steps":   "version: 1\nachievements:\n  - id: a\n    steps: -1\n",
 		"too many steps":   "version: 1\nachievements:\n  - id: a\n    steps: 2147483648\n",
-		"unknown service":  "version: 1\nachievements:\n  - id: a\n    platforms:\n      steam: ACH_A\n",
+		"unknown service":  "version: 1\nachievements:\n  - id: a\n    platforms:\n      xbox: ACH_A\n",
 		"spaced platform":  "version: 1\nachievements:\n  - id: a\n    platforms:\n      gameCenter: a b\n",
 		"shared platform":  "version: 1\nachievements:\n  - id: a\n    platforms:\n      playGames: X\n  - id: b\n    platforms:\n      playGames: X\n",
 		"trailing doc":     "version: 1\n---\nversion: 1\n",
@@ -138,7 +139,7 @@ func TestParseProgressRefusesInvalidDocuments(t *testing.T) {
 		"unknown field":    "version: 1\nachievements:\n  - id: a\n    steps: 1\n    unlockedAt: now\n",
 		"duplicate":        "version: 1\nachievements:\n  - id: a\n    steps: 1\n  - id: a\n    steps: 2\n",
 		"negative steps":   "version: 1\nachievements:\n  - id: a\n    steps: -3\n",
-		"unknown service":  "version: 1\nachievements:\n  - id: a\n    steps: 1\n    reported:\n      steam: 1\n",
+		"unknown service":  "version: 1\nachievements:\n  - id: a\n    steps: 1\n    reported:\n      xbox: 1\n",
 		"reported > steps": "version: 1\nachievements:\n  - id: a\n    steps: 1\n    reported:\n      gameCenter: 2\n",
 		"bad id":           "version: 1\nachievements:\n  - id: \"a/b\"\n    steps: 1\n",
 	}
@@ -155,7 +156,24 @@ func TestServiceValid(t *testing.T) {
 	if !achievements.GameCenter.Valid() || !achievements.PlayGames.Valid() {
 		t.Fatal("known services reported invalid")
 	}
-	if achievements.Service("steam").Valid() || achievements.Service("").Valid() {
+	if achievements.Service("xbox").Valid() || achievements.Service("").Valid() {
 		t.Fatal("unknown service reported valid")
+	}
+}
+
+func TestSteamPlatformRoundTrip(t *testing.T) {
+	set, err := achievements.Parse([]byte("version: 1\nachievements:\n  - id: gems\n    steps: 5\n    platforms:\n      steam: ACH_GEMS\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := set.Achievements[0].Platforms.ID(achievements.Steam); got != "ACH_GEMS" {
+		t.Fatalf("steam ID = %q", got)
+	}
+	out, err := achievements.Encode(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("steam: ACH_GEMS")) {
+		t.Fatalf("encoded steam ID missing: %s", out)
 	}
 }

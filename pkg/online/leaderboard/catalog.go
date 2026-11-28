@@ -79,6 +79,8 @@ type Board struct {
 	GameCenter string `yaml:"gameCenter,omitempty"`
 	// PlayGames is the leaderboard ID the Google Play Console generated, used on Android.
 	PlayGames string `yaml:"playGames,omitempty"`
+	// Steam is the Steamworks leaderboard name.
+	Steam string `yaml:"steam,omitempty"`
 	// MiniGame configures friend rankings on WeChat and Douyin mini games through the host's cloud storage and open data context.
 	MiniGame *MiniGameBoard `yaml:"miniGame,omitempty"`
 }
@@ -90,6 +92,8 @@ func (b Board) ID(provider Provider) string {
 		return b.GameCenter
 	case ProviderPlayGames:
 		return b.PlayGames
+	case ProviderSteam:
+		return b.Steam
 	case ProviderMiniGame:
 		if b.MiniGame != nil {
 			return b.MiniGame.Key
@@ -186,6 +190,7 @@ func (c *Catalog) Validate() error {
 	seen := make(map[string]struct{}, len(c.Leaderboards))
 	seenGC := make(map[string]string, len(c.Leaderboards))
 	seenPG := make(map[string]string, len(c.Leaderboards))
+	seenSteam := make(map[string]string, len(c.Leaderboards))
 	seenMG := make(map[string]string, len(c.Leaderboards))
 	for i, b := range c.Leaderboards {
 		bPath := fmt.Sprintf("leaderboards[%d]", i)
@@ -196,7 +201,7 @@ func (c *Catalog) Validate() error {
 			return loaderr.Errorf(bPath+".name", "give each leaderboard a unique name", "leaderboard: duplicate board name %q", b.Name)
 		}
 		seen[b.Name] = struct{}{}
-		if b.GameCenter == "" && b.PlayGames == "" && b.MiniGame == nil {
+		if b.GameCenter == "" && b.PlayGames == "" && b.Steam == "" && b.MiniGame == nil {
 			return loaderr.Errorf(bPath, "set gameCenter, playGames, miniGame, or a combination on the leaderboard entry", "leaderboard: board %q declares no platform ID (set gameCenter, playGames or miniGame)", b.Name)
 		}
 		if err := validateID(b.GameCenter); err != nil {
@@ -219,6 +224,12 @@ func (c *Catalog) Validate() error {
 			return err
 		}
 		if err := checkID("playGames", bPath+".playGames", seenPG, b.PlayGames); err != nil {
+			return err
+		}
+		if err := validateID(b.Steam); err != nil {
+			return loaderr.Errorf(bPath+".steam", fmt.Sprintf("set steam to up to %d ASCII letters, digits, '.', '_' or '-'", MaxIDLength), "leaderboard: board %q steam: %w", b.Name, err)
+		}
+		if err := checkID("steam", bPath+".steam", seenSteam, b.Steam); err != nil {
 			return err
 		}
 		if b.MiniGame != nil {

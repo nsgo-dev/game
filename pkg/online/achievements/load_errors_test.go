@@ -21,8 +21,8 @@ func TestParseLoadErrors(t *testing.T) {
 	})
 
 	t.Run("progress unknown service", func(t *testing.T) {
-		data := []byte("version: 1\nachievements:\n  - id: first_win\n    steps: 1\n    reported:\n      steam: 1\n")
+		data := []byte("version: 1\nachievements:\n  - id: first_win\n    steps: 1\n    reported:\n      xbox: 1\n")
 		_, err := achievements.ParseProgress(data)
-		loaderrtest.ExpectField(t, err, "", data, "achievements[0].reported.steam")
+		loaderrtest.ExpectField(t, err, "", data, "achievements[0].reported.xbox")
 	})
 }

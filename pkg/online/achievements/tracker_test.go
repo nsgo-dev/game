@@ -169,7 +169,7 @@ func TestUnknownIDsAndBadInput(t *testing.T) {
 	if tr.Steps("nope") != 0 || tr.Percent("nope") != 0 || tr.Unlocked("nope") {
 		t.Fatal("unknown ID reports progress")
 	}
-	if err := tr.Connect("steam", &queueReporter{}); err == nil {
+	if err := tr.Connect("xbox", &queueReporter{}); err == nil {
 		t.Fatal("Connect accepted an unknown service")
 	}
 	if err := tr.Connect(achievements.GameCenter, nil); err == nil {
