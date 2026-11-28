@@ -684,7 +684,7 @@ func (l *List) effectiveItemHeight(theme *Theme) float32 {
 	if l.ItemHeight > 0 {
 		return l.ItemHeight
 	}
-	font := resolveFont(l.Font, theme.Font)
+	font := resolveFont(l.Font, theme.Font, theme.TextScale)
 	return max(float32(font.Size)+theme.Padding, 28)
 }
 

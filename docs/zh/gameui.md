@@ -257,3 +257,11 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 - `image_progress` 节点引用的 `under`、`progress` 或 `over` 图片缺失。
 
 `tooling/refs` 与 `game mv` 会追踪 `*.screen.yaml` 中的 `sprite` 路径、`image_progress` 图层路径和 `textKey` 引用：`game mv art/heart.png art/ui/heart.png` 会原地更新 `sprite:`，而 `game mv -text-key hud.hint.lever hud.tip.lever` 会同步重命名所有 `*.screen.yaml` 与 YAML 本地化字符串表中的键。
+
+## 文本缩放（`TextScale`）
+
+`Theme.TextScale` 与 `Root.TextScale` 在布局和绘制时放大所有控件的字号：主题的默认 `Font`，以及控件自己的 `Font.Size`（包括 screen 文件里的 `fontSize`）。label、button、toggle、slider、progress bar、list 和 touch button 会随之变大并重新测量，而显式设置的控件尺寸和触控区域保持不变。缩放比例限制在 `MinTextScale`–`MaxTextScale`（1–2）之间；设置了 `Root.TextScale` 时它取代主题的值，`Root.SetTextScale` 会保存并返回限制后的值。`BuiltScreen` 通过 `built.Root.SetTextScale` 设置缩放。
+
+`ScreenCheckOptions.TextScale` 表示游戏支持的最大缩放比例。`CheckScreen` 会在该比例和主题自身的比例下各布局一次，只在较大比例下出现的 `text_overflow` 会在消息里注明比例（`at text scale 200%`）。
+
+设置菜单的 Text Scale 行目前还不会驱动 `Root.TextScale`，也没有读取 `core.Env().FontScale()`；需要由游戏自己把玩家的设置接进来（#1772）。

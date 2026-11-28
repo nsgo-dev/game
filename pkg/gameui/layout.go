@@ -118,7 +118,7 @@ func (b *HBox) measure(theme *Theme) core.Size {
 }
 
 func (l *Label) measure(theme *Theme) core.Size {
-	font := resolveFont(l.Font, theme.Font)
+	font := resolveFont(l.Font, theme.Font, theme.TextScale)
 	tw, th := measureText(l.Text, font, theme)
 	padX := float32(l.Padding.Left + l.Padding.Right)
 	padY := float32(l.Padding.Top + l.Padding.Bottom)
@@ -126,7 +126,7 @@ func (l *Label) measure(theme *Theme) core.Size {
 }
 
 func (b *Button) measure(theme *Theme) core.Size {
-	font := resolveFont(b.Font, theme.Font)
+	font := resolveFont(b.Font, theme.Font, theme.TextScale)
 	tw, th := measureText(b.Text, font, theme)
 	var padX, padY float32
 	if b.Padding != (core.Edges{}) {
@@ -143,7 +143,7 @@ func (b *Button) measure(theme *Theme) core.Size {
 }
 
 func (t *Toggle) measure(theme *Theme) core.Size {
-	font := resolveFont(t.Font, theme.Font)
+	font := resolveFont(t.Font, theme.Font, theme.TextScale)
 	tw, th := measureText(t.Label, font, theme)
 	boxSize := max(float32(font.Size)*1.15, 18)
 	indicatorW := boxSize
@@ -160,7 +160,7 @@ func (t *Toggle) measure(theme *Theme) core.Size {
 }
 
 func (s *Slider) measure(theme *Theme) core.Size {
-	font := resolveFont(s.Font, theme.Font)
+	font := resolveFont(s.Font, theme.Font, theme.TextScale)
 	prefW := float32(160)
 	if s.Label != "" {
 		lw, _ := measureText(s.Label, font, theme)
@@ -171,7 +171,7 @@ func (s *Slider) measure(theme *Theme) core.Size {
 }
 
 func (p *ProgressBar) measure(theme *Theme) core.Size {
-	font := resolveFont(p.Font, theme.Font)
+	font := resolveFont(p.Font, theme.Font, theme.TextScale)
 	prefH := float32(16)
 	if p.Label != "" {
 		_, th := measureText(p.Label, font, theme)
@@ -198,7 +198,7 @@ func (s *Spacer) measure(_ *Theme) core.Size {
 }
 
 func (l *List) measure(theme *Theme) core.Size {
-	font := resolveFont(l.Font, theme.Font)
+	font := resolveFont(l.Font, theme.Font, theme.TextScale)
 	pad := max(theme.Padding*0.5, 4)
 	itemH := l.effectiveItemHeight(theme)
 	spacing := max(0, l.Spacing)
@@ -527,7 +527,7 @@ func (s *Slider) layout(bounds core.Bounds, theme *Theme) {
 	tw := max(0, w-2*pad)
 
 	if s.Label != "" {
-		font := resolveFont(s.Font, theme.Font)
+		font := resolveFont(s.Font, theme.Font, theme.TextScale)
 		lw, _ := measureText(s.Label, font, theme)
 		gap := max(theme.Padding*0.75, 8)
 		labelReserve := min(lw+gap, w*0.45)
