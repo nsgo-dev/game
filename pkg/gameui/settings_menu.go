@@ -142,15 +142,28 @@ type SettingsText struct {
 	FrameCap      string
 	Uncapped      string
 
-	ControlsHint  string
-	CapturePrompt string
-	Unbound       string
-	ResetControls string
-	ActionToggle  string
-	ActionMash    string
-	MinPressTime  string
-	AcceptDelay   string
-	AssistOff     string
+	ControlsHint     string
+	CapturePrompt    string
+	Unbound          string
+	ResetControls    string
+	ActionToggle     string
+	ActionMash       string
+	MinPressTime     string
+	AcceptDelay      string
+	AssistOff        string
+	MouseSensitivity string
+	StickSensitivity string
+	TouchSensitivity string
+	GyroSensitivity  string
+	InvertX          string
+	InvertY          string
+	StickDeadZone    string
+	TriggerThreshold string
+	Vibration        string
+	FieldOfView      string
+	CameraBob        string
+	CameraSway       string
+	MotionBlur       string
 
 	LanguageHint  string
 	SystemDefault string
@@ -210,15 +223,28 @@ func DefaultSettingsText() SettingsText {
 		FrameCap:      "Frame Cap",
 		Uncapped:      "Uncapped",
 
-		ControlsHint:  "Select an action, then press a key or gamepad button to rebind.",
-		CapturePrompt: "Press key or button...",
-		Unbound:       "Unbound",
-		ResetControls: "Reset Controls to Defaults",
-		ActionToggle:  "Hold to Toggle",
-		ActionMash:    "Hold to Mash",
-		MinPressTime:  "Min Press Time",
-		AcceptDelay:   "Accept Delay",
-		AssistOff:     "Off",
+		ControlsHint:     "Select an action, then press a key or gamepad button to rebind.",
+		CapturePrompt:    "Press key or button...",
+		Unbound:          "Unbound",
+		ResetControls:    "Reset Controls to Defaults",
+		ActionToggle:     "Hold to Toggle",
+		ActionMash:       "Hold to Mash",
+		MinPressTime:     "Min Press Time",
+		AcceptDelay:      "Accept Delay",
+		AssistOff:        "Off",
+		MouseSensitivity: "Mouse Sensitivity",
+		StickSensitivity: "Stick Sensitivity",
+		TouchSensitivity: "Touch Sensitivity",
+		GyroSensitivity:  "Gyro Sensitivity",
+		InvertX:          "Invert X",
+		InvertY:          "Invert Y",
+		StickDeadZone:    "Stick Dead Zone",
+		TriggerThreshold: "Trigger Threshold",
+		Vibration:        "Vibration",
+		FieldOfView:      "Field of View",
+		CameraBob:        "Camera Bob",
+		CameraSway:       "Camera Sway",
+		MotionBlur:       "Motion Blur",
 
 		LanguageHint:  "Choose display language",
 		SystemDefault: "System Default",
@@ -288,6 +314,19 @@ func resolveSettingsText(in SettingsText) SettingsText {
 	fill(&in.MinPressTime, def.MinPressTime)
 	fill(&in.AcceptDelay, def.AcceptDelay)
 	fill(&in.AssistOff, def.AssistOff)
+	fill(&in.MouseSensitivity, def.MouseSensitivity)
+	fill(&in.StickSensitivity, def.StickSensitivity)
+	fill(&in.TouchSensitivity, def.TouchSensitivity)
+	fill(&in.GyroSensitivity, def.GyroSensitivity)
+	fill(&in.InvertX, def.InvertX)
+	fill(&in.InvertY, def.InvertY)
+	fill(&in.StickDeadZone, def.StickDeadZone)
+	fill(&in.TriggerThreshold, def.TriggerThreshold)
+	fill(&in.Vibration, def.Vibration)
+	fill(&in.FieldOfView, def.FieldOfView)
+	fill(&in.CameraBob, def.CameraBob)
+	fill(&in.CameraSway, def.CameraSway)
+	fill(&in.MotionBlur, def.MotionBlur)
 	fill(&in.LanguageHint, def.LanguageHint)
 	fill(&in.SystemDefault, def.SystemDefault)
 	fill(&in.Subtitles, def.Subtitles)
@@ -578,14 +617,27 @@ type SettingsMenu struct {
 	frameCapBtn     *Button
 
 	// Controls widgets
-	controlsHintLabel  *Label
-	actionButtons      []*Button
-	actionToggleChecks []actionAssistToggle
-	actionMashChecks   []actionAssistToggle
-	minPressSlider     *Slider
-	acceptDelaySlider  *Slider
-	resetControlsBtn   *Button
-	capturingAction    string
+	controlsHintLabel      *Label
+	actionButtons          []*Button
+	actionToggleChecks     []actionAssistToggle
+	actionMashChecks       []actionAssistToggle
+	minPressSlider         *Slider
+	acceptDelaySlider      *Slider
+	mouseSensitivitySlider *Slider
+	stickSensitivitySlider *Slider
+	touchSensitivitySlider *Slider
+	gyroSensitivitySlider  *Slider
+	stickDeadZoneSlider    *Slider
+	triggerThresholdSlider *Slider
+	vibrationSlider        *Slider
+	invertXToggle          *Toggle
+	invertYToggle          *Toggle
+	fieldOfViewSlider      *Slider
+	cameraBobSlider        *Slider
+	cameraSwaySlider       *Slider
+	motionBlurToggle       *Toggle
+	resetControlsBtn       *Button
+	capturingAction        string
 
 	// Language widgets
 	languageHintLabel *Label
@@ -1416,7 +1468,7 @@ func (m *SettingsMenu) buildControlsTab() {
 			assistRows++
 		}
 	}
-	totalRows := len(m.actions) + assistRows + 3 // minPressSlider + acceptDelaySlider + resetControlsBtn
+	totalRows := len(m.actions) + assistRows + 16 // assist rows, control and camera settings, reset
 	var rowH float32 = 26
 	var spacing float32 = 4
 	if totalRows > 12 {
@@ -1534,6 +1586,43 @@ func (m *SettingsMenu) buildControlsTab() {
 	children = append(children, m.acceptDelaySlider)
 	controls = append(controls, m.acceptDelaySlider)
 
+	newSlider := func(min, max, step float32, onChange func(float32)) *Slider {
+		return &Slider{Min: min, Max: max, Step: step, Height: rowH, OnChange: func(v float32) {
+			if m.suppressCallbacks {
+				return
+			}
+			onChange(v)
+			m.onSettingMutated()
+		}}
+	}
+	m.mouseSensitivitySlider = newSlider(0, 4, 0.05, func(v float32) { m.settings.Controls.MouseSensitivity = float64(v) })
+	m.stickSensitivitySlider = newSlider(0, 4, 0.05, func(v float32) { m.settings.Controls.StickSensitivity = float64(v) })
+	m.touchSensitivitySlider = newSlider(0, 4, 0.05, func(v float32) { m.settings.Controls.TouchSensitivity = float64(v) })
+	m.gyroSensitivitySlider = newSlider(0, 4, 0.05, func(v float32) { m.settings.Controls.GyroSensitivity = float64(v) })
+	m.stickDeadZoneSlider = newSlider(0, 0.95, 0.05, func(v float32) { m.settings.Controls.StickDeadZone = float64(v) })
+	m.triggerThresholdSlider = newSlider(0, 1, 0.05, func(v float32) { m.settings.Controls.TriggerThreshold = float64(v) })
+	m.vibrationSlider = newSlider(0, 1, 0.05, func(v float32) { m.settings.Controls.Vibration = float64(v) })
+	m.fieldOfViewSlider = newSlider(40, 120, 1, func(v float32) { m.settings.Camera.FieldOfView = float64(v) })
+	m.cameraBobSlider = newSlider(0, 1, 0.05, func(v float32) { m.settings.Camera.CameraBob = float64(v) })
+	m.cameraSwaySlider = newSlider(0, 1, 0.05, func(v float32) { m.settings.Camera.CameraSway = float64(v) })
+	m.invertXToggle = &Toggle{Style: ToggleSwitch, Height: rowH, OnChange: func(v bool) {
+		if !m.suppressCallbacks {
+			m.settings.Controls.InvertX = v
+			m.onSettingMutated()
+		}
+	}}
+	m.invertYToggle = &Toggle{Style: ToggleSwitch, Height: rowH, OnChange: func(v bool) {
+		if !m.suppressCallbacks {
+			m.settings.Controls.InvertY = v
+			m.onSettingMutated()
+		}
+	}}
+	m.motionBlurToggle = &Toggle{Style: ToggleSwitch, Height: rowH, OnChange: func(v bool) {
+		if !m.suppressCallbacks {
+			m.settings.Camera.MotionBlur = v
+			m.onSettingMutated()
+		}
+	}}
 	m.resetControlsBtn = &Button{
 		Text:    m.text.ResetControls,
 		Height:  rowH,
@@ -1541,6 +1630,10 @@ func (m *SettingsMenu) buildControlsTab() {
 	}
 	children = append(children, m.resetControlsBtn)
 	controls = append(controls, m.resetControlsBtn)
+	for _, w := range []Widget{m.mouseSensitivitySlider, m.stickSensitivitySlider, m.touchSensitivitySlider, m.gyroSensitivitySlider, m.invertXToggle, m.invertYToggle, m.stickDeadZoneSlider, m.triggerThresholdSlider, m.vibrationSlider, m.fieldOfViewSlider, m.cameraBobSlider, m.cameraSwaySlider, m.motionBlurToggle} {
+		children = append(children, w)
+		controls = append(controls, w)
+	}
 
 	m.tabPanels[SettingsTabControls] = &VBox{
 		Spacing:  spacing,
@@ -1971,6 +2064,31 @@ func (m *SettingsMenu) syncWidgets() {
 			m.acceptDelaySlider.Label = fmt.Sprintf("%s: %d ms", m.text.AcceptDelay, m.settings.InputAssists.AcceptDelayMs)
 		}
 		m.acceptDelaySlider.Value = float32(m.settings.InputAssists.AcceptDelayMs)
+	}
+	if m.mouseSensitivitySlider != nil {
+		m.mouseSensitivitySlider.Label = fmt.Sprintf("%s: %.2gx", m.text.MouseSensitivity, m.settings.Controls.MouseSensitivity)
+		m.mouseSensitivitySlider.Value = float32(m.settings.Controls.MouseSensitivity)
+		m.stickSensitivitySlider.Label = fmt.Sprintf("%s: %.2gx", m.text.StickSensitivity, m.settings.Controls.StickSensitivity)
+		m.stickSensitivitySlider.Value = float32(m.settings.Controls.StickSensitivity)
+		m.touchSensitivitySlider.Label = fmt.Sprintf("%s: %.2gx", m.text.TouchSensitivity, m.settings.Controls.TouchSensitivity)
+		m.touchSensitivitySlider.Value = float32(m.settings.Controls.TouchSensitivity)
+		m.gyroSensitivitySlider.Label = fmt.Sprintf("%s: %.2gx", m.text.GyroSensitivity, m.settings.Controls.GyroSensitivity)
+		m.gyroSensitivitySlider.Value = float32(m.settings.Controls.GyroSensitivity)
+		m.invertXToggle.Label, m.invertXToggle.Checked = m.text.InvertX, m.settings.Controls.InvertX
+		m.invertYToggle.Label, m.invertYToggle.Checked = m.text.InvertY, m.settings.Controls.InvertY
+		m.stickDeadZoneSlider.Label = fmt.Sprintf("%s: %d%%", m.text.StickDeadZone, pctInt(m.settings.Controls.StickDeadZone))
+		m.stickDeadZoneSlider.Value = float32(m.settings.Controls.StickDeadZone)
+		m.triggerThresholdSlider.Label = fmt.Sprintf("%s: %d%%", m.text.TriggerThreshold, pctInt(m.settings.Controls.TriggerThreshold))
+		m.triggerThresholdSlider.Value = float32(m.settings.Controls.TriggerThreshold)
+		m.vibrationSlider.Label = fmt.Sprintf("%s: %d%%", m.text.Vibration, pctInt(m.settings.Controls.Vibration))
+		m.vibrationSlider.Value = float32(m.settings.Controls.Vibration)
+		m.fieldOfViewSlider.Label = fmt.Sprintf("%s: %.0f°", m.text.FieldOfView, m.settings.Camera.FieldOfView)
+		m.fieldOfViewSlider.Value = float32(m.settings.Camera.FieldOfView)
+		m.cameraBobSlider.Label = fmt.Sprintf("%s: %d%%", m.text.CameraBob, pctInt(m.settings.Camera.CameraBob))
+		m.cameraBobSlider.Value = float32(m.settings.Camera.CameraBob)
+		m.cameraSwaySlider.Label = fmt.Sprintf("%s: %d%%", m.text.CameraSway, pctInt(m.settings.Camera.CameraSway))
+		m.cameraSwaySlider.Value = float32(m.settings.Camera.CameraSway)
+		m.motionBlurToggle.Label, m.motionBlurToggle.Checked = m.text.MotionBlur, m.settings.Camera.MotionBlur
 	}
 	m.resetControlsBtn.Text = m.text.ResetControls
 

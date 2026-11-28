@@ -104,7 +104,9 @@ err := store.LoadChecked("slot1", &snap, func() error {
 
 ## Player settings (`SettingsStore` & `AccessibilitySettings`)
 
-`NewDefaultSettingsStore` (`NewFileSettingsStore` / `NewStorageSettingsStore`) persists `Settings` (`Audio`, `Bindings`, `Display`, `Locale`, `Accessibility`, `Custom`) outside save slots with the same versioned envelope and backup recovery. Call `store.Subscribe(fn)` to react whenever `Save`, `Reset`, or `Delete` succeeds (used by `a11y.NewAssistFromSettings` to keep captions, menus, and effects synchronized with `gameui.SettingsMenu`).
+`NewDefaultSettingsStore` (`NewFileSettingsStore` / `NewStorageSettingsStore`) persists `Settings` (`Audio`, `Bindings`, `Display`, `Controls`, `Camera`, `Locale`, `Accessibility`, `Custom`) outside save slots with the same versioned envelope and backup recovery. Call `store.Subscribe(fn)` to react whenever `Save`, `Reset`, or `Delete` succeeds (used by `a11y.NewAssistFromSettings` to keep captions, menus, and effects synchronized with `gameui.SettingsMenu`).
+
+`Controls` stores per-device look sensitivity, axis inversion, stick dead zone, trigger threshold, and vibration strength. `Camera` stores field of view in degrees, camera bob and sway strength, and motion blur. Both sections validate on load and can be dispatched through `SettingsTargets.ApplyControls` and `SettingsTargets.ApplyCamera`.
 
 `AccessibilitySettings` is the single model for accessibility and gameplay-assist preferences:
 

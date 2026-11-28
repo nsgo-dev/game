@@ -400,6 +400,8 @@ loop.OnPause = actions.SetPaused
 - **固定步长求值与回放一致性**：四项辅助全部在 `Step()` 内按固定步长频率（`SetStepRate`，默认 `DefaultStepRate` 即 60 Hz）求值。`MashToHold` 的合成脉冲每次触发之间至少间隔一个释放步长，使 `JustPressed` 每次都触发，且 `replay.Recorder` 与 `replay.Player` 回放完全一致。
 - **暂停、重置与持久化**：将 `loop.OnPause = actions.SetPaused`（或 `players.SetPaused`）接上，或调用 `ReleaseToggles()`，即可在暂停时释放所有已锁存的切换；`Reset()` 在失焦或切换场景时清空所有切换状态与计时器。`ToggleActive(name)` 可查询某动作当前是否处于切换锁存状态。`Actions.Save` / `Actions.Load` 会随键位一并持久化 `Assists`，同时也可通过 `save.Settings.InputAssists` 与玩家设置统一保存（参见 [a11y](a11y.md#玩家运动辅助)）。
 
+`ApplyControlSettings` 将 `save.ControlSettings` 应用到手柄、指针和运动传感器视角绑定。`LookScale` 返回经过校验的设备灵敏度，`ApplyControlSettingsToHaptics` 更新震动强度，而不会让 `Actions` 持有触觉实例。
+
 ### 唤醒空闲的 `OnDemand` 循环
 
 使用带空闲检测的 [`game.Loop`](loop.md#按需绘制与空闲休眠ondemandidlemarkdirty)（设置 `OnDemand: true` 与 `Idle`）驱动菜单密集型、回合制或叙事类游戏时，将 `actions.Wake` 设为 `loop.MarkDirty`，即可在触摸、鼠标按键、键盘按键、已连接手柄状态变化及程序注入触发到来时唤醒循环执行一次 `Step` 并重绘，同时忽略空闲时的鼠标悬停和死区内的摇杆抖动。`TouchControls` 与 `GestureRecognizer` 在绑定了 `Actions` 时会自动通过其唤醒，单独使用时则可设置 `TouchControls.OnWake` 或 `GestureRecognizer.Wake`。

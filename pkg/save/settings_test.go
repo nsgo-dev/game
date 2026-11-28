@@ -905,7 +905,7 @@ func TestSettingsFailedWriteLeavesPreviousIntactAndDeleteIsolated(t *testing.T) 
 	t.Run("StorageFullLeavesPreviousIntact", func(t *testing.T) {
 		var settingsStore *save.DefaultSettingsStore
 		nsgotest.Start(t, func(cx *core.Scope) core.Node {
-			cx.ProvideStorage("tight-settings-quota", 600)
+			cx.ProvideStorage("tight-settings-quota", 1200)
 			settingsStore = save.NewStorageSettingsStore(cx.Storage(), "app")
 			return core.View{}
 		})
