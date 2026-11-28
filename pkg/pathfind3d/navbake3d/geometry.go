@@ -24,22 +24,44 @@ const LayerAll uint32 = ^uint32(0)
 //
 // The Add methods read the level from the sources a 3D game builds it from: glTF models, scene3d scenes and sceneformat scene files, world3d terrain heightmaps and GridMaps, and physics3d static colliders.
 type Geometry struct {
-	verts     []math3d.Vec3 // three per triangle
-	layers    []uint32      // one per triangle
+	verts  []math3d.Vec3 // three per triangle
+	layers []uint32      // one per triangle
+	// triBounds is the world-space bounding box of each triangle, one per triangle.
 	triBounds []math3d.AABB
-	grid      map[geometryCell][]int
+	// grid indexes triangles by the geometryIndexCellSize XZ cells their bounds overlap, so a tile bake visits only the triangles near it.
+	grid map[geometryCell][]int
+	// large are the triangles whose bounds span more than geometryIndexMaxCells grid cells, such as one quad for a whole ground plane; every query checks them by bounds instead of registering them in each cell.
+	large []int
 	// solids are the ranges of triangles, as [first, end) triangle indices, that are the surfaces of closed convex solids, such as collider boxes: a bake fills them, where it takes other triangles as surfaces only.
 	solids [][2]int
 	// links are point-to-point off-mesh links carried into every baked Mesh.
 	links []OffMeshLink
 }
 
-const geometryIndexCellSize float32 = 32
+const (
+	geometryIndexCellSize float32 = 32
+	// geometryIndexMaxCells is the most grid cells one triangle is registered in; a larger triangle goes in Geometry.large.
+	geometryIndexMaxCells = 64
+)
 
 type geometryCell struct{ X, Z int32 }
 
-func geometryCellFor(x, z float32) geometryCell {
-	return geometryCell{X: int32(math.Floor(float64(x / geometryIndexCellSize))), Z: int32(math.Floor(float64(z / geometryIndexCellSize)))}
+// geometryCellRange returns the inclusive range of grid cells that the XZ box [bmin, bmax] overlaps, clamped to the int32 cell coordinates, and the number of cells in it saturated at math.MaxInt64.
+func geometryCellRange(bmin, bmax math3d.Vec3) (lo, hi [2]int64, n int64) {
+	cell := func(v float32) int64 {
+		c := math.Floor(float64(v) / float64(geometryIndexCellSize))
+		return int64(math.Min(math.Max(c, math.MinInt32), math.MaxInt32))
+	}
+	lo = [2]int64{cell(bmin.X), cell(bmin.Z)}
+	hi = [2]int64{cell(bmax.X), cell(bmax.Z)}
+	w, d := hi[0]-lo[0]+1, hi[1]-lo[1]+1
+	if w <= 0 || d <= 0 {
+		return lo, hi, 0
+	}
+	if w > math.MaxInt64/d {
+		return lo, hi, math.MaxInt64
+	}
+	return lo, hi, w * d
 }
 
 // AddOffMeshLink registers a point-to-point off-mesh connection to be stored on every Mesh baked from g.
@@ -90,41 +112,54 @@ func (g *Geometry) AddTriangle(a, b, c math3d.Vec3, layer uint32) {
 	g.layers = append(g.layers, layer)
 	minv, maxv := a.Min(b).Min(c), a.Max(b).Max(c)
 	g.triBounds = append(g.triBounds, math3d.AABB{Min: minv, Max: maxv})
+	idx := len(g.layers) - 1
+	lo, hi, n := geometryCellRange(minv, maxv)
+	if n > geometryIndexMaxCells {
+		g.large = append(g.large, idx)
+		return
+	}
 	if g.grid == nil {
 		g.grid = make(map[geometryCell][]int)
 	}
-	idx := len(g.layers) - 1
-	lo, hi := geometryCellFor(minv.X, minv.Z), geometryCellFor(maxv.X, maxv.Z)
-	for x := lo.X; x <= hi.X; x++ {
-		for z := lo.Z; z <= hi.Z; z++ {
-			g.grid[geometryCell{X: x, Z: z}] = append(g.grid[geometryCell{X: x, Z: z}], idx)
+	for x := lo[0]; x <= hi[0]; x++ {
+		for z := lo[1]; z <= hi[1]; z++ {
+			k := geometryCell{X: int32(x), Z: int32(z)}
+			g.grid[k] = append(g.grid[k], idx)
 		}
 	}
 }
 
+// trianglesInBounds returns, in ascending order, the indices of the triangles whose bounds intersect b.
 func (g *Geometry) trianglesInBounds(b math3d.AABB) []int {
 	if g == nil || len(g.layers) == 0 {
 		return nil
 	}
-	if len(g.triBounds) != len(g.layers) || len(g.grid) == 0 {
-		out := make([]int, len(g.layers))
-		for i := range out {
-			out[i] = i
+	var out []int
+	lo, hi, n := geometryCellRange(b.Min, b.Max)
+	if n > int64(len(g.grid)) {
+		// The query covers more cells than the grid holds, as a whole-level bake does: scanning every triangle is cheaper than visiting empty cells.
+		for i := range g.triBounds {
+			if g.triBounds[i].Intersects(b) {
+				out = append(out, i)
+			}
 		}
 		return out
 	}
-	lo, hi := geometryCellFor(b.Min.X, b.Min.Z), geometryCellFor(b.Max.X, b.Max.Z)
 	seen := make([]bool, len(g.layers))
-	out := make([]int, 0)
-	for x := lo.X; x <= hi.X; x++ {
-		for z := lo.Z; z <= hi.Z; z++ {
-			for _, i := range g.grid[geometryCell{X: x, Z: z}] {
+	for x := lo[0]; x <= hi[0]; x++ {
+		for z := lo[1]; z <= hi[1]; z++ {
+			for _, i := range g.grid[geometryCell{X: int32(x), Z: int32(z)}] {
 				if seen[i] || !g.triBounds[i].Intersects(b) {
 					continue
 				}
 				seen[i] = true
 				out = append(out, i)
 			}
+		}
+	}
+	for _, i := range g.large {
+		if g.triBounds[i].Intersects(b) {
+			out = append(out, i)
 		}
 	}
 	slices.Sort(out)
