@@ -80,6 +80,8 @@ The site is [TanStack Start](https://tanstack.com/start) and React, every page p
 
 ## Pull requests
 
+CI keeps the same job names on every pull request and classifies the changed paths once. Code, workflow, dependency, template, example, command, tool, benchmark, or unknown changes use the full lanes. Documentation-only changes run the light checks unless a changed copy-paste command or shell block promotes the pull request to the full lanes. The `Required CI` check aggregates the classifier and the check lanes, so branch protection needs only that one check.
+
 1. **Keep PRs focused.** One issue or cohesive change per pull request. Before starting a large feature, open an issue to align on the API.
 2. **Verify locally before opening.** Ensure `gofmt -l` outputs nothing, `go tool nsgo test ./...` passes, and `go tool nsgo check` passes for your targets. For `docs/` or `website/` changes, ensure `bun run build` exits `0`.
 3. **Link the issue.** Include `Fixes #<number>` (or `Refs #<number>` for partial work) in the pull request description.
