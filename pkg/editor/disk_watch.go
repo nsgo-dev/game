@@ -41,6 +41,7 @@ type DiskConflictError struct {
 	Path string
 }
 
+// Error describes the file that changed on disk since the editor opened or last saved it.
 func (e *DiskConflictError) Error() string {
 	if e == nil {
 		return ErrDiskConflict.Error()
@@ -51,6 +52,7 @@ func (e *DiskConflictError) Error() string {
 	return ErrDiskConflict.Error()
 }
 
+// Unwrap returns ErrDiskConflict for errors.Is checks.
 func (e *DiskConflictError) Unwrap() error { return ErrDiskConflict }
 
 // DiskMergeChoice selects which side to keep for an object when resolving an external scene conflict.

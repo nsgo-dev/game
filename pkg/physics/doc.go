@@ -10,7 +10,6 @@
 // Collision filtering uses 32-bit LayerMask values (Layer and Mask) on Body, Trigger and
 // RigidBody. Zero values default to LayerAll so unfiltered code stays backwards-compatible.
 //
-
 // MoveAndSlide and MoveAndSlideInto advance a Body over a fixed game.Loop step against any TileGrid (or the
 // concrete Grid), resolving solid walls, floors, ceilings and one-way platforms without
 // tunneling at high speeds; MoveAndSlideInto reuses a caller-supplied MoveResult so steady-state
@@ -40,5 +39,4 @@
 // RigidWorld finds contact pairs once per step with a sort-and-sweep broadphase, integrates and solves contacts and joints in substeps (RigidWorld.Substeps, defaulting to DefaultSubsteps) with per-substep warm starting, soft contact push-out at contact points, velocity relaxation and coupled pinched-pair solving for high mass ratios, puts islands of resting bodies to sleep (RigidBody.Sleeping, RigidBody.Wake), and sweeps fast bodies against static bodies and tiles (and every RigidBody.Bullet against dynamic and kinematic bodies too) so they stop at the first surface instead of passing through thin walls.
 //
 // DrawShape, DrawBody, DrawContact, DrawTileContacts, DrawTileGrid, DrawWorld and DrawRaycast record zoom-compensated debug overlays into a core.Drawing; builds tagged release compile them to no-ops.
-
 package physics

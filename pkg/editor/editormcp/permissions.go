@@ -60,6 +60,7 @@ type PermissionError struct {
 	RequestID string `json:"requestId,omitempty"`
 }
 
+// Error describes the blocked tool call, whether permission was denied or is still required, and the permission decision's reason.
 func (e *PermissionError) Error() string {
 	if e == nil {
 		return ""

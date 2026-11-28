@@ -32,6 +32,7 @@ const (
 	RoomEnded                    // match ended, next Start begins a new one
 )
 
+// String returns "waiting", "running", "ended", or "unknown" for an unrecognized state.
 func (s RoomState) String() string {
 	switch s {
 	case RoomWaiting:

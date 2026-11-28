@@ -68,10 +68,12 @@ type ReviewBlockedError struct {
 	Blocker ReviewBlocker
 }
 
+// Error describes the unresolved blocker that prevents keeping the reviewed turn.
 func (e *ReviewBlockedError) Error() string {
 	return "editor: review has an unresolved blocker: " + e.Blocker.Reason
 }
 
+// Unwrap returns ErrReviewBlocked for errors.Is checks.
 func (e *ReviewBlockedError) Unwrap() error { return ErrReviewBlocked }
 
 // ReviewFileKind classifies the kind of file touched by an agent turn.

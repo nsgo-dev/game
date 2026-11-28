@@ -51,6 +51,7 @@ type ShortcutConflictError struct {
 	ConflictLabel string
 }
 
+// Error describes the requested shortcut and the command that already owns it in the same scope.
 func (e *ShortcutConflictError) Error() string {
 	return fmt.Sprintf("editor: shortcut %q is already bound to %q (%s) in scope %q", e.Shortcut, e.ConflictLabel, e.ConflictID, e.Scope)
 }
