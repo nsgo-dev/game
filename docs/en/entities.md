@@ -183,3 +183,6 @@ if err := entities.LoadWorld(store, "slot1", fresh); err != nil {
 	return err
 }
 ```
+# Wide queries
+
+`Each4` visits the intersection of four component stores using the smallest store as driver, with deterministic order and zero allocations like `Each1`–`Each3`.
