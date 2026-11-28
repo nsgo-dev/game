@@ -10,7 +10,7 @@ A dedicated server builds without NSGo (`docs/en/server.md` promises the plain G
 
 `Table.Watch` and `Table.WatchWithError` move from `pkg/datatable` to a new package `pkg/datatable/datatablewatch` as functions `datatablewatch.Watch(tbl, watcher, fn)` and `datatablewatch.WatchWithError(tbl, watcher, fn)`. The moved code uses only `Table`'s exported API (`Path`, `ReloadBytes`, `Rows`), so no new exports were needed. `pkg/datatable` keeps loading, saving and typed `Table` state and now depends only on `pkg/loaderr` and `pkg/jsonschema`, neither of which touches NSGo.
 
-`pkg/datatable/datatablewatch` sits under its companion package rather than `pkg/tooling` because it is the optional dev-time half of `datatable` itself; the [repository layout](2026-11-27-repository-layout.md) rules cover top-level placement, and nested packages share their parent's label.
+`pkg/datatable/datatablewatch` sits under its companion package rather than `pkg/tooling` because it is the optional dev-time half of `datatable` itself; the [repository layout](2026-11-27-repository-layout-2.md) rules cover top-level placement, and nested packages share their parent's label.
 
 A dependency-boundary test at the repository root (`deps_test.go`) runs `go list -deps` on the headless packages and fails when any of them pulls in `github.com/nsgo-dev/nsgo`. The package list is one variable, so another headless package joins it later by appending a pattern.
 

@@ -18,7 +18,7 @@ import (
 
 // uncatalogedGroups are the grouped directories under pkg/ whose packages need no row of their own in README.md and docs/en/index.md, with the reason. Every other group's packages, like pkg/online's, are catalogued one by one.
 var uncatalogedGroups = map[string]string{
-	"tooling": "build, editor and dev-time tooling, listed on the site's API reference; tooling/library has a row because games use it",
+	"tooling": "build and dev-time tooling, listed on the site's API reference; tooling/library has a row because games use it",
 }
 
 // stdNameExemptions are the module's packages allowed, for now, to share their name with a standard library package, by package name, with the reason. A rename that ends the clash must delete its entry, which the test enforces.
