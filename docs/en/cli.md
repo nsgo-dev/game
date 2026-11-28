@@ -646,3 +646,6 @@ ln -s game.fish ~/.config/fish/completions/nsgo.fish
 ```
 
 Leave out the `nsgo` link when `nsgo` has a completion of its own there. To type `game` alone, install the command with `go install github.com/nsgo-dev/game/cmd/game@latest`, or define `game` as a shell function that runs `go tool game`, which keeps the version a module's `go.mod` pins inside the module: `game() { go tool game "$@"; }` in zsh and bash, and `function game; go tool game $argv; end` in fish.
+# Template residue warnings
+
+When `game.yaml` records an origin of kind `template`, `game check` compares the project with the embedded template baseline. It reports advisory warnings while rules or data files, the project name, or `README.md` still match the template exactly. Warnings do not change the command's exit status. Add the finding name to `origin.keep` (`rules`, `data`, `name`, `readme`, or `credits`) for an intentional as-is copy.

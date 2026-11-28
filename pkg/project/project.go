@@ -62,6 +62,17 @@ type File struct {
 	Navigation *Navigation `yaml:"navigation,omitempty"`
 	// Packs records the library packs installed into the project, in the order they were first installed: the files each wrote and the autoload entries and editor plugins each added, so that a later install of the pack can update it and a removal can undo it (see the tooling/library package). nil records none.
 	Packs []Pack `yaml:"packs,omitempty"`
+	// Origin records the source this project was created from.
+	Origin *Origin `yaml:"origin,omitempty"`
+}
+
+// Origin identifies the baseline used by starter-residue checks.
+type Origin struct {
+	Kind    string   `yaml:"kind" schema:"required,enum=template|example|directory|pack"`
+	Name    string   `yaml:"name" schema:"required"`
+	Version string   `yaml:"version,omitempty"`
+	Digest  string   `yaml:"digest,omitempty"`
+	Keep    []string `yaml:"keep,omitempty,flow"`
 }
 
 // Window is the main window's content size in points, its size limits, its title and its appearance.
@@ -714,6 +725,11 @@ func (f *File) Clone() *File {
 			c.Packs[i] = p
 		}
 	}
+	if f.Origin != nil {
+		o := *f.Origin
+		o.Keep = slices.Clone(f.Origin.Keep)
+		c.Origin = &o
+	}
 	return &c
 }
 
@@ -729,6 +745,16 @@ func clonePtr[T any](p *T) *T {
 func Validate(f *File) error {
 	if f == nil {
 		return loaderr.Errorf("", fixProject, "project: nil project file")
+	}
+	if f.Origin != nil {
+		if f.Origin.Kind != "template" && f.Origin.Kind != "example" && f.Origin.Kind != "directory" && f.Origin.Kind != "pack" {
+			return loaderr.Errorf("origin.kind", "set origin.kind to template, example, directory, or pack", "project: unknown origin kind %q", f.Origin.Kind)
+		}
+		for i, keep := range f.Origin.Keep {
+			if keep != "rules" && keep != "data" && keep != "name" && keep != "readme" && keep != "credits" {
+				return loaderr.Errorf(fmt.Sprintf("origin.keep.%d", i), "use rules, data, name, readme, or credits", "project: unknown origin.keep value %q", keep)
+			}
+		}
 	}
 	if f.Version != CurrentVersion {
 		return loaderr.Errorf("version", fmt.Sprintf("set version: %d", CurrentVersion), "project: unsupported version %d (want %d)", f.Version, CurrentVersion)
