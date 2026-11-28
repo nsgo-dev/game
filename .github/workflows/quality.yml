@@ -195,3 +195,5 @@ jobs:
         run: go test -run=^$ -fuzz=^FuzzCheckTiledMap$ -fuzztime=10s ./pkg/tooling/assetcheck
       - name: Fuzz DecodeHDR
         run: go test -run=^$ -fuzz=^FuzzDecodeHDR$ -fuzztime=10s ./pkg/render3d
+      - name: Fuzz DecodeWAV
+        run: go test -run=^$ -fuzz=^FuzzDecodeWAV$ -fuzztime=10s ./pkg/tooling/audioconv
