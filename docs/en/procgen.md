@@ -245,3 +245,7 @@ cave, _ := procgen.Cave(streams.Stream("cave-1"), caveCfg)
 ```
 
 A generator advances the stream it is given. To regenerate the same level, pass a fresh stream with the same seed, or save the stream's `State()` before generating and restore it with `SetState`.
+
+## Placement pipelines
+
+Version-1 `*.placement.yaml` files use a seeded grid sampler to produce deterministic prefab points. `ParsePlacement` rejects unknown fields, unsupported samplers, duplicate step IDs, and trailing documents. Each step forks its random stream by ID, so adding or reordering independent steps does not move existing points.
