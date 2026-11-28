@@ -8,6 +8,7 @@ import (
 	"errors"
 	"runtime/debug"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -23,7 +24,90 @@ type Match struct {
 	Update func(dt time.Duration)
 	// OnStop runs once after the match's final tick when the context ends,
 	// for notifying peers or flushing state. Optional.
-	OnStop func()
+	OnStop    func()
+	Mailbox   int
+	mailboxMu sync.Mutex
+	mailbox   []func()
+	stopped   bool
+}
+
+var (
+	ErrMailboxFull  = errors.New("gameserver: match mailbox full")
+	ErrMatchStopped = errors.New("gameserver: match stopped")
+)
+
+const defaultMatchMailbox = 1024
+
+func (m *Match) mailboxCapacity() int {
+	if m.Mailbox > 0 {
+		return m.Mailbox
+	}
+	return defaultMatchMailbox
+}
+
+// Post queues fn to run on the match goroutine before a future Update.
+func (m *Match) Post(fn func()) error {
+	if m == nil || fn == nil {
+		return ErrMatchStopped
+	}
+	m.mailboxMu.Lock()
+	defer m.mailboxMu.Unlock()
+	if m.stopped {
+		return ErrMatchStopped
+	}
+	if len(m.mailbox) >= m.mailboxCapacity() {
+		return ErrMailboxFull
+	}
+	m.mailbox = append(m.mailbox, fn)
+	return nil
+}
+
+// Call queues fn on the match goroutine and waits for completion or context cancellation.
+func (m *Match) Call(ctx context.Context, fn func() error) error {
+	if m == nil || fn == nil {
+		return ErrMatchStopped
+	}
+	done := make(chan error, 1)
+	if err := m.Post(func() { done <- fn() }); err != nil {
+		return err
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// MailboxLen reports queued callbacks.
+func (m *Match) MailboxLen() int {
+	if m == nil {
+		return 0
+	}
+	m.mailboxMu.Lock()
+	defer m.mailboxMu.Unlock()
+	return len(m.mailbox)
+}
+
+func (m *Match) drainMailbox(limit int) {
+	for range limit {
+		m.mailboxMu.Lock()
+		if len(m.mailbox) == 0 {
+			m.mailboxMu.Unlock()
+			return
+		}
+		fn := m.mailbox[0]
+		m.mailbox = m.mailbox[1:]
+		m.mailboxMu.Unlock()
+		func() { defer func() { _ = recover() }(); fn() }()
+	}
+}
+
+func (m *Match) stopMailbox() {
+	m.mailboxMu.Lock()
+	m.stopped = true
+	m.mailbox = nil
+	m.mailboxMu.Unlock()
 }
 
 // Runner steps the matches in Matches concurrently, each at its own rate,
@@ -105,6 +189,7 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) runMatch(ctx context.Context, m *Match, cancel context.CancelFunc, ps *panicState) {
+	defer m.stopMailbox()
 	step := m.interval()
 	next := time.Now().Add(step)
 	timer := time.NewTimer(step)
@@ -119,6 +204,7 @@ func (r *Runner) runMatch(ctx context.Context, m *Match, cancel context.CancelFu
 		if ctx.Err() != nil {
 			return
 		}
+		m.drainMailbox(64)
 		tick++
 		start := time.Now()
 		if !r.guardUpdate(m, step, tick, cancel, ps) {
