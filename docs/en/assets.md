@@ -185,3 +185,7 @@ mgr := assets.NewManager(cx, assets.WithRemote(assets.RemoteOptions{
 ## Delivery per export preset
 
 An export preset in `game.yaml` can say where each asset group ships: `delivery.main` lists the groups in the main package, `delivery.subpackages` maps each subpackage name to its groups, and `delivery.remote` lists the groups served from the remote origin. `delivery.caps` sets the largest size of the main package (`main`) and of all packages together (`total`) in bytes. A group may appear in only one of these places, and a subpackage name has no spaces; see [Asset delivery](project.md#asset-delivery) for the format. `game.yaml` records and checks this placement only: `game release` does not yet lay files out per package or enforce the caps, and `Manager.LoadGroup` does not yet load a subpackage through the host.
+
+### Shared reference counts
+
+`assets.RefCache` shares a loaded value by URI and closes it after the last handle releases it. Managers can use this primitive to keep shared atlases, sounds and custom resources alive while any group still refers to them.
