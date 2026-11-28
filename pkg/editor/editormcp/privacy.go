@@ -147,6 +147,10 @@ func (s *Server) readPrivacyContext(ctx context.Context, onEditor bool) (editor.
 // resolveProjectPrivacyKinds classifies both rel and (when root is set) its symlink-resolved
 // project-relative path so an in-project symlink pointing to a .go or art/audio file cannot bypass privacy.
 func resolveProjectPrivacyKinds(root, rel string) []editor.PrivacyContentKind {
+	// A credential reached under any spelling the file system accepts, or through a symlink, is always refused.
+	if editor.IsSecretProjectFile(root, rel) {
+		return []editor.PrivacyContentKind{editor.PrivacySecrets}
+	}
 	k1 := editor.ClassifyProjectFilePrivacy(rel)
 	kinds := []editor.PrivacyContentKind{k1}
 	if root == "" {
