@@ -52,7 +52,8 @@ func ApplyColorVision(img image.Image, mode a11y.ColorVision, severity float64, 
 	chain := postfx.MustCompile(postfx.ColorVisionEffect(toEffectsColorVision(mode), severity, correct))
 	out, err := chain.Reference(src, b.Dx(), b.Dy(), nil)
 	if err != nil {
-		return src
+		// ColorVisionEffect always carries a Reference, so a failure here is a bug; returning the unfiltered frame would let a color-vision golden pass without the filter.
+		panic("gametest: color-vision reference: " + err.Error())
 	}
 	return out
 }

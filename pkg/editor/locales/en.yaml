@@ -2087,8 +2087,13 @@ strings:
   hudLayout.breadcrumbNone: none
   hudLayout.breadcrumbScreens: screens
   hudLayout.centerRegionLabel: All screen sizes preview
+  hudLayout.colorVisionHeading: COLOR VISION & CONTRAST
+  hudLayout.colorVisionModeLabel: Color vision {mode}
+  hudLayout.colorVisionRatio: RATIO
+  hudLayout.colorVisionRegionLabel: Color vision preview and contrast
   hudLayout.composerLabel: Ask the agent
   hudLayout.composerPlaceholder: e.g. add a boss health bar that only shows on floor 3
+  hudLayout.contrastRowLabel: 'Contrast {id} {ratio} : 1'
   hudLayout.decreaseSpacing: Decrease spacing
   hudLayout.designCaption: designed at {width} × {height} · scaled to fit height
   hudLayout.emptyBody: Add a *.screen.yaml file under screens/ or ask the agent to build a HUD or menu screen.
