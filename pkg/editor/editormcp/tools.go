@@ -403,11 +403,9 @@ func readProjectFileResolved(root, rel string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("%s: the file links to %s, outside the project; scene_read reads files inside it", rel, real)
 	}
 	realRel := filepath.ToSlash(inside)
-	// A file that looks like a credential or the editor's private state is never read for an agent, whichever tool asks and whatever the switches say.
-	for _, candidate := range []string{rel, realRel} {
-		if editor.ClassifyProjectFilePrivacy(candidate) == editor.PrivacySecrets {
-			return nil, "", editor.PrivacyRefusalError(editor.PrivacySecrets, rel)
-		}
+	// A file that looks like a credential or the editor's private state is never read for an agent, whichever tool asks and whatever the switches say, judged on the requested path, its symlink target and the names stored on disk.
+	if editor.IsSecretProjectFile(root, rel) || editor.ClassifyProjectFilePrivacy(realRel) == editor.PrivacySecrets {
+		return nil, "", editor.PrivacyRefusalError(editor.PrivacySecrets, rel)
 	}
 	st, err := os.Stat(real)
 	if err != nil {

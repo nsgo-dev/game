@@ -33,10 +33,24 @@ var secretFixtureFiles = []string{
 	".git/config",
 	"vendor/lib/.git/config",
 	".nsgo/threads/t1.yaml",
+	"config/app.env",
+	"production.env",
+	".git-credentials",
+	".aws/credentials",
+	".ssh/config",
+	"android/app/google-services.json",
+	"ios/GoogleService-Info.plist",
+	"deploy/service-account-prod.json",
+	"credentials.json",
 	// Case-changed names are refused too, as they open the same file on a case-insensitive file system.
 	".ENV.Staging",
 	"Signing/Release.PEM",
 	".GIT/HEAD",
+	// So are names that differ only by a Unicode case fold, which APFS and NTFS also open as the same file: U+017F LONG S folds to "s", U+FB06 LIGATURE ST to "st" and U+212A KELVIN SIGN to "k".
+	".n\u017fgo/threads/t1.yaml",
+	"android/key\u017ftore.properties",
+	"android/key\ufb06ore.properties",
+	"signing/server.\u212aey",
 }
 
 func writeProjectFile(t *testing.T, dir, rel, content string) {
@@ -77,6 +91,8 @@ func TestSecretFilesNeverLeaveUnderDefaultPrivacy(t *testing.T) {
 		"docs/keys.md":              "Press space to jump.\n",
 		"data/keyboard.data.yaml":   "version: 1\nrows: []\n",
 		"config/gitignore-notes.md": "notes\n",
+		"data/credits.yaml":         "names: []\n",
+		"data/service.data.yaml":    "version: 1\nrows: []\n",
 	}
 	for rel, content := range ordinary {
 		writeProjectFile(t, f.dir, rel, content)
@@ -125,6 +141,22 @@ func TestSecretFilesNeverLeaveUnderDefaultPrivacy(t *testing.T) {
 	}
 	if res := call(t, cs, editormcp.ToolSceneRead, map[string]any{"file": "scenes/room.scene.yaml"}); res.IsError {
 		t.Fatalf("scene_read scenes/room.scene.yaml: %q", text(res))
+	}
+
+	// Neither an explicitly attached chip nor a chip payload carries a credential.
+	for _, rel := range paths {
+		if chip, err := f.ed.AttachFileChip(rel); err == nil {
+			t.Fatalf("AttachFileChip(%q) = %+v, want an error", rel, chip)
+		}
+		for _, kind := range []editor.ContextChipKind{editor.ChipKindFile, editor.ChipKindPrefab, editor.ChipKindRule, editor.ChipKindAlways} {
+			payload := f.ed.ResolveChipPayload(editor.AgentContextChip{Kind: kind, Target: rel})
+			if strings.Contains(payload.Formatted(), secretMarker) {
+				t.Fatalf("ResolveChipPayload(%s %q) carries the file's content: %q", kind, rel, payload.Formatted())
+			}
+		}
+	}
+	if _, err := f.ed.AttachFileChip("AGENTS.md"); err != nil {
+		t.Fatalf("AttachFileChip(AGENTS.md): %v", err)
 	}
 
 	// The @-mention picker never offers a credential as a chip.
