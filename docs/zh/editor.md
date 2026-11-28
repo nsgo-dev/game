@@ -1751,6 +1751,9 @@ func main() {
   - 圆角与几何：控件 `6`（`theme.RadiusControl`）、按钮 `8`（`theme.RadiusButton`）、卡片与轻提示 `12`（`theme.RadiusCard`）、对话框 `18`（`theme.RadiusDialog`）；行与工具按钮高 `28`（`theme.RowHeight`，最小命中热区 `theme.MinHitSize = 28`）、按钮高 `30`–`32`（`theme.ButtonHeight`、`theme.ButtonTallHeight`）、顶栏高 `44`（`theme.HeaderHeight`）；`1` px 内描边（`theme.BorderWidth`）。
   - 动效：悬停与按压 `120 ms`（`theme.MotionHover`）、面板/浮层/轻提示 `180 ms`（`theme.MotionPanel`）、智能体叠加层淡入 `240 ms`（`theme.MotionOverlay`）、智能体脉冲 `1.6 s`（`theme.MotionAgentPulse`，透明度 `100%` ↔ `45%`）。开启 `Env.ReduceMotion` 时，`theme.MotionDuration` 返回 `0`，`theme.AgentPulseOpacity` 保持 `1.0` 不闪烁。
 - **禁止硬编码 UI 颜色字面量与仅深色包级别名**：`pkg/editor` 中除 `theme/theme.go` 外的所有非测试 `.go` 文件在绘制界面元素、操纵杆、叠加层与调试视图时仅使用响应式的 `theme.Palette` 令牌（`ed.Palette(cx)` / `e.activePalette()`，场景内容数据如 `scene.BackgroundColor` 保留为场景数据）。`TestSpecNoHardcodedColorLiteralsInEditor` 拒绝在 `theme/theme.go` 之外出现任何 `core.RGB`/`core.RGBA` 调用或硬编码 UI 十六进制颜色，`TestSpecNoDarkOnlyPackageColorVarsInEditor` 拒绝由 `theme.Dark()`/`theme.Light()` 初始化的包级颜色变量，确保所有编辑器页面在深色与浅色外观下均可实时重绘。
-## 内置 Agent 提供商设置
 
-`editor.yaml` 可以在 `agent.builtInFormat` 中选择 `anthropic` 或 `openai`，并设置 `builtInEndpoint`、`builtInModel` 与 `builtInFastModel`。端点仍必须通过编辑器的 HTTPS 或回环 HTTP 策略。API key 保存在系统钥匙串中，不会写入项目文件。
+## 内置 Agent 提供商设置（#1747）
+
+`editor.yaml` 可以设置 `agent.builtInEndpoint`、`agent.builtInModel` 与 `agent.builtInFastModel`，让内置 Agent 改连另一个 Anthropic Messages 服务（网关，或回环地址上的本地服务），并为默认与快速两条路由选择模型 ID（`AgentBuiltInEndpointForSettings`、`AgentBuiltInModelForRoute`）。端点与 `Editor.BuiltInAgentEndpoint` 遵循同一策略，且优先于它：必须是 `https://`，`http://` 只允许回环主机。字段留空时沿用 `DefaultBuiltInAgentEndpoint`、`DefaultBuiltInModel` 与 `DefaultBuiltInFastModel`。在开始界面粘贴 API key 时，会用已配置的端点与快速模型来验证。
+
+`agent.builtInFormat` 接受 `anthropic`（默认）或 `openai`，其他值在加载 `editor.yaml` 时被拒绝。OpenAI 兼容的 Chat Completions 适配器尚未实现，因此设为 `openai` 时，内置运行器会以 `ErrBuiltInFormatUnsupported` 拒绝每个请求，而不是把 Anthropic 请求发给该服务。这些是仅限本人的设置：代表 Agent 发起的 `ApplySettings` 修改会被拒绝。API key 保存在系统钥匙串中，不会写入 `editor.yaml`。
