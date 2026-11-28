@@ -72,7 +72,7 @@ Import only what you need from `github.com/nsgo-dev/game`. Browse the full inter
 | **Core 2D** | `game` ([Loop](docs/en/loop.md)), `sprite`, `tilemap`, `tilemap/tileshape`, `scene`, `sceneformat`, `screen`, `input`, `sound`, `text`, `assets`, `resource`, `save`, `math2d`, `random`, `mempool`, `spatial`, `loaderr` ([Errors](docs/en/errors.md)) |
 | **Physics & Navigation** | `physics` ([2D Rigid](docs/en/physics2d-rigid.md)), `physics3d`, `ai`, `ai/cover3d`, `ai/perception3d`, `pathfind`, `pathfind/navbake`, `pathfind3d`, `pathfind3d/navbake3d`, `vehicle3d` |
 | **3D & Rendering** | `math3d`, `scene3d`, `render3d`, `gltf`, `ktx2`, `scenemodel`, `anim3d`, `world3d`, `voxel` ([Blender Guide](docs/en/3d-models-blender.md)) |
-| **Animation & Visual FX** | `tween`, `animclip`, `skeletal`, `particles`, `pixelfx`, `lights2d`, `postfx`, `cutscene`, `quality` |
+| **Animation & Visual FX** | `tween`, `motion`, `animclip`, `skeletal`, `particles`, `pixelfx`, `lights2d`, `postfx`, `cutscene`, `quality` |
 | **Gameplay & Genre Kits** | `flow`, `dialogue`, `entities`, `platformer`, `rooms`, `worldmap`, `fog`, `procgen`, `stats`, `inventory`, `ability`, `quest`, `loot`, `rpgdata`, `battle`, `cards`, `bullets`, `fighting`, `framedata`, `rts`, `rhythm`, `idle`, `vn`, `undo` |
 | **UI, L10n & Accessibility** | `gameui`, `l10n`, `a11y` |
 | **Multiplayer & Online** | `online/netplay`, `online/gameserver`, `online/accounts`, `online/cloudsave`, `online/leaderboard`, `online/leaderboard/selfhost`, `online/achievements`, `online/presence`, `online/steam`, `online/eos`, `online/liveops`, `online/audit`, `online/wsclient`, `modding`, `gameplugin` |
