@@ -116,7 +116,7 @@ nav.Step(dt)
 
 ## 开箱即用的设置菜单（`SettingsMenu`）
 
-`SettingsMenu` 提供一套可直接接入的五标签设置界面，覆盖 **音频**（静音、主音量、可配置音频总线音量、单声道音频与左右平衡）、**视频**（窗口/全屏模式、桌面端窗口分辨率、缩放模式、整数缩放、画质预设与帧率上限；由于 NSGo 尚未提供交换间隔控制，垂直同步默认隐藏，可通过 `ShowVSync` 显式开启）、**控制**（支持按键与手柄按键捕获和重置的动作改键、视角灵敏度、反转、死区、扳机阈值、震动强度、视野、镜头摇晃、镜头摆动与运动模糊）、**语言**（地区/语言选择）以及 **无障碍**（字幕、音效字幕、文本缩放、高对比度、减少动态效果、屏幕震动、减弱闪烁、色盲模式、游戏速度、无敌模式、自动瞄准与长按转切换）。
+`SettingsMenu` 提供一套可直接接入的五标签设置界面，覆盖 **音频**（静音、主音量、可配置音频总线音量、单声道音频与左右平衡）、**视频**（窗口/全屏模式、桌面端窗口分辨率、缩放模式、整数缩放、画质预设与帧率上限；由于 NSGo 尚未提供交换间隔控制，垂直同步默认隐藏，可通过 `ShowVSync` 显式开启）、**控制**（支持按键与手柄按键捕获和重置的动作改键、按设备的视角灵敏度、轴反转、摇杆死区、扳机阈值与震动强度；设置 `ShowCameraSettings` 时还包括视野、镜头摇晃、镜头摆动与运动模糊）、**语言**（地区/语言选择）以及 **无障碍**（字幕、音效字幕、文本缩放、高对比度、减少动态效果、屏幕震动、减弱闪烁、色盲模式、游戏速度、无敌模式、自动瞄准与长按转切换）。
 
 模板可以使用 `gameui.FirstLaunchSettings` 在首次播放声音前显示无障碍提示。它提供单操作继续按钮，默认开启字幕，并通过和 `SettingsMenu` 相同的 `save.DefaultSettingsStore` 保存完成标记：
 
@@ -160,6 +160,7 @@ menu.Draw(d, bounds)
 ```
 
 - 使用 `SettingsResolutionFrom` / `SetSettingsResolution`、`ParseSettingsResolution` 和 `ApplySettingsResolution` 读写并应用保存在 `save.Settings.Custom` 中的分辨率选项。减弱闪烁现已迁入 `save.AccessibilitySettings.ReduceFlashes`（加载旧文件时自动从 `Custom["reduce_flashes"]` 迁移；`SettingsReduceFlashesFrom` 与 `SetSettingsReduceFlashes` 保留为已弃用的兼容封装）。传入 `Env: cx.Env()` 可在手机、平板和 Web 上自动隐藏分辨率项（或通过 `HideResolution: true` 手动隐藏），仅在游戏将 `save.DisplaySettings.VSync` 接到真实的底层开关时才设置 `ShowVSync: true`。
+- 带 3D 相机的游戏设置 `ShowCameraSettings: true` 以显示 `save.CameraSettings` 各行，并把 `SettingsTargets.ApplyControls` 接到 `input.ApplyControlSettings` 与 `input.ApplyControlSettingsToHaptics`、把 `SettingsTargets.ApplyCamera` 接到 `scene3d.Camera.ApplyCameraSettings` 及相机控制器的同名方法。`ResetControls`（**Reset Controls to Defaults** 一行）也会还原这些偏好。
 - 传入 `Env: cx.Env()` 后，未手动修改过的“减少动态效果”、“高对比度”和“文本缩放”会跟随系统无障碍设置（`Env.ReduceMotion()`、`Env.IncreaseContrast()`、`Env.FontScale()`），点击重置后再次恢复跟随系统。关于无障碍设置的完整端到端串联（包括 `postfx.Flash`/`Shake`、字幕、触控热区与发布前核查清单），见[无障碍指南](accessibility-guide.md)。
 - 使用 `FormatBindingToken`、`ParseBindingToken`、`FormatBindingLabel`、`GamepadButtonToken` 与 `ApplyBindingsToActions` 在 `save.Settings.Bindings` 和 `input.Actions` 之间双向转换。
 - 在玩家切换语言后调用 `SetText` 传入翻译后的 `SettingsText`；未自定义 `Theme` 时（或调用 `HighContrastTheme()`），有效高对比度开启时会自动切换到高对比度配色。

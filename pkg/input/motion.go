@@ -735,7 +735,7 @@ func (a *Actions) stepMotion() {
 	for name, mb := range a.motionAxes {
 		var target float64
 		if a.motion != nil {
-			target = a.motion.AxisWith(mb.axis, mb.opts)
+			target = a.motion.AxisWith(mb.axis, a.look.motion(mb.axis, mb.opts, a.motion.opts.Sensitivity))
 		}
 		smoothing := clampSmoothing(mb.opts.Smoothing)
 		if smoothing == 0 || !a.motionInit[name] {

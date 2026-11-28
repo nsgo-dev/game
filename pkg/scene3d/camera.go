@@ -119,13 +119,11 @@ type Camera struct {
 	Pos        math3d.Vec3
 	Rot        math3d.Quat
 	Projection Projection
-	// MotionBlur records the player's camera preference for renderers that
-	// implement a motion-blur pass.
+	// MotionBlur records the player's camera preference (save.CameraSettings.MotionBlur) for renderers that implement a motion-blur pass. Lerp takes it from the camera it blends toward.
 	MotionBlur bool
 }
 
-// ApplyCameraSettings applies the player camera preferences to c. Perspective
-// field of view is stored in degrees in save settings and radians here.
+// ApplyCameraSettings applies the player's validated camera preferences to c: a perspective camera's FOVY takes FieldOfView, converted from degrees to radians, and MotionBlur is copied. An orthographic camera keeps its projection.
 func (c *Camera) ApplyCameraSettings(settings save.CameraSettings) {
 	if c == nil {
 		return
@@ -230,6 +228,7 @@ func (c *Camera) Lerp(b *Camera, t float32) Camera {
 		Pos:        c.Pos.Lerp(b.Pos, t),
 		Rot:        c.Rot.Slerp(b.Rot, t),
 		Projection: c.Projection.Lerp(b.Projection, t),
+		MotionBlur: b.MotionBlur,
 	}
 }
 
@@ -523,7 +522,7 @@ type FPSController struct {
 	CameraSway float32 // Player-controlled sway strength, normalized to [0, 1].
 }
 
-// ApplyCameraSettings stores the player-controlled camera motion preferences.
+// ApplyCameraSettings stores the player's validated camera bob and sway strengths for the game's head-bob and sway code to scale its motion by; the controller itself does not bob or sway.
 func (c *FPSController) ApplyCameraSettings(settings save.CameraSettings) {
 	if c == nil {
 		return
@@ -644,7 +643,7 @@ type ThirdPersonController struct {
 	CameraSway float32 // Player-controlled sway strength, normalized to [0, 1].
 }
 
-// ApplyCameraSettings stores the player-controlled camera motion preferences.
+// ApplyCameraSettings stores the player's validated camera bob and sway strengths for the game's head-bob and sway code to scale its motion by; the controller itself does not bob or sway.
 func (c *ThirdPersonController) ApplyCameraSettings(settings save.CameraSettings) {
 	if c == nil {
 		return

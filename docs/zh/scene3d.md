@@ -76,6 +76,8 @@ tp.ObstructionCheck = scene3d.SceneObstructionCheck(sc, scene3d.LayerDefault, he
 tp.Update(cam, heroPos, heroForward, dt)
 ```
 
+用 `cam.ApplyCameraSettings(settings)` 应用玩家的 `save.CameraSettings`：它按以角度计的视野设置透视相机的 `FOVY`，并复制 `MotionBlur` 供带运动模糊通道的渲染器使用；`FPSController` 与 `ThirdPersonController` 的 `ApplyCameraSettings` 则保存 `CameraBob` 与 `CameraSway`，供游戏的镜头摇晃与摆动代码按比例缩放运动幅度。
+
 ### 投影、视口与插值
 
 相机的 `Projection` 是透视投影（`FOVY`，弧度）或正交投影（`OrthoHeight`，以世界单位计的可见高度），另有 `Aspect`、`Near` 和 `Far`；`ViewMatrix`、`ProjMatrix` 与 `ViewProj` 给出裁剪深度为 [0, 1] 的矩阵，与 WebGPU、Metal 和 Direct3D 的约定一致。绘制目标尺寸变化时调用 `cam.SetViewport(width, height)`，让 `Aspect` 随之更新；尺寸不是有限正数（零、负数、NaN 或无穷大）时相机保持不变。`cam.Eye()` 返回齐次视点：透视相机为 `(Pos, 1)`，正交相机的视点在无穷远处，为 `(-Forward, 0)`，因此着色器在两种投影下都可以用 `normalize(eye.xyz - p * eye.w)` 求出指向观察者的方向。

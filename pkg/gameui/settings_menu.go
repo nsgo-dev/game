@@ -506,6 +506,8 @@ type SettingsMenuConfig struct {
 	HideResolution bool
 	// ShowVSync includes the VSync toggle in the Video tab. False by default because NSGo v0.3.4 does not yet expose swap-interval control; enable only when wiring save.DisplaySettings.VSync to a real backend control.
 	ShowVSync bool
+	// ShowCameraSettings includes the field of view, camera bob, camera sway and motion blur rows (save.CameraSettings) in the Controls tab. Enable it for games with a 3D camera that applies them through SettingsTargets.ApplyCamera.
+	ShowCameraSettings bool
 	// ScaleModes configures scale mode options in the Video tab (defaults to fit, fill, stretch, expand).
 	ScaleModes []SettingsOptionItem
 	// QualityPresets configures quality preset options in the Video tab (defaults to auto, low, medium, high).
@@ -561,6 +563,7 @@ type SettingsMenu struct {
 
 	showResolution bool
 	showVSync      bool
+	showCamera     bool
 
 	audioBuses      []SettingsAudioBus
 	resolutions     []SettingsResolution
@@ -688,6 +691,7 @@ func NewSettingsMenu(cfg SettingsMenuConfig) *SettingsMenu {
 		video:              cfg.Video,
 		showResolution:     showRes,
 		showVSync:          cfg.ShowVSync,
+		showCamera:         cfg.ShowCameraSettings,
 		text:               resolveSettingsText(cfg.Text),
 		userTheme:          cfg.Theme,
 		autoApply:          cfg.AutoApply,
@@ -1468,7 +1472,11 @@ func (m *SettingsMenu) buildControlsTab() {
 			assistRows++
 		}
 	}
-	totalRows := len(m.actions) + assistRows + 16 // assist rows, control and camera settings, reset
+	lookRows := 9 // sensitivities, inversion, dead zone, trigger threshold, vibration
+	if m.showCamera {
+		lookRows += 4 // field of view, camera bob, camera sway, motion blur
+	}
+	totalRows := len(m.actions) + assistRows + lookRows + 3 // minPressSlider + acceptDelaySlider + resetControlsBtn
 	var rowH float32 = 26
 	var spacing float32 = 4
 	if totalRows > 12 {
@@ -1586,25 +1594,27 @@ func (m *SettingsMenu) buildControlsTab() {
 	children = append(children, m.acceptDelaySlider)
 	controls = append(controls, m.acceptDelaySlider)
 
-	newSlider := func(min, max, step float32, onChange func(float32)) *Slider {
+	// newSlider rounds the slider's float32 value to two decimals so the saved settings read 0.3 rather than 0.30000001192092896.
+	newSlider := func(min, max, step float32, set func(float64)) *Slider {
 		return &Slider{Min: min, Max: max, Step: step, Height: rowH, OnChange: func(v float32) {
 			if m.suppressCallbacks {
 				return
 			}
-			onChange(v)
+			set(math.Round(float64(v)*100) / 100)
 			m.onSettingMutated()
 		}}
 	}
-	m.mouseSensitivitySlider = newSlider(0, 4, 0.05, func(v float32) { m.settings.Controls.MouseSensitivity = float64(v) })
-	m.stickSensitivitySlider = newSlider(0, 4, 0.05, func(v float32) { m.settings.Controls.StickSensitivity = float64(v) })
-	m.touchSensitivitySlider = newSlider(0, 4, 0.05, func(v float32) { m.settings.Controls.TouchSensitivity = float64(v) })
-	m.gyroSensitivitySlider = newSlider(0, 4, 0.05, func(v float32) { m.settings.Controls.GyroSensitivity = float64(v) })
-	m.stickDeadZoneSlider = newSlider(0, 0.95, 0.05, func(v float32) { m.settings.Controls.StickDeadZone = float64(v) })
-	m.triggerThresholdSlider = newSlider(0, 1, 0.05, func(v float32) { m.settings.Controls.TriggerThreshold = float64(v) })
-	m.vibrationSlider = newSlider(0, 1, 0.05, func(v float32) { m.settings.Controls.Vibration = float64(v) })
-	m.fieldOfViewSlider = newSlider(40, 120, 1, func(v float32) { m.settings.Camera.FieldOfView = float64(v) })
-	m.cameraBobSlider = newSlider(0, 1, 0.05, func(v float32) { m.settings.Camera.CameraBob = float64(v) })
-	m.cameraSwaySlider = newSlider(0, 1, 0.05, func(v float32) { m.settings.Camera.CameraSway = float64(v) })
+	const minSens, maxSens = save.MinLookSensitivity, save.MaxLookSensitivity
+	m.mouseSensitivitySlider = newSlider(minSens, maxSens, 0.05, func(v float64) { m.settings.Controls.MouseSensitivity = v })
+	m.stickSensitivitySlider = newSlider(minSens, maxSens, 0.05, func(v float64) { m.settings.Controls.StickSensitivity = v })
+	m.touchSensitivitySlider = newSlider(minSens, maxSens, 0.05, func(v float64) { m.settings.Controls.TouchSensitivity = v })
+	m.gyroSensitivitySlider = newSlider(minSens, maxSens, 0.05, func(v float64) { m.settings.Controls.GyroSensitivity = v })
+	m.stickDeadZoneSlider = newSlider(0, save.MaxStickDeadZone, 0.05, func(v float64) { m.settings.Controls.StickDeadZone = v })
+	m.triggerThresholdSlider = newSlider(0, 1, 0.05, func(v float64) { m.settings.Controls.TriggerThreshold = v })
+	m.vibrationSlider = newSlider(0, 1, 0.05, func(v float64) { m.settings.Controls.Vibration = v })
+	m.fieldOfViewSlider = newSlider(save.MinFieldOfView, save.MaxFieldOfView, 1, func(v float64) { m.settings.Camera.FieldOfView = v })
+	m.cameraBobSlider = newSlider(0, 1, 0.05, func(v float64) { m.settings.Camera.CameraBob = v })
+	m.cameraSwaySlider = newSlider(0, 1, 0.05, func(v float64) { m.settings.Camera.CameraSway = v })
 	m.invertXToggle = &Toggle{Style: ToggleSwitch, Height: rowH, OnChange: func(v bool) {
 		if !m.suppressCallbacks {
 			m.settings.Controls.InvertX = v
@@ -1623,6 +1633,12 @@ func (m *SettingsMenu) buildControlsTab() {
 			m.onSettingMutated()
 		}
 	}}
+	lookWidgets := []Widget{m.mouseSensitivitySlider, m.stickSensitivitySlider, m.touchSensitivitySlider, m.gyroSensitivitySlider, m.invertXToggle, m.invertYToggle, m.stickDeadZoneSlider, m.triggerThresholdSlider, m.vibrationSlider}
+	if m.showCamera {
+		lookWidgets = append(lookWidgets, m.fieldOfViewSlider, m.cameraBobSlider, m.cameraSwaySlider, m.motionBlurToggle)
+	}
+	children = append(children, lookWidgets...)
+	controls = append(controls, lookWidgets...)
 	m.resetControlsBtn = &Button{
 		Text:    m.text.ResetControls,
 		Height:  rowH,
@@ -1630,10 +1646,6 @@ func (m *SettingsMenu) buildControlsTab() {
 	}
 	children = append(children, m.resetControlsBtn)
 	controls = append(controls, m.resetControlsBtn)
-	for _, w := range []Widget{m.mouseSensitivitySlider, m.stickSensitivitySlider, m.touchSensitivitySlider, m.gyroSensitivitySlider, m.invertXToggle, m.invertYToggle, m.stickDeadZoneSlider, m.triggerThresholdSlider, m.vibrationSlider, m.fieldOfViewSlider, m.cameraBobSlider, m.cameraSwaySlider, m.motionBlurToggle} {
-		children = append(children, w)
-		controls = append(controls, w)
-	}
 
 	m.tabPanels[SettingsTabControls] = &VBox{
 		Spacing:  spacing,
@@ -2066,13 +2078,13 @@ func (m *SettingsMenu) syncWidgets() {
 		m.acceptDelaySlider.Value = float32(m.settings.InputAssists.AcceptDelayMs)
 	}
 	if m.mouseSensitivitySlider != nil {
-		m.mouseSensitivitySlider.Label = fmt.Sprintf("%s: %.2gx", m.text.MouseSensitivity, m.settings.Controls.MouseSensitivity)
+		m.mouseSensitivitySlider.Label = fmt.Sprintf("%s: %.2fx", m.text.MouseSensitivity, m.settings.Controls.MouseSensitivity)
 		m.mouseSensitivitySlider.Value = float32(m.settings.Controls.MouseSensitivity)
-		m.stickSensitivitySlider.Label = fmt.Sprintf("%s: %.2gx", m.text.StickSensitivity, m.settings.Controls.StickSensitivity)
+		m.stickSensitivitySlider.Label = fmt.Sprintf("%s: %.2fx", m.text.StickSensitivity, m.settings.Controls.StickSensitivity)
 		m.stickSensitivitySlider.Value = float32(m.settings.Controls.StickSensitivity)
-		m.touchSensitivitySlider.Label = fmt.Sprintf("%s: %.2gx", m.text.TouchSensitivity, m.settings.Controls.TouchSensitivity)
+		m.touchSensitivitySlider.Label = fmt.Sprintf("%s: %.2fx", m.text.TouchSensitivity, m.settings.Controls.TouchSensitivity)
 		m.touchSensitivitySlider.Value = float32(m.settings.Controls.TouchSensitivity)
-		m.gyroSensitivitySlider.Label = fmt.Sprintf("%s: %.2gx", m.text.GyroSensitivity, m.settings.Controls.GyroSensitivity)
+		m.gyroSensitivitySlider.Label = fmt.Sprintf("%s: %.2fx", m.text.GyroSensitivity, m.settings.Controls.GyroSensitivity)
 		m.gyroSensitivitySlider.Value = float32(m.settings.Controls.GyroSensitivity)
 		m.invertXToggle.Label, m.invertXToggle.Checked = m.text.InvertX, m.settings.Controls.InvertX
 		m.invertYToggle.Label, m.invertYToggle.Checked = m.text.InvertY, m.settings.Controls.InvertY
@@ -2364,7 +2376,7 @@ func (m *SettingsMenu) CaptureBinding(token string) bool {
 	return true
 }
 
-// ResetControls restores all configured actions' bindings and motor assists to their default values.
+// ResetControls restores all configured actions' bindings, motor assists, and control and camera preferences to their default values.
 func (m *SettingsMenu) ResetControls() {
 	m.capturingAction = ""
 	if m.settings.Bindings == nil {
@@ -2385,6 +2397,8 @@ func (m *SettingsMenu) ResetControls() {
 		MinPressMs:    m.defaults.InputAssists.MinPressMs,
 		AcceptDelayMs: m.defaults.InputAssists.AcceptDelayMs,
 	}
+	m.settings.Controls = m.defaults.Controls
+	m.settings.Camera = m.defaults.Camera
 	m.onSettingMutated()
 	m.statusLabel.Text = m.text.ResetStatus
 }

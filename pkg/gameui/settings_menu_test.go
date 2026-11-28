@@ -1069,6 +1069,91 @@ func TestSettingsMenuAudioMonoAndBalanceControls(t *testing.T) {
 	}
 }
 
+func TestSettingsMenuControlsTabLookAndCameraRows(t *testing.T) {
+	store := save.NewFileSettingsStore(t.TempDir())
+	var appliedControls save.ControlSettings
+	var appliedCamera save.CameraSettings
+	menu := gameui.NewSettingsMenu(gameui.SettingsMenuConfig{
+		Store:              store,
+		ShowCameraSettings: true,
+		Actions: []gameui.SettingsAction{
+			{Name: "jump", Label: "Jump", Defaults: []string{"key:space"}},
+		},
+		Targets: save.SettingsTargets{
+			ApplyControls: func(c save.ControlSettings) error { appliedControls = c; return nil },
+			ApplyCamera:   func(c save.CameraSettings) error { appliedCamera = c; return nil },
+		},
+	})
+	bounds := core.Bounds{Size: core.Size{Width: 960, Height: 540}}
+	menu.SetTab(gameui.SettingsTabControls)
+	menu.Layout(bounds)
+
+	// 1 action + MinPress + AcceptDelay + 9 look and vibration rows + 4 camera rows + ResetControls.
+	controls := menu.TabControls(gameui.SettingsTabControls)
+	if len(controls) != 17 {
+		t.Fatalf("Controls tab control count = %d, want 17", len(controls))
+	}
+	for i, w := range controls {
+		b := w.Bounds()
+		if b.Size.Width <= 0 || b.Size.Height <= 0 || !boundsInside(b, bounds) {
+			t.Fatalf("control %d out of bounds: %+v", i, b)
+		}
+		for j := i + 1; j < len(controls); j++ {
+			if boundsOverlap(b, controls[j].Bounds()) {
+				t.Fatalf("controls %d and %d overlap: %+v vs %+v", i, j, b, controls[j].Bounds())
+			}
+		}
+	}
+
+	stick, invertY, deadZone, vibration, fov, motionBlur := controls[4], controls[8], controls[9], controls[11], controls[12], controls[15]
+	menu.Navigator().SetFocus(stick) // Stick Sensitivity: 1 + 4 * 0.05
+	for range 4 {
+		pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	}
+	menu.Navigator().SetFocus(invertY)
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+	menu.Navigator().SetFocus(deadZone) // Stick Dead Zone: 0.15 down to 0, which turns it off
+	for range 5 {
+		pressGamepadButton(menu, gamepad.ButtonDPadLeft)
+	}
+	menu.Navigator().SetFocus(vibration) // Vibration: 1 down to 0
+	for range 25 {
+		pressGamepadButton(menu, gamepad.ButtonDPadLeft)
+	}
+	menu.Navigator().SetFocus(fov) // Field of View: 90 + 10 degrees
+	for range 10 {
+		pressGamepadButton(menu, gamepad.ButtonDPadRight)
+	}
+	menu.Navigator().SetFocus(motionBlur)
+	pressGamepadButton(menu, gamepad.ButtonSouth)
+
+	wantControls := save.DefaultSettings().Controls
+	wantControls.StickSensitivity, wantControls.InvertY, wantControls.StickDeadZone, wantControls.Vibration = 1.2, true, 0, 0
+	wantCamera := save.DefaultSettings().Camera
+	wantCamera.FieldOfView, wantCamera.MotionBlur = 100, true
+	if got := menu.Settings(); got.Controls != wantControls || got.Camera != wantCamera {
+		t.Fatalf("menu settings = %+v / %+v, want %+v / %+v", got.Controls, got.Camera, wantControls, wantCamera)
+	}
+	if err := menu.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if appliedControls != wantControls || appliedCamera != wantCamera {
+		t.Fatalf("applied = %+v / %+v, want %+v / %+v", appliedControls, appliedCamera, wantControls, wantCamera)
+	}
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("store.Load: %v", err)
+	}
+	if reloaded.Controls != wantControls || reloaded.Camera != wantCamera {
+		t.Fatalf("reloaded = %+v / %+v, want %+v / %+v", reloaded.Controls, reloaded.Camera, wantControls, wantCamera)
+	}
+
+	menu.ResetControls()
+	if got, def := menu.Settings(), save.DefaultSettings(); got.Controls != def.Controls || got.Camera != def.Camera {
+		t.Fatalf("after ResetControls = %+v / %+v, want defaults", got.Controls, got.Camera)
+	}
+}
+
 func TestSettingsMenuControlsTabMotorAssists(t *testing.T) {
 	dir := t.TempDir()
 	store := save.NewFileSettingsStore(dir)
@@ -1094,10 +1179,10 @@ func TestSettingsMenuControlsTabMotorAssists(t *testing.T) {
 	menu.SetTab(gameui.SettingsTabControls)
 	menu.Layout(bounds)
 
-	// Controls layout includes the legacy motor-assist rows followed by the sensitivity, camera, and haptics rows.
+	// Controls layout: 5 action buttons + 2 toggle switches (sprint, struggle) + 1 mash switch (struggle) + MinPress + AcceptDelay + 9 look and vibration rows + ResetControls = 20 controls; the camera rows are hidden without ShowCameraSettings.
 	controls := menu.TabControls(gameui.SettingsTabControls)
-	if len(controls) != 24 {
-		t.Fatalf("Controls tab control count = %d, want 24", len(controls))
+	if len(controls) != 20 {
+		t.Fatalf("Controls tab control count = %d, want 20", len(controls))
 	}
 	// Verify zero overlap and full containment in 960x540 viewport.
 	for i, w := range controls {

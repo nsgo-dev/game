@@ -130,9 +130,7 @@ type DisplaySettings struct {
 	Quality string `json:"quality,omitempty"`
 }
 
-// ControlSettings holds player preferences that affect camera look input and
-// controller feedback. Sensitivity values are multipliers where 1 is the
-// game's declared default.
+// ControlSettings holds player preferences that affect camera look input and controller feedback. Sensitivity values are multipliers in [MinLookSensitivity, MaxLookSensitivity] on the game's declared binding sensitivity, where 1 keeps it (0 reads as 1). StickDeadZone is in [0, MaxStickDeadZone], where 0 turns the dead zone off. TriggerThreshold and Vibration are in [0, 1]; TriggerThreshold is stored for games that read analog triggers themselves.
 type ControlSettings struct {
 	MouseSensitivity float64 `json:"mouse_sensitivity"`
 	StickSensitivity float64 `json:"stick_sensitivity"`
@@ -145,9 +143,7 @@ type ControlSettings struct {
 	Vibration        float64 `json:"vibration"`
 }
 
-// CameraSettings holds player preferences used by first- and third-person
-// cameras. FieldOfView is in degrees and is validated to a safe perspective
-// range. CameraBob and CameraSway are normalized strengths.
+// CameraSettings holds player preferences used by first- and third-person cameras. FieldOfView is the vertical field of view in degrees, in [MinFieldOfView, MaxFieldOfView] (0 reads as 90). CameraBob and CameraSway are strengths in [0, 1].
 type CameraSettings struct {
 	FieldOfView float64 `json:"field_of_view"`
 	CameraBob   float64 `json:"camera_bob"`
@@ -155,18 +151,32 @@ type CameraSettings struct {
 	MotionBlur  bool    `json:"motion_blur"`
 }
 
+// Ranges of ControlSettings and CameraSettings values, which Validate clamps to and gameui.SettingsMenu's sliders span.
+const (
+	MinLookSensitivity = 0.1
+	MaxLookSensitivity = 5
+	MaxStickDeadZone   = 0.95
+	MinFieldOfView     = 40
+	MaxFieldOfView     = 120
+)
+
+// Validate clamps every value to its documented range, replacing NaN and zero sensitivities with the defaults.
 func (c *ControlSettings) Validate() {
-	c.MouseSensitivity = clampPositiveRange(c.MouseSensitivity, 0, 10, 1)
-	c.StickSensitivity = clampPositiveRange(c.StickSensitivity, 0, 10, 1)
-	c.TouchSensitivity = clampPositiveRange(c.TouchSensitivity, 0, 10, 1)
-	c.GyroSensitivity = clampPositiveRange(c.GyroSensitivity, 0, 10, 1)
-	c.StickDeadZone = clampPositiveRange(c.StickDeadZone, 0, 0.99, 0.15)
+	c.MouseSensitivity = clampPositiveRange(c.MouseSensitivity, MinLookSensitivity, MaxLookSensitivity, 1)
+	c.StickSensitivity = clampPositiveRange(c.StickSensitivity, MinLookSensitivity, MaxLookSensitivity, 1)
+	c.TouchSensitivity = clampPositiveRange(c.TouchSensitivity, MinLookSensitivity, MaxLookSensitivity, 1)
+	c.GyroSensitivity = clampPositiveRange(c.GyroSensitivity, MinLookSensitivity, MaxLookSensitivity, 1)
+	c.StickDeadZone = clampUnit(c.StickDeadZone, 0.15)
+	if c.StickDeadZone > MaxStickDeadZone {
+		c.StickDeadZone = MaxStickDeadZone
+	}
 	c.TriggerThreshold = clampUnit(c.TriggerThreshold, 0.5)
 	c.Vibration = clampUnit(c.Vibration, 1)
 }
 
+// Validate clamps every value to its documented range, replacing NaN and a zero field of view with the defaults.
 func (c *CameraSettings) Validate() {
-	c.FieldOfView = clampPositiveRange(c.FieldOfView, 1, 179, 90)
+	c.FieldOfView = clampPositiveRange(c.FieldOfView, MinFieldOfView, MaxFieldOfView, 90)
 	c.CameraBob = clampUnit(c.CameraBob, 1)
 	c.CameraSway = clampUnit(c.CameraSway, 1)
 }

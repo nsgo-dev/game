@@ -283,7 +283,7 @@ func (a *Actions) gamepadWakeChanged(pads []gamepad.Pad) bool {
 		return true
 	}
 	for _, b := range a.gpAxes {
-		if gamepadAxisForPads(pads, a.gpOne, a.gpID, b) != gamepadAxisForPads(a.gpPads, a.gpOne, a.gpID, b) {
+		if opts := a.look.gamepad(b); gamepadAxisForPads(pads, a.gpOne, a.gpID, b.axis, opts) != gamepadAxisForPads(a.gpPads, a.gpOne, a.gpID, b.axis, opts) {
 			return true
 		}
 	}
@@ -331,14 +331,14 @@ func (a *Actions) gamepadButtonsChanged(pads []gamepad.Pad) bool {
 	return false
 }
 
-func gamepadAxisForPads(pads []gamepad.Pad, one bool, id int, b gamepadAxisBinding) float64 {
+func gamepadAxisForPads(pads []gamepad.Pad, one bool, id int, axis gamepad.Axis, opts GamepadAxisOptions) float64 {
 	var v float64
 	for i := range pads {
 		p := &pads[i]
 		if one && p.ID != id {
 			continue
 		}
-		if pv := gamepadAxisValue(p, b.axis, b.opts); math.Abs(pv) > math.Abs(v) {
+		if pv := gamepadAxisValue(p, axis, opts); math.Abs(pv) > math.Abs(v) {
 			v = pv
 		}
 	}
@@ -396,13 +396,14 @@ func (a *Actions) stepGamepadAxes() {
 		a.gpSnap = make(map[string]float64, len(a.gpAxes))
 	}
 	for name, b := range a.gpAxes {
+		opts := a.look.gamepad(b)
 		var v float64
 		for i := range a.gpPads {
 			p := &a.gpPads[i]
 			if a.gpOne && p.ID != a.gpID {
 				continue
 			}
-			if pv := gamepadAxisValue(p, b.axis, b.opts); math.Abs(pv) > math.Abs(v) {
+			if pv := gamepadAxisValue(p, b.axis, opts); math.Abs(pv) > math.Abs(v) {
 				v = pv
 			}
 		}
