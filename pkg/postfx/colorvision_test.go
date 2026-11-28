@@ -1,4 +1,4 @@
-package effects_test
+package postfx_test
 
 import (
 	"image"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/a11y"
-	"github.com/nsgo-dev/game/pkg/effects"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -49,19 +49,19 @@ func TestColorVisionSimulationMatchesA11ySimulate(t *testing.T) {
 	}
 
 	cases := []struct {
-		effMode  effects.ColorVisionMode
+		effMode  postfx.ColorVisionMode
 		a11yMode a11y.ColorVision
 	}{
-		{effects.ColorVisionNone, a11y.VisionNormal},
-		{effects.ColorVisionProtanopia, a11y.VisionProtanopia},
-		{effects.ColorVisionDeuteranopia, a11y.VisionDeuteranopia},
-		{effects.ColorVisionTritanopia, a11y.VisionTritanopia},
-		{effects.ColorVisionHighContrast, a11y.VisionHighContrast},
+		{postfx.ColorVisionNone, a11y.VisionNormal},
+		{postfx.ColorVisionProtanopia, a11y.VisionProtanopia},
+		{postfx.ColorVisionDeuteranopia, a11y.VisionDeuteranopia},
+		{postfx.ColorVisionTritanopia, a11y.VisionTritanopia},
+		{postfx.ColorVisionHighContrast, a11y.VisionHighContrast},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.effMode.String(), func(t *testing.T) {
-			chain := effects.MustCompile(effects.ColorVisionEffect(tc.effMode, 1.0, false))
+			chain := postfx.MustCompile(postfx.ColorVisionEffect(tc.effMode, 1.0, false))
 			got, err := chain.Reference(frame, len(swatches), 1, nil)
 			if err != nil {
 				t.Fatalf("Reference failed: %v", err)
@@ -80,15 +80,15 @@ func TestColorVisionSimulationMatchesA11ySimulate(t *testing.T) {
 func TestColorVisionCorrectionRaisesSimulatedSeparation(t *testing.T) {
 	cases := []struct {
 		name string
-		mode effects.ColorVisionMode
+		mode postfx.ColorVisionMode
 		a, b core.Color
 	}{
-		{"protanopia red vs green", effects.ColorVisionProtanopia, core.RGB(0xCC2222), core.RGB(0x22AA22)},
-		{"protanopia equal-luma red vs green", effects.ColorVisionProtanopia, core.RGB(0xCC3333), core.RGB(0x3E7B2E)},
-		{"deuteranopia red vs green", effects.ColorVisionDeuteranopia, core.RGB(0xCC2222), core.RGB(0x22AA22)},
-		{"deuteranopia equal-luma red vs green", effects.ColorVisionDeuteranopia, core.RGB(0xC84232), core.RGB(0x468834)},
-		{"tritanopia blue vs green", effects.ColorVisionTritanopia, core.RGB(0x2255CC), core.RGB(0x22AA55)},
-		{"tritanopia yellow vs pink", effects.ColorVisionTritanopia, core.RGB(0xEEEE22), core.RGB(0xEECCDD)},
+		{"protanopia red vs green", postfx.ColorVisionProtanopia, core.RGB(0xCC2222), core.RGB(0x22AA22)},
+		{"protanopia equal-luma red vs green", postfx.ColorVisionProtanopia, core.RGB(0xCC3333), core.RGB(0x3E7B2E)},
+		{"deuteranopia red vs green", postfx.ColorVisionDeuteranopia, core.RGB(0xCC2222), core.RGB(0x22AA22)},
+		{"deuteranopia equal-luma red vs green", postfx.ColorVisionDeuteranopia, core.RGB(0xC84232), core.RGB(0x468834)},
+		{"tritanopia blue vs green", postfx.ColorVisionTritanopia, core.RGB(0x2255CC), core.RGB(0x22AA55)},
+		{"tritanopia yellow vs pink", postfx.ColorVisionTritanopia, core.RGB(0xEEEE22), core.RGB(0xEECCDD)},
 	}
 
 	for _, tc := range cases {
@@ -97,10 +97,10 @@ func TestColorVisionCorrectionRaisesSimulatedSeparation(t *testing.T) {
 			frame.SetRGBA(0, 0, rgbaFromCore(tc.a))
 			frame.SetRGBA(1, 0, rgbaFromCore(tc.b))
 
-			simOnly := effects.MustCompile(effects.ColorVisionEffect(tc.mode, 1.0, false))
-			corrThenSim := effects.MustCompile(
-				effects.ColorVisionEffect(tc.mode, 1.0, true),
-				effects.ColorVisionEffect(tc.mode, 1.0, false),
+			simOnly := postfx.MustCompile(postfx.ColorVisionEffect(tc.mode, 1.0, false))
+			corrThenSim := postfx.MustCompile(
+				postfx.ColorVisionEffect(tc.mode, 1.0, true),
+				postfx.ColorVisionEffect(tc.mode, 1.0, false),
 			)
 
 			uncorrSim, err := simOnly.Reference(frame, 2, 1, nil)
@@ -130,16 +130,16 @@ func TestColorVisionSeverityNeutralGrayAndAlpha(t *testing.T) {
 	frame.SetRGBA(2, 0, color.RGBA{102, 17, 17, 128})   // premultiplied translucent red (50% alpha)
 	frame.SetRGBA(3, 0, color.RGBA{255, 255, 255, 255}) // pure white
 
-	for _, mode := range []effects.ColorVisionMode{
-		effects.ColorVisionProtanopia,
-		effects.ColorVisionDeuteranopia,
-		effects.ColorVisionTritanopia,
-		effects.ColorVisionHighContrast,
+	for _, mode := range []postfx.ColorVisionMode{
+		postfx.ColorVisionProtanopia,
+		postfx.ColorVisionDeuteranopia,
+		postfx.ColorVisionTritanopia,
+		postfx.ColorVisionHighContrast,
 	} {
 		// Severity 0 or NaN is an exact identity pass-through.
 		for _, sev := range []float64{0, -0.5, math.NaN()} {
 			for _, correct := range []bool{false, true} {
-				chain := effects.MustCompile(effects.ColorVisionEffect(mode, sev, correct))
+				chain := postfx.MustCompile(postfx.ColorVisionEffect(mode, sev, correct))
 				got, err := chain.Reference(frame, 4, 1, nil)
 				if err != nil {
 					t.Fatal(err)
@@ -152,7 +152,7 @@ func TestColorVisionSeverityNeutralGrayAndAlpha(t *testing.T) {
 
 		// Neutral grays, pure white, and transparent pixels stay invariant; alpha is preserved.
 		for _, correct := range []bool{false, true} {
-			chain := effects.MustCompile(effects.ColorVisionEffect(mode, 1.0, correct))
+			chain := postfx.MustCompile(postfx.ColorVisionEffect(mode, 1.0, correct))
 			got, err := chain.Reference(frame, 4, 1, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -175,11 +175,11 @@ func TestColorVisionSeverityNeutralGrayAndAlpha(t *testing.T) {
 	// Partial severity interpolates smoothly between original and full transform.
 	redFrame := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	redFrame.SetRGBA(0, 0, rgbaFromCore(core.RGB(0xCC2222)))
-	full, err := effects.MustCompile(effects.ColorVisionEffect(effects.ColorVisionProtanopia, 1.0, false)).Reference(redFrame, 1, 1, nil)
+	full, err := postfx.MustCompile(postfx.ColorVisionEffect(postfx.ColorVisionProtanopia, 1.0, false)).Reference(redFrame, 1, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	half, err := effects.MustCompile(effects.ColorVisionEffect(effects.ColorVisionProtanopia, 0.5, false)).Reference(redFrame, 1, 1, nil)
+	half, err := postfx.MustCompile(postfx.ColorVisionEffect(postfx.ColorVisionProtanopia, 0.5, false)).Reference(redFrame, 1, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,10 +192,10 @@ func TestColorVisionSeverityNeutralGrayAndAlpha(t *testing.T) {
 
 func TestColorVisionChainsWithOtherEffectsAndParsesModes(t *testing.T) {
 	// Verify Kage shader compiles cleanly when fused in a chain with Bloom and VignetteEffect.
-	chain, err := effects.Compile(
-		effects.Bloom(),
-		effects.ColorVisionEffect(effects.ColorVisionDeuteranopia, 0.85, true),
-		effects.VignetteEffect(),
+	chain, err := postfx.Compile(
+		postfx.Bloom(),
+		postfx.ColorVisionEffect(postfx.ColorVisionDeuteranopia, 0.85, true),
+		postfx.VignetteEffect(),
 	)
 	if err != nil {
 		t.Fatalf("Compile chain with ColorVisionEffect failed: %v", err)
@@ -208,7 +208,7 @@ func TestColorVisionChainsWithOtherEffectsAndParsesModes(t *testing.T) {
 	pair := image.NewRGBA(image.Rect(0, 0, 2, 1))
 	pair.SetRGBA(0, 0, color.RGBA{70, 70, 70, 255})
 	pair.SetRGBA(1, 0, color.RGBA{185, 185, 185, 255})
-	hc, err := effects.MustCompile(effects.ColorVisionEffect(effects.ColorVisionHighContrast, 1.0, true)).Reference(pair, 2, 1, nil)
+	hc, err := postfx.MustCompile(postfx.ColorVisionEffect(postfx.ColorVisionHighContrast, 1.0, true)).Reference(pair, 2, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,19 +219,19 @@ func TestColorVisionChainsWithOtherEffectsAndParsesModes(t *testing.T) {
 	// ParseColorVisionMode round-trips and handles aliases.
 	for _, tc := range []struct {
 		in   string
-		want effects.ColorVisionMode
+		want postfx.ColorVisionMode
 		ok   bool
 	}{
-		{"none", effects.ColorVisionNone, true},
-		{"normal", effects.ColorVisionNone, true},
-		{"protanopia", effects.ColorVisionProtanopia, true},
-		{"deuteranopia", effects.ColorVisionDeuteranopia, true},
-		{"tritanopia", effects.ColorVisionTritanopia, true},
-		{"high-contrast", effects.ColorVisionHighContrast, true},
-		{"high_contrast", effects.ColorVisionHighContrast, true},
-		{"unknown", effects.ColorVisionNone, false},
+		{"none", postfx.ColorVisionNone, true},
+		{"normal", postfx.ColorVisionNone, true},
+		{"protanopia", postfx.ColorVisionProtanopia, true},
+		{"deuteranopia", postfx.ColorVisionDeuteranopia, true},
+		{"tritanopia", postfx.ColorVisionTritanopia, true},
+		{"high-contrast", postfx.ColorVisionHighContrast, true},
+		{"high_contrast", postfx.ColorVisionHighContrast, true},
+		{"unknown", postfx.ColorVisionNone, false},
 	} {
-		got, ok := effects.ParseColorVisionMode(tc.in)
+		got, ok := postfx.ParseColorVisionMode(tc.in)
 		if got != tc.want || ok != tc.ok {
 			t.Errorf("ParseColorVisionMode(%q) = (%v, %v), want (%v, %v)", tc.in, got, ok, tc.want, tc.ok)
 		}

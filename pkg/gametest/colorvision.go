@@ -7,22 +7,22 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/a11y"
-	"github.com/nsgo-dev/game/pkg/effects"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-func toEffectsColorVision(mode a11y.ColorVision) effects.ColorVisionMode {
+func toEffectsColorVision(mode a11y.ColorVision) postfx.ColorVisionMode {
 	switch mode {
 	case a11y.VisionProtanopia:
-		return effects.ColorVisionProtanopia
+		return postfx.ColorVisionProtanopia
 	case a11y.VisionDeuteranopia:
-		return effects.ColorVisionDeuteranopia
+		return postfx.ColorVisionDeuteranopia
 	case a11y.VisionTritanopia:
-		return effects.ColorVisionTritanopia
+		return postfx.ColorVisionTritanopia
 	case a11y.VisionHighContrast:
-		return effects.ColorVisionHighContrast
+		return postfx.ColorVisionHighContrast
 	default:
-		return effects.ColorVisionNone
+		return postfx.ColorVisionNone
 	}
 }
 
@@ -39,7 +39,7 @@ func cloneToRGBA(img image.Image) *image.RGBA {
 	return out
 }
 
-// ApplyColorVision filters img through effects.ColorVisionEffect for mode at severity
+// ApplyColorVision filters img through postfx.ColorVisionEffect for mode at severity
 // in [0, 1] (clamped, with NaN treated as 0). When correct is false, it simulates the
 // deficiency; when correct is true, it applies daltonization correction. The input
 // image is not mutated.
@@ -49,7 +49,7 @@ func ApplyColorVision(img image.Image, mode a11y.ColorVision, severity float64, 
 	if b.Empty() || mode == a11y.VisionNormal || math.IsNaN(severity) || severity <= 0 {
 		return src
 	}
-	chain := effects.MustCompile(effects.ColorVisionEffect(toEffectsColorVision(mode), severity, correct))
+	chain := postfx.MustCompile(postfx.ColorVisionEffect(toEffectsColorVision(mode), severity, correct))
 	out, err := chain.Reference(src, b.Dx(), b.Dy(), nil)
 	if err != nil {
 		return src

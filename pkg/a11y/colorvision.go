@@ -3,23 +3,23 @@ package a11y
 import (
 	"math"
 
-	"github.com/nsgo-dev/game/pkg/effects"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-func toEffectsColorVisionMode(mode ColorVision) effects.ColorVisionMode {
+func toEffectsColorVisionMode(mode ColorVision) postfx.ColorVisionMode {
 	switch mode {
 	case VisionProtanopia:
-		return effects.ColorVisionProtanopia
+		return postfx.ColorVisionProtanopia
 	case VisionDeuteranopia:
-		return effects.ColorVisionDeuteranopia
+		return postfx.ColorVisionDeuteranopia
 	case VisionTritanopia:
-		return effects.ColorVisionTritanopia
+		return postfx.ColorVisionTritanopia
 	case VisionHighContrast:
-		return effects.ColorVisionHighContrast
+		return postfx.ColorVisionHighContrast
 	default:
-		return effects.ColorVisionNone
+		return postfx.ColorVisionNone
 	}
 }
 
@@ -27,32 +27,32 @@ func toEffectsColorVisionMode(mode ColorVision) effects.ColorVisionMode {
 // configured from settings.ColorBlindMode and settings.EffectiveColorBlindSeverity().
 // When ColorBlindMode is "none" (or unrecognized) or the effective severity is 0 or
 // less, it returns a zero Effect and false so callers can omit the pass.
-func ColorVisionFilter(settings save.AccessibilitySettings) (effects.Effect, bool) {
+func ColorVisionFilter(settings save.AccessibilitySettings) (postfx.Effect, bool) {
 	mode, ok := ParseColorVision(settings.ColorBlindMode)
 	if !ok || mode == VisionNormal {
-		return effects.Effect{}, false
+		return postfx.Effect{}, false
 	}
 	severity := settings.EffectiveColorBlindSeverity()
 	if !(severity > 0) {
-		return effects.Effect{}, false
+		return postfx.Effect{}, false
 	}
-	return effects.ColorVisionEffect(toEffectsColorVisionMode(mode), severity, true), true
+	return postfx.ColorVisionEffect(toEffectsColorVisionMode(mode), severity, true), true
 }
 
 // ColorVisionSimulation returns a frame effect that simulates how a scene appears
 // under mode at severity in [0, 1] (clamped, with NaN treated as 0). VisionNormal,
 // VisionHighContrast, and severity <= 0 return a zero Effect and false.
-func ColorVisionSimulation(mode ColorVision, severity float64) (effects.Effect, bool) {
+func ColorVisionSimulation(mode ColorVision, severity float64) (postfx.Effect, bool) {
 	if mode != VisionProtanopia && mode != VisionDeuteranopia && mode != VisionTritanopia {
-		return effects.Effect{}, false
+		return postfx.Effect{}, false
 	}
 	if math.IsNaN(severity) || severity <= 0 {
-		return effects.Effect{}, false
+		return postfx.Effect{}, false
 	}
 	if severity > 1 {
 		severity = 1
 	}
-	return effects.ColorVisionEffect(toEffectsColorVisionMode(mode), severity, false), true
+	return postfx.ColorVisionEffect(toEffectsColorVisionMode(mode), severity, false), true
 }
 
 // SimulateAt approximates how c appears under color-vision mode at severity in [0, 1]
@@ -65,7 +65,7 @@ func SimulateAt(c core.Color, mode ColorVision, severity float64) core.Color {
 	if mode != VisionProtanopia && mode != VisionDeuteranopia && mode != VisionTritanopia {
 		return c
 	}
-	m := effects.ColorVisionMatrix(toEffectsColorVisionMode(mode), severity, false)
+	m := postfx.ColorVisionMatrix(toEffectsColorVisionMode(mode), severity, false)
 	return applyLinearMatrixColor(c, m)
 }
 
@@ -82,7 +82,7 @@ func Daltonize(c core.Color, mode ColorVision, severity float64) core.Color {
 	}
 	switch mode {
 	case VisionProtanopia, VisionDeuteranopia, VisionTritanopia:
-		m := effects.ColorVisionMatrix(toEffectsColorVisionMode(mode), severity, true)
+		m := postfx.ColorVisionMatrix(toEffectsColorVisionMode(mode), severity, true)
 		return applyLinearMatrixColor(c, m)
 	case VisionHighContrast:
 		r, g, b, _ := c.Components()
@@ -137,6 +137,6 @@ func (a *Assist) SetColorBlindSeverity(v float64) error {
 // ColorVisionFilter returns the active color-vision correction frame effect for the
 // player's current accessibility settings, or (zero, false) when ColorVision is
 // VisionNormal or ColorBlindSeverity is 0.
-func (a *Assist) ColorVisionFilter() (effects.Effect, bool) {
+func (a *Assist) ColorVisionFilter() (postfx.Effect, bool) {
 	return ColorVisionFilter(a.load())
 }

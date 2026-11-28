@@ -5,9 +5,9 @@ import (
 	"sync"
 
 	"github.com/nsgo-dev/game/pkg/a11y"
-	"github.com/nsgo-dev/game/pkg/effects"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -21,18 +21,18 @@ var (
 		a11y.VisionTritanopia,
 	}
 
-	protanopiaPreviewChain = sync.OnceValue(func() *effects.Chain {
-		return effects.MustCompile(effects.ColorVisionEffect(effects.ColorVisionProtanopia, 1.0, false))
+	protanopiaPreviewChain = sync.OnceValue(func() *postfx.Chain {
+		return postfx.MustCompile(postfx.ColorVisionEffect(postfx.ColorVisionProtanopia, 1.0, false))
 	})
-	deuteranopiaPreviewChain = sync.OnceValue(func() *effects.Chain {
-		return effects.MustCompile(effects.ColorVisionEffect(effects.ColorVisionDeuteranopia, 1.0, false))
+	deuteranopiaPreviewChain = sync.OnceValue(func() *postfx.Chain {
+		return postfx.MustCompile(postfx.ColorVisionEffect(postfx.ColorVisionDeuteranopia, 1.0, false))
 	})
-	tritanopiaPreviewChain = sync.OnceValue(func() *effects.Chain {
-		return effects.MustCompile(effects.ColorVisionEffect(effects.ColorVisionTritanopia, 1.0, false))
+	tritanopiaPreviewChain = sync.OnceValue(func() *postfx.Chain {
+		return postfx.MustCompile(postfx.ColorVisionEffect(postfx.ColorVisionTritanopia, 1.0, false))
 	})
 )
 
-func colorVisionPreviewChain(mode a11y.ColorVision) *effects.Chain {
+func colorVisionPreviewChain(mode a11y.ColorVision) *postfx.Chain {
 	switch mode {
 	case a11y.VisionProtanopia:
 		return protanopiaPreviewChain()
@@ -109,9 +109,9 @@ func (e *Editor) CycleColorVisionPreview() a11y.ColorVision {
 	return a11y.VisionNormal
 }
 
-// ColorVisionPreviewEffect returns the simulation effects.Effect for the editor's
+// ColorVisionPreviewEffect returns the simulation postfx.Effect for the editor's
 // active ColorVisionPreview mode, or (zero, false) when preview is Normal.
-func (e *Editor) ColorVisionPreviewEffect() (effects.Effect, bool) {
+func (e *Editor) ColorVisionPreviewEffect() (postfx.Effect, bool) {
 	return a11y.ColorVisionSimulation(e.ColorVisionPreview(), 1.0)
 }
 
@@ -186,7 +186,7 @@ func (e *Editor) HUDContrastRows() []HUDContrastRow {
 }
 
 // viewportColorVisionOverlayView renders a live GPU color-vision simulation pass
-// (via effects.View over a retained core.OffscreenImage of DrawViewport) and an
+// (via postfx.View over a retained core.OffscreenImage of DrawViewport) and an
 // active-mode badge pill whenever ColorVisionPreview is not VisionNormal.
 func viewportColorVisionOverlayView(
 	cx *core.Scope,
@@ -252,7 +252,7 @@ func viewportColorVisionOverlayView(
 								Bottom:   core.Pt(0),
 							},
 							Children: []core.Node{
-								effects.View{
+								postfx.View{
 									TestID:    "viewport-color-vision-shader",
 									Chain:     chain,
 									FrameFunc: off.Source,

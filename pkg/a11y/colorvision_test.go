@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/a11y"
-	"github.com/nsgo-dev/game/pkg/effects"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -34,7 +34,7 @@ func TestColorVisionFilterFromSettingsAndAssist(t *testing.T) {
 	if !ok {
 		t.Fatal("expected ColorVisionFilter(deuteranopia) to return true")
 	}
-	chain := effects.MustCompile(eff)
+	chain := postfx.MustCompile(eff)
 	frame := image.NewRGBA(image.Rect(0, 0, 2, 1))
 	frame.SetRGBA(0, 0, color.RGBA{0xCC, 0x22, 0x22, 255})
 	frame.SetRGBA(1, 0, color.RGBA{0x22, 0xAA, 0x22, 255})
