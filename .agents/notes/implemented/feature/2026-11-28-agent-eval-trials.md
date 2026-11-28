@@ -16,5 +16,5 @@ Repeating grading in the same workspace would be faster but would allow one tria
 
 ## Consequences
 
-Scheduled jobs can trade runtime for confidence by setting `-trials`. Existing reports retain their task fields and gain zero-valued statistics when callers construct reports directly.
+Scheduled jobs can trade runtime for confidence by setting `-trials`. Reports carry the evaluated commit and staged docs/skill hash, and `CompareSuiteReports`/`-compare` flags changed criteria only for matching mode and model. History-branch publishing and drop alerts remain workflow follow-up work.
 

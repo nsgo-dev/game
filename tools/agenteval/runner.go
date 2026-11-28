@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,11 +109,34 @@ func RunSuite(ctx context.Context, opts RunOptions) (SuiteReport, error) {
 		results = append(results, rep)
 	}
 	report := BuildSuiteReport(opts.Mode, results)
+	report.CommitSHA, report.ContextHash = evaluationMetadata(opts.RepoRoot)
 	if opts.Mode == ModeAgent {
 		report.Provider = opts.Agent.Provider
 		report.Model = opts.Agent.Model
 	}
 	return report, nil
+}
+
+func evaluationMetadata(root string) (commit, contextHash string) {
+	if out, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output(); err == nil {
+		commit = strings.TrimSpace(string(out))
+	}
+	h := sha256.New()
+	for _, rel := range []string{"docs/en", "docs/zh", "skills/nsgo-game"} {
+		base := filepath.Join(root, rel)
+		_ = filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil || info.IsDir() {
+				return nil
+			}
+			data, readErr := os.ReadFile(path)
+			if readErr == nil {
+				fmt.Fprintf(h, "%s\x00", filepath.ToSlash(path[len(root)+1:]))
+				h.Write(data)
+			}
+			return nil
+		})
+	}
+	return commit, fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func filterTasks(tasks []*Task, filter []string) ([]*Task, error) {
