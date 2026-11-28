@@ -72,6 +72,21 @@ func TestScreenParseValidationAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestScreenBindingRoundTrip(t *testing.T) {
+	data := []byte("# yaml-language-server: $schema=https://game.nsgo.dev/schemas/screen.v1.json\nversion: 1\ndesignWidth: 640\ndesignHeight: 360\nnodes:\n  - id: score\n    type: label\n    bind:\n      text: player.score\n      visible: hud.showScore\n")
+	doc, err := gameui.ParseScreen(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Nodes[0].Bind["text"]; got != "player.score" {
+		t.Fatalf("binding = %q", got)
+	}
+	encoded, err := gameui.EncodeScreen(doc)
+	if err != nil || !bytes.Equal(encoded, data) {
+		t.Fatalf("encoded = %q, err=%v", encoded, err)
+	}
+}
+
 // Acceptance: A HUD file with a top-left status box and a bottom-right touch button builds
 // and places them in the safe area on a notched phone size and on desktop in a test.
 func TestScreenBuildHUDNotchedPhoneAndDesktop(t *testing.T) {

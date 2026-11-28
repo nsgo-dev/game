@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -179,6 +180,9 @@ type ScreenNodeDoc struct {
 	Spacing float32 `yaml:"spacing,omitempty" schema:"minimum=0"`
 	// TextKey names a localized string in the project's l10n tables (such as "hud.hint.lever") for label, button, and touch_button nodes. Screen files store localization keys rather than literal text.
 	TextKey string `yaml:"textKey,omitempty"`
+	// Bind maps supported widget properties to registered game value paths. The
+	// binding is declarative metadata consumed by the host or generated UI code.
+	Bind map[string]string `yaml:"bind,omitempty"`
 	// FocusOrder sets the explicit keyboard/gamepad focus traversal order (1-based; 0 means not explicitly ordered) on button and touch_button nodes.
 	FocusOrder int `yaml:"focusOrder,omitempty" schema:"minimum=0"`
 	// TouchHitSize is the touch target diameter in virtual points for touch_stick, touch_button, or touch-interactive buttons.
@@ -480,6 +484,14 @@ func validateScreenNode(n *ScreenNodeDoc, path []any, depth int, parentClasses d
 		}
 		if strings.TrimSpace(n.TextKey) != n.TextKey || strings.IndexFunc(n.TextKey, unicode.IsControl) >= 0 {
 			return loaderr.Errorf(fieldPath("textKey"), "set textKey to a localization key without surrounding spaces or control characters", "gameui: node %q has invalid textKey %q", n.ID, n.TextKey)
+		}
+	}
+	for property, source := range n.Bind {
+		if strings.TrimSpace(property) != property || property == "" || strings.IndexFunc(property, unicode.IsControl) >= 0 {
+			return loaderr.Errorf(fieldPath("bind", property), "use a non-empty binding property", "gameui: node %q has invalid binding property %q", n.ID, property)
+		}
+		if strings.TrimSpace(source) != source || source == "" || strings.IndexFunc(source, unicode.IsControl) >= 0 {
+			return loaderr.Errorf(fieldPath("bind", property), "set the binding source to a dotted game value path", "gameui: node %q has invalid binding source %q", n.ID, source)
 		}
 	}
 	if n.FocusOrder != 0 && !nodeSupportsFocusOrder(n.Type) {
@@ -807,6 +819,9 @@ func cloneScreenNode(n ScreenNodeDoc) ScreenNodeDoc {
 	}
 	if len(n.DeviceClasses) > 0 {
 		out.DeviceClasses = slices.Clone(n.DeviceClasses)
+	}
+	if len(n.Bind) > 0 {
+		out.Bind = maps.Clone(n.Bind)
 	}
 	if len(n.Children) > 0 {
 		out.Children = make([]ScreenNodeDoc, len(n.Children))

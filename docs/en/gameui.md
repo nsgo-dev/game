@@ -265,3 +265,7 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 `ScreenCheckOptions.TextScale` names the largest scale the game supports. `CheckScreen` then lays the screen out at that scale as well as the theme's own and reports a `text_overflow` that appears only at the larger one with the scale in its message (`at text scale 200%`).
 
 The settings menu's Text Scale row does not drive `Root.TextScale` yet, and nothing reads `core.Env().FontScale()` for it; wire the player's setting in yourself (#1772).
+
+## Declarative data bindings
+
+Screen nodes may declare `bind` entries that map widget properties to dotted game value paths. The format stores the contract while the host or generated screen code supplies registered values. Bindings are copied with the screen document and validated as non-empty paths.

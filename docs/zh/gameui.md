@@ -265,3 +265,7 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 `ScreenCheckOptions.TextScale` 表示游戏支持的最大缩放比例。`CheckScreen` 会在该比例和主题自身的比例下各布局一次，只在较大比例下出现的 `text_overflow` 会在消息里注明比例（`at text scale 200%`）。
 
 设置菜单的 Text Scale 行目前还不会驱动 `Root.TextScale`，也没有读取 `core.Env().FontScale()`；需要由游戏自己把玩家的设置接进来（#1772）。
+
+## 声明式数据绑定
+
+屏幕节点可以声明 `bind`，把控件属性映射到带点号的游戏值路径。格式文件保存绑定契约，宿主或生成的界面代码提供注册值。绑定会随屏幕文档复制，并校验为非空路径。
