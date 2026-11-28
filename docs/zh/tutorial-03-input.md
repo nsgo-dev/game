@@ -4,6 +4,9 @@
 
 完成后的代码在 [`examples/tutorial/ch03-input`](../../examples/tutorial/ch03-input/)。
 
+
+**本章修改的文件：** [`main.go`](../../examples/tutorial/ch03-input/main.go)、[`game.go`](../../examples/tutorial/ch03-input/game.go)、[`world.go`](../../examples/tutorial/ch03-input/world.go)、[`game_test.go`](../../examples/tutorial/ch03-input/game_test.go)。链接的章节目录包含每个完整文件。
+
 ## 世界里的移动
 
 世界把玩家的移动作为 `step` 的参数：-1 表示向左一条通道，1 表示向右一条通道，0 表示不动。篮子朝它的通道前进，以 `basketSpeed` 滑过去：

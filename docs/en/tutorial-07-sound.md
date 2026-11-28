@@ -4,6 +4,9 @@ Play a sound for each catch, hit, miss and the end of a game: synthesize the eff
 
 The finished code is in [`examples/tutorial/ch07-sound`](../../examples/tutorial/ch07-sound/).
 
+
+**Files changed in this chapter:** [`main.go`](../../examples/tutorial/ch07-sound/main.go), [`game.go`](../../examples/tutorial/ch07-sound/game.go), [`world.go`](../../examples/tutorial/ch07-sound/world.go), [`art.go`](../../examples/tutorial/ch07-sound/art.go), [`audio.go`](../../examples/tutorial/ch07-sound/audio.go), [`screens.go`](../../examples/tutorial/ch07-sound/screens.go), [`game_test.go`](../../examples/tutorial/ch07-sound/game_test.go), [`world_test.go`](../../examples/tutorial/ch07-sound/world_test.go). The linked chapter directory contains each complete file.
+
 ## Effects made in Go
 
 A game with recorded sounds puts WAV, AAC or MP3 files under `resources/` and loads them by `"asset:"` URI, as [Getting Started](getting-started.md#play-sound-with-soundmixer) shows. Star Catcher makes its four effects in code instead, in `audio.go`, so the tutorial needs no audio files. Each is a few tones or a burst of noise, encoded with `sound.EncodeWAV`:

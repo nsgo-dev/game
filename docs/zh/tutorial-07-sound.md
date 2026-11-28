@@ -4,6 +4,9 @@
 
 完成后的代码在 [`examples/tutorial/ch07-sound`](../../examples/tutorial/ch07-sound/)。
 
+
+**本章修改的文件：** [`main.go`](../../examples/tutorial/ch07-sound/main.go)、[`game.go`](../../examples/tutorial/ch07-sound/game.go)、[`world.go`](../../examples/tutorial/ch07-sound/world.go)、[`art.go`](../../examples/tutorial/ch07-sound/art.go)、[`audio.go`](../../examples/tutorial/ch07-sound/audio.go)、[`screens.go`](../../examples/tutorial/ch07-sound/screens.go)、[`game_test.go`](../../examples/tutorial/ch07-sound/game_test.go)、[`world_test.go`](../../examples/tutorial/ch07-sound/world_test.go)。链接的章节目录包含每个完整文件。
+
 ## 用 Go 制作音效
 
 使用录制音效的游戏会把 WAV、AAC 或 MP3 文件放在 `resources/` 下，并通过 `"asset:"` URI 加载，见[快速开始](getting-started.md#用-soundmixer-播放声音)。Star Catcher 改在 `audio.go` 里用代码生成四个音效，所以教程不需要任何音频文件。每个音效由几个音调或一段噪声组成，用 `sound.EncodeWAV` 编码：

@@ -4,6 +4,9 @@ Give the game a title screen, a pause menu and a game-over screen. They are nati
 
 The finished code is in [`examples/tutorial/ch06-screens`](../../examples/tutorial/ch06-screens/). The views move to their own file, `screens.go`.
 
+
+**Files changed in this chapter:** [`main.go`](../../examples/tutorial/ch06-screens/main.go), [`game.go`](../../examples/tutorial/ch06-screens/game.go), [`world.go`](../../examples/tutorial/ch06-screens/world.go), [`art.go`](../../examples/tutorial/ch06-screens/art.go), [`screens.go`](../../examples/tutorial/ch06-screens/screens.go), [`game_test.go`](../../examples/tutorial/ch06-screens/game_test.go), [`world_test.go`](../../examples/tutorial/ch06-screens/world_test.go). The linked chapter directory contains each complete file.
+
 ## Phases
 
 The game is always in one of four phases, held in a signal so the views follow it:

@@ -4,6 +4,9 @@
 
 完成后的代码在 [`examples/tutorial/ch06-screens`](../../examples/tutorial/ch06-screens/)。视图移到了单独的文件 `screens.go`。
 
+
+**本章修改的文件：** [`main.go`](../../examples/tutorial/ch06-screens/main.go)、[`game.go`](../../examples/tutorial/ch06-screens/game.go)、[`world.go`](../../examples/tutorial/ch06-screens/world.go)、[`art.go`](../../examples/tutorial/ch06-screens/art.go)、[`screens.go`](../../examples/tutorial/ch06-screens/screens.go)、[`game_test.go`](../../examples/tutorial/ch06-screens/game_test.go)、[`world_test.go`](../../examples/tutorial/ch06-screens/world_test.go)。链接的章节目录包含每个完整文件。
+
 ## 阶段
 
 游戏总是处于四个阶段之一，阶段保存在信号里，视图随之变化：

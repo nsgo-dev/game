@@ -4,6 +4,9 @@
 
 完成后的代码在 [`examples/tutorial/ch02-game-loop`](../../examples/tutorial/ch02-game-loop/)。
 
+
+**本章修改的文件：** [`main.go`](../../examples/tutorial/ch02-game-loop/main.go)、[`game.go`](../../examples/tutorial/ch02-game-loop/game.go)、[`world.go`](../../examples/tutorial/ch02-game-loop/world.go)、[`game_test.go`](../../examples/tutorial/ch02-game-loop/game_test.go)。链接的章节目录包含每个完整文件。
+
 ## 只由步进改变的世界
 
 把游戏状态放进一个单独的类型，并且只在一个方法 `step` 里改变它，每次推进一段固定时间：

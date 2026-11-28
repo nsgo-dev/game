@@ -4,6 +4,9 @@
 
 完成后的代码在 [`examples/tutorial/ch05-rules`](../../examples/tutorial/ch05-rules/)。
 
+
+**本章修改的文件：** [`main.go`](../../examples/tutorial/ch05-rules/main.go)、[`game.go`](../../examples/tutorial/ch05-rules/game.go)、[`world.go`](../../examples/tutorial/ch05-rules/world.go)、[`art.go`](../../examples/tutorial/ch05-rules/art.go)、[`game_test.go`](../../examples/tutorial/ch05-rules/game_test.go)、[`world_test.go`](../../examples/tutorial/ch05-rules/world_test.go)。链接的章节目录包含每个完整文件。
+
 ## 规则
 
 所有规则都是 `world.go` 顶部的常量，所以调整游戏只需要改一处的数字：

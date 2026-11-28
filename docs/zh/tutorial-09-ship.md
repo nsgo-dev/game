@@ -4,6 +4,9 @@
 
 完成后的游戏在 [`examples/tutorial/ch09-ship`](../../examples/tutorial/ch09-ship/)。下面每一步的更多细节，包括签名和上传商店，见[构建与发布](shipping.md)。
 
+
+**本章修改的文件：** [`main.go`](../../examples/tutorial/ch09-ship/main.go)、[`game.go`](../../examples/tutorial/ch09-ship/game.go)、[`world.go`](../../examples/tutorial/ch09-ship/world.go)、[`art.go`](../../examples/tutorial/ch09-ship/art.go)、[`audio.go`](../../examples/tutorial/ch09-ship/audio.go)、[`records.go`](../../examples/tutorial/ch09-ship/records.go)、[`screens.go`](../../examples/tutorial/ch09-ship/screens.go)、[`game_test.go`](../../examples/tutorial/ch09-ship/game_test.go)、[`world_test.go`](../../examples/tutorial/ch09-ship/world_test.go)、[`records_test.go`](../../examples/tutorial/ch09-ship/records_test.go)、[`ship_test.go`](../../examples/tutorial/ch09-ship/ship_test.go)、[`nsgo.yaml`](../../examples/tutorial/ch09-ship/nsgo.yaml)。链接的章节目录包含每个完整文件。
+
 ## 名称、版本和图标
 
 `nsgo.yaml` 现在写明商店里显示的内容：

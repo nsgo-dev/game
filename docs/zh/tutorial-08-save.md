@@ -4,6 +4,9 @@
 
 完成后的代码在 [`examples/tutorial/ch08-save`](../../examples/tutorial/ch08-save/)。
 
+
+**本章修改的文件：** [`main.go`](../../examples/tutorial/ch08-save/main.go)、[`game.go`](../../examples/tutorial/ch08-save/game.go)、[`world.go`](../../examples/tutorial/ch08-save/world.go)、[`art.go`](../../examples/tutorial/ch08-save/art.go)、[`audio.go`](../../examples/tutorial/ch08-save/audio.go)、[`records.go`](../../examples/tutorial/ch08-save/records.go)、[`screens.go`](../../examples/tutorial/ch08-save/screens.go)、[`game_test.go`](../../examples/tutorial/ch08-save/game_test.go)、[`world_test.go`](../../examples/tutorial/ch08-save/world_test.go)、[`records_test.go`](../../examples/tutorial/ch08-save/records_test.go)。链接的章节目录包含每个完整文件。
+
 ## 要保存什么
 
 记录是 `records.go` 里一个带 JSON 标签的小结构体：

@@ -4,6 +4,9 @@ Get Star Catcher ready for players: give it a name, version and icon for the sto
 
 The finished game is in [`examples/tutorial/ch09-ship`](../../examples/tutorial/ch09-ship/). [Building and Shipping](shipping.md) covers each step below in more depth, signing and store uploads included.
 
+
+**Files changed in this chapter:** [`main.go`](../../examples/tutorial/ch09-ship/main.go), [`game.go`](../../examples/tutorial/ch09-ship/game.go), [`world.go`](../../examples/tutorial/ch09-ship/world.go), [`art.go`](../../examples/tutorial/ch09-ship/art.go), [`audio.go`](../../examples/tutorial/ch09-ship/audio.go), [`records.go`](../../examples/tutorial/ch09-ship/records.go), [`screens.go`](../../examples/tutorial/ch09-ship/screens.go), [`game_test.go`](../../examples/tutorial/ch09-ship/game_test.go), [`world_test.go`](../../examples/tutorial/ch09-ship/world_test.go), [`records_test.go`](../../examples/tutorial/ch09-ship/records_test.go), [`ship_test.go`](../../examples/tutorial/ch09-ship/ship_test.go), [`nsgo.yaml`](../../examples/tutorial/ch09-ship/nsgo.yaml). The linked chapter directory contains each complete file.
+
 ## Name, version and icon
 
 `nsgo.yaml` now says what the stores show:
