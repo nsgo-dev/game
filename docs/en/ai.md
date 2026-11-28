@@ -821,3 +821,6 @@ senses.Add(guard)
 // Inside game.Loop.Update:
 senses.Step(dt, []perception3d.Target{{ID: playerID, Team: teamPlayer, Pos: playerPos}})
 ```
+# Smart objects
+
+`ai.SmartObjects` advertises tagged interaction slots, finds free slots by radius, prevents double claims, releases claims when an object is disabled, and snapshots claim state.
