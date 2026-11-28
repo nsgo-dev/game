@@ -71,14 +71,31 @@ func TestCheckResourcesRefusesCredentialsDotfilesPEMAndSymlinks(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "resources", "linked.txt")); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(dir, "resources", "linked-dir")); err != nil {
+		t.Fatal(err)
+	}
 	items := CheckResources(dir, &project.File{})
-	if len(items) != 5 {
+	if len(items) != 6 {
 		t.Fatalf("items = %+v", items)
 	}
 	for _, item := range items {
 		if item.Status != ReadinessFail {
 			t.Errorf("%s status = %s, want fail", item.ID, item.Status)
 		}
+	}
+}
+
+func TestCheckResourcesPassesCleanResources(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "resources", "sprites"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "resources", "sprites", "hero.png"), []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	items := CheckResources(dir, &project.File{})
+	if len(items) != 1 || items[0].Status != ReadinessOK {
+		t.Fatalf("items = %+v, want one OK item", items)
 	}
 }
 
