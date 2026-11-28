@@ -8,7 +8,7 @@ A task may list `required_tools` under `checks` to declare the editor and runtim
 
 ## Task families
 
-A task may declare `family` as `create`, `editor`, `debug`, `3d`, `data`, `code` or `safety`, and `mcp_servers`, the names of the MCP servers it expects an agent to use, such as `[nsgo]`. An unknown family, an empty or whitespace-containing server name, or a duplicate server name fails task loading. Both fields are optional, and `platformer-level`, `add-enemy-type` and `add-menu` are `create` tasks on `[nsgo]`, the only server the staged `mcp.json` configures today. The fields are metadata: grading and reports do not use them yet.
+A task may declare `family` as `create`, `editor`, `debug`, `3d`, `data`, `code` or `safety`, and `mcp_servers`, the names of the MCP servers it expects an agent to use, such as `[nsgo]`. An unknown family, an empty or whitespace-containing server name, or a duplicate server name fails task loading. Both fields are optional. `platformer-level`, `add-enemy-type` and `add-menu` are `create` tasks and `editor-workflow` is an `editor` task, all on `[nsgo]`, the only server the staged `mcp.json` configures today. The fields are metadata: grading and reports do not use them yet.
 
 ## Tasks
 
