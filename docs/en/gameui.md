@@ -257,3 +257,12 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 - missing `under`, `progress`, or `over` images on `image_progress` nodes.
 
 `tooling/refs` and `game mv` follow `sprite` paths, `image_progress` layer paths, and `textKey` references in `*.screen.yaml` files: `game mv art/heart.png art/ui/heart.png` rewrites `sprite:` in place, and `game mv -text-key hud.hint.lever hud.tip.lever` renames a localization key across both `*.screen.yaml` files and YAML string tables.
+
+## Text scale (`TextScale`)
+
+`Theme.TextScale` and `Root.TextScale` multiply every widget font size during layout and drawing: the theme's default `Font` and a widget's own `Font.Size`, including a screen file's `fontSize`, so labels, buttons, toggles, sliders, progress bars, lists and touch buttons grow and re-measure while explicit widget sizes and touch targets stay as they are. The scale is clamped to `MinTextScale`–`MaxTextScale` (1–2); `Root.TextScale` replaces the theme's when it is set, and `Root.SetTextScale` stores and returns the clamped value. A `BuiltScreen` takes it through `built.Root.SetTextScale`.
+
+`ScreenCheckOptions.TextScale` names the largest scale the game supports. `CheckScreen` then lays the screen out at that scale as well as the theme's own and reports a `text_overflow` that appears only at the larger one with the scale in its message (`at text scale 200%`).
+
+The settings menu applies the player's `TextScale` setting across its own widgets using the full persisted `0.5`–`3.0` range. Other roots still need their `Root.TextScale` or `Theme.TextScale` wired to the same setting, and `ScreenCheckOptions.TextScale` should match the largest supported root scale.
+The settings menu applies the complete validated `save.MinCaptionScale` through `save.MaxCaptionScale` range, including 200% and 300% player text-size choices. Screen files and custom widgets should use the same setting when constructing text so HUD and menu typography remain consistent.
