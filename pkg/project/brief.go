@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
@@ -57,7 +58,7 @@ var BriefSections = []BriefSection{
 type Brief struct {
 	// Version is the schema version; it must equal BriefVersion (1).
 	Version int `yaml:"version" schema:"required"`
-	// Basis records whether the brief section is locked by the person, an experience target, or an assumption that may be revised.
+	// Basis records where the brief's statements come from: locked (a decision only the person changes), target (an experience goal to aim for) or assumption (a default an agent may revise).
 	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Pitch describes what the game is meant to be in a sentence or two.
 	Pitch string `yaml:"pitch,omitempty"`
@@ -79,17 +80,23 @@ type Brief struct {
 	Changes []BriefChange `yaml:"changes,omitempty"`
 }
 
-// BriefChange records why a brief field changed.
+// BriefChange records one edit to the brief's intent, listed under changes in brief.yaml.
 type BriefChange struct {
-	Date   string `yaml:"date" schema:"required"`
-	Field  string `yaml:"field" schema:"required"`
-	From   string `yaml:"from,omitempty"`
-	To     string `yaml:"to,omitempty"`
+	// Date is the UTC day of the edit, as YYYY-MM-DD.
+	Date string `yaml:"date" schema:"required"`
+	// Field names what changed, such as "feel.targets.floor_01.median_time".
+	Field string `yaml:"field" schema:"required"`
+	// From is the value before the edit, empty when the field was added.
+	From string `yaml:"from,omitempty"`
+	// To is the value after the edit, empty when the field was removed.
+	To string `yaml:"to,omitempty"`
+	// Reason says why the field changed.
 	Reason string `yaml:"reason,omitempty"`
 }
 
 // BriefArt holds structured art direction notes and pinned project-relative reference images.
 type BriefArt struct {
+	// Basis records where the art direction comes from: locked, target or assumption.
 	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Direction optionally describes visual direction inline under art.direction.
 	Direction string `yaml:"direction,omitempty"`
@@ -107,6 +114,7 @@ type BriefArtReference struct {
 
 // BriefFeel describes game feel, difficulty expectations, and machine-readable playtest targets.
 type BriefFeel struct {
+	// Basis records where the feel summary comes from: locked, target or assumption.
 	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Summary describes target game feel, controls responsiveness, and difficulty pacing in plain language.
 	Summary string `yaml:"summary,omitempty"`
@@ -116,12 +124,12 @@ type BriefFeel struct {
 
 // BriefPlaytestTarget declares one measurable playtest target in brief.yaml's feel and difficulty section.
 type BriefPlaytestTarget struct {
-	// Basis identifies provenance of this target.
-	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Metric is the playtest metric name this target constrains, such as "median_time", "deaths", or "finished".
 	Metric string `yaml:"metric" schema:"required,minLength=1"`
 	// Scene optionally restricts this target to a specific scene or level name, such as "floor_01".
 	Scene string `yaml:"scene,omitempty"`
+	// Basis records where this target comes from: locked (only the person changes it), target (an experience goal) or assumption (a default an agent may tune).
+	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Summary is an optional human-readable description of the target, such as "2–4 deaths on floor 3".
 	Summary string `yaml:"summary,omitempty"`
 	// Unit is an optional display unit, such as "s", "ms", or "%".
@@ -387,11 +395,16 @@ func ValidateBrief(b *Brief) error {
 	}
 	for i, change := range b.Changes {
 		at := loaderr.Path("changes", i)
-		if strings.TrimSpace(change.Date) == "" || strings.TrimSpace(change.Field) == "" {
-			return loaderr.Errorf(at, "set date and field on each brief change", "project: brief change requires date and field")
+		if _, err := time.Parse(time.DateOnly, change.Date); err != nil {
+			return loaderr.Errorf(loaderr.Join(at, "date"), "write the date as YYYY-MM-DD", "project: brief change date %q is not a YYYY-MM-DD date", change.Date)
 		}
-		if strings.TrimSpace(change.Date) != change.Date || strings.TrimSpace(change.Field) != change.Field || strings.IndexFunc(change.Date, unicode.IsControl) >= 0 || strings.IndexFunc(change.Field, unicode.IsControl) >= 0 {
-			return loaderr.Errorf(at, "use clean date and field values", "project: brief change has invalid date or field")
+		if strings.TrimSpace(change.Field) == "" || strings.TrimSpace(change.Field) != change.Field || strings.IndexFunc(change.Field, unicode.IsControl) >= 0 {
+			return loaderr.Errorf(loaderr.Join(at, "field"), "set field to the brief field that changed, such as feel.targets.floor_01.median_time", "project: brief change field %q is invalid", change.Field)
+		}
+		for _, f := range []struct{ name, value string }{{"from", change.From}, {"to", change.To}, {"reason", change.Reason}} {
+			if strings.IndexFunc(f.value, unicode.IsControl) >= 0 {
+				return loaderr.Errorf(loaderr.Join(at, f.name), "keep "+f.name+" on one line without control characters", "project: brief change %s contains a control character", f.name)
+			}
 		}
 	}
 	return nil

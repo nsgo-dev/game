@@ -2,6 +2,7 @@ package gamecli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -316,11 +317,12 @@ func TestTemplatesMatchTemplateModules(t *testing.T) {
 	}
 }
 
+// TestTemplatesShipBriefsAndResolveBriefPlaytestGoals checks that every template ships a canonical brief.yaml, one that ParseBrief and EncodeBrief round-trip byte for byte, and that every playtest.yaml goal whose source is brief.yaml names a target of that brief for the playtest's scene.
 func TestTemplatesShipBriefsAndResolveBriefPlaytestGoals(t *testing.T) {
 	for _, tmpl := range projectTemplates {
-		raw, err := fs.ReadFile(tmpl.files, "brief.yaml")
+		raw, err := fs.ReadFile(tmpl.files, project.BriefFileName)
 		if err != nil {
-			t.Errorf("%s brief.yaml: %v", tmpl.name, err)
+			t.Errorf("%s: %v", tmpl.name, err)
 			continue
 		}
 		brief, err := project.ParseBrief(raw)
@@ -328,30 +330,44 @@ func TestTemplatesShipBriefsAndResolveBriefPlaytestGoals(t *testing.T) {
 			t.Errorf("%s brief.yaml: %v", tmpl.name, err)
 			continue
 		}
-		cfgRaw, err := fs.ReadFile(tmpl.files, "playtest.yaml")
+		if encoded, err := project.EncodeBrief(brief); err != nil {
+			t.Errorf("%s brief.yaml: %v", tmpl.name, err)
+		} else if !bytes.Equal(raw, encoded) {
+			t.Errorf("%s brief.yaml is not canonical; want:\n%s", tmpl.name, encoded)
+		}
+		cfgRaw, err := fs.ReadFile(tmpl.files, playtest.FileName)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		if err != nil {
+			t.Errorf("%s: %v", tmpl.name, err)
 			continue
 		}
 		cfg, err := playtest.ParseConfig(cfgRaw)
 		if err != nil {
+			t.Errorf("%s playtest.yaml: %v", tmpl.name, err)
 			continue
 		}
+		targets := brief.TargetsForScene(cfg.Scope.Scene)
 		for _, metric := range cfg.Metrics {
 			if metric.Goal == nil || metric.Goal.Source != project.BriefFileName {
 				continue
 			}
-			found := false
-			for _, target := range brief.TargetsForScene(cfg.Scope.Scene) {
-				if target.Metric == metric.Name {
-					found = true
-					break
-				}
+			i := slices.IndexFunc(targets, func(target project.BriefPlaytestTarget) bool { return target.Metric == metric.Name })
+			if i < 0 {
+				t.Errorf("%s playtest.yaml metric %q takes its goal from brief.yaml, which has no %q target for scene %q", tmpl.name, metric.Name, metric.Name, cfg.Scope.Scene)
+				continue
 			}
-			if !found {
-				t.Errorf("%s playtest metric %q references missing brief target", tmpl.name, metric.Name)
+			if want := playtest.GoalFromBriefTarget(targets[i]); !sameBound(metric.Goal.Min, want.Min) || !sameBound(metric.Goal.Max, want.Max) || !sameBound(metric.Goal.Equal, want.Equal) {
+				t.Errorf("%s playtest.yaml metric %q goal %s differs from its brief.yaml target %s", tmpl.name, metric.Name, metric.Goal.Describe(""), want.Describe(""))
 			}
 		}
 	}
+}
+
+// sameBound reports whether two optional goal bounds are both unset or both set to the same value.
+func sameBound(a, b *float64) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
 }
 
 // TestCheckTemplateModulesNested runs checkTemplateModules against a repository made up here, with starter and a nested template x, so that what only a template other than the default reaches is covered before one is registered.

@@ -1,12 +1,11 @@
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/brief.v1.json
 version: 1
-pitch: 'A fighting2d game template with a deterministic, readable starting experience.'
 basis: assumption
-genre: [fighting2d]
+pitch: 'A one-on-one 2D fighting game: two fighters with special moves from motion inputs, combos, guards, rounds and a timer, against the CPU or a second player'
+genre: [2D fighting]
 platforms: [desktop, web, mobile]
-artDirection: Clean placeholder art that is easy to replace.
-toneAndAudio: Focused, readable feedback with room for the game's own sound direction.
+artDirection: Placeholder art that is easy to replace with the game's own.
+toneAndAudio: Clear, readable feedback for every action, with room for the game's own sound direction.
 feel:
-  basis: target
-  summary: Tune this template's feel targets before shipping.
-  targets: []
+  basis: assumption
+  summary: No measured targets yet; add them under feel.targets when playtest.yaml gains goals.

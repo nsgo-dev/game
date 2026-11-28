@@ -1,20 +1,22 @@
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/brief.v1.json
 version: 1
-pitch: 'A puzzle2d game template with a deterministic, readable starting experience.'
 basis: assumption
-genre: [puzzle2d]
+pitch: 'A 2D grid puzzle: slide a spark to light every lamp, with levels in YAML, undo and redo, a move limit, stars per level and a level select that saves progress'
+genre: [2D grid puzzle]
 platforms: [desktop, web, mobile]
-artDirection: Clean placeholder art that is easy to replace.
-toneAndAudio: Focused, readable feedback with room for the game's own sound direction.
+artDirection: Placeholder art that is easy to replace with the game's own.
+toneAndAudio: Clear, readable feedback for every action, with room for the game's own sound direction.
 feel:
   basis: target
-  summary: Tune this template's feel targets before shipping.
+  summary: The playtest bot checks these targets, which playtest.yaml cites as its goals; tune them as the game takes shape.
   targets:
     - metric: difficulty_order
       scene: levels
       basis: target
+      summary: each level harder than the last
       equal: 0
     - metric: moves_over_par
       scene: levels
       basis: target
+      summary: clever, not tedious
       max: 5

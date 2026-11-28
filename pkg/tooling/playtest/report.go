@@ -79,42 +79,43 @@ type BaselineReport struct {
 	Note string `yaml:"note,omitempty"`
 }
 
-// BriefTargetReport records verification status for one project brief target.
+// BriefTargetReport records whether one feel target from the project's brief.yaml was measured and met.
 type BriefTargetReport struct {
+	// Metric is the brief target's metric name.
 	Metric string `yaml:"metric"`
-	Scene  string `yaml:"scene,omitempty"`
-	Basis  string `yaml:"basis,omitempty"`
-	Status string `yaml:"status"` // pending, met, or missed
-	Run    string `yaml:"run,omitempty"`
+	// Scene is the brief target's scene, empty for a target that applies to every scene.
+	Scene string `yaml:"scene,omitempty"`
+	// Basis is the target's basis in brief.yaml: locked, target or assumption.
+	Basis string `yaml:"basis,omitempty"`
+	// Status is BriefTargetPending when this report has no metric of that name, and otherwise BriefTargetMet or BriefTargetMissed from the metric's value checked against the brief target's own bounds.
+	Status string `yaml:"status"`
 }
 
+// Brief target statuses in a report's briefTargets.
 const (
 	BriefTargetPending = "pending"
 	BriefTargetMet     = "met"
 	BriefTargetMissed  = "missed"
 )
 
-// ApplyBriefTargetStatuses adds every target from b to r. Targets without a corresponding
-// measured metric remain pending, so a report cannot imply evidence that was not collected.
+// ApplyBriefTargetStatuses lists in r every target of b that applies to r's scene, sorted by scene and metric. A target whose metric r did not measure stays pending, so a report never implies evidence it did not collect; a measured one is met or missed by its own bounds in b, even when playtest.yaml gives the metric a different goal. Targets r already lists are kept as they are.
 func ApplyBriefTargetStatuses(r *Report, b *project.Brief) {
 	if r == nil || b == nil {
 		return
 	}
-	existing := make(map[string]BriefTargetReport, len(r.BriefTargets))
+	existing := make(map[string]bool, len(r.BriefTargets))
 	for _, t := range r.BriefTargets {
-		existing[t.Scene+"\x00"+t.Metric] = t
+		existing[t.Scene+"\x00"+t.Metric] = true
 	}
 	for _, t := range b.TargetsForScene(r.Scope.Scene) {
-		key := t.Scene + "\x00" + t.Metric
-		if _, ok := existing[key]; ok {
+		if existing[t.Scene+"\x00"+t.Metric] {
 			continue
 		}
 		status := BriefTargetPending
 		if m := metricByName(r.Metrics, t.Metric); m != nil {
-			if m.Status == StatusMet {
+			status = BriefTargetMissed
+			if GoalFromBriefTarget(t).Evaluate(m.Value) == StatusMet {
 				status = BriefTargetMet
-			} else if m.Status == StatusMissed {
-				status = BriefTargetMissed
 			}
 		}
 		r.BriefTargets = append(r.BriefTargets, BriefTargetReport{Metric: t.Metric, Scene: t.Scene, Basis: t.Basis, Status: status})
@@ -673,6 +674,9 @@ func cloneReport(r *Report) *Report {
 			cp.Goal = cloneGoal(m.Goal)
 			out.Metrics[i] = cp
 		}
+	}
+	if len(r.BriefTargets) > 0 {
+		out.BriefTargets = slices.Clone(r.BriefTargets)
 	}
 	if len(r.HeatMaps) > 0 {
 		out.HeatMaps = make([]HeatMap, len(r.HeatMaps))

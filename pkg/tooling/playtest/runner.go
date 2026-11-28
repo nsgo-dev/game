@@ -9,7 +9,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/replay"
 	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
@@ -219,11 +218,6 @@ func Run(cfg *Config, makeSim SimFactory, opts RunOptions) (*RunResult, error) {
 		Series:    seriesCharts,
 		Matrices:  matrixCharts,
 		Runs:      runs,
-	}
-	if cfg.Scope.Project != "" {
-		if brief, err := project.LoadBrief(filepath.Join(cfg.Scope.Project, project.BriefFileName)); err == nil {
-			ApplyBriefTargetStatuses(rep, brief)
-		}
 	}
 	normalizeReport(rep)
 	if err := ValidateReport(rep); err != nil {

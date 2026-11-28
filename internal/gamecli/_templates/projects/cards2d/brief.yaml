@@ -1,22 +1,26 @@
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/brief.v1.json
 version: 1
-pitch: 'A cards2d game template with a deterministic, readable starting experience.'
 basis: assumption
-genre: [cards2d]
+pitch: 'A single-player 2D card game: drag and drop, a draw pile, a hand and a discard pile, rules in code and data in YAML, a seeded deal, saves, and a win and a loss played through by tests'
+genre: [2D card game]
 platforms: [desktop, web, mobile]
-artDirection: Clean placeholder art that is easy to replace.
-toneAndAudio: Focused, readable feedback with room for the game's own sound direction.
+artDirection: Placeholder art that is easy to replace with the game's own.
+toneAndAudio: Clear, readable feedback for every action, with room for the game's own sound direction.
 feel:
   basis: target
-  summary: Tune this template's feel targets before shipping.
+  summary: The playtest bot checks these targets, which playtest.yaml cites as its goals; tune them as the game takes shape.
   targets:
     - metric: first_player_wins
       scene: deck_matchups
       basis: target
+      summary: going first is a small edge
+      unit: '%'
       min: 45
       max: 55
     - metric: match_length
       scene: deck_matchups
       basis: target
+      summary: quick matches
+      unit: turns
       min: 8
       max: 12
