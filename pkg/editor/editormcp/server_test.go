@@ -180,30 +180,118 @@ func TestSceneEditPlacesAnObjectAsOneUndoStep(t *testing.T) {
 	}
 }
 
-func TestSceneEditRejectsStaleRevisionAndDuplicateRequest(t *testing.T) {
+// scene_read reports a scene version that the selection and the view leave alone, scene_edit refuses a stale baseVersion without changing anything, and the version the conflict reports makes the same write succeed.
+func TestSceneEditRefusesStaleBaseVersion(t *testing.T) {
 	f := openFixture(t)
 	s := editormcp.New(f.ed, editormcp.Options{})
 	t.Cleanup(func() { _ = s.Close() })
 	cs := connect(t, s, nil)
-	base := f.ed.Revision()
-	res := call(t, cs, editormcp.ToolSceneEdit, map[string]any{
-		"baseRevision": base, "requestId": "scene-write-1",
-		"edits": []any{map[string]any{"op": "move", "id": "hero", "x": 110, "y": 20}},
-	})
-	mustOK(t, res)
-	res = call(t, cs, editormcp.ToolSceneEdit, map[string]any{
-		"baseRevision": base, "requestId": "scene-write-2",
-		"edits": []any{map[string]any{"op": "move", "id": "hero", "x": 120, "y": 20}},
-	})
-	if !res.IsError || !strings.Contains(text(res), "stale") {
-		t.Fatalf("stale scene write = error:%v text:%q", res.IsError, text(res))
+	read := func() string {
+		t.Helper()
+		var info editormcp.FileText
+		structured(t, call(t, cs, editormcp.ToolSceneRead, map[string]any{}), &info)
+		if info.Version == "" {
+			t.Fatalf("scene_read reported no version: %+v", info)
+		}
+		return info.Version
 	}
-	res = call(t, cs, editormcp.ToolSceneEdit, map[string]any{
-		"requestId": "scene-write-1",
-		"edits":     []any{map[string]any{"op": "move", "id": "hero", "x": 130, "y": 20}},
+	base := read()
+	f.ed.RunHeadless(func() {
+		f.ed.SelectObject("hero")
+		f.ed.PanView2D(5, 5)
 	})
-	if !res.IsError || !strings.Contains(text(res), "already applied") {
-		t.Fatalf("duplicate scene write = error:%v text:%q", res.IsError, text(res))
+	if v := read(); v != base {
+		t.Fatalf("selection and view changed the scene version from %s to %s", base, v)
+	}
+	var sel editormcp.Selection
+	structured(t, call(t, cs, editormcp.ToolSelectionGet, map[string]any{}), &sel)
+	if sel.SceneVersion != base {
+		t.Fatalf("selection_get sceneVersion = %q, want %q", sel.SceneVersion, base)
+	}
+
+	// The person moves the hero between the agent's read and its write.
+	f.ed.RunHeadless(func() {
+		if err := f.ed.MoveObject("hero", 70, 40); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var before []byte
+	var index, length int
+	f.ed.RunHeadless(func() {
+		before, _ = f.ed.SaveYAML()
+		index, length = f.ed.History.Index(), f.ed.History.Len()
+	})
+	onDisk, err := os.ReadFile(f.scenePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := map[string]any{"baseVersion": base, "edits": []any{
+		map[string]any{"op": "move", "id": "hero", "x": 110, "y": 20},
+		map[string]any{"op": "add", "layer": "props", "object": map[string]any{"id": "crate", "x": 1, "y": 2}},
+	}}
+	res := call(t, cs, editormcp.ToolSceneEdit, edit)
+	if !res.IsError || !strings.Contains(text(res), "changed since you read it") {
+		t.Fatalf("stale scene_edit = error:%v text:%q", res.IsError, text(res))
+	}
+	f.ed.RunHeadless(func() {
+		after, _ := f.ed.SaveYAML()
+		if !bytes.Equal(after, before) || f.ed.History.Index() != index || f.ed.History.Len() != length {
+			t.Errorf("a refused scene_edit changed the scene or its history")
+		}
+	})
+	if now, err := os.ReadFile(f.scenePath()); err != nil || !bytes.Equal(now, onDisk) {
+		t.Fatalf("a refused scene_edit changed the file: %v", err)
+	}
+
+	edit["baseVersion"] = read()
+	res = call(t, cs, editormcp.ToolSceneEdit, edit)
+	mustOK(t, res)
+	var out editormcp.EditResult
+	structured(t, res, &out)
+	if out.Version == "" || out.Version != read() {
+		t.Fatalf("scene_edit version %q is not the scene's version after the edit", out.Version)
+	}
+}
+
+// A repeated scene_edit with the same requestId and arguments applies once and returns the first result, even when its baseVersion is stale by then; the same requestId with other arguments is refused.
+func TestSceneEditRequestIDAppliesOnce(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+	var info editormcp.FileText
+	structured(t, call(t, cs, editormcp.ToolSceneRead, map[string]any{}), &info)
+	add := map[string]any{"baseVersion": info.Version, "requestId": "add-crate-1", "edits": []any{
+		map[string]any{"op": "add", "layer": "props", "object": map[string]any{"id": "crate", "x": 1, "y": 2}},
+	}}
+	first := call(t, cs, editormcp.ToolSceneEdit, add)
+	mustOK(t, first)
+	var length int
+	f.ed.RunHeadless(func() { length = f.ed.History.Len() })
+	again := call(t, cs, editormcp.ToolSceneEdit, add)
+	if text(again) != mustOK(t, first) {
+		t.Fatalf("retried scene_edit = %q, want the first result %q", text(again), text(first))
+	}
+	f.ed.RunHeadless(func() {
+		if f.ed.History.Len() != length {
+			t.Errorf("a retried scene_edit applied again")
+		}
+		if obj, _, _ := f.ed.FindObject("crate"); obj == nil {
+			t.Errorf("the crate is missing after a retried add")
+		}
+	})
+	add["edits"] = []any{map[string]any{"op": "move", "id": "hero", "x": 1, "y": 1}}
+	res := call(t, cs, editormcp.ToolSceneEdit, add)
+	if !res.IsError || !strings.Contains(text(res), "different arguments") {
+		t.Fatalf("reused requestId = error:%v text:%q", res.IsError, text(res))
+	}
+	// A call that failed leaves its requestId free for the corrected call.
+	bad := map[string]any{"requestId": "move-1", "edits": []any{map[string]any{"op": "move", "id": "nobody", "x": 1, "y": 1}}}
+	if res := call(t, cs, editormcp.ToolSceneEdit, bad); !res.IsError {
+		t.Fatalf("moving a missing object succeeded: %s", text(res))
+	}
+	if res := call(t, cs, editormcp.ToolSceneEdit, bad); !res.IsError || strings.Contains(text(res), "requestId") {
+		t.Fatalf("a failed call's requestId was kept: %s", text(res))
 	}
 }
 

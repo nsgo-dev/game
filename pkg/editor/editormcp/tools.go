@@ -246,6 +246,8 @@ type FileText struct {
 	Source string `json:"source"`
 	// Unsaved reports that the editor holds edits to the file that are not saved.
 	Unsaved bool `json:"unsaved"`
+	// Version is the open scene's version, which scene_edit and object_set_field take as baseVersion; empty for any other file.
+	Version string `json:"version,omitempty"`
 	// Lines is how many lines the file has.
 	Lines int `json:"lines"`
 	// From and To are the first and last line returned, 1-based; both are 0 for an empty file.
@@ -342,6 +344,7 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 				return err
 			}
 			text, info.File, info.Source = data, sceneName(ed, root), "editor"
+			info.Version = contentVersion(data)
 			fromDisk = ed.FilePath
 			if args.Objects {
 				info.Objects = sceneObjectEdits(ed, info.File)
@@ -362,6 +365,7 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 				return err
 			}
 			text, info.File, info.Source = data, clean, "editor"
+			info.Version = contentVersion(data)
 			fromDisk = ed.FilePath
 			if args.Objects {
 				info.Objects = sceneObjectEdits(ed, clean)
@@ -565,6 +569,8 @@ type Selection struct {
 	Playing bool `json:"playing,omitempty"`
 	// Language is the editor's active UI language ("en" or "zh"), so connected agents can reply in the same language.
 	Language string `json:"language,omitempty"`
+	// SceneVersion is the open scene's version, which scene_edit and object_set_field take as baseVersion; selection_get reports it.
+	SceneVersion string `json:"sceneVersion,omitempty"`
 }
 
 // SelectedObject is the selected object of a Selection.
@@ -672,9 +678,13 @@ func selectionGet(ctx context.Context, c *Call) (*Result, error) {
 	)
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		sel = readSelection(ed)
+		data, err := sceneYAML(ed)
+		if err == nil {
+			sel.SceneVersion = contentVersion(data)
+		}
 		if sel.Object != nil {
 			file, reg = ed.FilePath, ed.ComponentRegistry()
-			scene, _ = sceneYAML(ed)
+			scene = data
 		}
 		return nil
 	}); err != nil {

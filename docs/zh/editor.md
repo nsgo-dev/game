@@ -1413,10 +1413,6 @@ func main() {
 - **冻结帧提问（`mod+l` / `CmdAskFrozenFrame`）与 MCP 回放步进**：按下 `mod+l` 或点击 **Something looks wrong**（`OpenAskFrozenFrame`）会立即暂停运行、截取当前视口 PNG 并打开 **"Ask about frame N"** 弹窗，展示冻结帧缩略图、附件标签、输入框（`"What looks wrong? e.g. the slime walks through the wall"`）、`"A fix comes back as a review"` 提示及 **Cancel** / **Ask** 按钮。提交（`SubmitAskFrozenFrame`）后会保存滚动回放、附上帧图像与实时实体状态快照、触发 `Editor.OnAskFrozenFrame` 并切到 **Agent** 标签页。智能体通过 `editormcp` 的 `play_frozen_context` 获取冻结帧上下文，并通过 `play_replay_step`（`AgentStepPlayReplay`）步进回放；视口显示智能体徽章（`"agent stepping frames A–B"`），Agent 标签页记录步进日志（`"Stepped frames A–B with game_loop_step…"`），且游戏保持暂停直至用户手动恢复。
 - **输出面板崩溃卡片与回放到崩溃前**：`ParsePanicTrace` 会解析游戏运行输出或 Play 模式恢复的 Go panic 消息与调用栈（`OutputPanic`、`SetOutputPanic`）。`OutputPanelView` 以 Spec 风格卡片展示错误消息、可点击跳转到源码文件的游戏调用帧 `file:line` 链接、折叠的运行时调用帧（`"N frames in the game runtime · Show"` / `"Hide"` 切换，`SetOutputPanicRuntimeExpanded`）、**Ask the agent to fix**（`AskAgentToFixPanic`、`Editor.OnAskPanicFix`）以及 **Replay up to the panic**（`ReplayUpToPanic`、`ReplayUpToFrame`），后者重置场景（设置时调用 `Editor.OnPlayReset`）、经由 `PlayActiveInput()` 回放已保存录制，并在崩溃帧前一帧（`panicFrame - 1`）精确停住并暂停而不触发崩溃。
 
-## 乐观 MCP 写入（#1927）
-
-可变更的 `scene_edit` 与 `object_set_field` 调用接受 `baseRevision` 和 `requestId`。传入 `scene_read` 或 `selection_get` 返回的修订号；如果自读取后用户或其他智能体修改了文档，编辑器会拒绝写入。`requestId` 是唯一重试键，同一请求不会重复应用，因此客户端可在传输失败后安全重试。被拒绝后请重新读取并使用新的请求 ID。
-
 ## 权限方案与 MCP 规则强制执行（#1010）
 
 编辑器通过位于 `game.yaml` 旁的版本化 YAML 文件 `permissions.yaml` 控制所有修改类与运行类 MCP 工具调用（将 `.nsgo/` 保留为 Git 忽略的本机编辑器状态，把团队共享的权限规则纳入版本控制）：

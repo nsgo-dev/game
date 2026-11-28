@@ -138,27 +138,35 @@ func TestObjectSetFieldAndLocateYAML(t *testing.T) {
 	}
 }
 
-func TestObjectSetFieldRejectsStaleRevisionAndDuplicateRequest(t *testing.T) {
+// object_set_field refuses a stale baseVersion, accepts the version selection_get reports after selecting, and replays a repeated requestId.
+func TestObjectSetFieldBaseVersionAndRequestID(t *testing.T) {
 	f := openFixture(t)
 	s := editormcp.New(f.ed, editormcp.Options{})
 	t.Cleanup(func() { _ = s.Close() })
 	cs := connect(t, s, nil)
-	f.ed.SelectObject("hero")
-	base := f.ed.Revision()
-	res := call(t, cs, editormcp.ToolObjectSetField, map[string]any{
-		"field": "x", "value": 100, "baseRevision": base, "requestId": "object-write-1",
-	})
-	mustOK(t, res)
-	res = call(t, cs, editormcp.ToolObjectSetField, map[string]any{
-		"field": "x", "value": 101, "baseRevision": base, "requestId": "object-write-2",
-	})
-	if !res.IsError || !strings.Contains(text(res), "stale") {
-		t.Fatalf("stale object write = error:%v text:%q", res.IsError, text(res))
+	// Selecting is not a scene change, so the version read before it still holds.
+	f.ed.RunHeadless(func() { f.ed.SelectObject("hero") })
+	var sel editormcp.Selection
+	structured(t, call(t, cs, editormcp.ToolSelectionGet, map[string]any{}), &sel)
+	set := map[string]any{"id": "hero", "field": "x", "value": 100, "baseVersion": sel.SceneVersion, "requestId": "hero-x-1"}
+	first := call(t, cs, editormcp.ToolObjectSetField, set)
+	mustOK(t, first)
+	var out editormcp.ObjectFieldResult
+	structured(t, first, &out)
+	if out.Version == "" || out.Version == sel.SceneVersion {
+		t.Fatalf("object_set_field version = %q, scene version before %q", out.Version, sel.SceneVersion)
 	}
-	res = call(t, cs, editormcp.ToolObjectSetField, map[string]any{
-		"field": "x", "value": 102, "requestId": "object-write-1",
-	})
-	if !res.IsError || !strings.Contains(text(res), "already applied") {
-		t.Fatalf("duplicate object write = error:%v text:%q", res.IsError, text(res))
+	if again := call(t, cs, editormcp.ToolObjectSetField, set); text(again) != text(first) {
+		t.Fatalf("retried object_set_field = %q, want %q", text(again), text(first))
 	}
+	res := call(t, cs, editormcp.ToolObjectSetField, map[string]any{"id": "hero", "field": "x", "value": 101, "baseVersion": sel.SceneVersion})
+	if !res.IsError || !strings.Contains(text(res), "changed since you read it") {
+		t.Fatalf("stale object_set_field = error:%v text:%q", res.IsError, text(res))
+	}
+	mustOK(t, call(t, cs, editormcp.ToolObjectSetField, map[string]any{"id": "hero", "field": "x", "value": 101, "baseVersion": out.Version}))
+	f.ed.RunHeadless(func() {
+		if obj, _, _ := f.ed.FindObject("hero"); obj == nil || obj.X != 101 {
+			t.Errorf("hero = %+v, want x 101", obj)
+		}
+	})
 }

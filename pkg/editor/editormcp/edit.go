@@ -20,8 +20,8 @@ const sceneEditSchema = `{"type":"object","additionalProperties":false,"required
 	`"file":{"type":"string","description":"The scene or prefab to edit, by its path from the project root; empty names the scene open in the editor (during an active turn, any scene or prefab in the project may be edited in memory)"},` +
 	`"label":{"type":"string","description":"What the edits do, as the undo step names it; derived from the edits when absent"},` +
 	`"why":{"type":"string","description":"Optional reason explaining why these edits were made, shown alongside derived changes in turn review"},` +
-	`"baseRevision":{"type":"integer","minimum":0,"description":"Revision returned by the preceding read; the edit is refused if the editor changed since then"},` +
-	`"requestId":{"type":"string","description":"Unique retry key; a request ID already applied is refused"},` +
+	`"baseVersion":{"type":"string","description":"The scene version the preceding scene_read, selection_get or write reported; when given, the call is refused and nothing applies if the scene changed since then"},` +
+	`"requestId":{"type":"string","maxLength":200,"description":"A retry key: a repeated call with the same requestId and identical arguments returns the first call's result without applying again; the same requestId with different arguments is refused"},` +
 	`"edits":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"required":["op"],"properties":{` +
 	`"op":{"type":"string","enum":["add","remove","move","set","add_component","remove_component","set_property","remove_property","reparent","move_to_layer"]},` +
 	`"id":{"type":"string","description":"The object the edit changes"},` +
@@ -39,12 +39,12 @@ const sceneEditSchema = `{"type":"object","additionalProperties":false,"required
 
 // sceneEditArgs are scene_edit's arguments.
 type sceneEditArgs struct {
-	File         string     `json:"file"`
-	Label        string     `json:"label"`
-	Why          string     `json:"why"`
-	BaseRevision *uint64    `json:"baseRevision"`
-	RequestID    string     `json:"requestId"`
-	Edits        []editArgs `json:"edits"`
+	File        string     `json:"file"`
+	Label       string     `json:"label"`
+	Why         string     `json:"why"`
+	BaseVersion *string    `json:"baseVersion"`
+	RequestID   string     `json:"requestId"`
+	Edits       []editArgs `json:"edits"`
 }
 
 // editArgs are one edit of a scene_edit call.
@@ -123,6 +123,8 @@ type EditResult struct {
 	Revision uint64 `json:"revision"`
 	// Changes are the fields the edits set, one per field in edit order, each read back from the resolved scene before and after its edit. add, remove, reparent and move_to_layer edits report none.
 	Changes []FieldChange `json:"changes,omitempty"`
+	// Version is the open scene's version after the edits, which a following write passes as baseVersion.
+	Version string `json:"version"`
 }
 
 // objectFields are the object fields set changes, in the order replies list them.
@@ -134,7 +136,25 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, &EditError{File: "the open scene", Problem: err.Error(), Fix: "pass {\"edits\": [{\"op\": ..., ...}]} with the fields the tool's schema lists"}
 	}
-	committed := false
+	replay, finishRequest, err := c.s.beginWriteRequest(ToolSceneEdit, args.RequestID, args)
+	if err != nil {
+		return nil, err
+	}
+	if replay != nil {
+		return replay, nil
+	}
+	var (
+		out       *Result
+		res       EditResult
+		committed bool
+	)
+	defer func() {
+		if out == nil && committed {
+			// The edits applied but the reply did not: a retry must not apply them again.
+			out = &Result{Text: fmt.Sprintf("The call with requestId %q already applied its edits to %s; read the scene again for its current version.", args.RequestID, res.File), Structured: res}
+		}
+		finishRequest(out)
+	}()
 	if !c.onEditor {
 		targets := targetObjectIDs(args.Edits)
 		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, targets)
@@ -147,12 +167,8 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			}
 		}()
 	}
-	var (
-		res          EditResult
-		inTurn       bool
-		releaseWrite func()
-	)
-	err := c.Editor(ctx, func(ed *editor.Editor) error {
+	var inTurn bool
+	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
 		name := sceneName(ed, root)
 		targetFile := ""
@@ -179,10 +195,11 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		if holdErr := sketchHoldEditError(ed, name); holdErr != nil {
 			return holdErr
 		}
-		var guardErr error
-		releaseWrite, guardErr = c.beginWriteGuard(ed, ToolSceneEdit, args.RequestID, args.BaseRevision, name)
-		if guardErr != nil {
-			return guardErr
+		if args.BaseVersion != nil && targetFile != "" {
+			return &EditError{File: name, Problem: "baseVersion compares the scene open in the editor, and this call edits " + name, Fix: "leave baseVersion out when editing another scene in the active turn"}
+		}
+		if err := checkBaseVersion(ed, args.BaseVersion, name); err != nil {
+			return err
 		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
@@ -270,9 +287,6 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		return nil
 	})
 	if err != nil {
-		if releaseWrite != nil {
-			releaseWrite()
-		}
 		return nil, err
 	}
 	committed = true
@@ -284,7 +298,9 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			res.Undo = ed.History.UndoLabel()
 		}
 		res.Revision = ed.Revision()
-		return nil
+		version, verr := sceneVersion(ed)
+		res.Version = version
+		return verr
 	})
 	if err != nil {
 		return nil, err
@@ -305,7 +321,8 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 	if len(res.Objects) > 0 {
 		text += " Added " + strings.Join(res.Objects, ", ") + "."
 	}
-	return &Result{Text: text, Structured: res}, nil
+	out = &Result{Text: text, Structured: res}
+	return out, nil
 }
 
 func buildEditReasons(topWhy string, edits []editArgs) map[string]string {
