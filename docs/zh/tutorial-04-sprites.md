@@ -4,6 +4,9 @@
 
 完成后的代码在 [`examples/tutorial/ch04-sprites`](../../examples/tutorial/ch04-sprites/)。
 
+
+**本章修改的文件：** [`main.go`](../../examples/tutorial/ch04-sprites/main.go)、[`game.go`](../../examples/tutorial/ch04-sprites/game.go)、[`world.go`](../../examples/tutorial/ch04-sprites/world.go)、[`art.go`](../../examples/tutorial/ch04-sprites/art.go)、[`game_test.go`](../../examples/tutorial/ch04-sprites/game_test.go)。链接的章节目录包含每个完整文件。
+
 ## 图集
 
 图集是一张打包了许多图片的图像，加上说明每张图片位置的帧。游戏通常用 TexturePacker 或 Aseprite 这样的打包工具导出图集，再用 `sprite.LoadAtlas` 加载，见 [sprite 指南](sprite.md)。为了让教程不需要任何图片文件，Star Catcher 改在 `art.go` 里用 Go 绘制精灵表，并手写帧表：

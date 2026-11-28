@@ -4,6 +4,9 @@ Turn the falling star into a game: drop stars and rocks from a seeded `random.St
 
 The finished code is in [`examples/tutorial/ch05-rules`](../../examples/tutorial/ch05-rules/).
 
+
+**Files changed in this chapter:** [`main.go`](../../examples/tutorial/ch05-rules/main.go), [`game.go`](../../examples/tutorial/ch05-rules/game.go), [`world.go`](../../examples/tutorial/ch05-rules/world.go), [`art.go`](../../examples/tutorial/ch05-rules/art.go), [`game_test.go`](../../examples/tutorial/ch05-rules/game_test.go), [`world_test.go`](../../examples/tutorial/ch05-rules/world_test.go). The linked chapter directory contains each complete file.
+
 ## The rules
 
 All of the rules are constants at the top of `world.go`, so tuning the game means changing numbers in one place:

@@ -4,6 +4,9 @@ Keep the player's best score and the number of games they played across launches
 
 The finished code is in [`examples/tutorial/ch08-save`](../../examples/tutorial/ch08-save/).
 
+
+**Files changed in this chapter:** [`main.go`](../../examples/tutorial/ch08-save/main.go), [`game.go`](../../examples/tutorial/ch08-save/game.go), [`world.go`](../../examples/tutorial/ch08-save/world.go), [`art.go`](../../examples/tutorial/ch08-save/art.go), [`audio.go`](../../examples/tutorial/ch08-save/audio.go), [`records.go`](../../examples/tutorial/ch08-save/records.go), [`screens.go`](../../examples/tutorial/ch08-save/screens.go), [`game_test.go`](../../examples/tutorial/ch08-save/game_test.go), [`world_test.go`](../../examples/tutorial/ch08-save/world_test.go), [`records_test.go`](../../examples/tutorial/ch08-save/records_test.go). The linked chapter directory contains each complete file.
+
 ## What to keep
 
 The records are a small struct with JSON tags, in `records.go`:

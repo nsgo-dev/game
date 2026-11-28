@@ -4,6 +4,9 @@ Give the game a world that moves in fixed steps, drive it with a `game.Loop`, dr
 
 The finished code is in [`examples/tutorial/ch02-game-loop`](../../examples/tutorial/ch02-game-loop/).
 
+
+**Files changed in this chapter:** [`main.go`](../../examples/tutorial/ch02-game-loop/main.go), [`game.go`](../../examples/tutorial/ch02-game-loop/game.go), [`world.go`](../../examples/tutorial/ch02-game-loop/world.go), [`game_test.go`](../../examples/tutorial/ch02-game-loop/game_test.go). The linked chapter directory contains each complete file.
+
 ## A world that only steps change
 
 Put the game's state in a type of its own, and change it only in one method, `step`, that moves it on by a fixed time:

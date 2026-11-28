@@ -4,6 +4,9 @@ Let the player move the basket from lane to lane by touching or clicking a side 
 
 The finished code is in [`examples/tutorial/ch03-input`](../../examples/tutorial/ch03-input/).
 
+
+**Files changed in this chapter:** [`main.go`](../../examples/tutorial/ch03-input/main.go), [`game.go`](../../examples/tutorial/ch03-input/game.go), [`world.go`](../../examples/tutorial/ch03-input/world.go), [`game_test.go`](../../examples/tutorial/ch03-input/game_test.go). The linked chapter directory contains each complete file.
+
 ## Moves in the world
 
 The world takes the player's move as an argument of `step`: -1 for a lane to the left, 1 for a lane to the right, 0 to stay. The basket heads for its lane and glides there at `basketSpeed`:

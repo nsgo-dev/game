@@ -131,6 +131,76 @@ func TestShowsTitleOverPlayfield(t *testing.T) {
 go tool nsgo test ./...
 ```
 
+## Complete source files
+
+The snippets above are the pieces introduced in this chapter. Copy these complete files when following the tutorial in a new module. They include the colour constants, `fill` helper and the resize test used by the snippets.
+
+`game.go`:
+
+```go
+package main
+
+import "github.com/nsgo-dev/nsgo/core"
+
+const groundHeight = 24
+
+var (
+	skyColor = core.RGB(0x0b1026)
+	groundColor = core.RGB(0x1e293b)
+	textColor = core.RGB(0xf8fafc)
+)
+
+func Root(cx *core.Scope) core.Node {
+	return core.View{
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Background: skyColor},
+		Children: []core.Node{
+			core.Canvas{TestID: "game-canvas", Label: "Star Catcher playfield", Style: fill(), Draw: drawPlayfield},
+			core.View{PointerEvents: core.PointerEventsNone, Style: core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0), AlignItems: core.AlignCenter, Padding: core.All(24), PaddingEnv: core.EnvAll(core.EnvSafeArea), Children: []core.Node{core.Text{TestID: "title", Content: "Star Catcher", Style: core.Style{Color: textColor, FontSize: 28, FontWeight: core.FontWeightBold}}}}},
+		},
+	}
+}
+
+func fill() core.Style { return core.Style{Position: core.Absolute, Top: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0)} }
+
+func drawPlayfield(d *core.Drawing, size core.Size) {
+	w, h := float32(size.Width), float32(size.Height)
+	d.SetFillColor(skyColor).FillRect(0, 0, w, h)
+	d.SetFillColor(groundColor).FillRect(0, h-groundHeight, w, groundHeight)
+}
+```
+
+`game_test.go`:
+
+```go
+package main
+
+import (
+	"testing"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
+)
+
+func TestMain(m *testing.M) { nsgotest.Main(m) }
+
+func TestShowsTitleOverPlayfield(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(360, 640))
+	app.Find("text:Star Catcher")
+	ops := app.Find("game-canvas").Ops
+	if !hasFillColor(ops, skyColor) { t.Fatal("canvas did not paint the sky") }
+	if !hasFillColor(ops, groundColor) { t.Fatal("canvas did not paint the ground") }
+}
+
+func TestGroundFollowsWindowSize(t *testing.T) {
+	app := nsgotest.Start(t, Root, nsgotest.Size(360, 640))
+	if !hasRect(app.Find("game-canvas").Ops, 0, 640-groundHeight, 360, groundHeight) { t.Fatal("ground is not along the bottom of a 360x640 window") }
+	app.Resize(800, 600)
+	if !hasRect(app.Find("game-canvas").Ops, 0, 600-groundHeight, 800, groundHeight) { t.Fatal("ground did not follow the window to 800x600") }
+}
+
+func hasFillColor(ops []core.DrawOp, c core.Color) bool { for _, op := range ops { if op.Kind == core.DrawFillColor && op.Color == c { return true } }; return false }
+func hasRect(ops []core.DrawOp, x, y, w, h float32) bool { for _, op := range ops { if op.Kind == core.DrawRect && op.X == x && op.Y == y && op.W == w && op.H == h { return true } }; return false }
+```
+
 ## Next
 
 The playfield is still a picture. [Chapter 2](tutorial-02-game-loop.md) makes it move with a fixed-step game loop.

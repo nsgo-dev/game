@@ -4,6 +4,9 @@ Draw the basket and the star as sprites: paint a sprite sheet, describe its fram
 
 The finished code is in [`examples/tutorial/ch04-sprites`](../../examples/tutorial/ch04-sprites/).
 
+
+**Files changed in this chapter:** [`main.go`](../../examples/tutorial/ch04-sprites/main.go), [`game.go`](../../examples/tutorial/ch04-sprites/game.go), [`world.go`](../../examples/tutorial/ch04-sprites/world.go), [`art.go`](../../examples/tutorial/ch04-sprites/art.go), [`game_test.go`](../../examples/tutorial/ch04-sprites/game_test.go). The linked chapter directory contains each complete file.
+
 ## An atlas
 
 An atlas is one image that packs many pictures, and the frames that say where each one is. Games usually export it from a packer such as TexturePacker or Aseprite and load it with `sprite.LoadAtlas`, as the [sprite guide](sprite.md) shows. So that the tutorial needs no image files, Star Catcher paints its sheet in Go instead, in `art.go`, and writes the table by hand:
