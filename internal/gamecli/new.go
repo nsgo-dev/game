@@ -2,6 +2,7 @@ package gamecli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/game/pkg/tooling/templatemeta"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -84,6 +86,7 @@ var (
 func defineNew(a *app, fs *flag.FlagSet) func() error {
 	names := templateNames()
 	list := fs.Bool("list", false, "list the templates, each with a line describing it, instead of creating a project")
+	listJSON := fs.Bool("json", false, "with -list, print template manifests as JSON")
 	name := fs.String("name", "", "the game's display name in game.yaml and nsgo.yaml: letters, digits, spaces, - and _ (default: the directory's name)")
 	module := fs.String("module", "", "the module path in go.mod (default: the name in lower case with its words joined by -)")
 	tmpl := fs.String("template", projectTemplates[0].name, "the template to start from: "+strings.Join(names, ", ")+"; -list describes each")
@@ -93,6 +96,13 @@ func defineNew(a *app, fs *flag.FlagSet) func() error {
 		if *list {
 			if fs.NArg() > 0 {
 				return usagef("-list takes no directory")
+			}
+			if *listJSON {
+				manifests := make([]templatemeta.Manifest, 0, len(projectTemplates))
+				for _, t := range projectTemplates {
+					manifests = append(manifests, t.manifest)
+				}
+				return json.NewEncoder(a.stdout).Encode(manifests)
 			}
 			return writeTemplateList(a.stdout)
 		}

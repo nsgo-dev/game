@@ -474,3 +474,4 @@ NSGo 的 `automation` 只在 `nsgo dev -automation` 和测试构建中注册应�
 - **仅限用户硬拒绝（`*editormcp.YouOnlyError`）**：所有非只读工具调用（包括内置工具和通过 `Server.AddTool` 注册的自定义工具）在执行处理器之前都会校验显式参数路径、派生目标（含无扩展名 `refactor_rename` 与 `release_notes_draft`）以及当前打开的文档路径，若指向 `permissions.yaml`、`.nsgo/permissions.yaml`、`tools.yaml`、`mcp.yaml`、`models.yaml`、`usage.yaml` 或 `Editor.SettingsPath`，一律拒绝。
 - **`permissions_draft`**：提交一份仅限用户权限草案卡片（`Editor.SubmitPermissionsDraft`），默认不勾选任何规则，绝不直接写入 `permissions.yaml`，必须由用户手动勾选并点击应用。
 - **`game_delete_file`**：直接拒绝仅限用户文件、符号链接、`.git/**`、`game.yaml`、已打开的场景标签页以及大于 1 MiB 的文件；对普通项目文件，只在审查面板中提议删除并展示行数与场景引用情况（`Editor.ProposeFileDeletion`），绝不直接删除磁盘文件。**全部保留**不会删除待确认文件；经用户确认删除后可通过 `⌘Z` 从检查点逐字节恢复。
+`templates_list` 返回 `game new` 和编辑器开始页共用的版本化模板清单，并支持按类型、维度、方向、输入方式和玩家数筛选。

@@ -37,6 +37,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/game/pkg/tooling/playtest"
+	"github.com/nsgo-dev/game/pkg/tooling/templatemeta"
 	"github.com/nsgo-dev/game/pkg/voxel"
 	"github.com/nsgo-dev/game/pkg/world3d"
 )
@@ -132,6 +133,7 @@ func modV1Field(f reflect.StructField) jsonschema.Field {
 
 // formats lists every format gameschema writes a schema for. A format that gets a typed YAML loader adds its entry here, and a newer version of a format adds a new entry beside earlier ones, since files that name an old schema keep naming it.
 var formats = []format{
+	{url: templatemeta.SchemaURL, title: "NSGo project template manifest (version 1)", typ: reflect.TypeFor[templatemeta.Manifest](), pkg: "tooling/templatemeta", version: templatemeta.Version},
 	{
 		url:       sceneformat.SchemaURL,
 		title:     "NSGo game scene (version 1)",

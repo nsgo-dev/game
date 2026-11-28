@@ -28,7 +28,12 @@ type ProjectTemplate struct {
 	// Summary is the one-line description shown on the template card.
 	Summary string
 	// Dimension classifies the template for Start Screen filter chips: "2d" or "3d" (inferred when empty).
-	Dimension string
+	Dimension   string
+	Genre       string
+	Orientation string
+	Inputs      []string
+	PlayersMin  int
+	PlayersMax  int
 	// Default marks the template selected initially.
 	Default bool
 }
@@ -62,9 +67,6 @@ func (t ProjectTemplate) EffectiveDimension() string {
 	d := strings.ToLower(strings.TrimSpace(t.Dimension))
 	if d == "2d" || d == "3d" {
 		return d
-	}
-	if strings.Contains(strings.ToLower(t.Name), "3d") || strings.Contains(strings.ToLower(t.Summary), "3d") {
-		return "3d"
 	}
 	return "2d"
 }
