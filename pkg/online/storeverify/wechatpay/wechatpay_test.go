@@ -12,7 +12,7 @@ func TestSignOrderAndIdempotentDelivery(t *testing.T) {
 	}
 	n := 0
 	h := &wechatpay.Handler{Store: wechatpay.NewMemoryStore(), Env: 1, SignatureKey: "verify", Deliver: func(wechatpay.Delivery) error { n++; return nil }}
-	d := wechatpay.Delivery{OpenID: "u", Env: 1, OutTradeNo: "n", GoodsInfo: "coin"}
+	d := wechatpay.Delivery{OpenID: "u", Env: "1", OutTradeNo: "n", GoodsInfo: "coin"}
 	if err := h.Handle(d, wechatpay.DeliverySignature("verify", d)); err != nil {
 		t.Fatal(err)
 	}
