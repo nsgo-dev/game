@@ -80,16 +80,16 @@ onDisagreePrivacy := func() {
 
 | 包 | 无 Google 服务状态 | 无 Google 服务 Android 上的行为与替代方案 |
 | --- | --- | --- |
-| `pkg/online/accounts` | 可用 | 自部署 HTTPS 账号服务（`cmd/accountsd`，含 `accounts/token`、`sqlitestore`、`pgstore`、`sqlstore`、`storetest`）。支持游客、邮箱密码，以及通过自定义 `IdentityVerifier` 对接微信、华为、TapTap、Apple 或小程序身份，不依赖 Play 游戏服务。实名认证扩展规划见 [#1649](https://github.com/nsgo-dev/game/issues/1649)。 |
+| `pkg/online/accounts` | 可用 | 自部署 HTTPS 账号服务（`cmd/accountsd`，含 `accounts/authtoken`、`sqlitestore`、`pgstore`、`sqlstore`、`storetest`）。支持游客、邮箱密码，以及通过自定义 `IdentityVerifier` 对接微信、华为、TapTap、Apple 或小程序身份，不依赖 Play 游戏服务。实名认证扩展规划见 [#1649](https://github.com/nsgo-dev/game/issues/1649)。 |
 | `pkg/online/achievements` | 部分可用 | 本地 `Tracker` 与 `Persist`（`core.Storage`）在所有平台均无 Google 依赖。`ServiceFor(core.OSAndroid)` 会选择 `PlayGames`，在无 Google Play 服务的 Android 设备（以及当前 NSGo `v0.3.4` 的 Android 整体；见[平台支持](platforms.md)）上 `SignIn` 会返回 `gameservices.ErrUnsupported`。可自行绘制游戏内成就界面，或通过 `Tracker.Connect` 挂载自定义 `Reporter`。 |
 | `pkg/online/audit` | 可用 | 纯服务端只追加 JSON Lines 审计日志（`pkg/online/audit`），无客户端或 Google 依赖。 |
-| `pkg/online/cloudsave` | 可用 | 自部署 HTTPS 云存档服务（`cmd/cloudsaved`，含 `sqlstore`、`storetest`），由 `accounts/token` 鉴权。推荐作为无 Google 服务 Android 与鸿蒙的云存档替代方案。 |
+| `pkg/online/cloudsave` | 可用 | 自部署 HTTPS 云存档服务（`cmd/cloudsaved`，含 `sqlitestore`、`pgstore`、`sqlstore`、`storetest`），由 `accounts/authtoken` 鉴权。推荐作为无 Google 服务 Android 与鸿蒙的云存档替代方案。 |
+| `pkg/online/gameserver` | 可用 | 纯服务端无头固定步长对局运行器、房间、匹配、健康检查与指标，无 Google 依赖。 |
 | `pkg/online/leaderboard` | 不可用 | `ProviderFor(core.OSAndroid)` 选择 `ProviderPlayGames`；缺少 Google Play 服务时 `Available()` 返回 `false`，`SignIn`/`Submit`/`Show`/`Scores` 返回 `ErrUnsupported`（iOS/macOS 上的 Game Center 仍正常）。请改用 [`pkg/online/leaderboard/selfhost`](leaderboard-selfhost.md)。 |
-| `pkg/online/leaderboard/selfhost` | 可用 | 自部署跨平台 HTTPS 排行榜服务（`cmd/leaderboardd`），由 `accounts/token` 鉴权。推荐用于无 Google 服务 Android、鸿蒙、桌面端与 Web。 |
+| `pkg/online/leaderboard/selfhost` | 可用 | 自部署跨平台 HTTPS 排行榜服务（`cmd/leaderboardd`），由 `accounts/authtoken` 鉴权。推荐用于无 Google 服务 Android、鸿蒙、桌面端与 Web。 |
 | `pkg/online/liveops` | 部分可用 | `CrashReporter`（及 `liveops/crashreport`）、显式同意门控的 `Analytics`、`CloudClient`（对接 `cloudsave`）、`DirCloud` 和 `Reminders`（系统原生本地通知）均不依赖 Google 服务。`PlatformCloud` 在 Android 上选择 `CloudProviderPlayGames` 并返回 `ErrCloudUnavailable`，请改用 `CloudClient`。`Purchases` 在 Android 上不可用（返回 `core.PurchasesUnavailable`；[nsgo#1369](https://github.com/nsgo-dev/nsgo/issues/1369)、[nsgo#1370](https://github.com/nsgo-dev/nsgo/issues/1370)；中国大陆 iOS 上 Apple StoreKit 可用）。`ReviewPrompt` 在 `CanRequestReview()` 为 `false` 时安全空操作。远程推送目前在所有平台均不可用（[nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)、[nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)）。 |
 | `pkg/online/netplay` | 可用 | 纯 Go 实现的 UDP、WebSocket、WebTransport 与回环传输（含 `netplay/wire`），无 Google 依赖。建议部署在已完成 ICP 备案的中国大陆服务器与域名上以保证连通性与延迟。 |
 | `pkg/online/presence` | 不可用 | 仅限桌面端的丰富状态集成（Steam `ISteamFriends` 与 Discord 本地 IPC）；在 Android、iOS 与 Web 上返回 `ErrUnavailable`。无 Google 依赖（中国大陆桌面端 Steam 可用，Discord 通常不可达）。 |
-| `pkg/online/server` | 可用 | 纯服务端无头固定步长对局运行器、房间、匹配、健康检查与指标，无 Google 依赖。 |
 | `pkg/online/wsclient` | 可用 | 原生与浏览器 `js/wasm` 通用的纯 Go RFC 6455 WebSocket 客户端，无 Google 依赖（小程序暂不可用，见 [nsgo#1505](https://github.com/nsgo-dev/nsgo/issues/1505)）。 |
 
 ### 自部署替代组合

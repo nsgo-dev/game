@@ -35,15 +35,17 @@ var (
 
 // onlineHelperSubpackages lists companion subpackages under pkg/online whose Google-free behavior is documented in their parent package's row of docs/<lang>/shipping-china.md. Any new package under pkg/online/ must either get its own row in both EN and ZH shipping-china.md or be added here with its parent package.
 var onlineHelperSubpackages = map[string]string{
-	"pkg/online/accounts/pgstore":     "pkg/online/accounts",
-	"pkg/online/accounts/sqlitestore": "pkg/online/accounts",
-	"pkg/online/accounts/sqlstore":    "pkg/online/accounts",
-	"pkg/online/accounts/storetest":   "pkg/online/accounts",
-	"pkg/online/accounts/token":       "pkg/online/accounts",
-	"pkg/online/cloudsave/sqlstore":   "pkg/online/cloudsave",
-	"pkg/online/cloudsave/storetest":  "pkg/online/cloudsave",
-	"pkg/online/liveops/crashreport":  "pkg/online/liveops",
-	"pkg/online/netplay/wire":         "pkg/online/netplay",
+	"pkg/online/accounts/pgstore":      "pkg/online/accounts",
+	"pkg/online/accounts/sqlitestore":  "pkg/online/accounts",
+	"pkg/online/accounts/sqlstore":     "pkg/online/accounts",
+	"pkg/online/accounts/storetest":    "pkg/online/accounts",
+	"pkg/online/accounts/authtoken":    "pkg/online/accounts",
+	"pkg/online/cloudsave/pgstore":     "pkg/online/cloudsave",
+	"pkg/online/cloudsave/sqlitestore": "pkg/online/cloudsave",
+	"pkg/online/cloudsave/sqlstore":    "pkg/online/cloudsave",
+	"pkg/online/cloudsave/storetest":   "pkg/online/cloudsave",
+	"pkg/online/liveops/crashreport":   "pkg/online/liveops",
+	"pkg/online/netplay/wire":          "pkg/online/netplay",
 }
 
 func parseShippingChinaOnlineTable(lang string, content string) ([]onlinePackageRow, []string) {
@@ -197,8 +199,10 @@ func TestShippingChinaOnlineTableDetectsDrift(t *testing.T) {
 		"pkg/online/accounts/sqlitestore",
 		"pkg/online/accounts/sqlstore",
 		"pkg/online/accounts/storetest",
-		"pkg/online/accounts/token",
+		"pkg/online/accounts/authtoken",
 		"pkg/online/cloudsave",
+		"pkg/online/cloudsave/pgstore",
+		"pkg/online/cloudsave/sqlitestore",
 		"pkg/online/cloudsave/sqlstore",
 		"pkg/online/cloudsave/storetest",
 		"pkg/online/liveops",
