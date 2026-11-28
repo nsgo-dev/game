@@ -35,3 +35,7 @@ On a later passing or `-update-golden` run, `AssertGoldenAt` removes any stale `
 ## Comparing image draws
 
 When a test checks where sprites land rather than exact pixels, `ImageDraws(ops)` replays transforms, alpha, composite modes and clips to return each drawn image rectangle regardless of whether it was recorded as individual `DrawImageFrom` ops or packed into a `DrawAtlas`. `AssertSameImages(t, got, want)` asserts that two op recordings produce the same sequence of image draws within floating-point tolerance (`1e-3`).
+
+## Photosensitivity analysis
+
+`AnalyzePhotosensitivity` checks a rendered frame sequence for more than three full-frame luminance changes in a rolling second and high-contrast stripe patterns covering at least 20 percent of the frame. Pass `PhotosensitivityOptions{FrameRate: 60}` when the sequence was captured at a rate other than the default 60 Hz. The report identifies `flash` or `pattern` failures and the affected frame range.
