@@ -15,3 +15,12 @@ func TestFormatConformance(t *testing.T) {
 		Doc:    "particles",
 	})
 }
+
+func TestEffectFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[particles.Effect]{
+		Decode: particles.UnmarshalEffectYAML,
+		Encode: particles.MarshalEffectYAML,
+		Files:  []string{"testdata/*.effect.yaml"},
+		Doc:    "particles#effect",
+	})
+}

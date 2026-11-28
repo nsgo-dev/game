@@ -1173,6 +1173,39 @@ frameNames:
   - spark_0
 ```
 
+<!-- format: particles#effect -->
+### Particle effect
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.effect.yaml` (or any `.yaml` file the game loads as an effect) | `version: 1` | `particles.UnmarshalEffectYAML`, `particles.MarshalEffectYAML` | [particles](particles.md#effect-files) |
+
+```yaml
+version: 1
+emitters:
+  - config:
+      space: world
+      shape:
+        kind: circle
+        radius: 6
+      rate: 45
+      lifetimeMin: 300ms
+      lifetimeMax: 700ms
+    duration: 200ms
+  - file: fx/sparks.particles.yaml
+    offsetX: 4
+    offsetY: -2
+    delay: 50ms
+    minQuality: medium
+params:
+  speed:
+    type: float
+    float: 1.5
+  tint:
+    type: color
+    color: "#ff8800ff"
+```
+
 <!-- format: skeletal -->
 ### Skeletal rig
 

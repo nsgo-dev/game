@@ -1173,6 +1173,39 @@ frameNames:
   - spark_0
 ```
 
+<!-- format: particles#effect -->
+### 粒子效果
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.effect.yaml`（或游戏作为效果加载的任意 `.yaml` 文件） | `version: 1` | `particles.UnmarshalEffectYAML`、`particles.MarshalEffectYAML` | [particles](particles.md#效果文件) |
+
+```yaml
+version: 1
+emitters:
+  - config:
+      space: world
+      shape:
+        kind: circle
+        radius: 6
+      rate: 45
+      lifetimeMin: 300ms
+      lifetimeMax: 700ms
+    duration: 200ms
+  - file: fx/sparks.particles.yaml
+    offsetX: 4
+    offsetY: -2
+    delay: 50ms
+    minQuality: medium
+params:
+  speed:
+    type: float
+    float: 1.5
+  tint:
+    type: color
+    color: "#ff8800ff"
+```
+
 <!-- format: skeletal -->
 ### 骨骼绑定
 

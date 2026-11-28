@@ -186,6 +186,43 @@ watcher.Watch("fx/fire.yaml", func(data []byte) {
 
 在后台 goroutine 中调用 `StageBytes`，再在游戏循环中用 `Flush` 应用暂存的定义。
 
+## 效果文件
+
+效果文件把作为一个效果一起播放的多个发射器组合在一起，例如爆炸的闪光、火花和烟雾，并声明游戏为它设置的类型化参数。`UnmarshalEffectYAML` 把它读成 `Effect`，`MarshalEffectYAML` 把它写回，保存方式与发射器定义一样是确定性的（参数按名称排序）：
+
+```yaml
+version: 1
+emitters:
+  - config:
+      space: world
+      shape:
+        kind: circle
+        radius: 6
+      rate: 45
+      lifetimeMin: 300ms
+      lifetimeMax: 700ms
+    duration: 200ms
+  - file: fx/sparks.particles.yaml
+    offsetX: 4
+    offsetY: -2
+    delay: 50ms
+    minQuality: medium
+params:
+  speed:
+    type: float
+    float: 1.5
+  tint:
+    type: color
+    color: "#ff8800ff"
+```
+
+- 每个发射器恰好有 `file` 与 `config` 之一：`file` 是相对资源根目录、以斜杠分隔的发射器定义路径，`config` 是按发射器文件 schema 编写、不带 `version` 的内联定义。
+- `offsetX` 和 `offsetY` 让发射器偏离效果原点，`delay` 是效果开始后它多久开始，`duration` 是它发射多久（为零表示效果播放期间一直发射），`minQuality` 是它播放的最低画质等级（`low`、`medium` 或 `high`；省略表示所有等级）。`delay` 和 `duration` 是时长字符串，不能为负。
+- 参数的 `type` 是 `float`、`int`、`color` 或 `vec2`，默认值写在与类型同名的键下：数字、整数、带引号的 `"#rrggbb"` 或 `"#rrggbbaa"` 颜色，或两个数字组成的列表。写在其他类型键下的值、缺少的值以及非有限值都会被拒绝。
+- `Effect.SetParam(name, value)` 把已声明的参数设为 `float64` 或 `float32`、`int`、`core.Color` 或 `[2]float32`，对未声明的名称或类型不符的值返回错误，且不改动该参数。`Effect.Validate` 报告 `MarshalEffectYAML` 会拒绝的问题。
+
+目前效果文件只是一种格式加上它的参数值：还没有东西播放 `Effect`，`UnmarshalEffectYAML` 不会加载以文件引用的发射器，发射器配置中的字段也还不能绑定到参数。带延迟、时长和 `minQuality` 的播放、参数绑定、粒子事件和剔除在 [#1730](https://github.com/nsgo-dev/game/issues/1730) 中跟踪。
+
 ## 性能
 
 每个存活粒子都是发射器 `sprite.Batch` 中的一个精灵。未着色的粒子（没有 `ColorCurve` 或 `ColorCurve` 为白色）按连续的一段合并为一次 `DrawAtlas` 调用绘制（[nsgo-dev/game#28](https://github.com/nsgo-dev/game/issues/28)）。被非白色 `ColorCurve` 着色的粒子仍各自单独绘制一次图像，并在 NSGo 的 `Drawing` 内部分配一次内存，因此给数千个粒子着色比用 `AlphaCurve` 淡出它们开销更大。
