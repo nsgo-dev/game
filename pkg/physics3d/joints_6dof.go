@@ -871,7 +871,7 @@ func (j *SixDOFJoint) SolveVelocity(dt float32) {
 
 	// 1. Linear 3 DOFs.
 	if j.allLinearLocked() {
-		j.addLinearImpulse(solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB))
+		j.addLinearImpulse(solvePointAnchorVelocitySubstep(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB, dt, JointSoftness{}, nil))
 	} else {
 		for k := range 3 {
 			axis := uA[k]

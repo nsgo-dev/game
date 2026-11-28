@@ -6,6 +6,8 @@ import "github.com/nsgo-dev/game/pkg/physics3d"
 
 Compact, deterministic 3D collision detection, raycasting, rigid-body dynamics, and a kinematic character controller written in pure Go.
 
+`World.Substeps` defaults to 4 and advances gravity, contacts, joints, and positions in smaller deterministic steps. Set it to a positive value to choose another count. The value is stored in `WorldSnapshot` version 5, while older snapshots restore with the default.
+
 ## Architectural Decision (#180)
 
 `physics3d` uses **option (a)**: a self-contained, zero-cgo Go implementation built only on the Go standard library.
