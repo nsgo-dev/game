@@ -103,6 +103,10 @@ seenTips:
   - first_review.keep_revert
 agent:
   builtInProvider: Anthropic API
+  builtInFormat: anthropic
+  builtInEndpoint: http://127.0.0.1:8080/v1/messages
+  builtInModel: local-main
+  builtInFastModel: local-fast
   tools:
     game_delete_file: false
   mcpServers:

@@ -182,6 +182,22 @@
           "description": "BuiltInProvider names the built-in API connection configured in the system keychain (for example \"Anthropic API\"); never stores an API key.",
           "type": "string"
         },
+        "builtInFormat": {
+          "description": "BuiltInFormat selects the built-in endpoint protocol: anthropic or openai.",
+          "type": "string"
+        },
+        "builtInEndpoint": {
+          "description": "BuiltInEndpoint overrides the built-in endpoint. HTTPS is required except for loopback HTTP.",
+          "type": "string"
+        },
+        "builtInModel": {
+          "description": "BuiltInModel and BuiltInFastModel override the default model IDs for the two built-in routes.",
+          "type": "string"
+        },
+        "builtInFastModel": {
+          "description": "BuiltInModel and BuiltInFastModel override the default model IDs for the two built-in routes.",
+          "type": "string"
+        },
         "routes": {
           "description": "Routes maps task keys (\"scene_edits\", \"playtest_analysis\", \"problems_fixes\", \"ask_in_place\", \"art_and_sound\") to preferred model labels.",
           "type": "object",
