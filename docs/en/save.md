@@ -212,3 +212,7 @@ func TestSaveRoundTrip(t *testing.T) {
 ```
 
 Passing a fresh factory saves `g` to a temporary store, loads it into the fresh `*save.Game`, verifies both register the same parts and versions, and compares every part's JSON before and after the load. Calling `savetest.RoundTrip(t, g)` without a factory resets any `save.Resetter` parts on `g` before reloading back into `g`.
+
+## Tamper-evident slots
+
+Pass `save.WithSeal(save.SealOptions{Key: key, Bind: accountID})` when creating a store to add an HMAC-SHA256 `seal` field to each envelope. Keep the key in a platform keychain or secret store, not beside the JSON file. `Bind` makes a save copied between accounts fail verification. A mismatch returns `ErrTampered` and follows the normal backup recovery path. Set `OnMismatch: save.SealReport` and `Report` when a game wants to load a mismatched copy for support telemetry.

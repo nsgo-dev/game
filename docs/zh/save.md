@@ -212,3 +212,7 @@ func TestSaveRoundTrip(t *testing.T) {
 ```
 
 传入新鲜实例工厂时，`RoundTrip` 会把 `g` 写入临时存储、加载到全新的 `*save.Game`、校验两边注册的部件名与版本号完全一致，并逐一比对每个部件加载前后的 JSON 状态。省略工厂直接调用 `savetest.RoundTrip(t, g)` 时，会在重新加载前调用所有 `save.Resetter` 部件的 `ResetState()`。
+
+## 防篡改存档槽
+
+创建存储时传入 `save.WithSeal(save.SealOptions{Key: key, Bind: accountID})`，即可在每个存档封套加入 HMAC-SHA256 的 `seal` 字段。密钥应保存在系统钥匙串或 secret 存储中，不能和 JSON 文件放在一起。`Bind` 会让复制到其他账号的存档验证失败。验证不匹配时返回 `ErrTampered`，并沿用备份恢复流程。需要将不匹配副本载入并上报支持数据时，可设置 `OnMismatch: save.SealReport` 和 `Report`。

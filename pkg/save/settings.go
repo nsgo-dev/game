@@ -1314,7 +1314,7 @@ func (s *SettingsStore[T]) Load() (T, error) {
 	primary, primaryErr := s.backend.read()
 	if primaryErr == nil {
 		out := s.defaultValue()
-		err := decodeEnvelope(copyName(s.backend, settingsKey, false), primary, s.version(), s.Migrations, &out, nil)
+		err := decodeEnvelope(copyName(s.backend, settingsKey, false), primary, s.version(), s.Migrations, &out, nil, SealOptions{})
 		if err == nil {
 			validateValue(&out)
 			return out, nil
@@ -1324,7 +1324,7 @@ func (s *SettingsStore[T]) Load() (T, error) {
 		}
 		if backup, bakErr := s.backend.readBackup(); bakErr == nil {
 			rec := s.defaultValue()
-			recErr := decodeEnvelope(copyName(s.backend, settingsKey, true), backup, s.version(), s.Migrations, &rec, nil)
+			recErr := decodeEnvelope(copyName(s.backend, settingsKey, true), backup, s.version(), s.Migrations, &rec, nil, SealOptions{})
 			if recErr == nil {
 				validateValue(&rec)
 				return rec, nil
@@ -1346,7 +1346,7 @@ func (s *SettingsStore[T]) Load() (T, error) {
 		return zero, fmt.Errorf("save: load %q: %w", settingsKey, primaryErr)
 	}
 	rec := s.defaultValue()
-	if err := decodeEnvelope(copyName(s.backend, settingsKey, true), backup, s.version(), s.Migrations, &rec, nil); err != nil {
+	if err := decodeEnvelope(copyName(s.backend, settingsKey, true), backup, s.version(), s.Migrations, &rec, nil, SealOptions{}); err != nil {
 		return zero, err
 	}
 	validateValue(&rec)
