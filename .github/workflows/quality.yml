@@ -51,6 +51,8 @@ jobs:
           cache-dependency-path: go.sum
       - name: Run benchmarks and check baselines
         run: go tool game bench -baseline benchmarks/baseline.yaml ./pkg/sprite ./pkg/tilemap ./pkg/bullets ./pkg/rts ./pkg/pathfind3d/navbake3d ./pkg/physics
+      - name: Check A* and HPA* search baselines
+        run: go tool game bench -baseline benchmarks/hpa-baseline.yaml -bench 'Benchmark(AStar|HPA)1024$' ./pkg/pathfind
       - name: Check the self-hosted leaderboard's 50 ms query budget on a million entries
         run: go test -run='^$' -bench='Top|Around|Friends' -benchtime=50x ./pkg/online/leaderboard/selfhost
 

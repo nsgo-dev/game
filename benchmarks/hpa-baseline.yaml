@@ -1,0 +1,6 @@
+version: 1
+note: Performance baselines for A* and HPA* search. Update with go tool game bench -baseline benchmarks/hpa-baseline.yaml -update -bench 'Benchmark(AStar|HPA)1024$' ./pkg/pathfind
+max_regression_pct: {ns_per_op: 25, bytes_per_op: 25, allocs_per_op: 25}
+benchmarks:
+  BenchmarkAStar1024: {ns_per_op: 52446940, bytes_per_op: 0, allocs_per_op: 0}
+  BenchmarkHPA1024: {ns_per_op: 1168906, bytes_per_op: 0, allocs_per_op: 0}

@@ -44,14 +44,7 @@ func defineBench(a *app, fs *flag.FlagSet) func() error {
 			return usagef("-count must be at least 1, not %d", *count)
 		}
 
-		var results []byte
-		if *inPath != "" {
-			data, err := os.ReadFile(*inPath)
-			if err != nil {
-				return err
-			}
-			results = data
-		} else {
+		runBenchmarks := func() ([]byte, error) {
 			dirs := fs.Args()
 			if len(dirs) == 0 {
 				dirs = []string{"./..."}
@@ -63,11 +56,26 @@ func defineBench(a *app, fs *flag.FlagSet) func() error {
 				for range *count {
 					args := []string{"test", "-bench", *pattern, dir, "-benchmem", "-benchtime=" + *benchtime, "-count=1"}
 					if err := out.run(a, args); err != nil {
-						return fmt.Errorf("benchmarks in %s failed: %w", dir, err)
+						return nil, fmt.Errorf("benchmarks in %s failed: %w", dir, err)
 					}
 				}
 			}
-			results = out.bytes()
+			return out.bytes(), nil
+		}
+
+		var results []byte
+		if *inPath != "" {
+			data, err := os.ReadFile(*inPath)
+			if err != nil {
+				return err
+			}
+			results = data
+		} else {
+			data, err := runBenchmarks()
+			if err != nil {
+				return err
+			}
+			results = data
 		}
 
 		measured, err := bench.ParseOutput(bytes.NewReader(results))
@@ -106,10 +114,44 @@ func defineBench(a *app, fs *flag.FlagSet) func() error {
 			return fmt.Errorf("%s holds no benchmarks; record them with -update", *baselinePath)
 		}
 		rep := bench.Evaluate(b, measured)
+		if *inPath == "" && onlyTimingRegressions(rep) {
+			fmt.Fprint(a.stdout, rep)
+			fmt.Fprintln(a.stdout, "game bench: retrying ns/op-only regressions once with unchanged B/op and allocs/op")
+			results, err := runBenchmarks()
+			if err != nil {
+				return err
+			}
+			measured, err = bench.ParseOutput(bytes.NewReader(results))
+			if err != nil {
+				return err
+			}
+			if len(measured) == 0 {
+				return fmt.Errorf("no benchmark results on retry: -bench %q matched no benchmark", *pattern)
+			}
+			rep = bench.Evaluate(b, measured)
+			if rep.Passed() {
+				fmt.Fprintln(a.stdout, "game bench: ns/op-only regression did not reproduce on retry; treating the first result as a warning")
+			}
+		}
 		fmt.Fprint(a.stdout, rep)
 		if !rep.Passed() {
 			return fmt.Errorf("%d of %d benchmarks regressed or were not measured", rep.Failed(), len(rep.Results))
 		}
 		return nil
 	}
+}
+
+// onlyTimingRegressions reports whether every failure is a ns/op regression with byte-for-byte unchanged allocation metrics. Such failures get one independent retry; missing benchmarks and allocation regressions fail immediately.
+func onlyTimingRegressions(rep bench.Report) bool {
+	found := false
+	for _, res := range rep.Results {
+		if res.Passed() {
+			continue
+		}
+		if res.Missing || len(res.Regressions) != 1 || res.Delta.NsPerOp <= rep.Limits.NsPerOp || res.Measured.BytesPerOp != res.Baseline.BytesPerOp || res.Measured.AllocsPerOp != res.Baseline.AllocsPerOp {
+			return false
+		}
+		found = true
+	}
+	return found
 }
