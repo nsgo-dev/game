@@ -1,18 +1,18 @@
-# server
+# gameserver
 
-`github.com/nsgo-dev/game/pkg/online/server` 在普通 Go 进程中以固定步长运行游戏更新，不需要 NSGo 应用、窗口、[`core.Scope`](loop.md) 或 cgo。
+`github.com/nsgo-dev/game/pkg/online/gameserver` 在普通 Go 进程中以固定步长运行游戏更新，不需要 NSGo 应用、窗口、[`core.Scope`](loop.md) 或 cgo。
 
 游戏传给 [`game.Loop`](loop.md) 的 `Update` 函数在服务器上原样运行：两边都用相同的固定 `1/Rate` 步长，所以专用服务器与客户端共享同一套模拟。
 
 ## Runner
 
 ```go
-r := &server.Runner{
-	Matches: []*server.Match{
+r := &gameserver.Runner{
+	Matches: []*gameserver.Match{
 		{Name: "match-1", Rate: 60, Update: update},
 		{Name: "match-2", Rate: 30, Update: update},
 	},
-	OnOverrun: func(m *server.Match, lag time.Duration, missed int) {
+	OnOverrun: func(m *gameserver.Match, lag time.Duration, missed int) {
 		log.Printf("%s 超时 %v（错过 %d tick）", m.Name, lag, missed)
 	},
 }
@@ -39,9 +39,9 @@ defer stop()
 某场比赛的 `Update` 发生 panic 不会拖垮整个进程。runner 会恢复它，通过 `OnPanic` 上报，并且——在默认的 `StopMatch` 动作下——只结束这一场比赛：它不再 tick（状态可能只更新了一半），其 `OnStop` 执行一次，其余比赛继续运行。若返回 `Crash`，则停止所有比赛、执行每个 `OnStop`，待它们全部返回后由 `Run` 重新抛出 panic。`OnStop` 内部的 panic 同样被恢复并上报，此时 `Tick` 为 0。
 
 ```go
-r := &server.Runner{
+r := &gameserver.Runner{
 	Matches: matches,
-	OnPanic: func(p server.Panic) server.PanicAction {
+	OnPanic: func(p gameserver.Panic) gameserver.PanicAction {
 		save(p.Report()) // crashreport.CrashReport：与客户端一致的崩溃报告结构
 		return server.StopMatch
 	},
@@ -66,12 +66,12 @@ go build ./examples/dedicatedserver
 `Matchmaker` 按模式和地区排队 `Ticket`，按 `RoomSize` 人组成房间：
 
 ```go
-mm := server.NewMatchmaker(4)
+mm := gameserver.NewMatchmaker(4)
 mm.BaseWindow = 100       // 入队时允许的评分差
 mm.WindowGrowthPerSecond = 10
 mm.MaxWindow = 400
-mm.Enqueue(server.Ticket{ID: 7, Mode: "coop", Region: "eu", Rating: 1200, Party: []string{"ada", "lin"}})
-rooms := mm.Match()       // []server.Matchup，含 TicketIDs 与 Players
+mm.Enqueue(gameserver.Ticket{ID: 7, Mode: "coop", Region: "eu", Rating: 1200, Party: []string{"ada", "lin"}})
+rooms := mm.Match()       // []gameserver.Matchup，含 TicketIDs 与 Players
 ```
 
 同票队伍整体入房，不会被拆分。默认规则从等待最久的票开始补房：候选票与房内最老票的评分差必须同时落在**双方**当前窗口内——`BaseWindow + WindowGrowthPerSecond * 等待秒数`，并由 `MaxWindow` 封顶。匹配不会超出较新票的窗口；老票窗口随时间扩大后可以匹配后来的玩家。`Cancel(id)` 只移除该票，不影响其他等待者；`Waiting` 按等待时间从旧到新列出队列。
@@ -83,9 +83,9 @@ rooms := mm.Match()       // []server.Matchup，含 TicketIDs 与 Players
 `Rooms` 把 peer 分成相互独立的房间，每场比赛有独立生命周期与各自的收件箱：
 
 ```go
-rs := server.NewRooms()
+rs := gameserver.NewRooms()
 rs.EmptyTimeout = 30 * time.Second
-rs.Snapshot = func(r *server.Room) []byte { return encodeWorldState(r) }
+rs.Snapshot = func(r *gameserver.Room) []byte { return encodeWorldState(r) }
 room, _ := rs.Create(4, true)             // 容量 4，私有并带房间码
 join, _ := rs.JoinCode(room.Code(), peer) // 或 rs.Join(room.ID(), peer)
 room.Start()                              // epoch 1, tick 0
@@ -107,12 +107,12 @@ rs.Tick()                                 // 关闭空置超过 EmptyTimeout 的
 `Guard` 在包进入房间或模拟前执行每个 peer 的策略：
 
 ```go
-g := server.NewGuard(server.Limits{
+g := gameserver.NewGuard(gameserver.Limits{
 	PacketsPerSecond:   60,
 	BytesPerSecond:     64 << 10,
 	MaxMessageSize:     8 << 10,
 	MaxPendingReliable: 256 << 10,
-}, server.LimitDisconnect)
+}, gameserver.LimitDisconnect)
 g.Validate = func(peer netplay.PeerID, p netplay.Packet) error { return checkInput(p) }
 action, err := g.Check(peer, packet)
 if action == server.GuardDisconnect {
@@ -216,11 +216,11 @@ srv, err := netplay.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pe
 
 不在允许列表的 `Origin` 会在 WebSocket 握手前被 `403` 拒绝；允许列表为空表示接受任意 Origin，`"*"` 也接受全部，而原生客户端不带 Origin 时同样允许。每个条目是 `scheme://host` 形式的 Origin，例如 `https://game.example.com`；末尾的斜杠会被忽略，而带路径或查询参数的条目会让监听在启动时失败。
 
-`server.Health` 提供部署端点：
+`gameserver.Health` 提供部署端点：
 
 ```go
-health := server.NewHealth(func() bool { return worldReady() }, func() server.Metrics {
-	return server.Metrics{Peers: peers, Rooms: rooms, BytesIn: in, BytesOut: out}
+health := gameserver.NewHealth(func() bool { return worldReady() }, func() gameserver.Metrics {
+	return gameserver.Metrics{Peers: peers, Rooms: rooms, BytesIn: in, BytesOut: out}
 })
 http.ListenAndServe(":8080", health)
 ```
@@ -229,7 +229,7 @@ http.ListenAndServe(":8080", health)
 - `GET /readyz`：`Ready` 为 true 时 200，否则 503；
 - `GET /metrics`：Prometheus 文本格式指标（见下表）。
 
-每次服务器 tick 用 `health.ObserveTick(time.Since(start))` 记录耗时。需要按对局（match）统计时，给 runner 设置 `Health` 字段，它就会自动记录每个对局的 tick 耗时；再用 `health.OnOverrun` 包装 runner 的 overrun 回调，即可按对局统计超时与错过的 tick 数；未命名的对局以 `match_<index>` 上报。`health.AddCollector` 在每次抓取时追加更多序列：`server.GuardCollector(guard)` 导出 guard 在所有见过的 peer 上的合计（`Guard.Totals` 在 `Reset` 后仍保留该 peer 的计数），`server.InboxCollector(name, transport)` 导出传输层收件箱的丢弃与拒绝计数，任意 `func(io.Writer)` 都可以追加游戏自己的序列。
+每次服务器 tick 用 `health.ObserveTick(time.Since(start))` 记录耗时。需要按对局（match）统计时，给 runner 设置 `Health` 字段，它就会自动记录每个对局的 tick 耗时；再用 `health.OnOverrun` 包装 runner 的 overrun 回调，即可按对局统计超时与错过的 tick 数；未命名的对局以 `match_<index>` 上报。`health.AddCollector` 在每次抓取时追加更多序列：`gameserver.GuardCollector(guard)` 导出 guard 在所有见过的 peer 上的合计（`Guard.Totals` 在 `Reset` 后仍保留该 peer 的计数），`gameserver.InboxCollector(name, transport)` 导出传输层收件箱的丢弃与拒绝计数，任意 `func(io.Writer)` 都可以追加游戏自己的序列。
 
 | 序列 | 类型 | 标签 | 含义 |
 | --- | --- | --- | --- |

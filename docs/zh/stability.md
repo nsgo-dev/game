@@ -115,10 +115,11 @@
 | `game/pkg/online/accounts/sqlstore` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/storetest` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/achievements` | 实验性 | [achievements](achievements.md) |
-| `game/pkg/online/audit` | 实验性 | [server](server.md) |
+| `game/pkg/online/audit` | 实验性 | [gameserver](gameserver.md) |
 | `game/pkg/online/cloudsave` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/sqlstore` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/storetest` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/pkg/online/gameserver` | 实验性 | [gameserver](gameserver.md) |
 | `game/pkg/online/leaderboard` | 实验性 | [leaderboard](leaderboard.md) |
 | `game/pkg/online/leaderboard/selfhost` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/pkg/online/liveops` | 实验性 | [liveops](liveops.md) |
@@ -126,7 +127,6 @@
 | `game/pkg/online/netplay` | 实验性 | [netplay](netplay.md) |
 | `game/pkg/online/netplay/wire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | 实验性 | [presence](presence.md) |
-| `game/pkg/online/server` | 实验性 | [server](server.md) |
 | `game/pkg/online/wsclient` | 实验性 | [wsclient](wsclient.md) |
 | `game/pkg/particles` | 实验性 | [particles](particles.md) |
 | `game/pkg/perf` | 实验性 | [perf](perf.md) |

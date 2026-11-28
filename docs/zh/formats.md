@@ -2874,7 +2874,7 @@ runs:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `audit.Options.Dir` 目录下的 `<yyyy-mm-dd>.jsonl`，每个 UTC 日一个文件，只追加 | 每行的 `v: 1` | `audit.Open`、`audit.Writer.Log` | [server](server.md#审计日志) |
+| `audit.Options.Dir` 目录下的 `<yyyy-mm-dd>.jsonl`，每个 UTC 日一个文件，只追加 | 每行的 `v: 1` | `audit.Open`、`audit.Writer.Log` | [gameserver](gameserver.md#审计日志) |
 
 ```json
 {"v":1,"time":"2026-11-28T09:15:02.500Z","actor":"admin:ada","action":"peer.kick","subject":"peer:42","data":{"reason":"cheating"}}

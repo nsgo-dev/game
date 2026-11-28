@@ -1,4 +1,4 @@
-package server_test
+package gameserver_test
 
 import (
 	"errors"
@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/online/gameserver"
 	"github.com/nsgo-dev/game/pkg/online/netplay"
-	"github.com/nsgo-dev/game/pkg/online/server"
 )
 
 func TestRoomsKeepPacketsSeparate(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	one, err := rs.Create(2, false)
 	if err != nil {
 		t.Fatal(err)
@@ -42,14 +42,14 @@ func TestRoomsKeepPacketsSeparate(t *testing.T) {
 	if _, ok := one.Recv(2); ok {
 		t.Fatal("room one saw room two's peer")
 	}
-	if err := one.Deliver(2, netplay.Packet{Payload: []byte("cross")}); !errors.Is(err, server.ErrNotInRoom) {
+	if err := one.Deliver(2, netplay.Packet{Payload: []byte("cross")}); !errors.Is(err, gameserver.ErrNotInRoom) {
 		t.Fatalf("cross-room delivery = %v, want ErrNotInRoom", err)
 	}
 }
 
 func TestRoomLateJoinGetsFullSnapshot(t *testing.T) {
-	rs := server.NewRooms()
-	rs.Snapshot = func(r *server.Room) []byte { return []byte("full-state") }
+	rs := gameserver.NewRooms()
+	rs.Snapshot = func(r *gameserver.Room) []byte { return []byte("full-state") }
 	room, err := rs.Create(4, false)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestRoomLateJoinGetsFullSnapshot(t *testing.T) {
 }
 
 func TestRoomNewMatchResetsEpochAndTick(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	room, err := rs.Create(2, false)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestRoomNewMatchResetsEpochAndTick(t *testing.T) {
 }
 
 func TestPrivateRoomCodeAndCapacity(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	rs.CodeGenerator = func() string { return "FRIEND" }
 	room, err := rs.Create(2, true)
 	if err != nil {
@@ -128,16 +128,16 @@ func TestPrivateRoomCodeAndCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = rs.JoinCode("FRIEND", 3)
-	if !errors.Is(err, server.ErrRoomFull) {
+	if !errors.Is(err, gameserver.ErrRoomFull) {
 		t.Fatalf("third join = %v, want ErrRoomFull", err)
 	}
-	if _, err := rs.JoinCode("WRONG", 4); !errors.Is(err, server.ErrRoomNotFound) {
+	if _, err := rs.JoinCode("WRONG", 4); !errors.Is(err, gameserver.ErrRoomNotFound) {
 		t.Fatalf("wrong code join = %v, want ErrRoomNotFound", err)
 	}
 }
 
 func TestEmptyRoomClosesAfterTimeout(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	now := time.Unix(0, 0)
 	rs.Now = func() time.Time { return now }
 	rs.EmptyTimeout = time.Second
@@ -158,13 +158,13 @@ func TestEmptyRoomClosesAfterTimeout(t *testing.T) {
 	if closed := rs.Tick(); len(closed) != 1 || closed[0] != room.ID() {
 		t.Fatalf("closed = %v, want room %d", closed, room.ID())
 	}
-	if _, err := rs.Join(room.ID(), 2); !errors.Is(err, server.ErrRoomNotFound) {
+	if _, err := rs.Join(room.ID(), 2); !errors.Is(err, gameserver.ErrRoomNotFound) {
 		t.Fatalf("join after close = %v, want ErrRoomNotFound", err)
 	}
 }
 
 func TestNeverJoinedRoomClosesAfterTimeout(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	now := time.Unix(100, 0)
 	rs.Now = func() time.Time { return now }
 	rs.EmptyTimeout = time.Second
@@ -199,10 +199,10 @@ func TestNeverJoinedRoomClosesAfterTimeout(t *testing.T) {
 	if got := rs.List(); len(got) != 0 {
 		t.Fatalf("listed rooms after close = %v, want empty", got)
 	}
-	if _, err := rs.Join(pub.ID(), 1); !errors.Is(err, server.ErrRoomNotFound) {
+	if _, err := rs.Join(pub.ID(), 1); !errors.Is(err, gameserver.ErrRoomNotFound) {
 		t.Fatalf("Join(pub) after close = %v, want ErrRoomNotFound", err)
 	}
-	if _, err := rs.JoinCode("IDLE42", 1); !errors.Is(err, server.ErrRoomNotFound) {
+	if _, err := rs.JoinCode("IDLE42", 1); !errors.Is(err, gameserver.ErrRoomNotFound) {
 		t.Fatalf("JoinCode after close = %v, want ErrRoomNotFound", err)
 	}
 	// Closing released the private code so a new room can allocate it.
@@ -216,7 +216,7 @@ func TestNeverJoinedRoomClosesAfterTimeout(t *testing.T) {
 }
 
 func TestNeverJoinedRoomClosesImmediatelyWithZeroTimeout(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	rs.CodeGenerator = func() string { return "ZERO01" }
 
 	room, err := rs.Create(4, true)
@@ -230,13 +230,13 @@ func TestNeverJoinedRoomClosesImmediatelyWithZeroTimeout(t *testing.T) {
 	if got := rs.List(); len(got) != 0 {
 		t.Fatalf("listed rooms = %v, want empty", got)
 	}
-	if _, err := rs.JoinCode("ZERO01", 1); !errors.Is(err, server.ErrRoomNotFound) {
+	if _, err := rs.JoinCode("ZERO01", 1); !errors.Is(err, gameserver.ErrRoomNotFound) {
 		t.Fatalf("JoinCode after close = %v, want ErrRoomNotFound", err)
 	}
 }
 
 func TestJoinedRoomCancelsIdleCloseAndReemptyingClosesAfterTimeout(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	now := time.Unix(0, 0)
 	rs.Now = func() time.Time { return now }
 	rs.EmptyTimeout = time.Second
@@ -272,7 +272,7 @@ func TestJoinedRoomCancelsIdleCloseAndReemptyingClosesAfterTimeout(t *testing.T)
 }
 
 func TestEndedEmptyRoomClosesAfterTimeout(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	now := time.Unix(0, 0)
 	rs.Now = func() time.Time { return now }
 	rs.EmptyTimeout = time.Second
@@ -295,16 +295,16 @@ func TestEndedEmptyRoomClosesAfterTimeout(t *testing.T) {
 	if closed := rs.Tick(); !slices.Equal(closed, []uint64{room.ID()}) {
 		t.Fatalf("closed = %v, want [%d]", closed, room.ID())
 	}
-	if _, err := rs.Join(room.ID(), 2); !errors.Is(err, server.ErrRoomNotFound) {
+	if _, err := rs.Join(room.ID(), 2); !errors.Is(err, gameserver.ErrRoomNotFound) {
 		t.Fatalf("Join after close = %v, want ErrRoomNotFound", err)
 	}
-	if err := room.Start(); !errors.Is(err, server.ErrRoomNotFound) {
+	if err := room.Start(); !errors.Is(err, gameserver.ErrRoomNotFound) {
 		t.Fatalf("Start after close = %v, want ErrRoomNotFound", err)
 	}
 }
 
 func TestConcurrentJoinAndTickNeverStrandsPeer(t *testing.T) {
-	rs := server.NewRooms()
+	rs := gameserver.NewRooms()
 	for round := range 200 {
 		room, err := rs.Create(4, true)
 		if err != nil {
@@ -346,16 +346,16 @@ func TestConcurrentJoinAndTickNeverStrandsPeer(t *testing.T) {
 
 		tickClosed := slices.Contains(closedIDs, id)
 		if tickClosed {
-			if !errors.Is(errByID, server.ErrRoomNotFound) {
+			if !errors.Is(errByID, gameserver.ErrRoomNotFound) {
 				t.Fatalf("round %d: room closed by Tick, but Join returned %v", round, errByID)
 			}
-			if !errors.Is(errByCode, server.ErrRoomNotFound) {
+			if !errors.Is(errByCode, gameserver.ErrRoomNotFound) {
 				t.Fatalf("round %d: room closed by Tick, but JoinCode returned %v", round, errByCode)
 			}
 			if members := room.Members(); len(members) != 0 {
 				t.Fatalf("round %d: closed room still has members %v", round, members)
 			}
-			if _, err := rs.JoinCode(code, 3); !errors.Is(err, server.ErrRoomNotFound) {
+			if _, err := rs.JoinCode(code, 3); !errors.Is(err, gameserver.ErrRoomNotFound) {
 				t.Fatalf("round %d: JoinCode after close = %v, want ErrRoomNotFound", round, err)
 			}
 			continue

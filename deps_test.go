@@ -7,11 +7,11 @@ import (
 )
 
 // headlessPackages are the importable packages a headless build, such as a
-// dedicated server (docs/en/server.md), links. None of them may depend on
+// dedicated server (docs/en/gameserver.md), links. None of them may depend on
 // NSGo, the platform and windowing layer. Add a package here when another
 // package gets the same headless guarantee.
 var headlessPackages = []string{
-	"./pkg/online/server/...",
+	"./pkg/online/gameserver/...",
 	"./pkg/online/liveops/crashreport",
 	"./pkg/datatable",
 	"./pkg/jsonschema",

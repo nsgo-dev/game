@@ -16,7 +16,7 @@ import "github.com/nsgo-dev/game/pkg/online/netplay"
 | `WebSocketServer` / `WebSocketTransport` | `ListenWebSocket`、`ListenWebSocketTLS`、`DialWebSocket` | 原生 + 浏览器（`js/wasm`），适合 Web 构建、仅允许 TCP 的网络及旧版浏览器。两条通道共用同一条有序 TCP 流。客户端用令牌认证，ID 由服务端分配（见下文）。 |
 | `UDPServer` / `UDPClient` | `ListenUDPServer`、`DialUDP` | 原生平台（桌面/移动）与服务端之间的低延迟加密数据报通信，使用 Noise NK 密钥交换（第 2 版握手）与 ChaCha20-Poly1305 AEAD。 |
 | `UDPTransport` | `ListenUDP` + `AddPeerKey` / `AddPeer` | 原生平台点对点数据报，双方事先知道彼此地址：`AddPeerKey` 使用预共享密钥做认证加密，普通 `AddPeer` 不加密、不认证，仅用于局域网与测试。 |
-| `Relay` / `RelayTransport` | `NewRelay`、`NewRelayTransport` | 彼此无法直连的玩家之间的点对点会话：每人通过 WebTransport、WebSocket 或 UDP 连接中继，中继只在同一会话的成员之间转发（见[服务端指南](server.md#点对点中继)）。 |
+| `Relay` / `RelayTransport` | `NewRelay`、`NewRelayTransport` | 彼此无法直连的玩家之间的点对点会话：每人通过 WebTransport、WebSocket 或 UDP 连接中继，中继只在同一会话的成员之间转发（见[服务端指南](gameserver.md#点对点中继)）。 |
 | `LoopbackHub` / `LoopbackTransport` | `NewLoopbackHub` + `AddPeer` | 内存内确定性测试，可配置 `Latency`、`Jitter`、`LossRate` 与 `Seed`。 |
 
 UDP 没有重传与排序保证，因此两种 UDP 传输都会以 `ErrUnsupportedChannel` 拒绝 `ChannelReliableOrdered`；锁步与回滚需要 WebTransport、WebSocket 或回环传输，或者 `RelayTransport`：它做端到端重传，因此在 UDP 上也能运行锁步与回滚。

@@ -1,4 +1,4 @@
-package server_test
+package gameserver_test
 
 import (
 	"net/http"
@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/server"
+	"github.com/nsgo-dev/game/pkg/online/gameserver"
 )
 
 func TestHealthEndpoints(t *testing.T) {
 	ready := false
-	health := server.NewHealth(func() bool { return ready }, func() server.Metrics {
-		return server.Metrics{Peers: 3, Rooms: 1, BytesIn: 10, BytesOut: 20}
+	health := gameserver.NewHealth(func() bool { return ready }, func() gameserver.Metrics {
+		return gameserver.Metrics{Peers: 3, Rooms: 1, BytesIn: 10, BytesOut: 20}
 	})
 	health.ObserveTick(5 * time.Millisecond)
 	for _, tc := range []struct {

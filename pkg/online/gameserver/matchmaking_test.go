@@ -1,19 +1,19 @@
-package server_test
+package gameserver_test
 
 import (
 	"slices"
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/server"
+	"github.com/nsgo-dev/game/pkg/online/gameserver"
 )
 
 func TestMatchmakerFillsRoomsByModeAndRegion(t *testing.T) {
-	mm := server.NewMatchmaker(4)
+	mm := gameserver.NewMatchmaker(4)
 	now := time.Unix(0, 0)
 	mm.Now = func() time.Time { return now }
 	for i := 1; i <= 6; i++ {
-		if err := mm.Enqueue(server.Ticket{ID: uint64(i), Mode: "duel", Region: "eu", Party: []string{"p" + string(rune('0'+i))}}); err != nil {
+		if err := mm.Enqueue(gameserver.Ticket{ID: uint64(i), Mode: "duel", Region: "eu", Party: []string{"p" + string(rune('0'+i))}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -27,16 +27,16 @@ func TestMatchmakerFillsRoomsByModeAndRegion(t *testing.T) {
 }
 
 func TestMatchmakerSkillWindowWidensWithWait(t *testing.T) {
-	mm := server.NewMatchmaker(2)
+	mm := gameserver.NewMatchmaker(2)
 	now := time.Unix(0, 0)
 	mm.Now = func() time.Time { return now }
 	mm.BaseWindow = 10
 	mm.WindowGrowthPerSecond = 5
 	first := now
-	if err := mm.Enqueue(server.Ticket{ID: 1, Mode: "ranked", Region: "us", Rating: 0, Party: []string{"p"}, EnqueuedAt: first}); err != nil {
+	if err := mm.Enqueue(gameserver.Ticket{ID: 1, Mode: "ranked", Region: "us", Rating: 0, Party: []string{"p"}, EnqueuedAt: first}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mm.Enqueue(server.Ticket{ID: 2, Mode: "ranked", Region: "us", Rating: 12, Party: []string{"p"}, EnqueuedAt: first.Add(900 * time.Millisecond)}); err != nil {
+	if err := mm.Enqueue(gameserver.Ticket{ID: 2, Mode: "ranked", Region: "us", Rating: 12, Party: []string{"p"}, EnqueuedAt: first.Add(900 * time.Millisecond)}); err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(time.Second)
@@ -50,11 +50,11 @@ func TestMatchmakerSkillWindowWidensWithWait(t *testing.T) {
 }
 
 func TestMatchmakerKeepsPartiesTogether(t *testing.T) {
-	mm := server.NewMatchmaker(4)
-	if err := mm.Enqueue(server.Ticket{ID: 1, Mode: "coop", Region: "eu", Party: []string{"a", "b", "c"}}); err != nil {
+	mm := gameserver.NewMatchmaker(4)
+	if err := mm.Enqueue(gameserver.Ticket{ID: 1, Mode: "coop", Region: "eu", Party: []string{"a", "b", "c"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mm.Enqueue(server.Ticket{ID: 2, Mode: "coop", Region: "eu", Party: []string{"d"}}); err != nil {
+	if err := mm.Enqueue(gameserver.Ticket{ID: 2, Mode: "coop", Region: "eu", Party: []string{"d"}}); err != nil {
 		t.Fatal(err)
 	}
 	matches := mm.Match()
@@ -67,9 +67,9 @@ func TestMatchmakerKeepsPartiesTogether(t *testing.T) {
 }
 
 func TestMatchmakerCancelLeavesOthersAtThousand(t *testing.T) {
-	mm := server.NewMatchmaker(4)
+	mm := gameserver.NewMatchmaker(4)
 	for i := uint64(1); i <= 1000; i++ {
-		if err := mm.Enqueue(server.Ticket{ID: i, Mode: "ffa", Region: "eu", Party: []string{"p" + string(rune(i%26+'a'))}}); err != nil {
+		if err := mm.Enqueue(gameserver.Ticket{ID: i, Mode: "ffa", Region: "eu", Party: []string{"p" + string(rune(i%26+'a'))}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -100,19 +100,19 @@ func TestMatchmakerCancelLeavesOthersAtThousand(t *testing.T) {
 }
 
 func TestMatchmakerCustomRule(t *testing.T) {
-	mm := server.NewMatchmaker(2)
-	mm.Rule = func(tickets []*server.Ticket, _ int, _ func(*server.Ticket) float64) []server.Matchup {
+	mm := gameserver.NewMatchmaker(2)
+	mm.Rule = func(tickets []*gameserver.Ticket, _ int, _ func(*gameserver.Ticket) float64) []gameserver.Matchup {
 		if len(tickets) < 2 {
 			return nil
 		}
-		return []server.Matchup{{
+		return []gameserver.Matchup{{
 			Mode: tickets[0].Mode, Region: tickets[0].Region,
 			TicketIDs: []uint64{tickets[0].ID, tickets[1].ID},
 			Players:   append(append([]string(nil), tickets[0].Party...), tickets[1].Party...),
 		}}
 	}
 	for i := uint64(1); i <= 2; i++ {
-		if err := mm.Enqueue(server.Ticket{ID: i, Mode: "custom", Region: "eu", Party: []string{"p"}}); err != nil {
+		if err := mm.Enqueue(gameserver.Ticket{ID: i, Mode: "custom", Region: "eu", Party: []string{"p"}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -136,7 +136,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 		baseWindow  float64
 		growth      float64
 		nowOffset   time.Duration
-		tickets     []server.Ticket
+		tickets     []gameserver.Ticket
 		wantMatches []wantMatch
 		wantWaiting []uint64
 	}{
@@ -144,7 +144,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "unfilled anchor drops neighbor in rating chain",
 			roomSize:   3,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"a"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 90, Party: []string{"b"}, EnqueuedAt: base.Add(time.Second)},
 				{ID: 3, Mode: "ranked", Region: "eu", Rating: 180, Party: []string{"c"}, EnqueuedAt: base.Add(2 * time.Second)},
@@ -159,7 +159,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "unfilled solo anchor preserves party of two for later pair",
 			roomSize:   4,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"a"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 90, Party: []string{"b1", "b2"}, EnqueuedAt: base.Add(time.Second)},
 				{ID: 3, Mode: "ranked", Region: "eu", Rating: 180, Party: []string{"c1", "c2"}, EnqueuedAt: base.Add(2 * time.Second)},
@@ -173,7 +173,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "unfilled anchor preserves multiple candidates (party of two plus solo)",
 			roomSize:   5,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"a"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 90, Party: []string{"b1", "b2"}, EnqueuedAt: base.Add(time.Second)},
 				{ID: 3, Mode: "ranked", Region: "eu", Rating: 95, Party: []string{"c"}, EnqueuedAt: base.Add(2 * time.Second)},
@@ -188,7 +188,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "equal rating party packing preserves solo skipped past larger party",
 			roomSize:   4,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "coop", Region: "us", Rating: 1000, Party: []string{"a1", "a2"}, EnqueuedAt: base},
 				{ID: 2, Mode: "coop", Region: "us", Rating: 1000, Party: []string{"b1", "b2", "b3"}, EnqueuedAt: base.Add(time.Second)},
 				{ID: 3, Mode: "coop", Region: "us", Rating: 1000, Party: []string{"c"}, EnqueuedAt: base.Add(2 * time.Second)},
@@ -202,7 +202,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "anchor party larger than room is skipped without blocking later rooms",
 			roomSize:   3,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 100, Party: []string{"x1", "x2", "x3", "x4"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"a"}, EnqueuedAt: base.Add(time.Second)},
 				{ID: 3, Mode: "ranked", Region: "eu", Rating: 90, Party: []string{"b"}, EnqueuedAt: base.Add(2 * time.Second)},
@@ -218,7 +218,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "full-room party behind unfilled anchor fills cleanly",
 			roomSize:   3,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"a"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 50, Party: []string{"b1", "b2", "b3"}, EnqueuedAt: base.Add(time.Second)},
 				{ID: 3, Mode: "ranked", Region: "eu", Rating: 80, Party: []string{"c"}, EnqueuedAt: base.Add(2 * time.Second)},
@@ -232,7 +232,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "multiple fillable rooms formed behind separate unfilled anchors",
 			roomSize:   3,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"a"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 90, Party: []string{"b"}, EnqueuedAt: base.Add(time.Second)},
 				{ID: 3, Mode: "ranked", Region: "eu", Rating: 180, Party: []string{"c"}, EnqueuedAt: base.Add(2 * time.Second)},
@@ -252,7 +252,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "mixed modes and regions each form fillable rooms independently",
 			roomSize:   3,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"eu-a"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 90, Party: []string{"eu-b"}, EnqueuedAt: base.Add(time.Second)},
 				{ID: 3, Mode: "ranked", Region: "eu", Rating: 180, Party: []string{"eu-c"}, EnqueuedAt: base.Add(2 * time.Second)},
@@ -274,7 +274,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			name:       "deterministic oldest-first and ID tie-breaks after unfilled anchor",
 			roomSize:   3,
 			baseWindow: 100,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"a"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 90, Party: []string{"b"}, EnqueuedAt: base},
 				{ID: 5, Mode: "ranked", Region: "eu", Rating: 150, Party: []string{"e"}, EnqueuedAt: base},
@@ -292,7 +292,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 			baseWindow: 50,
 			growth:     10,
 			nowOffset:  10 * time.Second,
-			tickets: []server.Ticket{
+			tickets: []gameserver.Ticket{
 				{ID: 1, Mode: "ranked", Region: "eu", Rating: 0, Party: []string{"a"}, EnqueuedAt: base},
 				{ID: 2, Mode: "ranked", Region: "eu", Rating: 50, Party: []string{"b"}, EnqueuedAt: base.Add(10 * time.Second)},
 				{ID: 3, Mode: "ranked", Region: "eu", Rating: 90, Party: []string{"c"}, EnqueuedAt: base.Add(10 * time.Second)},
@@ -307,7 +307,7 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mm := server.NewMatchmaker(tc.roomSize)
+			mm := gameserver.NewMatchmaker(tc.roomSize)
 			mm.BaseWindow = tc.baseWindow
 			mm.WindowGrowthPerSecond = tc.growth
 			now := base.Add(tc.nowOffset)

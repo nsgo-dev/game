@@ -1,18 +1,18 @@
-# server
+# gameserver
 
-`github.com/nsgo-dev/game/pkg/online/server` runs a game's fixed-step updates in a plain Go process, without an NSGo app, window, [`core.Scope`](loop.md) or cgo.
+`github.com/nsgo-dev/game/pkg/online/gameserver` runs a game's fixed-step updates in a plain Go process, without an NSGo app, window, [`core.Scope`](loop.md) or cgo.
 
 The `Update` function a game hands to [`game.Loop`](loop.md) runs unchanged on the server: both step it with the same fixed `1/Rate` duration, so a dedicated server and the client share one simulation.
 
 ## Runner
 
 ```go
-r := &server.Runner{
-	Matches: []*server.Match{
+r := &gameserver.Runner{
+	Matches: []*gameserver.Match{
 		{Name: "match-1", Rate: 60, Update: update},
 		{Name: "match-2", Rate: 30, Update: update},
 	},
-	OnOverrun: func(m *server.Match, lag time.Duration, missed int) {
+	OnOverrun: func(m *gameserver.Match, lag time.Duration, missed int) {
 		log.Printf("%s overran by %v (%d ticks missed)", m.Name, lag, missed)
 	},
 }
@@ -39,9 +39,9 @@ On SIGTERM/SIGINT the context ends; the runner lets the current tick finish, the
 A panic in one match's `Update` never takes down the process. The runner recovers it, reports it through `OnPanic`, and — with the default `StopMatch` action — ends only that match: it never ticks again (its state may be half-updated), its `OnStop` runs once, and every other match keeps ticking. Returning `Crash` instead stops every match, runs every `OnStop`, then re-panics from `Run` once they have all returned. A panic inside `OnStop` is recovered and reported the same way, with `Tick` 0.
 
 ```go
-r := &server.Runner{
+r := &gameserver.Runner{
 	Matches: matches,
-	OnPanic: func(p server.Panic) server.PanicAction {
+	OnPanic: func(p gameserver.Panic) gameserver.PanicAction {
 		save(p.Report()) // crashreport.CrashReport: the client's crash schema
 		return server.StopMatch
 	},
@@ -66,12 +66,12 @@ Data tables load headlessly too: [`pkg/datatable`](datatable.md) imports no NSGo
 `Matchmaker` queues `Ticket`s by mode and region and fills rooms of `RoomSize` players:
 
 ```go
-mm := server.NewMatchmaker(4)
+mm := gameserver.NewMatchmaker(4)
 mm.BaseWindow = 100       // rating difference allowed at enqueue time
 mm.WindowGrowthPerSecond = 10
 mm.MaxWindow = 400
-mm.Enqueue(server.Ticket{ID: 7, Mode: "coop", Region: "eu", Rating: 1200, Party: []string{"ada", "lin"}})
-rooms := mm.Match()       // []server.Matchup with TicketIDs and Players
+mm.Enqueue(gameserver.Ticket{ID: 7, Mode: "coop", Region: "eu", Rating: 1200, Party: []string{"ada", "lin"}})
+rooms := mm.Match()       // []gameserver.Matchup with TicketIDs and Players
 ```
 
 A ticket's party is placed whole or not at all. The default rule fills rooms oldest-first and adds a ticket only when its rating difference from the room's oldest ticket fits within **both** tickets' current windows: `BaseWindow + WindowGrowthPerSecond * waited`, capped by `MaxWindow`. Matches never mix beyond the newer ticket's window, and an old ticket's window widening lets it meet a later arrival. `Cancel(id)` removes a waiting ticket without disturbing the rest; `Waiting` lists the queue oldest-first.
@@ -83,9 +83,9 @@ Set `Rule` to replace the matching function; it receives a group of tickets with
 `Rooms` groups peers into independent rooms with a per-match lifecycle and its own packet inboxes:
 
 ```go
-rs := server.NewRooms()
+rs := gameserver.NewRooms()
 rs.EmptyTimeout = 30 * time.Second
-rs.Snapshot = func(r *server.Room) []byte { return encodeWorldState(r) }
+rs.Snapshot = func(r *gameserver.Room) []byte { return encodeWorldState(r) }
 room, _ := rs.Create(4, true)             // capacity 4, private with a code
 join, _ := rs.JoinCode(room.Code(), peer) // or rs.Join(room.ID(), peer)
 room.Start()                              // epoch 1, tick 0
@@ -107,12 +107,12 @@ rs.Tick()                                 // close rooms empty for EmptyTimeout
 `Guard` enforces a per-peer policy before packets reach a room or simulation:
 
 ```go
-g := server.NewGuard(server.Limits{
+g := gameserver.NewGuard(gameserver.Limits{
 	PacketsPerSecond:   60,
 	BytesPerSecond:     64 << 10,
 	MaxMessageSize:     8 << 10,
 	MaxPendingReliable: 256 << 10,
-}, server.LimitDisconnect)
+}, gameserver.LimitDisconnect)
 g.Validate = func(peer netplay.PeerID, p netplay.Packet) error { return checkInput(p) }
 action, err := g.Check(peer, packet)
 if action == server.GuardDisconnect {
@@ -216,11 +216,11 @@ srv, err := netplay.ListenWebSocketTLSFiles(":443", 1, auth, "cert.pem", "key.pe
 
 An `Origin` outside the allow-list is refused with `403` before the WebSocket handshake; an empty allow-list accepts any Origin and `"*"` accepts all, while an empty Origin (native game clients) is allowed. Each entry is a `scheme://host` Origin such as `https://game.example.com`; a trailing slash is ignored, and an entry that names a path or query makes the listener fail at start-up.
 
-`server.Health` serves deployment endpoints:
+`gameserver.Health` serves deployment endpoints:
 
 ```go
-health := server.NewHealth(func() bool { return worldReady() }, func() server.Metrics {
-	return server.Metrics{Peers: peers, Rooms: rooms, BytesIn: in, BytesOut: out}
+health := gameserver.NewHealth(func() bool { return worldReady() }, func() gameserver.Metrics {
+	return gameserver.Metrics{Peers: peers, Rooms: rooms, BytesIn: in, BytesOut: out}
 })
 http.ListenAndServe(":8080", health)
 ```
@@ -229,7 +229,7 @@ http.ListenAndServe(":8080", health)
 - `GET /readyz` — 200 while `Ready` returns true, else 503;
 - `GET /metrics` — Prometheus text metrics (see the table below).
 
-Observe each server tick with `health.ObserveTick(time.Since(start))`. For per-match detail, set the runner's `Health` field and it records every match's tick durations itself, and wrap its overrun callback with `health.OnOverrun` to count overruns and missed ticks per match; an unnamed match is reported as `match_<index>`. `health.AddCollector` appends more series on every scrape: `server.GuardCollector(guard)` exports a guard's totals across every peer it has seen (`Guard.Totals` keeps a peer's counters after `Reset`), `server.InboxCollector(name, transport)` exports a transport's inbox drops and refusals, and any `func(io.Writer)` adds the game's own series.
+Observe each server tick with `health.ObserveTick(time.Since(start))`. For per-match detail, set the runner's `Health` field and it records every match's tick durations itself, and wrap its overrun callback with `health.OnOverrun` to count overruns and missed ticks per match; an unnamed match is reported as `match_<index>`. `health.AddCollector` appends more series on every scrape: `gameserver.GuardCollector(guard)` exports a guard's totals across every peer it has seen (`Guard.Totals` keeps a peer's counters after `Reset`), `gameserver.InboxCollector(name, transport)` exports a transport's inbox drops and refusals, and any `func(io.Writer)` adds the game's own series.
 
 | Series | Type | Labels | Meaning |
 | --- | --- | --- | --- |

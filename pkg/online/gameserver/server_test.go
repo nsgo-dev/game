@@ -1,4 +1,4 @@
-package server_test
+package gameserver_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/server"
+	"github.com/nsgo-dev/game/pkg/online/gameserver"
 )
 
 func TestRunnerStepsMatchesAtTheirOwnRates(t *testing.T) {
@@ -17,7 +17,7 @@ func TestRunnerStepsMatchesAtTheirOwnRates(t *testing.T) {
 	var fastDT, slowDT atomic.Int64
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
-	r := &server.Runner{Matches: []*server.Match{
+	r := &gameserver.Runner{Matches: []*gameserver.Match{
 		{Rate: 40, Update: func(dt time.Duration) { fastDT.Store(int64(dt)); fast.Add(1) }},
 		{Rate: 20, Update: func(dt time.Duration) { slowDT.Store(int64(dt)); slow.Add(1) }},
 	}}
@@ -42,9 +42,9 @@ func TestRunnerReportsOverrunsWithoutCatchUp(t *testing.T) {
 	var calls, overruns atomic.Int64
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
-	r := &server.Runner{
-		OnOverrun: func(*server.Match, time.Duration, int) { overruns.Add(1) },
-		Matches: []*server.Match{{Rate: 20, Update: func(time.Duration) {
+	r := &gameserver.Runner{
+		OnOverrun: func(*gameserver.Match, time.Duration, int) { overruns.Add(1) },
+		Matches: []*gameserver.Match{{Rate: 20, Update: func(time.Duration) {
 			calls.Add(1)
 			time.Sleep(80 * time.Millisecond)
 		}}},
@@ -66,7 +66,7 @@ func TestRunnerFinishesCurrentTickThenStops(t *testing.T) {
 	tickDone := make(chan struct{})
 	var tickRan atomic.Bool
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &server.Runner{Matches: []*server.Match{{Rate: 20, Update: func(time.Duration) {
+	r := &gameserver.Runner{Matches: []*gameserver.Match{{Rate: 20, Update: func(time.Duration) {
 		tickRan.Store(true)
 		updates.Add(1)
 		close(tickDone)
@@ -92,7 +92,7 @@ func TestRunnerFinishesCurrentTickThenStops(t *testing.T) {
 }
 
 func TestRunnerRejectsAMatchWithoutUpdate(t *testing.T) {
-	if err := (&server.Runner{Matches: []*server.Match{{Rate: 60}}}).Run(context.Background()); !errors.Is(err, errors.New("server: a match has no Update function")) {
+	if err := (&gameserver.Runner{Matches: []*gameserver.Match{{Rate: 60}}}).Run(context.Background()); !errors.Is(err, errors.New("gameserver: a match has no Update function")) {
 		// Compare only the failure, not identity: a nil Update must not start.
 		if err == nil {
 			t.Fatal("nil Update was accepted")
@@ -119,9 +119,9 @@ func TestRunnerHoldsRateUnderHalfStepUpdate(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
-				r := &server.Runner{
-					OnOverrun: func(*server.Match, time.Duration, int) { overruns++ },
-					Matches: []*server.Match{{
+				r := &gameserver.Runner{
+					OnOverrun: func(*gameserver.Match, time.Duration, int) { overruns++ },
+					Matches: []*gameserver.Match{{
 						Rate: tc.rate,
 						Update: func(dt time.Duration) {
 							if dt != step {
@@ -175,11 +175,11 @@ func TestRunnerOverrunResetsScheduleWithoutBurst(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		r := &server.Runner{
-			OnOverrun: func(_ *server.Match, lag time.Duration, missed int) {
+		r := &gameserver.Runner{
+			OnOverrun: func(_ *gameserver.Match, lag time.Duration, missed int) {
 				overruns = append(overruns, overrunEvent{lag: lag, missed: missed})
 			},
-			Matches: []*server.Match{{
+			Matches: []*gameserver.Match{{
 				Rate: 20,
 				Update: func(dt time.Duration) {
 					if dt != step {
@@ -234,9 +234,9 @@ func TestRunnerExactStepUpdateDoesNotOverrunOrSkip(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		r := &server.Runner{
-			OnOverrun: func(*server.Match, time.Duration, int) { overruns++ },
-			Matches: []*server.Match{{
+		r := &gameserver.Runner{
+			OnOverrun: func(*gameserver.Match, time.Duration, int) { overruns++ },
+			Matches: []*gameserver.Match{{
 				Rate: 100,
 				Update: func(time.Duration) {
 					starts = append(starts, time.Since(start))
@@ -276,12 +276,12 @@ func TestRunnerCancelInsideOverrunStopsImmediately(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		r := &server.Runner{
-			OnOverrun: func(*server.Match, time.Duration, int) {
+		r := &gameserver.Runner{
+			OnOverrun: func(*gameserver.Match, time.Duration, int) {
 				overruns++
 				cancel()
 			},
-			Matches: []*server.Match{{
+			Matches: []*gameserver.Match{{
 				Rate: 20,
 				Update: func(time.Duration) {
 					ticks++

@@ -135,4 +135,4 @@ if err := gear.Restore(p.Gear); err != nil {
 | `ErrUnknownEquipSlot` | 装备中没有该名称的格子。 |
 | `ErrNotEquippable` | 道具类别与装备格不符。 |
 
-容器与装备是确定性的，不持有全局状态，同样的代码可以在无头[服务器](server.md)上运行。它们不支持并发使用。
+容器与装备是确定性的，不持有全局状态，同样的代码可以在无头[服务器](gameserver.md)上运行。它们不支持并发使用。

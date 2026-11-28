@@ -1,4 +1,4 @@
-package server_test
+package gameserver_test
 
 import (
 	"context"
@@ -6,19 +6,19 @@ import (
 	"slices"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/online/gameserver"
 	"github.com/nsgo-dev/game/pkg/online/netplay"
-	"github.com/nsgo-dev/game/pkg/online/server"
 )
 
 // A Matchmaker groups waiting tickets of the same mode and region into rooms of players with close ratings; the accepted rating gap widens the longer a ticket waits.
 func ExampleMatchmaker() {
 	now := time.Unix(0, 0)
-	mm := server.NewMatchmaker(2)
+	mm := gameserver.NewMatchmaker(2)
 	mm.BaseWindow, mm.WindowGrowthPerSecond, mm.MaxWindow = 50, 10, 500
 	mm.Now = func() time.Time { return now }
 
-	mm.Enqueue(server.Ticket{ID: 1, Mode: "duel", Region: "eu", Rating: 1500, Party: []string{"ada"}})
-	mm.Enqueue(server.Ticket{ID: 2, Mode: "duel", Region: "eu", Rating: 1620, Party: []string{"bo"}})
+	mm.Enqueue(gameserver.Ticket{ID: 1, Mode: "duel", Region: "eu", Rating: 1500, Party: []string{"ada"}})
+	mm.Enqueue(gameserver.Ticket{ID: 2, Mode: "duel", Region: "eu", Rating: 1620, Party: []string{"bo"}})
 	fmt.Println(len(mm.Match()), mm.Len())
 
 	now = now.Add(10 * time.Second)
@@ -34,7 +34,7 @@ func ExampleMatchmaker() {
 
 // Rooms hosts matches: players join by ID or by a private room's code, and Start begins a match epoch that late joiners catch up to.
 func ExampleRooms() {
-	rooms := server.NewRooms()
+	rooms := gameserver.NewRooms()
 	rooms.CodeGenerator = func() string { return "KX7Q" }
 	room, err := rooms.Create(4, true)
 	if err != nil {
@@ -59,10 +59,10 @@ func ExampleRooms() {
 // A Guard limits how much each peer may send: packets over the size limit are refused, and bursts beyond the rate are throttled.
 func ExampleGuard() {
 	now := time.Unix(0, 0)
-	g := server.NewGuard(server.Limits{PacketsPerSecond: 2, BurstPackets: 2, MaxMessageSize: 64}, server.LimitThrottle)
+	g := gameserver.NewGuard(gameserver.Limits{PacketsPerSecond: 2, BurstPackets: 2, MaxMessageSize: 64}, gameserver.LimitThrottle)
 	g.Now = func() time.Time { return now }
 
-	names := map[server.GuardAction]string{server.GuardAllow: "allow", server.GuardThrottle: "throttle", server.GuardDisconnect: "disconnect"}
+	names := map[gameserver.GuardAction]string{gameserver.GuardAllow: "allow", gameserver.GuardThrottle: "throttle", gameserver.GuardDisconnect: "disconnect"}
 	small := netplay.Packet{Payload: make([]byte, 10)}
 	for range 3 {
 		action, err := g.Check(7, small)
@@ -73,8 +73,8 @@ func ExampleGuard() {
 	// Output:
 	// allow <nil>
 	// allow <nil>
-	// throttle server: packet rate limited
-	// server: message too large
+	// throttle gameserver: packet rate limited
+	// gameserver: message too large
 }
 
 // A Runner steps each match at its own fixed rate until its context is canceled, then calls the match's OnStop. Here the match ends itself after three ticks by canceling the context.
@@ -82,7 +82,7 @@ func ExampleRunner() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ticks := 0
-	r := &server.Runner{Matches: []*server.Match{{
+	r := &gameserver.Runner{Matches: []*gameserver.Match{{
 		Name: "arena-1",
 		Rate: 1000,
 		Update: func(dt time.Duration) {

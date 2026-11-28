@@ -1,5 +1,5 @@
 // Package crashreport holds the JSON schema of a crash report, shared by the
-// client-side liveops.CrashReporter and the server-side server.Panic report.
+// client-side liveops.CrashReporter and the server-side gameserver.Panic report.
 // It imports no NSGo or game package, so a headless dedicated server links it
 // without pulling in the windowing layer.
 package crashreport

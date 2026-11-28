@@ -1,4 +1,4 @@
-package server
+package gameserver
 
 import (
 	"errors"
@@ -10,13 +10,13 @@ import (
 
 var (
 	// ErrMessageTooLarge reports a packet larger than Limits.MaxMessageSize.
-	ErrMessageTooLarge = errors.New("server: message too large")
+	ErrMessageTooLarge = errors.New("gameserver: message too large")
 	// ErrPendingLimit reports reliable bytes past Limits.MaxPendingReliable.
-	ErrPendingLimit = errors.New("server: pending reliable data limit")
+	ErrPendingLimit = errors.New("gameserver: pending reliable data limit")
 	// ErrInvalidInput reports input refused by Guard.Validate.
-	ErrInvalidInput = errors.New("server: invalid input")
+	ErrInvalidInput = errors.New("gameserver: invalid input")
 	// ErrPeerDisconnected reports a peer the guard has disconnected.
-	ErrPeerDisconnected = errors.New("server: peer disconnected")
+	ErrPeerDisconnected = errors.New("gameserver: peer disconnected")
 )
 
 // LimitPolicy is what a guard does with a peer that exceeds its limits.
@@ -127,7 +127,7 @@ func (g *Guard) Check(peer netplay.PeerID, packet netplay.Packet) (GuardAction, 
 		}
 		if pg.packets < 1 {
 			pg.stats.Dropped++
-			return g.reject(pg, errors.New("server: packet rate limited"))
+			return g.reject(pg, errors.New("gameserver: packet rate limited"))
 		}
 	}
 	if g.Limits.BytesPerSecond > 0 {
@@ -138,7 +138,7 @@ func (g *Guard) Check(peer netplay.PeerID, packet netplay.Packet) (GuardAction, 
 		}
 		if float64(size) > pg.bytes {
 			pg.stats.Dropped++
-			return g.reject(pg, errors.New("server: byte rate limited"))
+			return g.reject(pg, errors.New("gameserver: byte rate limited"))
 		}
 	}
 	if g.Validate != nil {

@@ -120,7 +120,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/online/netplay` | Experimental | Cross-target WebSocket/UDP/loopback transports, snapshot replication, lockstep/rollback |
 | `game/pkg/online/netplay/wire` | Experimental | YAML wire message schemas (`*.wire.yaml`), integer-only `qfloat`/`fixed` quantization, bit packing and zero-allocation Go codec generation |
 | `game/pkg/online/wsclient` | Experimental | Plain RFC 6455 WebSocket client for third-party servers, same API on native and web |
-| `game/pkg/online/server` | Experimental | Headless fixed-step `Runner` for dedicated game servers with multiple match loops |
+| `game/pkg/online/gameserver` | Experimental | Headless fixed-step `Runner` for dedicated game servers with multiple match loops |
 | `game/pkg/online/liveops` | Experimental | Cloud sync interfaces (`CloudSync`), conflict handling and liveops helpers |
 | `game/pkg/online/liveops/crashreport` | Experimental | NSGo-free crash report JSON schema (`CrashReport`, `StepRecord`) shared by `liveops` and `server` |
 | `game/pkg/online/accounts` | Experimental | Self-hosted player accounts, guest upgrades, OAuth/email, argon2id passwords |

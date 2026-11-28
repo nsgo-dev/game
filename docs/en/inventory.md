@@ -135,4 +135,4 @@ The saved JSON is deterministic:
 | `ErrUnknownEquipSlot` | The equipment has no slot with that name. |
 | `ErrNotEquippable` | The item's kind does not match the equipment slot. |
 
-Containers and equipment are deterministic and hold no global state, so the same code runs on a headless [server](server.md). They are not safe for concurrent use.
+Containers and equipment are deterministic and hold no global state, so the same code runs on a headless [server](gameserver.md). They are not safe for concurrent use.

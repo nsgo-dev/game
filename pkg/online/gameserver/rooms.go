@@ -1,4 +1,4 @@
-package server
+package gameserver
 
 import (
 	"crypto/rand"
@@ -13,13 +13,13 @@ import (
 
 var (
 	// ErrRoomNotFound reports a room ID or code that names no open room.
-	ErrRoomNotFound = errors.New("server: room not found")
+	ErrRoomNotFound = errors.New("gameserver: room not found")
 	// ErrRoomFull reports a join to a room already at capacity.
-	ErrRoomFull = errors.New("server: room full")
+	ErrRoomFull = errors.New("gameserver: room full")
 	// ErrRoomEnded reports an action on a room whose match has ended.
-	ErrRoomEnded = errors.New("server: room match ended")
+	ErrRoomEnded = errors.New("gameserver: room match ended")
 	// ErrNotInRoom reports a packet from a peer that is not a room member.
-	ErrNotInRoom = errors.New("server: peer is not in this room")
+	ErrNotInRoom = errors.New("gameserver: peer is not in this room")
 )
 
 // RoomState is a room's match lifecycle.
@@ -243,7 +243,7 @@ func (rs *Rooms) Create(capacity int, private bool) (*Room, error) {
 		for attempt := 0; attempt < 8; attempt++ {
 			code := rs.code()
 			if code == "" {
-				return nil, errors.New("server: empty room code")
+				return nil, errors.New("gameserver: empty room code")
 			}
 			if _, exists := rs.codes[code]; !exists {
 				r.code = code
@@ -251,7 +251,7 @@ func (rs *Rooms) Create(capacity int, private bool) (*Room, error) {
 			}
 		}
 		if r.code == "" {
-			return nil, errors.New("server: could not allocate a room code")
+			return nil, errors.New("gameserver: could not allocate a room code")
 		}
 	}
 	rs.rooms[r.id] = r
