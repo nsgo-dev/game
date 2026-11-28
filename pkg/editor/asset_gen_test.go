@@ -418,7 +418,7 @@ func TestAssetGeneratorPickWritesExactTwoFilesAndUndoRemovesBoth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseAssetSource: %v", err)
 	}
-	if src.Generator != "pixel-gen" || src.Model != "pixflux-1" || src.Seed == nil || *src.Seed != 81515 ||
+	if src.Kind != string(editor.AssetGenImages) || src.Generator != "pixel-gen" || src.Model != "pixflux-1" || src.Seed == nil || *src.Seed != 81515 ||
 		src.License != "pixellab-commercial-1.2" || !src.CommercialUse || src.ApprovedBy != "kim" ||
 		!slices.Equal(src.References, []string{"art/characters/slime.png", "brief.yaml#art"}) {
 		t.Fatalf("unexpected source metadata: %+v", src)

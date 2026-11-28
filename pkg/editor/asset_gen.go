@@ -61,23 +61,32 @@ const (
 	// AssetGenImages produces image candidates (PNG/JPEG/GIF decoded strictly to pixels in memory).
 	AssetGenImages AssetGeneratorKind = "images"
 	// AssetGenSound produces audio candidates (WAV/OGG decoded strictly in memory).
-	AssetGenSound     AssetGeneratorKind = "sound"
-	AssetGenTextures  AssetGeneratorKind = "textures"
-	AssetGenModels    AssetGeneratorKind = "models"
+	AssetGenSound AssetGeneratorKind = "sound"
+	// AssetGenTextures declares a texture generator (a PNG plus optional normal and roughness maps). Settings accept it, but GenerateAsset refuses it until an in-memory validator exists.
+	AssetGenTextures AssetGeneratorKind = "textures"
+	// AssetGenModels declares a 3D model generator (glTF 2.0 binary). Settings accept it, but GenerateAsset refuses it until an in-memory validator exists.
+	AssetGenModels AssetGeneratorKind = "models"
+	// AssetGenAnimation declares an animation generator (a sprite strip or glTF animation clips). Settings accept it, but GenerateAsset refuses it until an in-memory validator exists.
 	AssetGenAnimation AssetGeneratorKind = "animation"
-	AssetGenTiles     AssetGeneratorKind = "tiles"
+	// AssetGenTiles declares a tileset generator (a tileset image plus a tileset draft). Settings accept it, but GenerateAsset refuses it until an in-memory validator exists.
+	AssetGenTiles AssetGeneratorKind = "tiles"
 )
 
-// Valid reports whether k is a supported asset generator kind.
+// Valid reports whether k is a recognized asset generator kind that a generator server may be configured with.
 func (k AssetGeneratorKind) Valid() bool {
 	return k == AssetGenImages || k == AssetGenSound || k == AssetGenTextures || k == AssetGenModels || k == AssetGenAnimation || k == AssetGenTiles
+}
+
+// Generatable reports whether candidates of kind k can be decoded and validated in memory, which GenerateAsset requires before any candidate is shown or picked. Only images and sound have validators so far.
+func (k AssetGeneratorKind) Generatable() bool {
+	return k == AssetGenImages || k == AssetGenSound
 }
 
 // GeneratorServerConfig describes one MCP generator server configured under Settings > Tools.
 type GeneratorServerConfig struct {
 	// Name uniquely identifies the generator server (for example "pixel-gen" or "sfx-gen").
 	Name string `yaml:"name" schema:"required,minLength=1"`
-	// Kind declares what kind of assets the generator produces ("images" or "sound").
+	// Kind declares what kind of assets the generator produces ("images", "sound", "textures", "models", "animation" or "tiles").
 	Kind AssetGeneratorKind `yaml:"kind" schema:"required,enum=images|sound|textures|models|animation|tiles"`
 	// Command is the executable launched over stdio MCP transport when connecting from Settings > Tools.
 	Command string `yaml:"command,omitempty"`
@@ -695,7 +704,7 @@ func (e *Editor) ConnectAssetGenerator(ctx context.Context, cfg GeneratorServerC
 		return errors.New("editor: generator server name is required")
 	}
 	if !cfg.Kind.Valid() {
-		return fmt.Errorf("editor: invalid generator kind %q (want images or sound)", cfg.Kind)
+		return fmt.Errorf("editor: invalid generator kind %q (want images, sound, textures, models, animation or tiles)", cfg.Kind)
 	}
 	if transport == nil {
 		return errors.New("editor: nil MCP generator transport")
@@ -1113,6 +1122,10 @@ func (e *Editor) prepareAssetGenCall(params GenerateAssetParams) (*preparedAsset
 	genName := conn.config.Name
 	if !params.Kind.Valid() {
 		kind = conn.config.Kind
+	}
+	if !kind.Generatable() {
+		e.assetGen.mu.Unlock()
+		return nil, fmt.Errorf("editor: generating %s assets is not supported yet: only images and sound candidates can be validated in memory", kind)
 	}
 	brief := e.assetGen.brief
 	bg := currentPreviewBGLocked(&e.assetGen)
