@@ -23,6 +23,9 @@ import (
 	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
+// ServiceAudience is the audience of tokens for the account service itself: GET /v1/me and the link endpoints accept only these, so a game server that holds a player's game token cannot read or change the account. A device gets one with RefreshFor.
+const ServiceAudience = "accounts"
+
 // IdentityVerifier checks a credential a device got from an identity provider and returns the provider's stable subject for the player. A verifier for Game Center checks the signed identity against Apple's certificate, one for Play Games exchanges the server auth code, one for Steam authenticates the session ticket with the Steam Web API, and one for an OAuth provider verifies the OpenID Connect ID token.
 //
 // The credential is a secret: a verifier must not log it or put it in its errors. The service never shows a verifier's error to the caller; it returns ErrInvalidCredentials.
@@ -65,6 +68,7 @@ type Service struct {
 	signer    *authtoken.Signer
 	keySet    *authtoken.KeySet
 	verifier  *authtoken.Verifier
+	self      *authtoken.Verifier
 	providers map[string]IdentityVerifier
 	log       *slog.Logger
 	now       func() time.Time
@@ -81,7 +85,7 @@ type Credentials struct {
 	AccountID string
 	// Session is the device's long-lived secret for Refresh and SignOut. Store it on the device: for a guest it is the only way back into the account.
 	Session Secret
-	// Token is the short-lived token the game sends its server.
+	// Token is the short-lived token the game sends its server, for Config.Audience, or the token for the audience RefreshFor was asked for. A game server can replay a token it is sent until it expires, so a device sends each service only a token for that service.
 	Token Secret
 	// Expires is when Token expires.
 	Expires time.Time
@@ -111,6 +115,7 @@ func New(cfg Config, opts Options) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("accounts: %w", err)
 	}
+	cfg.Audiences = slices.Clone(cfg.Audiences)
 	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	s := &Service{cfg: cfg, store: opts.Store, signer: signer, providers: map[string]IdentityVerifier{}, log: opts.Logger, now: opts.Now, rand: opts.Rand}
 	for name, v := range opts.Identities {
@@ -151,12 +156,18 @@ func New(cfg Config, opts Options) (*Service, error) {
 		return nil, err
 	}
 	s.verifier.Now = s.now
+	s.self, err = authtoken.NewVerifierFor(s.keySet, ServiceAudience)
+	if err != nil {
+		return nil, err
+	}
+	s.self.Now = s.now
 	return s, nil
 }
 
 // Config returns the service's configuration.
 func (s *Service) Config() Config {
 	c := s.cfg
+	c.Audiences = slices.Clone(s.cfg.Audiences)
 	c.AllowedOrigins = slices.Clone(s.cfg.AllowedOrigins)
 	return c
 }
@@ -168,8 +179,11 @@ func (s *Service) KeySet() *authtoken.KeySet {
 	return &ks
 }
 
-// Authenticate verifies a token the service issued and returns its claims.
+// Authenticate verifies a token the service issued for the game's servers (Config.Audience) and returns its claims. It refuses tokens for any other audience.
 func (s *Service) Authenticate(tok string) (authtoken.Claims, error) { return s.verifier.Verify(tok) }
+
+// authenticateSelf verifies a token the service issued for itself (ServiceAudience).
+func (s *Service) authenticateSelf(tok string) (authtoken.Claims, error) { return s.self.Verify(tok) }
 
 // CreateGuest creates an account with no email address or identity and signs the device in to it.
 func (s *Service) CreateGuest(ctx context.Context) (Credentials, error) {
@@ -327,13 +341,24 @@ func (s *Service) LinkIdentity(ctx context.Context, accountID, provider, credent
 	return nil
 }
 
-// Refresh returns a new token for a device's session. The session stays the same.
+// Refresh returns a new token for the game's servers for a device's session. The session stays the same.
 func (s *Service) Refresh(ctx context.Context, session Secret) (Credentials, error) {
+	return s.RefreshFor(ctx, session, "")
+}
+
+// RefreshFor returns a new token for a device's session meant for audience: Config.Audience (or "") for game servers, ServiceAudience for the service's own bearer endpoints, or one of Config.Audiences, such as the cloud save service's. Any other audience is ErrUnknownAudience. The session stays the same.
+func (s *Service) RefreshFor(ctx context.Context, session Secret, audience string) (Credentials, error) {
+	if audience == "" {
+		audience = s.cfg.Audience
+	}
+	if audience != s.cfg.Audience && audience != ServiceAudience && !slices.Contains(s.cfg.Audiences, audience) {
+		return Credentials{}, ErrUnknownAudience
+	}
 	sess, err := s.checkSession(ctx, session)
 	if err != nil {
 		return Credentials{}, err
 	}
-	tok, claims, err := s.signer.Issue(sess.AccountID)
+	tok, claims, err := s.signer.IssueFor(sess.AccountID, audience)
 	if err != nil {
 		return Credentials{}, err
 	}

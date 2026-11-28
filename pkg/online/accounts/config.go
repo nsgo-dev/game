@@ -21,6 +21,9 @@ const ConfigVersion = 1
 //	version: 1
 //	issuer: https://accounts.example.com
 //	audience: my-game
+//	audiences:
+//	  - cloudsave
+//	  - leaderboard
 //	tokenTTL: 15m
 //	password:
 //	  minLength: 10
@@ -31,14 +34,16 @@ const ConfigVersion = 1
 //	allowedOrigins:
 //	  - https://play.example.com
 //
-// Unknown fields are refused. Marshal writes the canonical form: the fields in this order, durations in their shortest text, disableGuests only when true and allowedOrigins only when it has entries. A file in that form, such as one Marshal wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized.
+// Unknown fields are refused. Marshal writes the canonical form: the fields in this order, durations in their shortest text, disableGuests only when true and audiences and allowedOrigins only when they have entries. A file in that form, such as one Marshal wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized.
 type Config struct {
 	// Version is the schema version; it must be ConfigVersion.
 	Version int `yaml:"version"`
 	// Issuer names the service in its tokens, usually its URL.
 	Issuer string `yaml:"issuer"`
-	// Audience names the game the tokens are for.
+	// Audience names the game's servers, the audience of the tokens sign-in and Refresh return and of the key set. A player sends these tokens to every game server it joins, so they reach no other service.
 	Audience string `yaml:"audience"`
+	// Audiences are the other services a device may get tokens for with RefreshFor, such as "cloudsave" and "leaderboard"; each such service accepts only tokens for its own audience. Tokens for ServiceAudience, which the service's own bearer endpoints accept, are always available and not listed.
+	Audiences []string `yaml:"audiences,omitempty"`
 	// TokenTTL is how long a token stays valid, in whole seconds from 1s to 24h.
 	TokenTTL Duration `yaml:"tokenTTL"`
 	// DisableGuests refuses CreateGuest, so every account starts with an email address or an identity.
@@ -60,14 +65,15 @@ type PasswordConfig struct {
 // MaxPasswordBytes is the longest password, in bytes, the service hashes.
 const MaxPasswordBytes = 1024
 
-// DefaultConfig returns a configuration for issuer and audience with a 15-minute token TTL, guests allowed, passwords of at least 10 characters and OWASP's recommended argon2id cost (19 MiB, 2 passes, 1 lane).
+// DefaultConfig returns a configuration for issuer and audience, with tokens also available for the "cloudsave" and "leaderboard" audiences the cloud save and leaderboard services accept by default, a 15-minute token TTL, guests allowed, passwords of at least 10 characters and OWASP's recommended argon2id cost (19 MiB, 2 passes, 1 lane).
 func DefaultConfig(issuer, audience string) Config {
 	return Config{
-		Version:  ConfigVersion,
-		Issuer:   issuer,
-		Audience: audience,
-		TokenTTL: Duration(15 * time.Minute),
-		Password: PasswordConfig{MinLength: 10, Argon2id: DefaultArgon2Params()},
+		Version:   ConfigVersion,
+		Issuer:    issuer,
+		Audience:  audience,
+		Audiences: []string{"cloudsave", "leaderboard"},
+		TokenTTL:  Duration(15 * time.Minute),
+		Password:  PasswordConfig{MinLength: 10, Argon2id: DefaultArgon2Params()},
 	}
 }
 
@@ -81,6 +87,24 @@ func (c Config) Validate() error {
 	}
 	if c.Audience == "" {
 		return loaderr.Errorf("audience", "set audience to the game name tokens are issued for", "accounts: config needs an issuer and an audience")
+	}
+	if c.Audience == ServiceAudience {
+		return loaderr.Errorf("audience", fmt.Sprintf("set audience to the game name, not %q, which names the account service itself", ServiceAudience), "accounts: audience %q is reserved for the account service", ServiceAudience)
+	}
+	seen := make(map[string]bool, len(c.Audiences))
+	for i, a := range c.Audiences {
+		path := fmt.Sprintf("audiences[%d]", i)
+		switch {
+		case a == "":
+			return loaderr.Errorf(path, "set each audiences entry to a service name such as cloudsave", "accounts: empty audience in audiences")
+		case a == c.Audience:
+			return loaderr.Errorf(path, "remove the game's audience from audiences: tokens for game servers must not reach other services", "accounts: audiences lists the game audience %q", a)
+		case a == ServiceAudience:
+			return loaderr.Errorf(path, fmt.Sprintf("remove %q from audiences: tokens for the account service are always available", ServiceAudience), "accounts: audiences lists the reserved audience %q", a)
+		case seen[a]:
+			return loaderr.Errorf(path, "remove the duplicate audiences entry", "accounts: audience %q listed twice", a)
+		}
+		seen[a] = true
 	}
 	ttl := time.Duration(c.TokenTTL)
 	if ttl < time.Second || ttl > 24*time.Hour || ttl%time.Second != 0 {
@@ -115,6 +139,9 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, loaderr.Locate(loaderr.Errorf("", "keep a single YAML document in the accounts config and remove any --- separator", "accounts: config: unexpected trailing YAML document"), "", data, "")
 		}
 		return Config{}, loaderr.Locate(fmt.Errorf("accounts: config: %w", err), "", data, "remove trailing YAML content after the accounts config")
+	}
+	if len(c.Audiences) == 0 {
+		c.Audiences = nil
 	}
 	if len(c.AllowedOrigins) == 0 {
 		c.AllowedOrigins = nil

@@ -46,20 +46,30 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := authtoken.NewVerifier(ks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	v.Now = c.Now
 	cfg, err := selfhost.ParseConfig([]byte(testConfig))
 	if err != nil {
 		t.Fatal(err)
 	}
+	v, err := authtoken.NewVerifierFor(ks, cfg.TokenAudience())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.Now = c.Now
 	boards, err := selfhost.New(context.Background(), cfg, selfhost.Options{Store: selfhost.NewMemoryStore(), Tokens: v, Now: c.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &fixture{clock: c, accounts: acc, boards: boards, h: boards.Handler()}
+}
+
+// token returns a leaderboard token for creds' session, as a device gets from the account service's refresh.
+func (f *fixture) token(t *testing.T, creds accounts.Credentials) string {
+	t.Helper()
+	c, err := f.accounts.RefreshFor(context.Background(), creds.Session, f.boards.Config().TokenAudience())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.Token.Reveal()
 }
 
 type pageJSON struct {
@@ -145,9 +155,9 @@ func TestScoresFromTwoPlatformsAppearOnOneBoardInOrder(t *testing.T) {
 		}
 		return res
 	}
-	post(adaWeb.Token.Reveal(), 300)
+	post(f.token(t, adaWeb), 300)
 	f.clock.advance(1)
-	if res := post(bobAndroid.Token.Reveal(), 500); res.Entry.Rank != 1 || res.Total != 2 || !res.Improved || res.Entry.Account != bobAndroid.AccountID {
+	if res := post(f.token(t, bobAndroid), 500); res.Entry.Rank != 1 || res.Total != 2 || !res.Improved || res.Entry.Account != bobAndroid.AccountID {
 		t.Fatalf("bob = %+v", res)
 	}
 
@@ -160,15 +170,15 @@ func TestScoresFromTwoPlatformsAppearOnOneBoardInOrder(t *testing.T) {
 		t.Fatalf("ada on Android = %+v, %v", adaAndroid, err)
 	}
 	f.clock.advance(1)
-	if res := post(adaAndroid.Token.Reveal(), 800); res.Entry.Rank != 1 || res.Total != 2 {
+	if res := post(f.token(t, adaAndroid), 800); res.Entry.Rank != 1 || res.Total != 2 {
 		t.Fatalf("ada on Android = %+v", res)
 	}
-	if res := post(adaWeb.Token.Reveal(), 100); res.Improved || res.Entry.Score != 800 {
+	if res := post(f.token(t, adaWeb), 100); res.Improved || res.Entry.Score != 800 {
 		t.Fatalf("ada's worse web score = %+v", res)
 	}
 
 	var page pageJSON
-	if code := call(t, f.h, "GET", "/v1/boards/high-score/top", bobAndroid.Token.Reveal(), "", &page); code != http.StatusOK {
+	if code := call(t, f.h, "GET", "/v1/boards/high-score/top", f.token(t, bobAndroid), "", &page); code != http.StatusOK {
 		t.Fatalf("top = %d", code)
 	}
 	want := []string{"1:" + adaWeb.AccountID + ":800", "2:" + bobAndroid.AccountID + ":500"}
@@ -176,12 +186,12 @@ func TestScoresFromTwoPlatformsAppearOnOneBoardInOrder(t *testing.T) {
 		t.Fatalf("top = %+v, want %v", page, want)
 	}
 	page = pageJSON{}
-	if code := call(t, f.h, "GET", "/v1/boards/high-score/around?radius=0", bobAndroid.Token.Reveal(), "", &page); code != http.StatusOK || !slices.Equal(page.ranking(), want[1:]) {
+	if code := call(t, f.h, "GET", "/v1/boards/high-score/around?radius=0", f.token(t, bobAndroid), "", &page); code != http.StatusOK || !slices.Equal(page.ranking(), want[1:]) {
 		t.Fatalf("around = %d %+v", code, page)
 	}
 	page = pageJSON{}
 	body := fmt.Sprintf(`{"accounts":[%q,%q]}`, bobAndroid.AccountID, "someone-else")
-	if code := call(t, f.h, "POST", "/v1/boards/high-score/friends", adaWeb.Token.Reveal(), body, &page); code != http.StatusOK || !slices.Equal(page.ranking(), want[1:]) {
+	if code := call(t, f.h, "POST", "/v1/boards/high-score/friends", f.token(t, adaWeb), body, &page); code != http.StatusOK || !slices.Equal(page.ranking(), want[1:]) {
 		t.Fatalf("friends = %d %+v", code, page)
 	}
 }
@@ -193,7 +203,7 @@ func TestHTTPWeeklyPeriodsAndSignedScores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok := ada.Token.Reveal()
+	tok := f.token(t, ada)
 	var res resultJSON
 	if code := call(t, f.h, "POST", "/v1/boards/weekly/scores", tok, `{"score":42}`, &res); code != http.StatusOK || res.Period.ID != "2026-11-23" {
 		t.Fatalf("weekly = %d %+v", code, res)
@@ -227,7 +237,7 @@ func TestHTTPWeeklyPeriodsAndSignedScores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok = again.Token.Reveal()
+	tok = f.token(t, again)
 	var page pageJSON
 	if code := call(t, f.h, "GET", "/v1/boards/weekly/top?period=previous", tok, "", &page); code != http.StatusOK || page.Period.ID != "2026-11-23" || page.Total != 1 {
 		t.Fatalf("previous week = %d %+v", code, page)
@@ -259,7 +269,7 @@ func TestHTTPWeeklyPeriodsAndSignedScores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := call(t, f.h, "POST", "/v1/boards/ranked/scores", bob.Token.Reveal(), fmt.Sprintf(`{"score":10,"proof":%q}`, proof), &e); code != http.StatusForbidden || e.Error != "invalid_proof" {
+	if code := call(t, f.h, "POST", "/v1/boards/ranked/scores", f.token(t, bob), fmt.Sprintf(`{"score":10,"proof":%q}`, proof), &e); code != http.StatusForbidden || e.Error != "invalid_proof" {
 		t.Fatalf("someone else's proof = %d %+v", code, e)
 	}
 	f.clock.advance(5 * time.Minute)
@@ -274,7 +284,7 @@ func TestHTTPErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok := ada.Token.Reveal()
+	tok := f.token(t, ada)
 	cases := []struct {
 		method, path, bearer, body string
 		status                     int
@@ -320,6 +330,42 @@ func TestHandlerNeedsATokenVerifier(t *testing.T) {
 	svc.Handler()
 }
 
+// TestHTTPRefusesGameServerToken checks that the token a player sends a game server, which that server can replay, cannot submit scores or read boards for the player.
+func TestHTTPRefusesGameServerToken(t *testing.T) {
+	f := newFixture(t)
+	ada, err := f.accounts.CreateGuest(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gameTok := ada.Token.Reveal()
+	for _, r := range []struct{ method, path, body string }{
+		{"GET", "/v1/boards", ""},
+		{"POST", "/v1/boards/high-score/scores", `{"score":4200}`},
+		{"GET", "/v1/boards/high-score/top", ""},
+		{"GET", "/v1/boards/high-score/around", ""},
+		{"POST", "/v1/boards/high-score/friends", `{"accounts":[]}`},
+	} {
+		var e errorJSON
+		if code := call(t, f.h, r.method, r.path, gameTok, r.body, &e); code != http.StatusUnauthorized || e.Error != "invalid_token" {
+			t.Errorf("%s %s with a game server token = %d %+v, want 401 invalid_token", r.method, r.path, code, e)
+		}
+	}
+	var page pageJSON
+	if code := call(t, f.h, "GET", "/v1/boards/high-score/top", f.token(t, ada), "", &page); code != http.StatusOK || page.Total != 0 {
+		t.Fatalf("top after game server token requests = %d %+v", code, page)
+	}
+	if got := (selfhost.Config{}).TokenAudience(); got != selfhost.DefaultAudience {
+		t.Fatalf("TokenAudience of a config without audience = %q", got)
+	}
+	game, err := authtoken.NewVerifier(f.accounts.KeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := selfhost.New(context.Background(), f.boards.Config(), selfhost.Options{Store: selfhost.NewMemoryStore(), Tokens: game}); err == nil {
+		t.Fatal("New accepted a verifier for the game servers' audience")
+	}
+}
+
 func TestHTTPCORS(t *testing.T) {
 	newWithOrigins := func(origins []string) (*fixture, string) {
 		t.Helper()
@@ -334,7 +380,7 @@ func TestHTTPCORS(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		v, err := authtoken.NewVerifier(ks)
+		v, err := authtoken.NewVerifierFor(ks, cfg.TokenAudience())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -349,7 +395,7 @@ func TestHTTPCORS(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return f, ada.Token.Reveal()
+		return f, f.token(t, ada)
 	}
 
 	f, tok := newWithOrigins([]string{"https://play.example.com", "http://localhost:8080"})

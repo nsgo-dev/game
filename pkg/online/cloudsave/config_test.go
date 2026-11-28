@@ -9,6 +9,7 @@ import (
 )
 
 const canonicalConfig = `version: 1
+audience: saves
 maxSlotBytes: 1048576
 maxSlots: 32
 keepVersions: 5
@@ -22,7 +23,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.MaxSlotBytes != 1<<20 || c.MaxSlots != 32 || c.KeepVersions != 5 || len(c.AllowedOrigins) != 2 {
+	if c.TokenAudience() != "saves" || c.MaxSlotBytes != 1<<20 || c.MaxSlots != 32 || c.KeepVersions != 5 || len(c.AllowedOrigins) != 2 {
 		t.Fatalf("parsed %+v", c)
 	}
 	out, err := c.Marshal()
@@ -36,7 +37,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "version: 1\nmaxSlotBytes: 1048576\nmaxSlots: 32\nkeepVersions: 5\n"; string(def) != want {
+	if want := "version: 1\naudience: cloudsave\nmaxSlotBytes: 1048576\nmaxSlots: 32\nkeepVersions: 5\n"; string(def) != want {
 		t.Fatalf("default config:\n%s", def)
 	}
 }

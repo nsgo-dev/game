@@ -84,7 +84,7 @@ func newContractFixture(t *testing.T, store Store) *contractFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := authtoken.NewVerifier(tokenSign.KeySet())
+	verifier, err := authtoken.NewVerifierFor(tokenSign.KeySet(), DefaultAudience)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func newContractFixture(t *testing.T, store Store) *contractFixture {
 
 func (f *contractFixture) token(t *testing.T, account string) string {
 	t.Helper()
-	tok, _, err := f.tokenSign.Issue(account)
+	tok, _, err := f.tokenSign.IssueFor(account, DefaultAudience)
 	if err != nil {
 		t.Fatal(err)
 	}

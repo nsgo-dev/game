@@ -21,7 +21,7 @@
 每次登录都返回 `Credentials`：
 
 - `Session` 是设备保存的长期密钥。用 `Refresh` 换取新令牌，用 `SignOut` 吊销。对游客来说，它是回到账号的唯一凭据。
-- `Token` 是游戏发给自家服务器的短时效签名令牌，在配置的 `tokenTTL` 后过期。
+- `Token` 是游戏发给自家服务器的短时效签名令牌，在配置的 `tokenTTL` 后过期，而且只对游戏服务器有效：见[令牌受众](#令牌受众)。
 - `Created` 表示这次登录是否新建了账号。
 
 ```go
@@ -36,6 +36,7 @@ guest, _ := svc.CreateGuest(ctx)                                  // 立即开�
 _ = svc.LinkEmail(ctx, guest.AccountID, "ada@example.com", pass)  // 升级，ID 不变
 again, _ := svc.SignInEmail(ctx, "ada@example.com", pass)         // 第二台设备
 fresh, _ := svc.Refresh(ctx, again.Session)                       // 新令牌
+saves, _ := svc.RefreshFor(ctx, again.Session, "cloudsave")       // 云存档用的令牌
 ```
 
 | 方法 | 作用 |
@@ -46,10 +47,11 @@ fresh, _ := svc.Refresh(ctx, again.Session)                       // 新令牌
 | `SignInEmail` | 用邮箱和密码登录 |
 | `SignInIdentity` | 用身份提供方的凭据登录，身份是新的时会新建账号 |
 | `LinkIdentity` | 把身份提供方的身份绑定到账号 |
-| `Refresh` / `SignOut` | 为会话签发新令牌 / 吊销会话 |
+| `Refresh` / `SignOut` | 为会话签发新的游戏服务器令牌 / 吊销会话 |
+| `RefreshFor` | 为会话签发给其他受众的新令牌：`ServiceAudience` 或 `audiences` 中的一项 |
 | `Profile` | 账号、邮箱及已绑定的身份；`Profile.Guest` 表示是否为游客 |
 
-错误有 `ErrNotFound`、`ErrTaken`（邮箱或身份属于另一个账号）、`ErrAlreadyLinked`、`ErrInvalidCredentials`（从不说明错的是邮箱、密码还是会话）、`ErrInvalidEmail`、`ErrWeakPassword` 和 `ErrUnknownProvider`。
+错误有 `ErrNotFound`、`ErrTaken`（邮箱或身份属于另一个账号）、`ErrAlreadyLinked`、`ErrInvalidCredentials`（从不说明错的是邮箱、密码还是会话）、`ErrInvalidEmail`、`ErrWeakPassword`、`ErrUnknownProvider` 和 `ErrUnknownAudience`（`RefreshFor` 请求了配置没有提供的受众）。
 
 ## 身份
 
@@ -67,6 +69,18 @@ Game Center 的校验器用 Apple 的证书校验签名身份，Play Games 的�
 
 校验器的错误可能引用凭据本身，所以服务从不把它返回给调用方，也不写进日志；调用方得到的是 `ErrInvalidCredentials`。
 
+## 令牌受众
+
+令牌在受众（audience）里写明它只给哪一个使用方，每个使用方只接受自己的受众：
+
+| 受众 | 谁接受 | 设备怎样拿到 |
+| --- | --- | --- |
+| 配置中的 `audience`（`my-game`） | 游戏服务器，用 `authtoken.NewVerifier` | 每次登录、`Refresh` |
+| `accounts`（`ServiceAudience`） | 服务自己的 `GET /v1/me` 和 `POST /v1/link/*` | `RefreshFor(session, "accounts")` |
+| `audiences` 中的一项（`cloudsave`、`leaderboard`） | 对应的服务，用 `authtoken.NewVerifierFor` | `RefreshFor(session, "cloudsave")` |
+
+玩家会把游戏服务器令牌发给它加入的每一台服务器，运营这台服务器的人在令牌过期前都可以重放它。云存档、排行榜和账号服务都拒绝这种令牌，所以游戏服务器只能知道玩家是谁：它读不到、覆盖不了也清除不了玩家的存档，不能替玩家提交分数，也不能给玩家的账号绑定邮箱或身份。设备的会话只留在设备上，发给每个服务的只是该服务的令牌。
+
 ## 在游戏服务器上校验令牌
 
 令牌是用 Ed25519 签名（`"alg": "EdDSA"`）的紧凑 JWT，包含签发方、作为 subject 的账号 ID、受众、签发与过期时间以及随机 ID。游戏服务器从密钥集文件加载服务的公钥，无需网络请求即可校验每个令牌：
@@ -82,7 +96,7 @@ if err != nil { /* 拒绝该玩家 */ }
 player := claims.Subject // 账号 ID
 ```
 
-`Verify` 检查签名、签发方、受众和有效期，错误包装 `ErrMalformed`、`ErrUnknownKey`、`ErrSignature`、`ErrIssuer`、`ErrAudience`、`ErrExpired` 或 `ErrNotYetValid`。长于 `MaxLength` 的令牌在做任何处理前就被拒绝。被吊销的会话无法再换取新令牌，但已签发的令牌在过期前仍然有效，所以 `tokenTTL` 要设得短一些。
+`NewVerifier` 接受密钥集的受众，即游戏服务器的受众。代表玩家行事的服务则用 `authtoken.NewVerifierFor(ks, "cloudsave")` 校验自己的受众。`Verify` 检查签名、签发方、受众和有效期，错误包装 `ErrMalformed`、`ErrUnknownKey`、`ErrSignature`、`ErrIssuer`、`ErrAudience`、`ErrExpired` 或 `ErrNotYetValid`。长于 `MaxLength` 的令牌在做任何处理前就被拒绝。被吊销的会话无法再换取新令牌，但已签发的令牌在过期前仍然有效，所以 `tokenTTL` 要设得短一些。
 
 密钥集文件：
 
@@ -105,6 +119,9 @@ keys:
 version: 1
 issuer: https://accounts.example.com
 audience: my-game
+audiences:
+  - cloudsave
+  - leaderboard
 tokenTTL: 15m
 password:
   minLength: 10
@@ -119,14 +136,15 @@ allowedOrigins:
 | 字段 | 含义 |
 | --- | --- |
 | `version` | 结构版本，`1` |
-| `issuer` / `audience` | 写入每个令牌，校验器会检查 |
+| `issuer` / `audience` | 写入每个令牌，校验器会检查；`audience` 指游戏服务器和密钥集，不能是 `accounts` |
+| `audiences` | 设备可以用 `RefreshFor` 为之换取令牌的其他服务，例如 `cloudsave` 和 `leaderboard`；不能是游戏的受众，也不能是始终可用的 `accounts`；为空时省略 |
 | `tokenTTL` | 令牌有效期，`1s` 到 `24h` 之间的整秒数 |
 | `disableGuests` | 拒绝 `CreateGuest`，每个账号都必须从邮箱或身份开始 |
 | `password.minLength` | 密码最少字符数，至少 8；密码最长 1024 字节 |
 | `password.argon2id` | argon2id 成本：迭代次数、以 KiB 计的内存和并行度 |
 | `allowedOrigins` | 允许其页面调用服务的网页 origin；为空时省略 |
 
-`ParseConfig` 拒绝未知字段、多余的文档、越界的值，以及重复或带路径、查询、片段、用户信息、通配符、1 到 65535 以外端口或 `http`、`https` 以外协议的 origin。`Config.Marshal` 写出规范形式：按上表顺序写出字段，时长用最短写法（`15m` 而不是 `15m0s`），`disableGuests` 只在为 true 时写出，`allowedOrigins` 只在有条目时写出。规范形式的文件（例如 `Marshal` 或 `accountsd init` 写出的文件）读入再写出不会变化；手写的文件若顺序或写法不同，会被规范化。`DefaultConfig` 返回上面展示的设置，不含 origin。
+`ParseConfig` 拒绝未知字段、多余的文档、越界的值，以及重复或带路径、查询、片段、用户信息、通配符、1 到 65535 以外端口或 `http`、`https` 以外协议的 origin。`Config.Marshal` 写出规范形式：按上表顺序写出字段，时长用最短写法（`15m` 而不是 `15m0s`），`disableGuests` 只在为 true 时写出，`audiences` 和 `allowedOrigins` 只在有条目时写出。规范形式的文件（例如 `Marshal` 或 `accountsd init` 写出的文件）读入再写出不会变化；手写的文件若顺序或写法不同，会被规范化。`DefaultConfig` 返回上面展示的设置，不含 origin。没有 `audiences` 的版本 1 文件仍可读入，但这样的服务只为游戏服务器和它自己签发令牌，所以要加上它所服务的云存档和排行榜服务的受众。
 
 ## 密码与密钥
 
@@ -165,14 +183,14 @@ func TestContract(t *testing.T) {
 | `POST /v1/register` | `{"email", "password"}` | 凭据 |
 | `POST /v1/signin/email` | `{"email", "password"}` | 凭据 |
 | `POST /v1/signin/identity` | `{"provider", "credential"}` | 凭据 |
-| `POST /v1/refresh` | `{"session"}` | 凭据 |
+| `POST /v1/refresh` | `{"session", "audience"}`，`audience` 可选 | 凭据 |
 | `POST /v1/signout` | `{"session"}` | 204 |
-| `POST /v1/link/email` | `{"email", "password"}`，带 bearer 令牌 | 204 |
-| `POST /v1/link/identity` | `{"provider", "credential"}`，带 bearer 令牌 | 204 |
-| `GET /v1/me` | bearer 令牌 | 账号资料 |
+| `POST /v1/link/email` | `{"email", "password"}`，带 `accounts` bearer 令牌 | 204 |
+| `POST /v1/link/identity` | `{"provider", "credential"}`，带 `accounts` bearer 令牌 | 204 |
+| `GET /v1/me` | `accounts` bearer 令牌 | 账号资料 |
 | `GET /v1/keys` | | YAML 格式的密钥集 |
 
-凭据为 `{"account", "session", "token", "expires", "created"}`，新建账号时状态码为 201。错误为 `{"error": code}`：`invalid_credentials` 和 `invalid_token` 为 401，`guests_disabled` 为 403，`not_found` 为 404，`taken` 和 `already_linked` 为 409，`request_too_large` 为 413，`bad_request`、`invalid_email`、`weak_password` 和 `unknown_provider` 为 400，请求被取消或超时（例如高负载下等待密码哈希槽位）时 `unavailable` 为 503，`internal` 为 500。请求体限制为 32 KiB，未知字段会被拒绝。对 `allowedOrigins` 中的 origin，处理器会应答 CORS 预检请求并允许 `Authorization` 和 `Content-Type`；其他 origin 不会收到 CORS 响应头。处理器本身不限制请求速率：请放在 TLS 和限流器之后运行。
+凭据为 `{"account", "session", "token", "expires", "created"}`，新建账号时状态码为 201。登录返回的令牌给游戏服务器用；带 `audience` 的 `refresh` 则返回该受众的令牌。需要 bearer 令牌的接口只接受 `accounts` 令牌，其他令牌一律返回 `invalid_token`。错误为 `{"error": code}`：`invalid_credentials` 和 `invalid_token` 为 401，`guests_disabled` 为 403，`not_found` 为 404，`taken` 和 `already_linked` 为 409，`request_too_large` 为 413，`bad_request`、`invalid_email`、`weak_password`、`unknown_provider` 和 `unknown_audience` 为 400，请求被取消或超时（例如高负载下等待密码哈希槽位）时 `unavailable` 为 503，`internal` 为 500。请求体限制为 32 KiB，未知字段会被拒绝。对 `allowedOrigins` 中的 origin，处理器会应答 CORS 预检请求并允许 `Authorization` 和 `Content-Type`；其他 origin 不会收到 CORS 响应头。处理器本身不限制请求速率：请放在 TLS 和限流器之后运行。
 
 ## accountsd
 

@@ -34,14 +34,14 @@ func newFixture(t *testing.T, mutate func(*cloudsave.Config)) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := authtoken.NewVerifier(signer.KeySet())
-	if err != nil {
-		t.Fatal(err)
-	}
 	cfg := cloudsave.DefaultConfig()
 	cfg.AllowedOrigins = []string{"https://play.example.com"}
 	if mutate != nil {
 		mutate(&cfg)
+	}
+	verifier, err := authtoken.NewVerifierFor(signer.KeySet(), cfg.TokenAudience())
+	if err != nil {
+		t.Fatal(err)
 	}
 	f := &fixture{signer: signer, now: t0}
 	f.svc, err = cloudsave.New(cfg, cloudsave.Options{Store: cloudsave.NewMemoryStore(), Tokens: verifier, Now: func() time.Time { return f.now }})
@@ -51,9 +51,10 @@ func newFixture(t *testing.T, mutate func(*cloudsave.Config)) *fixture {
 	return f
 }
 
+// token returns a token for the service's audience, as a device gets from the account service's refresh.
 func (f *fixture) token(t *testing.T, account string) string {
 	t.Helper()
-	tok, _, err := f.signer.Issue(account)
+	tok, _, err := f.signer.IssueFor(account, f.svc.Config().TokenAudience())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,6 +319,66 @@ func TestHTTPCORS(t *testing.T) {
 	rec = f.serve(t, request{method: "GET", path: "/v1/saves/main", bearer: tok, header: http.Header{"Origin": {"https://evil.example.com"}}})
 	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Fatalf("foreign origin allowed: %v", rec.Header())
+	}
+}
+
+// TestHTTPRefusesGameServerToken checks that the token a player sends a game server, which that server can replay, reaches none of the player's slots: every route answers 401 and nothing is written or purged.
+func TestHTTPRefusesGameServerToken(t *testing.T) {
+	f := newFixture(t, nil)
+	if rec := f.serve(t, request{method: "PUT", path: "/v1/saves/main", bearer: f.token(t, "acct"), body: "progress"}); rec.Code != http.StatusOK {
+		t.Fatalf("PUT with a cloudsave token = %d %s", rec.Code, rec.Body)
+	}
+	gameTok, _, err := f.signer.Issue("acct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []request{
+		{method: "GET", path: "/v1/saves"},
+		{method: "GET", path: "/v1/saves/main"},
+		{method: "PUT", path: "/v1/saves/main", body: "overwritten"},
+		{method: "DELETE", path: "/v1/saves/main"},
+		{method: "GET", path: "/v1/saves/main/versions"},
+		{method: "GET", path: "/v1/saves/main/versions/1"},
+		{method: "DELETE", path: "/v1/saves/main/versions"},
+	} {
+		r.bearer = gameTok
+		rec := f.serve(t, r)
+		if code, _ := errorCode(t, rec); rec.Code != http.StatusUnauthorized || code != "invalid_token" {
+			t.Errorf("%s %s with a game server token = %d %s, want 401 invalid_token", r.method, r.path, rec.Code, rec.Body)
+		}
+	}
+	if v, err := f.svc.Load(context.Background(), "acct", "main"); err != nil || string(v.Data) != "progress" || v.Number != 1 {
+		t.Fatalf("slot after game server token requests = %+v, %v", v, err)
+	}
+}
+
+func TestNewRefusesVerifierForAnotherAudience(t *testing.T) {
+	key, err := authtoken.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := authtoken.NewSigner(key, "https://accounts.example.com", "test-game", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	game, err := authtoken.NewVerifier(signer.KeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cloudsave.New(cloudsave.DefaultConfig(), cloudsave.Options{Store: cloudsave.NewMemoryStore(), Tokens: game}); err == nil {
+		t.Fatal("New accepted a verifier for the game servers' audience")
+	}
+	if got := (cloudsave.Config{}).TokenAudience(); got != cloudsave.DefaultAudience {
+		t.Fatalf("TokenAudience of a config without audience = %q", got)
+	}
+	cfg := cloudsave.DefaultConfig()
+	cfg.Audience = "saves"
+	saves, err := authtoken.NewVerifierFor(signer.KeySet(), "saves")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cloudsave.New(cfg, cloudsave.Options{Store: cloudsave.NewMemoryStore(), Tokens: saves}); err != nil {
+		t.Fatalf("New with a configured audience = %v", err)
 	}
 }
 

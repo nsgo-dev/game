@@ -6,7 +6,7 @@
 //	cloudsaved serve -config cloudsave.yaml -keyset keys.yaml -sqlite saves.db -addr :8081
 //	CLOUDSAVE_POSTGRES_DSN=postgres://... cloudsaved serve -config cloudsave.yaml -keyset keys.yaml -postgres
 //
-// init writes a configuration with the default settings. serve runs the service until SIGINT or SIGTERM. It verifies players' tokens with the key set file of the account service (the one accountsd genkey keeps), which it reads once at start, so restart it after adding a key to that file.
+// init writes a configuration with the default settings. serve runs the service until SIGINT or SIGTERM. It verifies players' tokens with the key set file of the account service (the one accountsd genkey keeps), which it reads once at start, so restart it after adding a key to that file. It accepts only tokens for the configuration's audience ("cloudsave" by default), which devices get from the account service's refresh, and refuses to start when that audience is the key set's, which names the game's servers.
 //
 // Put the server behind TLS and a rate limiter, as for accountsd.
 package main
@@ -104,7 +104,11 @@ func runServe(ctx context.Context, args []string, stderr io.Writer, ready func(s
 	if err != nil {
 		return fmt.Errorf("%s: %w", *keySetPath, err)
 	}
-	verifier, err := authtoken.NewVerifier(ks)
+	audience := cfg.TokenAudience()
+	if audience == ks.Audience {
+		return fmt.Errorf("%s: audience %q is the game servers' audience in %s; set audience to one the account service lists in its audiences, such as %q", *configPath, audience, *keySetPath, cloudsave.DefaultAudience)
+	}
+	verifier, err := authtoken.NewVerifierFor(ks, audience)
 	if err != nil {
 		return fmt.Errorf("%s: %w", *keySetPath, err)
 	}
