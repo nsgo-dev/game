@@ -125,6 +125,8 @@ type ConnectionDoc struct {
 	Args map[string]any `yaml:"args,omitempty"`
 	// Once disconnects the connection after the first time the event fires, as Godot's one-shot connections do.
 	Once bool `yaml:"once,omitempty"`
+	// When is an optional expression evaluated before the handler runs. Empty means always.
+	When string `yaml:"when,omitempty"`
 }
 
 // LayerOverride changes an inherited layer in a scene that inherits another (SceneDoc.LayerOverrides). A field left unset keeps the base layer's value.
