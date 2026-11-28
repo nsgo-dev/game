@@ -2,14 +2,13 @@ version: 1
 name: cc0-adventurers
 kind: asset
 packVersion: 1.0.0
-description: Two CC0 rigged glTF adventurers with a shared twelve-clip animation inventory.
+description: Two placeholder one-joint rigged glTF characters sharing a twelve-clip animation inventory.
 license: CC0-1.0
 files:
   - mage.gltf
   - mage.gltf.import.yaml
   - knight.gltf
   - knight.gltf.import.yaml
-  - animation.states.yaml
   - README.md
 autoload:
   resources:

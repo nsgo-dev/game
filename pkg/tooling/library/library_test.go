@@ -19,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
+	"github.com/nsgo-dev/game/pkg/tooling/credits"
 	"github.com/nsgo-dev/game/pkg/tooling/library"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -135,6 +136,59 @@ func TestInstallSampleAssetPack(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "packs")); !os.IsNotExist(err) {
 		t.Fatalf("the removal left the packs directory: %v", err)
+	}
+}
+
+// TestInstallCharacterPack installs the shared library's cc0-adventurers pack into a project: game.yaml autoloads both models, the project and its assets check clean, and game credits credits each model under CC0-1.0 from its import sidecar once the project builds the models.
+func TestInstallCharacterPack(t *testing.T) {
+	ctx := context.Background()
+	lib, err := library.Open(ctx, repoLibrary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack, err := lib.Fetch(ctx, "cc0-adventurers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := newProject(t, minimalProject)
+	if _, err := library.Install(dir, pack, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	f := readProjectFile(t, dir)
+	wantResources := []project.Entry{
+		{Name: "cc0-adventurers-mage", Path: "packs/cc0-adventurers/mage.gltf"},
+		{Name: "cc0-adventurers-knight", Path: "packs/cc0-adventurers/knight.gltf"},
+	}
+	if f.Autoload == nil || !reflect.DeepEqual(f.Autoload.Resources, wantResources) {
+		t.Fatalf("autoload = %+v, want %+v", f.Autoload, wantResources)
+	}
+	if _, err := project.Check(os.DirFS(dir)); err != nil {
+		t.Fatalf("project.Check after the install: %v", err)
+	}
+	report, err := assetcheck.Check(os.DirFS(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK() {
+		t.Fatalf("assetcheck found %v", report.Problems)
+	}
+
+	assets := &project.Assets{Models: []project.ModelTarget{
+		{In: "packs/cc0-adventurers/knight.gltf", Out: "build/knight.glb"},
+		{In: "packs/cc0-adventurers/mage.gltf", Out: "build/mage.glb"},
+	}}
+	entries, err := credits.Collect(dir, assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Asset+" "+e.Credit.License)
+	}
+	want := []string{"packs/cc0-adventurers/knight.gltf CC0-1.0", "packs/cc0-adventurers/mage.gltf CC0-1.0"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("credits = %q, want %q", got, want)
 	}
 }
 

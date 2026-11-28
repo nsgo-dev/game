@@ -38,11 +38,14 @@ go tool game library remove dungeon-tiles
 `list` 列出名称、描述或标签包含所有给定词的包，并显示当前目录（或 `-project` 指定目录）中的项目已安装的版本：
 
 ```text
-PACK           KIND   VERSION  INSTALLED  DESCRIPTION
-dungeon-tiles  asset  1.0.0    -          A 16x16 stone floor tile and brick wall tile with a TexturePacker atlas.
+PACK             KIND   VERSION  INSTALLED  DESCRIPTION
+cc0-adventurers  asset  1.0.0    -          Two placeholder one-joint rigged glTF characters sharing a twelve-clip animation inventory.
+dungeon-tiles    asset  1.0.0    -          A 16x16 stone floor tile and brick wall tile with a TexturePacker atlas.
 ```
 
 `install` 获取每个指定的包，按索引校验后安装到项目中；`-dir` 把包的文件放到项目里另一个目录，而不是包清单指定的目录；之后再次安装该包以更新它时，除非 `-dir` 指定了别的目录，否则仍保留在这个目录中。`remove` 把已安装的包移除。除非 `-index` 指定了其他库，否则使用本仓库 [`library`](https://github.com/nsgo-dev/game/tree/main/library) 目录中的共享库：`-index` 可以是索引文件的 https URL、索引文件，或包含 `index.yaml` 的目录。
+
+共享库中有两个包。`dungeon-tiles` 是一套 2D 图块。`cc0-adventurers` 为 3D 模板提供两个占位角色 `mage.gltf` 和 `knight.gltf`：各是一个蒙皮到单个关节的三角形，带有 `Attack`、`AttackHeavy`、`Block`、`Death`、`Defeat`、`Dodge`、`Hit`、`Idle`、`Jump`、`Run`、`Victory` 和 `Walk` 十二个片段，游戏可以先按这些名称接好动画，之后再由 KayKit Adventurers 模型（CC0）替换占位模型。包内的 [`README.md`](https://github.com/nsgo-dev/game/tree/main/library/packs/cc0-adventurers/README.md) 列出每个模型的网格、皮肤、骨骼数和片段时长；它由 `go run ./tools/clipinventory` 从模型生成，过期时 tools 模块的测试会失败。
 
 ## 安装做了什么
 
@@ -149,7 +152,5 @@ autoload:
 团队也可以在任何能通过 https 提供文件的地方，或在自己仓库的某个目录中维护自己的库，并用 `-index` 指向它。纯 http 只接受回环地址（如本地测试服务器），索引和包的 `source` 都是如此，每个文件限制为 64 MiB。服务器 30 秒内连不上或 1 分钟内没有响应，或某个文件 10 分钟内没有下载完，都会放弃。
 
 ## 在 Go 中使用
-
-共享索引还包含供 3D 模板选择安装的 `cc0-adventurers` CC0-1.0 角色包。运行 `go tool game library install cc0-adventurers` 即可安装。包内两个绑定骨骼的 glTF 模型共享十二个动画片段，`library/packs/cc0-adventurers/README.md` 记录由 `go run ./tools/clipinventory` 生成的网格、皮肤、骨骼和片段时长信息。
 
 `library.Open(ctx, location)` 读取索引，`Library.Fetch(ctx, name)` 获取并校验包；`Index.Search(kind, query)` 查找包。`library.Install(projectDir, pack, dir)` 和 `library.Remove(projectDir, name)` 修改项目目录。`PlanInstall` 和 `PlanRemove` 根据 `fs.FS` 和 `project.File` 计算同样的改动而不写入，`Change.Apply` 负责写入。
