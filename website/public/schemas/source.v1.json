@@ -10,6 +10,17 @@
       "type": "integer",
       "const": 1
     },
+    "kind": {
+      "description": "Kind identifies the generated media family. Empty preserves version-1 sidecars.",
+      "type": "string"
+    },
+    "files": {
+      "description": "Files lists additional generated files covered by this provenance record.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "generator": {
       "description": "Generator is the MCP generator server name that produced the asset, such as \"pixel-gen\" or \"sfx-gen\".",
       "type": "string",
