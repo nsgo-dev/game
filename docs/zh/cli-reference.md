@@ -167,6 +167,7 @@ go tool game bench [flags] [directory ...]
 | `-count times` | `3` | run the benchmarks this many times and compare each one's median |
 | `-in file` |  | read benchmark results from this file of go test -bench output instead of running the benchmarks |
 | `-update` |  | write the measured medians to the baseline instead of checking them |
+| `-strict` |  | 当测得的基准没有基线条目时失败 |
 
 ## game size
 
