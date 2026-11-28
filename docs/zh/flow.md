@@ -201,6 +201,8 @@ bus.Flush()
 
 ## 项目全局共享变量与开关（`Vars` 与 `vars.yaml`）
 
+将 `Vars` 作为项目状态的唯一来源。`SetFromExpr` 只有在声明类型和范围允许时才接受表达式值，未在 `vars.yaml` 中声明的名称会返回 `ErrUndeclaredVar`。需要 UI、任务或场景规则同步更新时注册 `OnChange`，并使用 `Snapshot`/`Restore` 创建存档检查点。
+
 在带版本号的 `vars.yaml`（或 `*.vars.yaml`）中统一声明项目全局开关（`bool`）与类型化变量（`int`、`float`、`string`），使对话脚本、任务、场景规则、存档和编辑器远程检查器共享同一份状态：
 
 ```yaml

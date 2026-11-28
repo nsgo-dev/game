@@ -201,6 +201,8 @@ Use `flow.SubscribeOnce(&bus, fn)` for one-shot listeners, and `bus.Clear()` whe
 
 ## Shared variables and switches (`Vars` and `vars.yaml`)
 
+Treat `Vars` as the authoritative project state. `SetFromExpr` accepts expression values only when the declaration's kind and bounds permit them, and returns `ErrUndeclaredVar` for names absent from `vars.yaml`. Register `OnChange` listeners when UI, quests, or scene rules need synchronous updates, and use `Snapshot`/`Restore` for save checkpoints.
+
 Declare project-wide switches (`bool`) and typed variables (`int`, `float`, `string`) once in a versioned `vars.yaml` (or `*.vars.yaml`) file so dialogue scripts, quests, scene rules, saves, and the editor's remote inspector share a single source of truth:
 
 ```yaml

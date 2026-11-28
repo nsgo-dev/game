@@ -304,6 +304,26 @@ func TestVarsOnChangeOrderAndUnsubscribe(t *testing.T) {
 	}
 }
 
+func TestVarsSetFromExprKeepsDeclaredKindAndBounds(t *testing.T) {
+	min, max := 0.0, 20.0
+	vars, err := flow.NewVars(&flow.VarsDoc{Version: 1, Vars: []flow.VarDecl{{Name: "gold", Kind: flow.VarInt, Default: 10, Min: &min, Max: &max}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vars.SetFromExpr("$gold", 15.0); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := vars.Int("gold"); got != 15 {
+		t.Fatalf("gold = %d", got)
+	}
+	if err := vars.SetFromExpr("gold", 21); !errors.Is(err, flow.ErrVarOutOfRange) {
+		t.Fatalf("out-of-range err = %v", err)
+	}
+	if err := vars.SetFromExpr("missing", 1); !errors.Is(err, flow.ErrUndeclaredVar) {
+		t.Fatalf("missing err = %v", err)
+	}
+}
+
 func TestVarsSelfAndSnapshotRoundTrip(t *testing.T) {
 	doc, err := flow.ParseVars([]byte(sampleVarsYAML))
 	if err != nil {
