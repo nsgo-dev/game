@@ -42,6 +42,10 @@ func IsAssetSource(name string) bool {
 type AssetSource struct {
 	// Version is the schema version; it must equal AssetSourceVersion (1).
 	Version int `yaml:"version" schema:"required"`
+	// Kind identifies the generated media family. Empty preserves version-1 sidecars.
+	Kind string `yaml:"kind,omitempty"`
+	// Files lists additional generated files covered by this provenance record.
+	Files []string `yaml:"files,omitempty"`
 	// Generator is the MCP generator server name that produced the asset, such as "pixel-gen" or "sfx-gen".
 	Generator string `yaml:"generator" schema:"required,minLength=1"`
 	// Model is the generator model identifier reported by the server, such as "pixflux-1".
@@ -235,6 +239,14 @@ func ValidateAssetSource(s *AssetSource) error {
 			return loaderr.Errorf(field, "set each reference to a non-empty single-line path without surrounding spaces", "importsettings: asset source: %w", err)
 		}
 	}
+	if err := checkLine("kind", s.Kind, false); err != nil {
+		return loaderr.Errorf("kind", "set kind to a single-line media family", "importsettings: asset source: %w", err)
+	}
+	for idx, file := range s.Files {
+		if err := checkLine(fmt.Sprintf("files[%d]", idx), file, true); err != nil {
+			return loaderr.Errorf(fmt.Sprintf("files[%d]", idx), "set each covered file to a project-relative path", "importsettings: asset source: %w", err)
+		}
+	}
 	if err := checkLine("license", s.License, false); err != nil {
 		return loaderr.Errorf("license", "set license to a single-line license identifier without surrounding spaces", "importsettings: asset source: %w", err)
 	}
@@ -251,6 +263,8 @@ func EncodeAssetSource(s *AssetSource) ([]byte, error) {
 	}
 	out := AssetSource{
 		Version:       s.Version,
+		Kind:          s.Kind,
+		Files:         slices.Clone(s.Files),
 		Generator:     s.Generator,
 		Model:         s.Model,
 		Prompt:        s.Prompt,
