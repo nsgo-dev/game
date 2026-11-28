@@ -166,10 +166,10 @@ func TestAutomationsSaveLevelStartsTaskWithCheckpointFirstAndReadyToReview(t *te
 			}
 		}
 		actorActive := ed.AgentActorActive()
-		keepErr := ed.KeepAgentTurnReview("auto-turn-1")
-		draftErr := ed.KeepAutomationDraft()
-		toggleErr := ed.SetAutomationEnabled("level-check", false)
-		pauseErr := ed.PauseAutomationsForToday()
+		keepErr := ed.RunAsAgent(func() error { return ed.KeepAgentTurnReview("auto-turn-1") })
+		draftErr := ed.RunAsAgent(func() error { return ed.KeepAutomationDraft() })
+		toggleErr := ed.RunAsAgent(func() error { return ed.SetAutomationEnabled("level-check", false) })
+		pauseErr := ed.RunAsAgent(func() error { return ed.PauseAutomationsForToday() })
 
 		mu.Lock()
 		gotReq = req
@@ -697,8 +697,12 @@ func TestAutomationsHardeningYouOnlyPermissionsTasksAndHistoryPreview(t *testing
 		tickedAfter int
 	)
 	ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
-		ed.SetPermissionsDraftRuleTicked(0, true)
-		_, aErr := ed.ApplyPermissionsDraft()
+		var aErr error
+		aErr = ed.RunAsAgent(func() error {
+			ed.SetPermissionsDraftRuleTicked(0, true)
+			_, err := ed.ApplyPermissionsDraft()
+			return err
+		})
 		mu.Lock()
 		applyErr = aErr
 		tickedAfter = ed.PermissionsDraftTickedCount()

@@ -845,7 +845,7 @@ func (e *Editor) SwitchAgentTurnToAlternative(turnID string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	turn := e.findAgentTurn(turnID)

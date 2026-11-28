@@ -1915,7 +1915,7 @@ func (e *Editor) KeepAgentTurn() error {
 	if e == nil {
 		return ErrNoAgentTurn
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	if e.agentTurn != nil && (e.agentTurn.status == AgentTurnWorking || e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped) {
@@ -1940,7 +1940,7 @@ func (e *Editor) keepMultiFileAgentTurn() error {
 	if e == nil || e.agentTurn == nil {
 		return errors.New("editor: no pending agent turn to keep")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	if e.playing {
@@ -2104,7 +2104,7 @@ func (e *Editor) RevertAgentTurn() error {
 	if e == nil {
 		return ErrNoAgentTurn
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	if e.agentTurn != nil && (e.agentTurn.status == AgentTurnWorking || e.agentTurn.status == AgentTurnPending || e.agentTurn.status == AgentTurnStopped) {
@@ -2129,7 +2129,7 @@ func (e *Editor) revertMultiFileAgentTurn() error {
 	if e == nil || e.agentTurn == nil {
 		return errors.New("editor: no pending agent turn to revert")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	if e.playing {

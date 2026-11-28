@@ -27,7 +27,7 @@ func (e *Editor) MoveFile(from, to string) error {
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		if dom, ok := e.CheckYouOnlyTarget(from); ok {
 			return fmt.Errorf("editor: refused (You only): %s is protected under %s and cannot be moved by the agent", from, dom.DisplayName())
 		}

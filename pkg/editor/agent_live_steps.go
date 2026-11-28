@@ -1029,7 +1029,7 @@ func (e *Editor) FocusAgentTurnReview() {
 
 // KeepPendingAgentTurnReview keeps the latest turn's pending agent changes, resumes autosave, and shows a confirmation toast with Undo.
 func (e *Editor) KeepPendingAgentTurnReview() {
-	if e == nil || e.AgentActorActive() {
+	if e == nil || e.AgentMutating() {
 		return
 	}
 	turn := e.latestAgentTurnPtr()

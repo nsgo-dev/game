@@ -45,6 +45,7 @@ func TestAgentWeeklyLimitQueuesAndRefusesAgentRaise(t *testing.T) {
 	now := time.Date(2026, 11, 26, 14, 10, 0, 0, time.UTC)
 
 	ed := newTestEditor(t)
+	agentCall := func(fn func() error) error { return ed.WithAgentActor(func() error { return ed.RunAsAgent(fn) }) }
 	ed.Now = func() time.Time { return now }
 	ed.SettingsPath = settingsPath
 	ed.BuiltInAgentEndpoint = srv.URL
@@ -122,12 +123,12 @@ func TestAgentWeeklyLimitQueuesAndRefusesAgentRaise(t *testing.T) {
 	}
 
 	// Any attempt by an agent to raise the weekly limit, alter You-only settings, or read the API key MUST be refused.
-	if err := ed.WithAgentActor(func() error {
+	if err := agentCall(func() error {
 		return ed.SetWeeklyRequestLimit(999)
 	}); !errors.Is(err, editor.ErrAgentSettingsYouOnly) {
 		t.Fatalf("agent SetWeeklyRequestLimit = %v, want ErrAgentSettingsYouOnly", err)
 	}
-	if err := ed.WithAgentActor(func() error {
+	if err := agentCall(func() error {
 		s := ed.Settings()
 		higher := 999
 		if s.Agent == nil {
@@ -138,22 +139,22 @@ func TestAgentWeeklyLimitQueuesAndRefusesAgentRaise(t *testing.T) {
 	}); !errors.Is(err, editor.ErrAgentSettingsYouOnly) {
 		t.Fatalf("agent ApplySettings = %v, want ErrAgentSettingsYouOnly", err)
 	}
-	if err := ed.WithAgentActor(func() error {
+	if err := agentCall(func() error {
 		return ed.SetAgentTaskRoute(string(editor.AgentTaskPlaytest), "Claude Code · default")
 	}); !errors.Is(err, editor.ErrAgentSettingsYouOnly) {
 		t.Fatalf("agent SetAgentTaskRoute = %v, want ErrAgentSettingsYouOnly", err)
 	}
-	if err := ed.WithAgentActor(func() error {
+	if err := agentCall(func() error {
 		return ed.SetAgentPrivacy(editor.PrivacyGoSource, true)
 	}); !errors.Is(err, editor.ErrAgentSettingsYouOnly) {
 		t.Fatalf("agent SetAgentPrivacy = %v, want ErrAgentSettingsYouOnly", err)
 	}
-	if err := ed.WithAgentActor(func() error {
+	if err := agentCall(func() error {
 		return ed.StoreAgentAPIKey(editor.DefaultAgentAPIKeyAccount, "sk-agent-injected")
 	}); !errors.Is(err, editor.ErrAgentSettingsYouOnly) {
 		t.Fatalf("agent StoreAgentAPIKey = %v, want ErrAgentSettingsYouOnly", err)
 	}
-	if err := ed.WithAgentActor(func() error {
+	if err := agentCall(func() error {
 		_, err := ed.AgentAPIKey(editor.DefaultAgentAPIKeyAccount)
 		return err
 	}); !errors.Is(err, editor.ErrAgentSettingsYouOnly) {
@@ -235,6 +236,7 @@ func TestBuiltInAgent529RetryBackoffAndSwitchToConnectedAgent(t *testing.T) {
 	var claudeReqs []editor.AgentRequest
 
 	ed := newTestEditor(t)
+	agentCall := func(fn func() error) error { return ed.WithAgentActor(func() error { return ed.RunAsAgent(fn) }) }
 	ed.AgentScheduleAfter = sched.schedule
 	ed.BuiltInAgentEndpoint = srv.URL
 	ed.BuiltInHTTPClient = srv.Client()
@@ -318,7 +320,7 @@ func TestBuiltInAgent529RetryBackoffAndSwitchToConnectedAgent(t *testing.T) {
 	}
 
 	// An agent actor cannot invoke SwitchAgentTurnToAlternative (You only).
-	if err := ed.WithAgentActor(func() error {
+	if err := agentCall(func() error {
 		return ed.SwitchAgentTurnToAlternative(ed.AgentTurns()[0].ID)
 	}); !errors.Is(err, editor.ErrAgentSettingsYouOnly) {
 		t.Fatalf("agent SwitchAgentTurnToAlternative = %v, want ErrAgentSettingsYouOnly", err)

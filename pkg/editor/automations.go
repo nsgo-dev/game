@@ -340,7 +340,7 @@ func (e *Editor) AllowProjectAutomations() error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	root := e.automationsProjectRoot()
@@ -430,7 +430,7 @@ func (e *Editor) SetAutomations(f *AutomationsFile) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	if err := ValidateAutomations(f); err != nil {
@@ -465,7 +465,7 @@ func (e *Editor) SetAutomationEnabled(id string, enabled bool) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	e.automations.mu.Lock()
@@ -510,7 +510,7 @@ func (e *Editor) AddAutomationRule(rule AutomationRule) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	e.automations.mu.Lock()
@@ -547,7 +547,7 @@ func (e *Editor) RemoveAutomationRule(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	e.automations.mu.Lock()
@@ -637,7 +637,7 @@ func (e *Editor) PauseAutomationsForToday() error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	today := e.nowTime().Format("2006-01-02")
@@ -656,7 +656,7 @@ func (e *Editor) ResumeAutomations() error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	e.automations.mu.Lock()
@@ -999,7 +999,7 @@ func (e *Editor) KeepAutomationDraft() error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	e.automations.mu.Lock()
@@ -1414,7 +1414,7 @@ func (e *Editor) RestoreAutomationCheckpoint(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	if e.playing {
@@ -1559,7 +1559,7 @@ func (e *Editor) KeepAgentTurnReview(turnID string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	turn := e.findAgentTurn(turnID)
@@ -1585,7 +1585,7 @@ func (e *Editor) DismissAgentTurnReview(turnID string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	turn := e.findAgentTurn(turnID)
