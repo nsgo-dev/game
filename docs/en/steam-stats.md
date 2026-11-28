@@ -4,7 +4,7 @@
 import "github.com/nsgo-dev/game/pkg/online/steam"
 ```
 
-`steam` is the engine-facing boundary for Steam achievements, stats, leaderboards and rich presence. It defines a `Driver` interface that a Steamworks adapter implements and a `Platform` that wraps the driver for one `core.Scope`. This package ships no native adapter: a game injects its own `Driver`, and until one exists `New` with a nil driver returns `ErrUnavailable`. To ship a build on Steam, see [Shipping on Steam](steam.md).
+`steam` is the engine-facing boundary for Steam achievements, stats, leaderboards and rich presence. It defines a `Driver` interface that a Steamworks adapter implements and a `Platform` that wraps the driver for one `core.Scope`. This package ships no native adapter: a game injects its own `Driver`, and until one exists `New` with a nil driver returns `ErrUnavailable`. A `Driver` that calls Steamworks should attach to the process's shared client from [`steamworks`](steamworks.md) (`steamworks.Open`, then `ResolveSymbol` and `AwaitCall` for the `ISteamUserStats` flat API) instead of initializing Steamworks itself; that client already pumps callbacks and shuts Steamworks down, so the driver's `RunCallbacks` and `Shutdown` have nothing to do. To ship a build on Steam, see [Shipping on Steam](steam.md).
 
 ## Using a Platform
 
