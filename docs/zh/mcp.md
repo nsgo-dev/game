@@ -521,4 +521,4 @@ NSGo 的 `automation` 只在 `nsgo dev -automation` 和测试构建中注册应�
 
 ## 有版本的智能体技能资源
 
-编辑器服务器和 `go tool game mcp` 代理还会提供其二进制内置的 `nsgo-game` 智能体技能，每个文件一个 `text/markdown` 资源：`skill://nsgo-game/SKILL.md` 与 `skill://nsgo-game/references/<file>`（`packages.md`、`cli-and-formats.md` 与 `mcp-tools.md`）。代理从自身内置的副本读取，因此在编辑器打开项目之前也能读取。由于它们来自响应工具调用的同一个二进制，描述的就是该版本的工具，并优先于通过 `bunx skills add` 安装的较旧副本。无法读取资源的客户端可调用只读工具 `skill_get`，传入 `file` 和 `section` 中按原文书写的标题。
+编辑器服务器和 `go tool game mcp` 代理还会提供其二进制内置的 `nsgo-game` 智能体技能，每个文件一个 `text/markdown` 资源：`skill://nsgo-game/SKILL.md` 与 `skill://nsgo-game/references/<file>`（`packages.md`、`cli-and-formats.md`、`gates.md` 与 `mcp-tools.md`）。代理从自身内置的副本读取，因此在编辑器打开项目之前也能读取。由于它们来自响应工具调用的同一个二进制，描述的就是该版本的工具，并优先于通过 `bunx skills add` 安装的较旧副本。无法读取资源的客户端可调用只读工具 `skill_get`，传入 `file` 和 `section` 中按原文书写的标题。
