@@ -3,6 +3,7 @@ package replay
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"time"
@@ -44,6 +45,12 @@ type Recording struct {
 	Axes []string
 	// TotalSteps is the number of recorded steps, including steps without events.
 	TotalSteps int
+	// Build identifies the game build and content used for the run.
+	Build string
+	// Ticket identifies a server-issued run ticket.
+	Ticket string
+	// Result records verifier inputs such as score and state_hash.
+	Result map[string]string
 	// Events are the steps where input changed, in strictly increasing Step order.
 	Events []StepEvent
 }
@@ -188,6 +195,7 @@ func (r *Recording) Clone() *Recording {
 		Actions:    slices.Clone(r.Actions),
 		Axes:       slices.Clone(r.Axes),
 		TotalSteps: r.TotalSteps,
+		Build:      r.Build, Ticket: r.Ticket, Result: maps.Clone(r.Result),
 	}
 	if len(r.Events) > 0 {
 		out.Events = make([]StepEvent, len(r.Events))
