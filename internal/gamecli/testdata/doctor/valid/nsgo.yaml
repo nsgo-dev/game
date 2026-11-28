@@ -1,0 +1,5 @@
+name: Doctor Fixture
+id: dev.example.doctor
+version: 0.1.0
+build:
+  targets: [web]

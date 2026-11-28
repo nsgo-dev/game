@@ -1,0 +1,10 @@
+version: 1
+name: Unresolvable Fixture
+id: dev.nsgo.unresolvable
+appVersion: 0.1.0
+window:
+  width: 320
+  height: 180
+export:
+  presets:
+    - platform: web

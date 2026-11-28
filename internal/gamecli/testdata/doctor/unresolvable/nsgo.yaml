@@ -1,0 +1,5 @@
+name: Unresolvable Fixture
+id: dev.example.unresolvable
+version: 0.1.0
+build:
+  targets: [web]
