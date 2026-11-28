@@ -37,6 +37,7 @@ type CellError struct {
 	Err   error
 }
 
+// Error returns the file name, row, field, value, and underlying parsing or conversion problem.
 func (e *CellError) Error() string {
 	file := e.File
 	if file == "" {
@@ -69,6 +70,7 @@ func fixCell(t reflect.Type) string {
 	return fmt.Sprintf("write a value of the field's type, %s, in this cell", t)
 }
 
+// Unwrap returns the underlying parsing or conversion error.
 func (e *CellError) Unwrap() error { return e.Err }
 
 // FormatVersion is the schema version of a YAML data table: LoadYAML accepts only this version and MarshalYAML writes it.

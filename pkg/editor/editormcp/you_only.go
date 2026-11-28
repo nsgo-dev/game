@@ -29,6 +29,7 @@ type YouOnlyError struct {
 	Hint   string               `json:"hint"`
 }
 
+// Error describes the protected path, its You-only domain, and how the person can make the requested change.
 func (e *YouOnlyError) Error() string {
 	if e == nil {
 		return ""

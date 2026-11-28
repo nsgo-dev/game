@@ -40,11 +40,6 @@ func (l TilesetLoader) loadTilesetFn() func(string) ([]byte, error) {
 	return l.LoadJSON
 }
 
-// LoadTiled parses a Tiled map — either JSON (.tmj) or XML (.tmx) — into a Tilemap, loading any external .tsx or .tsj tilesets and .tx or .tj object templates and resolving tileset, collection-tile, and image-layer images through resolve.
-//
-// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, CSV, XML, and base64 tile data (uncompressed, zlib, and gzip), image layers, nested group layers, layer tint colors, embedded and external grid and image-collection tilesets (with tileoffset, objectalignment, and cross-format TMX/TSJ and TMJ/TSX references), GID flip flags, object layers (including tile objects, text objects, and .tx/.tj templates), custom properties, tile animations and the collision shapes Tiled's collision editor draws on tiles (into Tileset.Shapes) are supported. zstd compression is refused with an actionable fix hint.
-//
-// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it. An error in an external tileset or template names that file's source; for one in the map itself, a caller that read data from a file names it with loaderr.WithFile.
 var tiledMapPool = sync.Pool{
 	New: func() any { return new(tiledMap) },
 }
@@ -73,6 +68,11 @@ func putTiledMap(m *tiledMap) {
 	tiledMapPool.Put(m)
 }
 
+// LoadTiled parses a Tiled map — either JSON (.tmj) or XML (.tmx) — into a Tilemap, loading any external .tsx or .tsj tilesets and .tx or .tj object templates and resolving tileset, collection-tile, and image-layer images through resolve.
+//
+// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, CSV, XML, and base64 tile data (uncompressed, zlib, and gzip), image layers, nested group layers, layer tint colors, embedded and external grid and image-collection tilesets (with tileoffset, objectalignment, and cross-format TMX/TSJ and TMJ/TSX references), GID flip flags, object layers (including tile objects, text objects, and .tx/.tj templates), custom properties, tile animations and the collision shapes Tiled's collision editor draws on tiles (into Tileset.Shapes) are supported. zstd compression is refused with an actionable fix hint.
+//
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it. An error in an external tileset or template names that file's source; for one in the map itself, a caller that read data from a file names it with loaderr.WithFile.
 func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	if isXML(data) {
 		raw, err := parseTMX(data)

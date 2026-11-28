@@ -67,6 +67,7 @@ func (e *PermissionError) capName() string {
 	return e.Capability.String()
 }
 
+// Error identifies the mod, missing capability, and action refused by the permission check.
 func (e *PermissionError) Error() string {
 	return fmt.Sprintf("modding: mod %q lacks capability %q for %s", e.ModID, e.capName(), e.Action)
 }

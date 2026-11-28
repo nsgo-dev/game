@@ -53,6 +53,7 @@ func (h *Health) ObserveTick(d time.Duration) {
 	h.tickNanos.Store(int64(d))
 }
 
+// ServeHTTP handles GET and HEAD requests for /healthz, /readyz, and /metrics, rejecting other methods and paths.
 func (h *Health) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")

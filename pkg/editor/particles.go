@@ -824,6 +824,7 @@ func (e *Editor) stopParticlePreviewLoop() {
 
 // ---- Individual undoable field setters ----
 
+// SetParticleSpace sets Config.Space to particles.SpaceWorld or particles.SpaceLocal.
 func (e *Editor) SetParticleSpace(space particles.SimulationSpace) error {
 	return e.EditParticleEmitter("Set particle space", func(cfg *particles.Config) error {
 		cfg.Space = space
@@ -831,6 +832,7 @@ func (e *Editor) SetParticleSpace(space particles.SimulationSpace) error {
 	})
 }
 
+// SetParticlePosition sets Config.X and Config.Y in points; both coordinates must be finite.
 func (e *Editor) SetParticlePosition(x, y float32) error {
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return errors.New("editor: particle position must be finite")
@@ -841,6 +843,7 @@ func (e *Editor) SetParticlePosition(x, y float32) error {
 	})
 }
 
+// SetParticleRotation sets Config.Rotation in radians clockwise on the screen; rot must be finite.
 func (e *Editor) SetParticleRotation(rot float32) error {
 	if !isFiniteFloat32(rot) {
 		return errors.New("editor: particle rotation must be finite")
@@ -851,6 +854,7 @@ func (e *Editor) SetParticleRotation(rot float32) error {
 	})
 }
 
+// SetParticleZ sets Config.Z to any integer sprite Z order.
 func (e *Editor) SetParticleZ(z int) error {
 	return e.EditParticleEmitter("Set particle Z", func(cfg *particles.Config) error {
 		cfg.Z = z
@@ -858,6 +862,7 @@ func (e *Editor) SetParticleZ(z int) error {
 	})
 }
 
+// SetParticleSeed sets Config.Seed to any uint64 seed for deterministic emission and motion.
 func (e *Editor) SetParticleSeed(seed uint64) error {
 	return e.EditParticleEmitter("Set particle seed", func(cfg *particles.Config) error {
 		cfg.Seed = seed
@@ -865,6 +870,7 @@ func (e *Editor) SetParticleSeed(seed uint64) error {
 	})
 }
 
+// SetParticleShape sets Config.Shape; its radius, width, and height in points must be finite and non-negative.
 func (e *Editor) SetParticleShape(shape particles.Shape) error {
 	if r := shape.Radius(); !isFiniteFloat32(r) || r < 0 {
 		return errors.New("editor: particle shape radius must be finite and non-negative")
@@ -881,6 +887,7 @@ func (e *Editor) SetParticleShape(shape particles.Shape) error {
 	})
 }
 
+// SetParticleRate sets Config.Rate to a finite, non-negative number of particles per second; zero disables continuous emission.
 func (e *Editor) SetParticleRate(rate float32) error {
 	if !isFiniteFloat32(rate) || rate < 0 {
 		return errors.New("editor: particle rate must be finite and non-negative")
@@ -891,6 +898,7 @@ func (e *Editor) SetParticleRate(rate float32) error {
 	})
 }
 
+// SetParticleMaxParticles sets Config.MaxParticles to a non-negative live-particle cap; zero selects the emitter's default.
 func (e *Editor) SetParticleMaxParticles(n int) error {
 	if n < 0 {
 		return errors.New("editor: maxParticles must be non-negative")
@@ -901,6 +909,7 @@ func (e *Editor) SetParticleMaxParticles(n int) error {
 	})
 }
 
+// AddParticleBurst appends b to Config.Bursts; Time and Interval are non-negative durations and Count is non-negative.
 func (e *Editor) AddParticleBurst(b particles.Burst) error {
 	if b.Time < 0 || b.Count < 0 || b.Interval < 0 {
 		return errors.New("editor: burst time, count and interval must be non-negative")
@@ -911,6 +920,7 @@ func (e *Editor) AddParticleBurst(b particles.Burst) error {
 	})
 }
 
+// SetParticleBurst replaces Config.Bursts[index] with b; index must exist, Time and Interval are non-negative durations, and Count is non-negative.
 func (e *Editor) SetParticleBurst(index int, b particles.Burst) error {
 	if b.Time < 0 || b.Count < 0 || b.Interval < 0 {
 		return errors.New("editor: burst time, count and interval must be non-negative")
@@ -924,6 +934,7 @@ func (e *Editor) SetParticleBurst(index int, b particles.Burst) error {
 	})
 }
 
+// RemoveParticleBurst removes Config.Bursts[index]; index must be an existing zero-based burst index.
 func (e *Editor) RemoveParticleBurst(index int) error {
 	return e.EditParticleEmitter("Remove particle burst", func(cfg *particles.Config) error {
 		if index < 0 || index >= len(cfg.Bursts) {
@@ -937,6 +948,7 @@ func (e *Editor) RemoveParticleBurst(index int) error {
 	})
 }
 
+// SetParticleLifetime sets Config.LifetimeMin and Config.LifetimeMax to non-negative durations.
 func (e *Editor) SetParticleLifetime(minLife, maxLife time.Duration) error {
 	if minLife < 0 || maxLife < 0 {
 		return errors.New("editor: particle lifetime must be non-negative")
@@ -947,6 +959,7 @@ func (e *Editor) SetParticleLifetime(minLife, maxLife time.Duration) error {
 	})
 }
 
+// SetParticleSpeed sets Config.SpeedMin and Config.SpeedMax in points per second; both speeds must be finite.
 func (e *Editor) SetParticleSpeed(minSpeed, maxSpeed float32) error {
 	if !isFiniteFloat32(minSpeed) || !isFiniteFloat32(maxSpeed) {
 		return errors.New("editor: particle speed must be finite")
@@ -957,6 +970,7 @@ func (e *Editor) SetParticleSpeed(minSpeed, maxSpeed float32) error {
 	})
 }
 
+// SetParticleAngle sets Config.AngleMin and Config.AngleMax in radians clockwise from +X; both angles must be finite.
 func (e *Editor) SetParticleAngle(minAngle, maxAngle float32) error {
 	if !isFiniteFloat32(minAngle) || !isFiniteFloat32(maxAngle) {
 		return errors.New("editor: particle angle must be finite")
@@ -967,6 +981,7 @@ func (e *Editor) SetParticleAngle(minAngle, maxAngle float32) error {
 	})
 }
 
+// SetParticleGravity sets Config.GravityX and Config.GravityY in points per second squared; both components must be finite.
 func (e *Editor) SetParticleGravity(gx, gy float32) error {
 	if !isFiniteFloat32(gx) || !isFiniteFloat32(gy) {
 		return errors.New("editor: particle gravity must be finite")
@@ -977,6 +992,7 @@ func (e *Editor) SetParticleGravity(gx, gy float32) error {
 	})
 }
 
+// SetParticleInitialRotation sets Config.InitialRotationMin and Config.InitialRotationMax in radians; both rotations must be finite.
 func (e *Editor) SetParticleInitialRotation(minRot, maxRot float32) error {
 	if !isFiniteFloat32(minRot) || !isFiniteFloat32(maxRot) {
 		return errors.New("editor: particle initial rotation must be finite")
@@ -987,6 +1003,7 @@ func (e *Editor) SetParticleInitialRotation(minRot, maxRot float32) error {
 	})
 }
 
+// SetParticleRotationSpeed sets Config.RotationSpeedMin and Config.RotationSpeedMax in radians per second; both speeds must be finite.
 func (e *Editor) SetParticleRotationSpeed(minSpeed, maxSpeed float32) error {
 	if !isFiniteFloat32(minSpeed) || !isFiniteFloat32(maxSpeed) {
 		return errors.New("editor: particle rotation speed must be finite")
@@ -997,6 +1014,7 @@ func (e *Editor) SetParticleRotationSpeed(minSpeed, maxSpeed float32) error {
 	})
 }
 
+// SetParticleFrameNames replaces Config.FrameNames with a copy of names; an empty slice clears the frame selection.
 func (e *Editor) SetParticleFrameNames(names []string) error {
 	return e.EditParticleEmitter("Set particle frames", func(cfg *particles.Config) error {
 		if len(names) == 0 {
@@ -1008,6 +1026,7 @@ func (e *Editor) SetParticleFrameNames(names []string) error {
 	})
 }
 
+// ToggleParticleFrame adds a non-empty frameName to Config.FrameNames or removes it when already present.
 func (e *Editor) ToggleParticleFrame(frameName string) error {
 	if frameName == "" {
 		return errors.New("editor: frame name must not be empty")
@@ -1025,6 +1044,7 @@ func (e *Editor) ToggleParticleFrame(frameName string) error {
 	})
 }
 
+// SetParticleCollision sets Config.Collision with finite Bounce and Friction factors and a finite Radius in points; Friction clamps to [0, 1] during response and Collider is cleared.
 func (e *Editor) SetParticleCollision(col particles.CollisionConfig) error {
 	if !isFiniteFloat32(col.Bounce) || !isFiniteFloat32(col.Friction) || !isFiniteFloat32(col.Radius) {
 		return errors.New("editor: particle collision values must be finite")
@@ -1036,6 +1056,7 @@ func (e *Editor) SetParticleCollision(col particles.CollisionConfig) error {
 	})
 }
 
+// SetParticleTrailEnabled enables Config.Trail with defaults of 24 vertices, 0.4-second vertex lifetime, 2-point minimum distance, and 4-point width, or sets it to nil when disabled.
 func (e *Editor) SetParticleTrailEnabled(enabled bool) error {
 	return e.EditParticleEmitter("Toggle particle trail", func(cfg *particles.Config) error {
 		if !enabled {
@@ -1055,6 +1076,7 @@ func (e *Editor) SetParticleTrailEnabled(enabled bool) error {
 	})
 }
 
+// SetParticleTrail copies trail to Config.Trail or clears it with nil; MaxPoints is non-negative, Lifetime is non-negative finite seconds, and MinDistance and Width are non-negative finite points.
 func (e *Editor) SetParticleTrail(trail *particles.TrailConfig) error {
 	if trail != nil {
 		if trail.MaxPoints < 0 {
@@ -1083,6 +1105,7 @@ func (e *Editor) SetParticleTrail(trail *particles.TrailConfig) error {
 	})
 }
 
+// AddParticleSubEmitter appends a deep copy of rule to Config.SubEmitters; BurstCount <= 0 defaults to one child per trigger and InheritVelocity is a parent-velocity multiplier.
 func (e *Editor) AddParticleSubEmitter(rule particles.SubEmitterRule) error {
 	return e.EditParticleEmitter("Add sub-emitter", func(cfg *particles.Config) error {
 		r := rule
@@ -1092,6 +1115,7 @@ func (e *Editor) AddParticleSubEmitter(rule particles.SubEmitterRule) error {
 	})
 }
 
+// SetParticleSubEmitter sets Trigger, BurstCount, and InheritVelocity on Config.SubEmitters[index]; index must exist, burstCount must be non-negative, and inheritVelocity must be a finite parent-velocity multiplier.
 func (e *Editor) SetParticleSubEmitter(index int, trigger particles.SubEmitterTrigger, burstCount int, inheritVelocity float32) error {
 	if !isFiniteFloat32(inheritVelocity) {
 		return errors.New("editor: sub-emitter inheritVelocity must be finite")
@@ -1110,6 +1134,7 @@ func (e *Editor) SetParticleSubEmitter(index int, trigger particles.SubEmitterTr
 	})
 }
 
+// RemoveParticleSubEmitter removes Config.SubEmitters[index]; index must be an existing zero-based sub-emitter index.
 func (e *Editor) RemoveParticleSubEmitter(index int) error {
 	return e.EditParticleEmitter("Remove sub-emitter", func(cfg *particles.Config) error {
 		if index < 0 || index >= len(cfg.SubEmitters) {
@@ -1125,6 +1150,7 @@ func (e *Editor) RemoveParticleSubEmitter(index int) error {
 
 // ---- Curve editing ----
 
+// ParticleActiveCurve returns the selected ParticleCurveKind, defaulting to ParticleCurveSize when no emitter is open or no curve is selected.
 func (e *Editor) ParticleActiveCurve() ParticleCurveKind {
 	if e == nil || e.particles == nil || e.particles.activeCurve == "" {
 		return ParticleCurveSize
@@ -1132,6 +1158,7 @@ func (e *Editor) ParticleActiveCurve() ParticleCurveKind {
 	return e.particles.activeCurve
 }
 
+// SetParticleActiveCurve selects one of the ParticleCurve* kinds and clears the selected curve stop.
 func (e *Editor) SetParticleActiveCurve(kind ParticleCurveKind) {
 	if e == nil || e.particles == nil {
 		return
@@ -1145,6 +1172,7 @@ func (e *Editor) SetParticleActiveCurve(kind ParticleCurveKind) {
 	e.notify()
 }
 
+// ParticleSelectedStop returns the selected zero-based curve stop index, or -1 when no stop is selected.
 func (e *Editor) ParticleSelectedStop() int {
 	if e == nil || e.particles == nil {
 		return -1
@@ -1152,6 +1180,7 @@ func (e *Editor) ParticleSelectedStop() int {
 	return e.particles.selectedStop
 }
 
+// SelectParticleStop selects a zero-based curve stop index; -1 clears the selection.
 func (e *Editor) SelectParticleStop(index int) {
 	if e == nil || e.particles == nil {
 		return
@@ -1160,6 +1189,7 @@ func (e *Editor) SelectParticleStop(index int) {
 	e.notify()
 }
 
+// SetParticleSizeCurve sets Config.SizeCurve, sorting stops by normalized age T in [0, 1]; values are scale multipliers and an empty curve scales by 1.
 func (e *Editor) SetParticleSizeCurve(c particles.FloatCurve) error {
 	return e.EditParticleEmitter("Set size curve", func(cfg *particles.Config) error {
 		cfg.SizeCurve = sortFloatCurve(c)
@@ -1167,6 +1197,7 @@ func (e *Editor) SetParticleSizeCurve(c particles.FloatCurve) error {
 	})
 }
 
+// SetParticleAlphaCurve sets Config.AlphaCurve, sorting stops by normalized age T in [0, 1]; values are opacity multipliers and an empty curve keeps opacity at 1.
 func (e *Editor) SetParticleAlphaCurve(c particles.FloatCurve) error {
 	return e.EditParticleEmitter("Set alpha curve", func(cfg *particles.Config) error {
 		cfg.AlphaCurve = sortFloatCurve(c)
@@ -1174,6 +1205,7 @@ func (e *Editor) SetParticleAlphaCurve(c particles.FloatCurve) error {
 	})
 }
 
+// SetParticleRotationCurve sets Config.RotationCurve, sorting stops by normalized age T in [0, 1]; values are added radians and an empty curve adds 0.
 func (e *Editor) SetParticleRotationCurve(c particles.FloatCurve) error {
 	return e.EditParticleEmitter("Set rotation curve", func(cfg *particles.Config) error {
 		cfg.RotationCurve = sortFloatCurve(c)
@@ -1181,6 +1213,7 @@ func (e *Editor) SetParticleRotationCurve(c particles.FloatCurve) error {
 	})
 }
 
+// SetParticleColorCurve sets Config.ColorCurve, sorting stops by normalized age T in [0, 1]; values are RGBA colors and an empty curve keeps opaque white.
 func (e *Editor) SetParticleColorCurve(c particles.ColorCurve) error {
 	return e.EditParticleEmitter("Set color curve", func(cfg *particles.Config) error {
 		cfg.ColorCurve = sortColorCurve(c)
