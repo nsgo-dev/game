@@ -112,3 +112,6 @@ At most one ability casts or channels at a time. Its life is:
 `NewCaster` turns each duration into whole steps at its rate, rounding up, and every timer counts whole steps. At 60 Hz, `game.Loop`'s `dt` is 16,666,666 ns, so summing it would take 121 steps to reach 2 s; a `Caster` puts a 2 s cooldown at exactly 120 steps. Within a step, `Update` advances every cooldown and recharge in set order, then the active cast or channel, then reads input, so an ability whose cooldown ends on a step can be used again on that same step. When several abilities share an action, they are tried in set order and the first that activates wins, which lets conditions pick between them.
 
 The same inputs on the same steps therefore give the same events on the same steps on every machine. `Snapshot` returns a `State` (step counts, JSON and YAML tags) for save slots, rollback and replays, and `Restore` puts it back, refusing a state from another set or rate. `Update` does not allocate.
+# Effects
+
+Abilities can share the stats gameplay-effect metadata when applying timed or instant modifiers to a target sheet.

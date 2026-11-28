@@ -171,3 +171,6 @@ hero.Apply("equip:weapon", sword)
 | `effects[].modifiers[].op` | `add`, `mul` or `override` | How it changes the stat |
 | `effects[].modifiers[].value` | number | The amount, factor or override value |
 | `effects[].modifiers[].priority` | int, optional | Override priority, highest wins |
+# Gameplay effects
+
+Stats effects may declare `kind`, `period`, `tickOnApply`, `grantTags` and `stacking` metadata. `Sheet.ApplyEffect` applies the modifiers through fixed-step sheet state.
