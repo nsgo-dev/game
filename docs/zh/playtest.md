@@ -170,3 +170,7 @@ go tool game playtest -check
 
 - `game_playtest`（`run`）：校验 `playtest.yaml`，无头运行机器人并录制回放，写出 YAML 报告，返回结构化报告和汇总文本。
 - `playtest_define`（`edit`）：校验提议的新指标，生成规范化的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews`、`Server.ApplyPlaytestReview`、`Server.DismissPlaytestReview`），在用户确认前不会改写磁盘上的 `playtest.yaml`。
+
+## Idle 机器人
+
+内置的 `playtest.ProfileIdle` 不发送任何动作或轴输入。可用它声明有时间上限的无输入失败基线；它不会读取游戏观察值。

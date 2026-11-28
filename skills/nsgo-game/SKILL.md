@@ -132,6 +132,8 @@ When testing or debugging a game over `nsgo mcp` (or headlessly via `nsgotest.St
 
 ## References
 
+- [`references/gates.md`](references/gates.md) defines production tracks, P0/P1/P2 severity, fix-round limits, anti-reward-hacking rules, and checked versus unchecked reporting.
+
 Load on demand for exact APIs, flags, schemas, and tool arguments:
 
 - [references/packages.md](references/packages.md) — complete catalog of `pkg/*` packages grouped by stage and domain, with import paths and stability status.

@@ -170,3 +170,7 @@ The editor's MCP server (`game/editor/editormcp`, reached via `go tool game mcp`
 
 - `game_playtest` (`run`): validates `playtest.yaml`, runs the playtest headless with replays, writes the YAML report, and returns the structured report and summary.
 - `playtest_define` (`edit`): validates a proposed metric and returns a canonical `playtest.yaml` diff queued as a pending review (`Server.PlaytestReviews`, `Server.ApplyPlaytestReview`, `Server.DismissPlaytestReview`) without modifying `playtest.yaml` on disk until reviewed.
+
+## Idle bot
+
+The built-in `playtest.ProfileIdle` bot sends no actions or axes. Use it for an idle-loss baseline with a bounded `runs.maxDuration`; it never inspects the game observation.
