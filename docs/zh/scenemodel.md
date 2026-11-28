@@ -126,3 +126,7 @@ pass.End()
 ## 示例
 
 [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d) 从 `assets/shrine.scene.yaml` 加载关卡，该文件指定了它的 glTF 场景模型；示例用 `Build` 构建关卡，通过 `Build` 为模型的两个节点创建的 `scene3d` 节点来驱动动画，并用它自己带雾效的着色器绘制这些部件。
+
+### 管线预热
+
+在构造 `scenemodel.Renderer` 前调用 `render3d.AttachPipelineCache` 连接持久化缓存。在加载阶段构造渲染器，使内置的 lit 管线在第一帧前完成编译。如果游戏会切换到 `ShadingUnlit`，也应在加载阶段切换，避免游戏过程中才编译该变体。

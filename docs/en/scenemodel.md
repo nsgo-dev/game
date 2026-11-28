@@ -126,3 +126,7 @@ Its shader (`ShaderWGSL`) combines render3d's metallic-roughness direct lighting
 ## Example
 
 [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d) loads its level from `assets/shrine.scene.yaml`, which names its glTF diorama, builds it with `Build`, animates two of the model's nodes through the `scene3d` nodes `Build` made for them and draws the parts with its own fog shader.
+
+### Pipeline warm-up
+
+Attach a persistent cache before constructing `scenemodel.Renderer` with `render3d.AttachPipelineCache`. Construct the renderer during loading so its built-in lit pipeline is compiled before the first frame. If a game switches to `ShadingUnlit`, switch during loading as well to avoid compiling that variant during play.
