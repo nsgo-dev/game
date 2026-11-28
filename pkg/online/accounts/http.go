@@ -120,6 +120,18 @@ func (s *Service) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, resp)
 	})
+	mux.HandleFunc("GET /v1/me/export", func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := s.bearer(w, r)
+		if !ok {
+			return
+		}
+		out, err := s.DataExport(r.Context(), claims.Subject)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
 	mux.HandleFunc("GET /v1/keys", func(w http.ResponseWriter, r *http.Request) {
 		data, err := s.KeySet().Marshal()
 		if err != nil {

@@ -100,6 +100,23 @@ type Profile struct {
 	Identities []Identity
 }
 
+// Export is the portable account data document returned by DataExport. It
+// intentionally excludes session secrets and password hashes.
+type Export struct {
+	Account    Account    `json:"account"`
+	Identities []Identity `json:"identities"`
+}
+
+// DataExport returns the account profile and linked provider identities. The
+// document contains no credentials, password hashes or session secrets.
+func (s *Service) DataExport(ctx context.Context, accountID string) (Export, error) {
+	p, err := s.Profile(ctx, accountID)
+	if err != nil {
+		return Export{}, err
+	}
+	return Export{Account: p.Account, Identities: p.Identities}, nil
+}
+
 // Guest reports whether the account has neither an email address nor an identity, so only its sessions can sign in to it.
 func (p Profile) Guest() bool { return p.Email == "" && len(p.Identities) == 0 }
 
