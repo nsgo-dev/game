@@ -159,6 +159,20 @@ return postfx.View{
 
 闪屏和震屏遵循减弱动态效果设置：`ReduceMotion` 返回 true 时，`Trigger` 什么也不做并返回 false。可传入 `a11y.Assist` 的 `ReduceMotion`，它优先采用玩家的选择，否则跟随平台设置；`ReduceMotion` 为 nil 时读取平台设置。峰值、幅度或时长不大于 0 时同样不会启动，也不影响正在进行的那次：要结束它请用 `Stop`，这与 `tilemap.Camera.Shake` 不同，后者的强度为 0 时会取消震动。
 
+### 光敏安全
+
+一秒内超过三次的闪烁，或高饱和红色的闪烁，可能诱发光敏性癫痫（WCAG 2.3.1、XAG 118），因此 `Flash` 遵守以下限制：
+
+- `Trigger` 在作用域时钟的任意一秒内最多运行 `MaxFlashesPerSecond`（3）次，超出时返回 false。除非 `FlashConfig.Limiter` 指定，每个 `Flash` 都有自己的 `FlashLimiter`：同一画面的所有全屏闪屏共享一个，才能合计不超过限制。`FlashLimiter.MaxPerSecond` 可调低限制；为 0 或大于 3 时按 3 处理。
+- `NewFlash` 会把高饱和红色的 `Color`（红色占红、绿、蓝之和的 80% 或以上）去饱和为相对亮度相同的灰色。
+- `FlashConfig.ReduceFlashes` 返回 true 时，闪屏以低对比度染色运行：峰值不超过 `ReducedFlashPeak`（0.2），淡出时长不短于 `ReducedFlashFade`（100 毫秒）。可传入 `a11y.Assist` 的 `ReduceFlashes`，即玩家的“减弱闪烁”设置，它与减弱动态效果相互独立。
+
+```go
+flashes := &postfx.FlashLimiter{}
+hit := postfx.NewFlash(cx, postfx.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: assist.ReduceMotion, ReduceFlashes: assist.ReduceFlashes, Limiter: flashes})
+lightning := postfx.NewFlash(cx, postfx.FlashConfig{Color: core.RGB(0xd8e8ff), ReduceMotion: assist.ReduceMotion, ReduceFlashes: assist.ReduceFlashes, Limiter: flashes})
+```
+
 ## 调色板替换
 
 本包提供两个通过调色板纹理映射颜色的现成效果，调色板绑定在 `Effect.Texture` 上，由着色器通过 `Texture(pos)` 和 `TextureSize()` 读取。两者都自带 `Reference`，只要调色板带有 `Pixels` 或 PNG `Data`，包含它们的效果链即可在无头环境下绘制参考图。
