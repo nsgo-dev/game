@@ -79,6 +79,7 @@ wall_jump_lock: 150ms
 ```
 
 `ground_accel` and `air_accel` move the horizontal speed toward `move * run_speed`, and `ground_decel` slows it on the ground without input; 0 reaches the target at once. `max_fall_speed: 0` leaves the fall uncapped.
-# Scene behavior configs
 
-Use the versioned scene behavior vocabulary to describe controller settings next to an object. Runtime components can then read the same axis, speed, range and targeting values used by the editor.
+## Scene behavior configs
+
+[Input-driven behavior configs](scene.md#input-driven-behavior-configs) describe a `platform` behavior's settings in a scene-side schema. No component wraps `Controller` yet, so a game still drives the controller from Go.

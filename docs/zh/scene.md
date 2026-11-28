@@ -280,6 +280,18 @@ connections:
 
 这里只提供单元计算：场景文件目前还没有 `partition:` 段，单元的加载、实例化与卸载由游戏自行完成。
 
-# 输入驱动行为
+## 输入驱动行为配置
 
-场景行为配置使用 `version: 1` 和 `kind`，例如 `platform`、`eight_direction`、`tile_movement`、`car`、`drag_drop`、`turret`、`line_of_sight` 或 `path_agent`。`sceneformat.BehaviorConfig.Validate` 会在运行前检查未知类型和无效数值。
+`sceneformat.BehaviorConfig` 是 #1752 计划中输入驱动行为的版本化设置结构：`platform`、`eight_direction`、`tile_movement`、`car`、`drag_drop`、`turret`、`line_of_sight` 和 `path_agent`。它只是结构定义：既不是已注册的组件，运行时也还没有任何代码驱动这些行为。
+
+```yaml
+version: 1
+kind: eight_direction
+axis: move
+maxSpeed: 120
+acceleration: 800
+deceleration: 1000
+directions: 8
+```
+
+`sceneformat.ParseBehaviorConfig(data)` 解码一份配置，拒绝未知字段和多余的 YAML 文档，并做校验。`BehaviorConfig.Validate` 会拒绝不为 1 的版本、未知的 `kind`、为负数的 `maxSpeed`、`acceleration`、`deceleration`、`tileSize`、`range`、`rotateSpeed` 或 `fireRate`，`directions` 不是 4 或 8 的 `eight_direction`，以及 `tileSize` 不为正数的 `tile_movement`。
