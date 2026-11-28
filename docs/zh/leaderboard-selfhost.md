@@ -141,3 +141,7 @@ leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -ad
 ```
 
 `init` 写出一份只有一个总榜 `high-score` 且不含 `allowedOrigins` 的配置供修改；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `leaderboards.yaml` 的 `allowedOrigins`。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，只接受配置中 `audience` 的令牌，如果它等于密钥集的受众（即游戏服务器的受众）就拒绝启动，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。`-sync` 在确认每条成绩之前先把它刷到磁盘，适用于可能断电的机器。
+
+## 锦标赛生命周期核心
+
+`selfhost.Tournament` 为限额竞赛提供确定性的生命周期边界。`Join` 检查赛程窗口和 `MaxEntrants`，`Submit` 检查 `JoinRequired` 与 `MaxAttempts`，`Round` 根据配置的持续时长计算重复窗口。`EndRound` 只结算一次，并按账号 ID 为同分结果确定排序，然后通过 `OnRoundEnd` 传递排名条目。该核心保存在内存中，持久化适配器可先记录已结束轮次再启用奖励发放。

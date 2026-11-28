@@ -141,3 +141,7 @@ leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -ad
 ```
 
 `init` writes a configuration with one all-time `high-score` board and no `allowedOrigins` to edit; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `leaderboards.yaml` before `serve`. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), accepts only those for the configuration's `audience`, refuses to start when that is the key set's audience, which names the game's servers, keeps scores under `-data`, and stops on SIGINT or SIGTERM. `-sync` flushes every score to the disk before acknowledging it, for a machine that may lose power.
+
+## Tournament lifecycle core
+
+`selfhost.Tournament` adds a deterministic lifecycle boundary for limited-entry competitions. `Join` enforces the scheduled window and `MaxEntrants`, `Submit` enforces `JoinRequired` and `MaxAttempts`, and `Round` computes recurring windows from the configured duration. `EndRound` settles a round once, sorts ties by account ID and invokes `OnRoundEnd` with ranked entries. The core is in-memory so persistent adapters can record closed rounds before enabling reward delivery.
