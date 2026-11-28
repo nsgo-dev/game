@@ -96,3 +96,35 @@ func BenchmarkRigidWorld2000Boxes(b *testing.B) {
 		w.Step(step)
 	}
 }
+
+// BenchmarkRigidWorld10000Sparse measures the broadphase on a sparse field with
+// no candidate overlaps, where the narrow phase should do no work.
+func BenchmarkRigidWorld10000Sparse(b *testing.B) {
+	w := &physics.RigidWorld{}
+	for i := range 10000 {
+		w.AddBody(physics.NewRigidBox(float32(i%100)*100, float32(i/100)*100, 10, 10, 1))
+	}
+	for range 30 {
+		w.Step(step)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		w.Step(step)
+	}
+}
+
+// BenchmarkRigidWorld10000Static measures a large world whose fixed bodies
+// remain in the broadphase while no dynamic contact needs solving.
+func BenchmarkRigidWorld10000Static(b *testing.B) {
+	w := &physics.RigidWorld{}
+	for i := range 10000 {
+		w.AddBody(physics.NewStaticRigidBox(float32(i%100)*100, float32(i/100)*100, 10, 10))
+	}
+	for range 30 {
+		w.Step(step)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		w.Step(step)
+	}
+}
