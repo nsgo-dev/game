@@ -27,17 +27,22 @@ func (b Board) length() time.Duration {
 		return 24 * time.Hour
 	case Weekly:
 		return 7 * 24 * time.Hour
+	case Monthly:
+		return 0
 	}
 	return 0
 }
 
 // periodAt returns the board's period that holds t.
 func (b Board) periodAt(t time.Time) Period {
-	n := b.length()
-	if n == 0 {
+	if b.Reset == AllTime {
 		return Period{ID: AllTimePeriod}
 	}
 	t = t.UTC()
+	if b.Reset == Monthly {
+		start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+		return Period{ID: start.Format("2006-01"), Start: start, End: start.AddDate(0, 1, 0)}
+	}
 	start := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	if b.Reset == Weekly {
 		back := (int(start.Weekday()) - int(b.weekStart()) + 7) % 7
@@ -53,6 +58,9 @@ func (b Board) periodStarting(start time.Time) Period {
 
 // previous returns the period k periods before p on a resetting board.
 func (b Board) previous(p Period, k int) Period {
+	if b.Reset == Monthly {
+		return b.periodAt(p.Start.AddDate(0, -k, 0))
+	}
 	return b.periodStarting(p.Start.Add(-time.Duration(k) * b.length()))
 }
 
@@ -82,7 +90,11 @@ func (b Board) aligned(id string) (Period, bool) {
 	if b.Reset == AllTime {
 		return Period{ID: AllTimePeriod}, id == AllTimePeriod
 	}
-	start, err := time.Parse(periodLayout, id)
+	layout := periodLayout
+	if b.Reset == Monthly {
+		layout = "2006-01"
+	}
+	start, err := time.Parse(layout, id)
 	if err != nil {
 		return Period{}, false
 	}

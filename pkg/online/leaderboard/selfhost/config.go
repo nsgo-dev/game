@@ -33,6 +33,14 @@ const MaxKeep = 1000
 
 // Order is the direction a board ranks scores in.
 type Order string
+type Operator string
+
+const (
+	OperatorBest      Operator = "best"
+	OperatorSet       Operator = "set"
+	OperatorIncrement Operator = "increment"
+	OperatorDecrement Operator = "decrement"
+)
 
 // The orders a board ranks in.
 const (
@@ -52,7 +60,8 @@ const (
 	// Daily starts over every day at midnight UTC.
 	Daily Reset = "daily"
 	// Weekly starts over every week at midnight UTC on the board's weekStart day.
-	Weekly Reset = "weekly"
+	Weekly  Reset = "weekly"
+	Monthly Reset = "monthly"
 )
 
 // Validation is how a board checks where a score came from.
@@ -113,7 +122,9 @@ type Board struct {
 	// Name is the board's key in URLs and the data directory: 1 to 64 characters of a-z, 0-9, '.', '_' and '-', starting with a letter or digit.
 	Name string `yaml:"name"`
 	// Order is the direction scores rank in.
-	Order Order `yaml:"order"`
+	Order            Order    `yaml:"order"`
+	Operator         Operator `yaml:"operator,omitempty"`
+	MetadataMaxBytes int      `yaml:"metadataMaxBytes,omitempty"`
 	// Reset is how often the board starts over.
 	Reset Reset `yaml:"reset"`
 	// WeekStart is the day a weekly board resets on, such as "monday" (the default when empty); only a weekly board may set it.
@@ -247,12 +258,12 @@ func (b Board) validateAt(bPath string) error {
 		if b.Keep != 0 {
 			return loaderr.Errorf(bPath+".keep", "remove keep on an allTime board or change reset to daily or weekly", "selfhost: board %q: an allTime board has no earlier periods to keep", b.Name)
 		}
-	case Daily, Weekly:
+	case Daily, Weekly, Monthly:
 		if b.Keep < 0 || b.Keep > MaxKeep {
 			return loaderr.Errorf(bPath+".keep", fmt.Sprintf("set keep to an integer from 1 to %d or omit it for the default (1)", MaxKeep), "selfhost: board %q: keep %d must be from 1 to %d", b.Name, b.Keep, MaxKeep)
 		}
 	default:
-		return loaderr.Errorf(bPath+".reset", "set reset to allTime, daily or weekly", "selfhost: board %q: reset %q must be allTime, daily or weekly", b.Name, b.Reset)
+		return loaderr.Errorf(bPath+".reset", "set reset to allTime, daily, weekly or monthly", "selfhost: board %q: unsupported reset %q", b.Name, b.Reset)
 	}
 	if b.WeekStart != "" {
 		if b.Reset != Weekly {

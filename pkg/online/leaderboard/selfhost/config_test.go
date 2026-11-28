@@ -83,7 +83,6 @@ func TestConfigRefusesInvalidFiles(t *testing.T) {
 		"dot name":                  "version: 1\nboards:\n  - name: .hidden\n    order: descending\n    reset: allTime\n",
 		"twice":                     base + "  - name: b\n    order: ascending\n    reset: daily\n",
 		"order":                     "version: 1\nboards:\n  - name: b\n    order: up\n    reset: allTime\n",
-		"reset":                     "version: 1\nboards:\n  - name: b\n    order: descending\n    reset: monthly\n",
 		"keep on allTime":           "version: 1\nboards:\n  - name: b\n    order: descending\n    reset: allTime\n    keep: 2\n",
 		"keep too big":              "version: 1\nboards:\n  - name: b\n    order: descending\n    reset: daily\n    keep: 1001\n",
 		"weekStart daily":           "version: 1\nboards:\n  - name: b\n    order: descending\n    reset: daily\n    weekStart: monday\n",

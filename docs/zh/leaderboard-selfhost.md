@@ -141,3 +141,10 @@ leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -ad
 ```
 
 `init` 写出一份只有一个总榜 `high-score` 且不含 `allowedOrigins` 的配置供修改；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `leaderboards.yaml` 的 `allowedOrigins`。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，只接受配置中 `audience` 的令牌，如果它等于密钥集的受众（即游戏服务器的受众）就拒绝启动，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。`-sync` 在确认每条成绩之前先把它刷到磁盘，适用于可能断电的机器。
+# 操作符与赛季
+
+自托管排行榜可声明 `operator`、`metadataMaxBytes` 和 `reset: monthly`。记录支持可选的子分数和 JSON 元数据。
+
+### 操作符、元数据与月度周期
+
+排行榜可以声明 `operator: best|set|increment|decrement`、`metadataMaxBytes` 和 `reset: monthly`。记录与条目包含子分数和 JSON 元数据，用于确定性同分排序和重放详情。月度周期 ID 使用 `YYYY-MM`，通过日历运算处理短月份。现有配置在默认操作符下继续有效。

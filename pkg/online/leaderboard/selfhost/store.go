@@ -2,6 +2,7 @@ package selfhost
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"sync"
 	"time"
@@ -16,7 +17,9 @@ type Record struct {
 	// Account is the account ID.
 	Account string
 	// Score is the best score.
-	Score int64
+	Score    int64
+	Subscore int64
+	Metadata json.RawMessage
 	// Achieved is when the score was submitted; an earlier achievement ranks above a later one with the same score.
 	Achieved time.Time
 }

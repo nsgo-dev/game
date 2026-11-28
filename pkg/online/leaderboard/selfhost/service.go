@@ -3,6 +3,7 @@ package selfhost
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -90,7 +91,9 @@ type Entry struct {
 	// Account is the account ID.
 	Account string
 	// Score is the account's best score in the period.
-	Score int64
+	Score    int64
+	Subscore int64
+	Metadata json.RawMessage
 	// Achieved is when that score was submitted.
 	Achieved time.Time
 }
