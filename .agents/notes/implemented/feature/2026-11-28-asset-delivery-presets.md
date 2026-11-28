@@ -16,5 +16,5 @@ Inferring placement from directory names would couple package layout to source o
 
 ## Consequences
 
-Release tooling can consume a validated delivery plan. Actual file layout and host subpackage loading remain follow-up integrations with the platform build APIs.
+Release tooling can consume a validated delivery plan. Unknown groups are not refused yet, because asset groups are still declared only in Go code (#1630 proposes declaring them in YAML), so nothing in `game.yaml` lists the valid names. Laying files out per package in `game release`, failing on a cap, and loading a subpackage through the host in `Manager.LoadGroup` remain follow-up work for #1735.
 

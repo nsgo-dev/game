@@ -161,6 +161,27 @@ assets:
 
 `Parse` 会拒绝未知字段、其他版本、多余的 YAML 文档、重复名称、轴读取了却未声明的动作、未被自动加载的主场景、跳出项目目录的路径、属于其他平台的目标、越界的值，以及写入同一文件、覆盖 `game.yaml` 或某个目标读取的文件、或写入其他目标扫描目录的资源目标，并在错误里指明出错的字段。`Encode` 先校验 `File`，再按固定字段顺序输出 2 空格缩进的 YAML，`Parse` 读回后内容不变。手写时可以使用任意 YAML 风格并加注释；`game project fmt` 会把文件改写为规范形式，规范形式不保留注释。
 
+### 资源交付
+
+预设的 `delivery` 用于声明资源组放在哪里，适用于把游戏拆成多个包的平台（如小游戏）：
+
+```yaml
+export:
+  presets:
+    - platform: miniprogram
+      targets: [miniprogram_wechat]
+      delivery:
+        main: [boot, ui]
+        subpackages:
+          chapter1: [level1, level2]
+        remote: [music]
+        caps:
+          main: 4194304
+          total: 31457280
+```
+
+`main` 列出主包中的资源组，`subpackages` 把每个分包名（不含空白或控制字符）映射到它的资源组，`remote` 列出从远程源获取的资源组。`caps` 以字节为单位设置主包和全部包合计的大小上限；为 0 或省略表示不设上限。`Parse` 会拒绝空的资源组名、出现在多个位置的资源组和负数上限。没有 `delivery` 的预设仍像以前一样构建单个包。目前只记录并校验这份布局：`game release` 尚不会按包摆放文件，也不会在超出上限时失败。
+
 ## 在游戏中读取
 
 游戏把 `game.yaml` 嵌入程序，并在启动时解析一次：
@@ -265,6 +286,3 @@ scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; 
 ## 起手模板与示例
 
 起手模板和四个示例游戏（`caverun`、`cryptquest`、`slidegem`、`starburst`）都把设置放在 `game.yaml` 中：每个项目都有窗口设置，用到时还包括虚拟分辨率、输入映射、音频总线和导出预设。Cave Run 还通过它自动加载关卡。每个项目都有一个测试，检查 `game.yaml` 是规范形式，并且 `nsgo.yaml` 与它一致。它们也都建立了索引：Cave Run 的 `game.yaml` 和地图引用了文件，因此带有 `game.index.yaml`；`game/tooling/refs` 中的一个测试会在 `game index` 要对示例或起手模板做任何修改时失败，所以移动或编辑它们引用的文件后，请在仓库根目录运行 `go run ./cmd/game index <dir>`。其余示例和起手模板没有场景文件或资源文件，也不引用任何文件，因此在游戏加入这类文件之前没有需要索引的内容。
-# 资源交付
-
-`export.presets[].delivery` 在项目 YAML 中保存平台包布局。省略 delivery 时保持现有单包行为。

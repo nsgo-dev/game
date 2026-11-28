@@ -161,6 +161,27 @@ assets:
 
 `Parse` refuses unknown fields, other versions, a trailing YAML document, duplicate names, actions an axis reads but nobody declares, a main scene that is not autoloaded, paths that leave the project, targets of another platform, values out of range, and asset targets that write the same file, write over `game.yaml` or a file a target reads, or write where another target's scan reads, and says which field is wrong. `Encode` validates a `File` and writes 2-space YAML in a fixed key order that `Parse` reads back unchanged. A person may write the file in any YAML style and with comments; `game project fmt` rewrites it in the canonical form, which keeps no comments.
 
+### Asset delivery
+
+A preset's `delivery` says where its asset groups ship, for platforms that split a game into packages, such as mini games:
+
+```yaml
+export:
+  presets:
+    - platform: miniprogram
+      targets: [miniprogram_wechat]
+      delivery:
+        main: [boot, ui]
+        subpackages:
+          chapter1: [level1, level2]
+        remote: [music]
+        caps:
+          main: 4194304
+          total: 31457280
+```
+
+`main` lists the groups in the main package, `subpackages` maps each subpackage name (no spaces or control characters) to its groups, and `remote` lists the groups served from the remote origin. `caps` sets the largest size in bytes of the main package and of all packages together; 0 or an omitted cap leaves it unset. `Parse` refuses an empty group name, a group in more than one place, and a negative cap. A preset without `delivery` builds a single package as before. Only the placement is recorded and checked so far: `game release` does not yet lay the files out per package or fail on a cap.
+
 ## Reading it in a game
 
 A game embeds its `game.yaml` and parses it once:
@@ -265,6 +286,3 @@ A reference is rewritten in place: its quotes are kept, and the rest of the file
 ## The starter and the examples
 
 The starter template and the four example games (`caverun`, `cryptquest`, `slidegem`, `starburst`) keep their settings in `game.yaml`: each its window, and where it has them its virtual resolution, input map, audio buses and export presets. Cave Run also autoloads its level from it. Each has a test that its `game.yaml` is canonical and its `nsgo.yaml` agrees with it. They are indexed too: Cave Run, whose `game.yaml` and maps name files, carries a `game.index.yaml`, and a test in `game/tooling/refs` fails when `game index` would change anything in the examples or the starter, so run `go run ./cmd/game index <dir>` from the repository root after moving or editing a file they name. The others, and the starter, have no scene or resource file and name no file from one, so they have nothing to index until a game adds one.
-# Asset delivery
-
-`export.presets[].delivery` keeps platform package placement in project YAML. Omitted delivery preserves the existing single-package behavior.
