@@ -6,6 +6,10 @@
 
 A task may list `required_tools` under `checks` to declare the editor and runtime MCP tools it is meant to exercise. The names are checked against a known catalog: `game_scenes_list`, `game_layers_list`, `game_entities_list`, `game_entity_inspect`, `game_input_action`, `game_input_pointer`, `scene_edit`, `file_edit`, `datatable_review_propose`, `game_check`, `game_replay_list` and `game_replay_play`. An unknown or duplicate name fails task loading. The list is metadata for reviewing coverage; it is not scored, and the suite does not yet check that an agent called the tools.
 
+## Task families
+
+A task may declare `family` as `create`, `editor`, `debug`, `3d`, `data`, `code` or `safety`, and `mcp_servers`, the names of the MCP servers it expects an agent to use, such as `[nsgo]`. An unknown family, an empty or whitespace-containing server name, or a duplicate server name fails task loading. Both fields are optional, and `platformer-level`, `add-enemy-type` and `add-menu` are `create` tasks on `[nsgo]`, the only server the staged `mcp.json` configures today. The fields are metadata: grading and reports do not use them yet.
+
 ## Tasks
 
 `editor-workflow` asks for the same menu as `add-menu` and is graded by the same rubric, with a prompt that directs the agent to inspect scenes and layers before editing, edit through `scene_edit` and validate with `game_check`.

@@ -1,4 +1,3 @@
-# Agent evaluation task families
+### Added
 
-Evaluation task metadata now identifies workflow families and the MCP servers expected by each task, enabling editor, debugging, 3D, data, code, and safety coverage to be reported separately.
-
+- `tools/agenteval`: tasks can declare a workflow `family` (`create`, `editor`, `debug`, `3d`, `data`, `code` or `safety`) and the `mcp_servers` they expect, and the existing tasks are tagged `create` with `[nsgo]` (#1749).

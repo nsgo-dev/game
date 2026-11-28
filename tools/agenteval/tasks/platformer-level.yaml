@@ -21,6 +21,9 @@ context_docs:
   - docs/en/input.md
 starter_dir: tools/agenteval/testdata/fixtures/platformer-level/starter
 reference_dir: tools/agenteval/testdata/fixtures/platformer-level/reference
+family: create
+mcp_servers:
+  - nsgo
 checks:
   yaml_files:
     - game.yaml
