@@ -31,8 +31,8 @@ func TestTaskYAMLParsingAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTasksDir: %v", err)
 	}
-	if len(tasks) != 3 {
-		t.Fatalf("loaded %d tasks, want 3", len(tasks))
+	if len(tasks) != 4 {
+		t.Fatalf("loaded %d tasks, want 4", len(tasks))
 	}
 
 	for _, task := range tasks {
@@ -140,8 +140,8 @@ func TestReferenceSuitePassesAllTasks(t *testing.T) {
 	if !report.Passed {
 		t.Fatalf("expected reference suite to pass:\n%s", report.RenderMarkdown())
 	}
-	if report.TotalTasks != 3 || report.PassedTasks != 3 {
-		t.Fatalf("passed %d/%d tasks, want 3/3", report.PassedTasks, report.TotalTasks)
+	if report.TotalTasks != 4 || report.PassedTasks != 4 {
+		t.Fatalf("passed %d/%d tasks, want 4/4", report.PassedTasks, report.TotalTasks)
 	}
 	if report.AverageScore != 100 {
 		t.Fatalf("average score = %.1f, want 100.0", report.AverageScore)
@@ -158,7 +158,7 @@ func TestReferenceSuitePassesAllTasks(t *testing.T) {
 	}
 
 	md := report.RenderMarkdown()
-	for _, id := range []string{"platformer-level", "add-enemy-type", "add-menu"} {
+	for _, id := range []string{"platformer-level", "add-enemy-type", "add-menu", "editor-workflow"} {
 		if !strings.Contains(md, "`"+id+"`") {
 			t.Errorf("markdown report missing task %q:\n%s", id, md)
 		}
@@ -176,7 +176,7 @@ func TestReferenceSuitePassesAllTasks(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("decode JSON report: %v", err)
 	}
-	if decoded.PassedTasks != 3 || decoded.AverageScore != 100 {
+	if decoded.PassedTasks != 4 || decoded.AverageScore != 100 {
 		t.Fatalf("decoded JSON report mismatch: %+v", decoded)
 	}
 }

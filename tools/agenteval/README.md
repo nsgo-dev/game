@@ -11,6 +11,7 @@ Each task is a plain-text versioned YAML document (`version: 1`) under `tools/ag
 | `platformer-level` | Build a platformer level | Valid `game.yaml` and `scenes/level1.scene.yaml`, `assetcheck.Check`, platforms from `player_spawn` to `goal` with no horizontal gap above `max_gap` and no vertical step above `max_rise`, `nsgo check`, and live MCP checks that holding the `right` action through `game_input_action` moves the player toward the goal over 60 fixed steps |
 | `add-enemy-type` | Add an enemy type | Valid `game.yaml` and `scenes/arena.scene.yaml`, `assetcheck.Check`, an enemy object (`prefab: enemy`, an `enemy` component or `tag: enemy`) carrying an `enemy` component, `nsgo check`, and live MCP checks that the `"enemy"`-tagged entity moves across 60 fixed steps |
 | `add-menu` | Add a menu | Valid `game.yaml`, `scenes/menu.scene.yaml` and `scenes/gameplay.scene.yaml`, `assetcheck.Check`, a visible screen-space layer with at least two buttons (`prefab: button` or a `button` component), `nsgo check`, and live MCP checks of `game_scenes_list` and `game_layers_list`, then a click on Play through `game_input_pointer` that must switch to `gameplay` |
+| `editor-workflow` | Build the same menu through the editor workflow | The `add-menu` rubric; `checks.required_tools` declares `game_scenes_list`, `game_layers_list`, `scene_edit` and `game_check` as the intended tools, which is not scored ([catalog](../../docs/en/agent-eval.md)) |
 
 ## Scoring rubric
 
