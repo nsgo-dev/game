@@ -77,20 +77,17 @@ const (
 func (a AimAssist) Evaluate2D(origin, direction math2d.Vec2, targets []AimTarget2D, visible func(from, to math2d.Vec2) bool) AimResult2D {
 	direction = direction.Normalize()
 	result := AimResult2D{Direction: direction, Friction: 1}
-	if direction.LenSq() == 0 || len(targets) == 0 {
+	if lenSq := direction.LenSq(); lenSq == 0 || !finiteFloat32(lenSq) || len(targets) == 0 {
 		return result
 	}
 	cfg := a.normalized()
 	var best AimTarget2D
 	bestAngle, bestDistance := float32(math.MaxFloat32), float32(math.MaxFloat32)
 	found := false
-	for i, target := range targets {
+	for _, target := range targets {
 		offset := target.Position.Sub(origin)
 		distance := offset.Len()
 		if distance == 0 || !finiteFloat32(distance) {
-			continue
-		}
-		if visible != nil && !visible(origin, target.Position) {
 			continue
 		}
 		toTarget := offset.Scale(1 / distance)
@@ -102,11 +99,15 @@ func (a AimAssist) Evaluate2D(origin, direction math2d.Vec2, targets []AimTarget
 		if angle > limit {
 			continue
 		}
-		// Priority is authoritative. Angle and distance make selection stable,
-		// while the original index is the final deterministic tie-breaker.
-		if !found || target.Priority > best.Priority || (target.Priority == best.Priority && (angle < bestAngle || (angle == bestAngle && (distance < bestDistance || (distance == bestDistance && i < indexOf2D(target, targets)))))) {
-			best, bestAngle, bestDistance, found = target, angle, distance, true
+		// A worse candidate cannot win, so skip its line-of-sight query: the callback is usually a raycast.
+		if found && (target.Priority < best.Priority || (target.Priority == best.Priority && (angle > bestAngle || (angle == bestAngle && distance >= bestDistance)))) {
+			continue
 		}
+		if visible != nil && !visible(origin, target.Position) {
+			continue
+		}
+		// Priority is authoritative, then angle, then distance; on a full tie the earlier target in the slice is kept, so the input order is the final deterministic tie-breaker.
+		best, bestAngle, bestDistance, found = target, angle, distance, true
 	}
 	if !found {
 		return result
@@ -140,20 +141,17 @@ func (a AimAssist) Evaluate2D(origin, direction math2d.Vec2, targets []AimTarget
 func (a AimAssist) Evaluate3D(origin, direction math3d.Vec3, targets []AimTarget3D, visible func(from, to math3d.Vec3) bool) AimResult3D {
 	direction = direction.Norm()
 	result := AimResult3D{Direction: direction, Friction: 1}
-	if direction.LenSq() == 0 || len(targets) == 0 {
+	if lenSq := direction.LenSq(); lenSq == 0 || !finiteFloat32(lenSq) || len(targets) == 0 {
 		return result
 	}
 	cfg := a.normalized()
 	var best AimTarget3D
 	bestAngle, bestDistance := float32(math.MaxFloat32), float32(math.MaxFloat32)
 	found := false
-	for i, target := range targets {
+	for _, target := range targets {
 		offset := target.Position.Sub(origin)
 		distance := offset.Len()
 		if distance == 0 || !finiteFloat32(distance) {
-			continue
-		}
-		if visible != nil && !visible(origin, target.Position) {
 			continue
 		}
 		toTarget := offset.Scale(1 / distance)
@@ -165,9 +163,14 @@ func (a AimAssist) Evaluate3D(origin, direction math3d.Vec3, targets []AimTarget
 		if angle > limit {
 			continue
 		}
-		if !found || target.Priority > best.Priority || (target.Priority == best.Priority && (angle < bestAngle || (angle == bestAngle && (distance < bestDistance || (distance == bestDistance && i < indexOf3D(target, targets)))))) {
-			best, bestAngle, bestDistance, found = target, angle, distance, true
+		// A worse candidate cannot win, so skip its line-of-sight query: the callback is usually a raycast.
+		if found && (target.Priority < best.Priority || (target.Priority == best.Priority && (angle > bestAngle || (angle == bestAngle && distance >= bestDistance)))) {
+			continue
 		}
+		if visible != nil && !visible(origin, target.Position) {
+			continue
+		}
+		best, bestAngle, bestDistance, found = target, angle, distance, true
 	}
 	if !found {
 		return result
@@ -248,22 +251,6 @@ func absAngle3D(a, b math3d.Vec3) float32 {
 		dot = -1
 	}
 	return float32(math.Acos(dot))
-}
-func indexOf2D(target AimTarget2D, all []AimTarget2D) int {
-	for i, t := range all {
-		if t == target {
-			return i
-		}
-	}
-	return len(all)
-}
-func indexOf3D(target AimTarget3D, all []AimTarget3D) int {
-	for i, t := range all {
-		if t == target {
-			return i
-		}
-	}
-	return len(all)
 }
 func clamp01(v float32) float32 {
 	if !finiteFloat32(v) || v <= 0 {
