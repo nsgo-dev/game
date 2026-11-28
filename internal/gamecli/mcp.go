@@ -18,12 +18,12 @@ import (
 // mcpCommand serves the editor's MCP tools on standard input and output for an agent that starts it, forwarding to the editor that has the project open, or writes project-level MCP configurations for Claude Code and Codex with `mcp install`.
 var mcpCommand = &command{
 	name:    "mcp",
-	args:    "[install]",
+	args:    "[install|selftest]",
 	summary: "Serve the editor's MCP tools on stdio, or run `mcp install` to configure Claude Code and Codex for this project",
 	define:  defineMCP,
 	complete: map[string]completion{
 		"project": filePaths,
-		"":        oneOf("install"),
+		"":        oneOf("install", "selftest"),
 	},
 }
 
@@ -31,6 +31,15 @@ func defineMCP(a *app, fs *flag.FlagSet) func() error {
 	dir := fs.String("project", ".", "the project: its directory, a directory inside it, or its game.yaml")
 	return func() error {
 		if fs.NArg() > 0 {
+			if fs.Arg(0) == "selftest" {
+				if err := fs.Parse(fs.Args()[1:]); err != nil {
+					return errUsageReported
+				}
+				if fs.NArg() > 0 {
+					return usagef("expected no arguments after selftest, got %d", fs.NArg())
+				}
+				return runMCPReleaseSelftest(a, *dir, "release-check.yaml")
+			}
 			if fs.Arg(0) == "install" {
 				if err := fs.Parse(fs.Args()[1:]); err != nil {
 					if errors.Is(err, flag.ErrHelp) {

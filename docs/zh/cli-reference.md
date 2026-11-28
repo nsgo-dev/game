@@ -435,3 +435,7 @@ go tool game help [command]
 ```
 
 没有参数。
+
+## game mcp selftest
+
+运行无头编辑器 MCP 冒烟检查并写出 `release-check.yaml` 证据。

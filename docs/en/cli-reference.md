@@ -435,3 +435,7 @@ go tool game help [command]
 ```
 
 No flags.
+
+## game mcp selftest
+
+Run the headless editor MCP smoke check and write `release-check.yaml` evidence.
