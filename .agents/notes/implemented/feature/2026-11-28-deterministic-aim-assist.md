@@ -16,5 +16,5 @@ Keeping aim assist inside each game would minimize the shared API, but would dup
 
 ## Consequences
 
-Aim assist behavior is reusable and testable for both dimensions, and line-of-sight remains game-owned. Callers build the target slice in a deterministic order, and on a full tie the earlier target wins. The evaluator does not allocate; it filters targets by angle and by the current best candidate before calling the line-of-sight callback, so a raycast runs only for a target that could still be chosen. Starburst reuses one target buffer across steps.
+Aim assist behavior is reusable and testable for both dimensions, and line-of-sight remains game-owned. Callers build the target slice in a deterministic order, and on a full tie the earlier target wins. The evaluator does not allocate; it filters targets by angle and by the current best candidate before calling the line-of-sight callback, so a raycast runs only for a target that could still be chosen. Starburst reuses one target buffer across steps. The 3D positions and directions are `input.Vec3`, a type of the package's own with `math3d.Vec3`'s layout: taking `pathfind.Vec3` made `input` import `pathfind`, which imports `tilemap` and `sprite`, and `gametest` imports `a11y`, which imports `input`, so every test of `sprite` that uses `gametest` hit an import cycle.
 

@@ -4,7 +4,6 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/pkg/math2d"
-	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 // AimTarget2D is a target that can be selected by AimAssist. Radius is the
@@ -22,7 +21,7 @@ type AimTarget2D struct {
 // same angle.
 type AimTarget3D struct {
 	ID       string
-	Position pathfind.Vec3
+	Position Vec3
 	Radius   float32
 	Priority int
 }
@@ -38,7 +37,7 @@ type AimResult2D struct {
 
 // AimResult3D describes one fixed-step aim-assist evaluation.
 type AimResult3D struct {
-	Direction pathfind.Vec3
+	Direction Vec3
 	Target    AimTarget3D
 	Found     bool
 	// Friction is the multiplier to apply to look input for this step.
@@ -138,7 +137,7 @@ func (a AimAssist) Evaluate2D(origin, direction math2d.Vec2, targets []AimTarget
 }
 
 // Evaluate3D is the 3D counterpart of Evaluate2D.
-func (a AimAssist) Evaluate3D(origin, direction pathfind.Vec3, targets []AimTarget3D, visible func(from, to pathfind.Vec3) bool) AimResult3D {
+func (a AimAssist) Evaluate3D(origin, direction Vec3, targets []AimTarget3D, visible func(from, to Vec3) bool) AimResult3D {
 	direction = aimNorm3(direction)
 	result := AimResult3D{Direction: direction, Friction: 1}
 	if lenSq := aimLenSq3(direction); lenSq == 0 || !finiteFloat32(lenSq) || len(targets) == 0 {
@@ -206,7 +205,7 @@ func (a AimAssist) Assist2D(origin, direction math2d.Vec2, targets []AimTarget2D
 }
 
 // Assist3D returns the assisted direction and is a shorthand for Evaluate3D.
-func (a AimAssist) Assist3D(origin, direction pathfind.Vec3, targets []AimTarget3D, visible func(from, to pathfind.Vec3) bool) pathfind.Vec3 {
+func (a AimAssist) Assist3D(origin, direction Vec3, targets []AimTarget3D, visible func(from, to Vec3) bool) Vec3 {
 	return a.Evaluate3D(origin, direction, targets, visible).Direction
 }
 
@@ -242,7 +241,7 @@ func (a AimAssist) normalized() AimAssist {
 func absAngle2D(a, b math2d.Vec2) float32 {
 	return float32(math.Abs(math.Atan2(float64(a.Cross(b)), float64(a.Dot(b)))))
 }
-func absAngle3D(a, b pathfind.Vec3) float32 {
+func absAngle3D(a, b Vec3) float32 {
 	dot := float64(aimDot3(a, b))
 	if dot > 1 {
 		dot = 1
@@ -252,24 +251,24 @@ func absAngle3D(a, b pathfind.Vec3) float32 {
 	}
 	return float32(math.Acos(dot))
 }
-func aimSub3(a, b pathfind.Vec3) pathfind.Vec3 {
-	return pathfind.Vec3{X: a.X - b.X, Y: a.Y - b.Y, Z: a.Z - b.Z}
+func aimSub3(a, b Vec3) Vec3 {
+	return Vec3{X: a.X - b.X, Y: a.Y - b.Y, Z: a.Z - b.Z}
 }
-func aimScale3(v pathfind.Vec3, s float32) pathfind.Vec3 {
-	return pathfind.Vec3{X: v.X * s, Y: v.Y * s, Z: v.Z * s}
+func aimScale3(v Vec3, s float32) Vec3 {
+	return Vec3{X: v.X * s, Y: v.Y * s, Z: v.Z * s}
 }
-func aimDot3(a, b pathfind.Vec3) float32 { return a.X*b.X + a.Y*b.Y + a.Z*b.Z }
-func aimLenSq3(v pathfind.Vec3) float32  { return aimDot3(v, v) }
-func aimLen3(v pathfind.Vec3) float32    { return float32(math.Sqrt(float64(aimLenSq3(v)))) }
-func aimNorm3(v pathfind.Vec3) pathfind.Vec3 {
+func aimDot3(a, b Vec3) float32 { return a.X*b.X + a.Y*b.Y + a.Z*b.Z }
+func aimLenSq3(v Vec3) float32  { return aimDot3(v, v) }
+func aimLen3(v Vec3) float32    { return float32(math.Sqrt(float64(aimLenSq3(v)))) }
+func aimNorm3(v Vec3) Vec3 {
 	l := aimLen3(v)
 	if l == 0 || !finiteFloat32(l) {
-		return pathfind.Vec3{}
+		return Vec3{}
 	}
 	return aimScale3(v, 1/l)
 }
-func aimLerp3(a, b pathfind.Vec3, t float32) pathfind.Vec3 {
-	return pathfind.Vec3{X: a.X + (b.X-a.X)*t, Y: a.Y + (b.Y-a.Y)*t, Z: a.Z + (b.Z-a.Z)*t}
+func aimLerp3(a, b Vec3, t float32) Vec3 {
+	return Vec3{X: a.X + (b.X-a.X)*t, Y: a.Y + (b.Y-a.Y)*t, Z: a.Z + (b.Z-a.Z)*t}
 }
 
 func clamp01(v float32) float32 {

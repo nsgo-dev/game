@@ -313,7 +313,7 @@ if err != nil {
 
 ### 显示
 
-- [ ] 游戏在 `1280×800`（Steam Deck 原生 16:10）与 `1280×720`（16:9）下完整渲染且无 HUD 裁切，使用 [`screen.Viewport`](screen.md)（`ModeFit` 或 `ModeExpand`）与 [`screen.Video`](screen.md#显示设置)（`Fullscreen: true`）。Deck 上自动默认 `1280×800` 全屏跟踪于 [#1765](https://github.com/nsgo-dev/game/issues/1765)。
+- [ ] 游戏在 `1280×800`（Steam Deck 原生 16:10）与 `1280×720`（16:9）下完整渲染且无 HUD 裁切，使用 [`screen.Viewport`](screen.md)（`ModeFit` 或 `ModeExpand`）与 [`screen.Video`](screen.md#视频设置)（`Fullscreen: true`）。Deck 上自动默认 `1280×800` 全屏跟踪于 [#1765](https://github.com/nsgo-dev/game/issues/1765)。
 - [ ] 在 7 英寸 1280×800 屏幕上所有界面文字、提示与字幕清晰易读（避免小于 9px 的极小字体）。
 - [ ] 帧步调稳定且兼顾续航：接入 `screen.Video` 的 `FrameCap`（支持玩家调节或锁定 60/90 fps）与 `AutoDropLowPower`。
 
