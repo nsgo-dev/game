@@ -9,3 +9,5 @@ A task may list `required_tools` under `checks` to declare the editor and runtim
 ## Tasks
 
 `editor-workflow` asks for the same menu as `add-menu` and is graded by the same rubric, with a prompt that directs the agent to inspect scenes and layers before editing, edit through `scene_edit` and validate with `game_check`.
+
+Task metadata may declare one family (`create`, `editor`, `debug`, `3d`, `data`, `code`, or `safety`) and the MCP servers it expects. The loader rejects unknown families, empty or whitespace-containing server names, and duplicates so coverage reports remain reviewable.
