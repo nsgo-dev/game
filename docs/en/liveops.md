@@ -372,3 +372,6 @@ liveops.CaptureCardSnapshot(cx, gameCanvasRef, liveops.CardSnapshotOptions{}, fu
 ```
 
 Tests cover fake `ShareHost` round-trips, size boundaries, malformed-input rejection, HMAC verification, at-most-once launch/resume delivery, `MiniGameShareHost`, `PlatformShareHost` (native & web via `nsgotest`), and 5:4 snapshots in `liveops/invites_test.go`.
+# Mini-game ads
+
+`liveops.Ads` wraps a host `AdHost`. Rewarded callbacks return `rewarded` only when playback ends. Interstitials honor a per-session cap, a minimum interval and a `Disabled` predicate. Pause and input-reset hooks cover the ad interval.
