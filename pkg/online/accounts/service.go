@@ -341,6 +341,64 @@ func (s *Service) LinkIdentity(ctx context.Context, accountID, provider, credent
 	return nil
 }
 
+// ChangePassword replaces an account's password after checking the current one. It refuses accounts without an email credential.
+func (s *Service) ChangePassword(ctx context.Context, accountID, oldPassword, newPassword string) error {
+	if err := s.acquireHash(ctx); err != nil {
+		return err
+	}
+	defer s.releaseHash()
+	a, err := s.store.Account(ctx, accountID)
+	if err != nil {
+		return s.storeError("account", err)
+	}
+	if a.Email == "" {
+		return ErrInvalidCredentials
+	}
+	_, hash, err := s.store.AccountByEmail(ctx, a.Email)
+	if err != nil {
+		return s.storeError("account by email", err)
+	}
+	ok, _, err := VerifyPassword(oldPassword, hash)
+	if err != nil || !ok {
+		return ErrInvalidCredentials
+	}
+	fresh, err := HashPassword(newPassword, s.cfg.Password.Argon2id, s.rand)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SetPasswordHash(ctx, accountID, fresh); err != nil {
+		return s.storeError("set password hash", err)
+	}
+	s.log.InfoContext(ctx, "accounts: password changed", "account", accountID)
+	return nil
+}
+
+// UnlinkIdentity removes an identity after ensuring the account keeps an email credential or another identity.
+func (s *Service) UnlinkIdentity(ctx context.Context, accountID, provider string) error {
+	p, err := s.Profile(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, identity := range p.Identities {
+		if identity.Provider == provider {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ErrNotFound
+	}
+	if p.Email == "" && len(p.Identities) <= 1 {
+		return ErrLastCredential
+	}
+	if err := s.store.UnlinkIdentity(ctx, accountID, provider); err != nil {
+		return s.storeError("unlink identity", err)
+	}
+	s.log.InfoContext(ctx, "accounts: identity unlinked", "account", accountID, "provider", provider)
+	return nil
+}
+
 // Refresh returns a new token for the game's servers for a device's session. The session stays the same.
 func (s *Service) Refresh(ctx context.Context, session Secret) (Credentials, error) {
 	return s.RefreshFor(ctx, session, "")
@@ -563,7 +621,7 @@ func (s *Service) timestamp() time.Time { return s.now().UTC().Truncate(time.Mil
 
 // storeError passes the store's contract errors through and logs any other error before returning it wrapped.
 func (s *Service) storeError(op string, err error) error {
-	for _, known := range []error{ErrNotFound, ErrTaken, ErrAlreadyLinked} {
+	for _, known := range []error{ErrNotFound, ErrTaken, ErrAlreadyLinked, ErrLastCredential} {
 		if errors.Is(err, known) {
 			return known
 		}

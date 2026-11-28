@@ -264,6 +264,44 @@ func TestPlatformIdentityLinksOnSecondDevice(t *testing.T) {
 	}
 }
 
+func TestChangePasswordAndUnlinkIdentityKeepACredential(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, nil)
+	creds, err := f.svc.Register(ctx, "ada@example.com", "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.ChangePassword(ctx, creds.AccountID, "wrong password", "new correct password"); !errors.Is(err, accounts.ErrInvalidCredentials) {
+		t.Fatalf("wrong old password = %v", err)
+	}
+	if err := f.svc.ChangePassword(ctx, creds.AccountID, "correct horse battery", "new correct password"); err != nil {
+		t.Fatalf("ChangePassword = %v", err)
+	}
+	if _, err := f.svc.SignInEmail(ctx, "ada@example.com", "correct horse battery"); !errors.Is(err, accounts.ErrInvalidCredentials) {
+		t.Fatalf("old password sign-in = %v", err)
+	}
+	if _, err := f.svc.SignInEmail(ctx, "ada@example.com", "new correct password"); err != nil {
+		t.Fatalf("new password sign-in = %v", err)
+	}
+	if err := f.svc.LinkIdentity(ctx, creds.AccountID, "gamecenter", "gc-signature-device-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.UnlinkIdentity(ctx, creds.AccountID, "gamecenter"); err != nil {
+		t.Fatalf("UnlinkIdentity = %v", err)
+	}
+	if err := f.svc.UnlinkIdentity(ctx, creds.AccountID, "gamecenter"); !errors.Is(err, accounts.ErrNotFound) {
+		t.Fatalf("missing identity = %v", err)
+	}
+
+	identityOnly, err := f.svc.SignInIdentity(ctx, "gamecenter", "gc-signature-device-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.UnlinkIdentity(ctx, identityOnly.AccountID, "gamecenter"); !errors.Is(err, accounts.ErrLastCredential) {
+		t.Fatalf("last identity = %v", err)
+	}
+}
+
 func TestConcurrentFirstSignInsCreateOneAccount(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t, nil)

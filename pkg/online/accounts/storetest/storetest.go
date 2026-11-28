@@ -24,6 +24,7 @@ func Run(t *testing.T, open func(t *testing.T) accounts.Store) {
 		{"SetEmail", testSetEmail},
 		{"SetPasswordHash", testSetPasswordHash},
 		{"LinkIdentity", testLinkIdentity},
+		{"UnlinkIdentity", testUnlinkIdentity},
 		{"Sessions", testSessions},
 		{"ConcurrentClaims", testConcurrentClaims},
 	}
@@ -163,6 +164,23 @@ func testLinkIdentity(t *testing.T, s accounts.Store) {
 	if ids, _ := s.Identities(ctx, "a2"); len(ids) != 0 {
 		t.Fatalf("Identities(a2) = %v, want none", ids)
 	}
+}
+
+func testUnlinkIdentity(t *testing.T, s accounts.Store) {
+	ctx := context.Background()
+	mustCreate(t, s, account("a1", ""), "")
+	mustCreate(t, s, account("a2", ""), "")
+	identity := accounts.Identity{Provider: "steam", Subject: "765"}
+	if err := s.LinkIdentity(ctx, "a1", identity, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UnlinkIdentity(ctx, "a1", "steam"); err != nil {
+		t.Fatalf("UnlinkIdentity = %v", err)
+	}
+	_, err := s.AccountByIdentity(ctx, identity)
+	wantErr(t, "identity after unlink", err, accounts.ErrNotFound)
+	wantErr(t, "UnlinkIdentity(again)", s.UnlinkIdentity(ctx, "a1", "steam"), accounts.ErrNotFound)
+	wantErr(t, "UnlinkIdentity(missing account)", s.UnlinkIdentity(ctx, "missing", "steam"), accounts.ErrNotFound)
 }
 
 func testSessions(t *testing.T, s accounts.Store) {

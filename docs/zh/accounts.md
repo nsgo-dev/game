@@ -47,6 +47,8 @@ saves, _ := svc.RefreshFor(ctx, again.Session, "cloudsave")       // 云存档�
 | `SignInEmail` | 用邮箱和密码登录 |
 | `SignInIdentity` | 用身份提供方的凭据登录，身份是新的时会新建账号 |
 | `LinkIdentity` | 把身份提供方的身份绑定到账号 |
+| `ChangePassword` | 校验旧密码后替换邮箱账号的密码 |
+| `UnlinkIdentity` | 移除身份提供方，同时保留其他登录方式 |
 | `Refresh` / `SignOut` | 为会话签发新的游戏服务器令牌 / 吊销会话 |
 | `RefreshFor` | 为会话签发给其他受众的新令牌：`ServiceAudience` 或 `audiences` 中的一项 |
 | `Profile` | 账号、邮箱及已绑定的身份；`Profile.Guest` 表示是否为游客 |
@@ -76,7 +78,7 @@ Game Center 的校验器用 Apple 的证书校验签名身份，Play Games 的�
 | 受众 | 谁接受 | 设备怎样拿到 |
 | --- | --- | --- |
 | 配置中的 `audience`（`my-game`） | 游戏服务器，用 `authtoken.NewVerifier` | 每次登录、`Refresh` |
-| `accounts`（`ServiceAudience`） | 服务自己的 `GET /v1/me` 和 `POST /v1/link/*` | `RefreshFor(session, "accounts")` |
+| `accounts`（`ServiceAudience`） | 服务自己的 `GET /v1/me`、`POST /v1/link/*`、密码和身份管理接口 | `RefreshFor(session, "accounts")` |
 | `audiences` 中的一项（`cloudsave`、`leaderboard`） | 对应的服务，用 `authtoken.NewVerifierFor` | `RefreshFor(session, "cloudsave")` |
 
 玩家会把游戏服务器令牌发给它加入的每一台服务器，运营这台服务器的人在令牌过期前都可以重放它。云存档、排行榜和账号服务都拒绝这种令牌，所以游戏服务器只能知道玩家是谁：它读不到、覆盖不了也清除不了玩家的存档，不能替玩家提交分数，也不能给玩家的账号绑定邮箱或身份。设备的会话只留在设备上，发给每个服务的只是该服务的令牌。
@@ -187,10 +189,12 @@ func TestContract(t *testing.T) {
 | `POST /v1/signout` | `{"session"}` | 204 |
 | `POST /v1/link/email` | `{"email", "password"}`，带 `accounts` bearer 令牌 | 204 |
 | `POST /v1/link/identity` | `{"provider", "credential"}`，带 `accounts` bearer 令牌 | 204 |
+| `POST /v1/password` | `{"oldPassword", "newPassword"}`，带 `accounts` bearer 令牌 | 204 |
+| `POST /v1/unlink/identity` | `{"provider"}`，带 `accounts` bearer 令牌 | 204 |
 | `GET /v1/me` | `accounts` bearer 令牌 | 账号资料 |
 | `GET /v1/keys` | | YAML 格式的密钥集 |
 
-凭据为 `{"account", "session", "token", "expires", "created"}`，新建账号时状态码为 201。登录返回的令牌给游戏服务器用；带 `audience` 的 `refresh` 则返回该受众的令牌。需要 bearer 令牌的接口只接受 `accounts` 令牌，其他令牌一律返回 `invalid_token`。错误为 `{"error": code}`：`invalid_credentials` 和 `invalid_token` 为 401，`guests_disabled` 为 403，`not_found` 为 404，`taken` 和 `already_linked` 为 409，`request_too_large` 为 413，`bad_request`、`invalid_email`、`weak_password`、`unknown_provider` 和 `unknown_audience` 为 400，请求被取消或超时（例如高负载下等待密码哈希槽位）时 `unavailable` 为 503，`internal` 为 500。请求体限制为 32 KiB，未知字段会被拒绝。对 `allowedOrigins` 中的 origin，处理器会应答 CORS 预检请求并允许 `Authorization` 和 `Content-Type`；其他 origin 不会收到 CORS 响应头。处理器本身不限制请求速率：请放在 TLS 和限流器之后运行。
+凭据为 `{"account", "session", "token", "expires", "created"}`，新建账号时状态码为 201。登录返回的令牌给游戏服务器用；带 `audience` 的 `refresh` 则返回该受众的令牌。需要 bearer 令牌的接口只接受 `accounts` 令牌，其他令牌一律返回 `invalid_token`。错误为 `{"error": code}`：`invalid_credentials` 和 `invalid_token` 为 401，`guests_disabled` 为 403，`not_found` 为 404，`taken`、`already_linked` 和 `last_credential` 为 409，`request_too_large` 为 413，`bad_request`、`invalid_email`、`weak_password`、`unknown_provider` 和 `unknown_audience` 为 400，请求被取消或超时（例如高负载下等待密码哈希槽位）时 `unavailable` 为 503，`internal` 为 500。请求体限制为 32 KiB，未知字段会被拒绝。对 `allowedOrigins` 中的 origin，处理器会应答 CORS 预检请求并允许 `Authorization` 和 `Content-Type`；其他 origin 不会收到 CORS 响应头。处理器本身不限制请求速率：请放在 TLS 和限流器之后运行。
 
 ## accountsd
 

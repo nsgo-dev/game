@@ -276,6 +276,25 @@ func (s *Store) LinkIdentity(ctx context.Context, id string, identity accounts.I
 	}
 }
 
+// UnlinkIdentity implements accounts.Store.
+func (s *Store) UnlinkIdentity(ctx context.Context, id, provider string) error {
+	if _, err := s.Account(ctx, id); err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, s.q(`DELETE FROM account_identities WHERE account_id = ? AND provider = ?`), id, provider)
+	if err != nil {
+		return s.wrap("unlink identity", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return s.wrap("unlink identity", err)
+	}
+	if n == 0 {
+		return accounts.ErrNotFound
+	}
+	return nil
+}
+
 // AccountByIdentity implements accounts.Store.
 func (s *Store) AccountByIdentity(ctx context.Context, identity accounts.Identity) (accounts.Account, error) {
 	a, _, err := s.scanAccount(s.db.QueryRowContext(ctx, s.q(`SELECT a.id, a.email, a.password_hash, a.created_at FROM accounts a

@@ -146,6 +146,22 @@ func (m *MemoryStore) LinkIdentity(_ context.Context, id string, identity Identi
 	return nil
 }
 
+// UnlinkIdentity implements Store.
+func (m *MemoryStore) UnlinkIdentity(_ context.Context, id, provider string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.accounts[id]; !ok {
+		return ErrNotFound
+	}
+	for identity, owner := range m.identities {
+		if owner == id && identity.Provider == provider {
+			delete(m.identities, identity)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 // AccountByIdentity implements Store.
 func (m *MemoryStore) AccountByIdentity(_ context.Context, identity Identity) (Account, error) {
 	m.mu.Lock()

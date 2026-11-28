@@ -114,6 +114,29 @@ func TestHTTPGuestUpgradeAndSecondDevice(t *testing.T) {
 	}
 }
 
+func TestHTTPPasswordAndUnlinkIdentity(t *testing.T) {
+	f := newFixture(t, nil)
+	h := f.svc.Handler()
+	var guest httpCreds
+	call(t, h, "POST", "/v1/guest", "", "{}", &guest)
+	self := accountsToken(t, h, guest.Session)
+	if code, _ := call(t, h, "POST", "/v1/link/email", self, `{"email":"ada@example.com","password":"correct horse battery"}`, nil); code != http.StatusNoContent {
+		t.Fatalf("link email = %d", code)
+	}
+	if code, _ := call(t, h, "POST", "/v1/password", self, `{"oldPassword":"correct horse battery","newPassword":"new correct password"}`, nil); code != http.StatusNoContent {
+		t.Fatalf("change password = %d", code)
+	}
+	if code, _ := call(t, h, "POST", "/v1/signin/email", "", `{"email":"ada@example.com","password":"new correct password"}`, &httpCreds{}); code != http.StatusOK {
+		t.Fatalf("sign in with changed password = %d", code)
+	}
+	if code, _ := call(t, h, "POST", "/v1/link/identity", self, `{"provider":"gamecenter","credential":"gc-signature-device-1"}`, nil); code != http.StatusNoContent {
+		t.Fatalf("link identity = %d", code)
+	}
+	if code, _ := call(t, h, "POST", "/v1/unlink/identity", self, `{"provider":"gamecenter"}`, nil); code != http.StatusNoContent {
+		t.Fatalf("unlink identity = %d", code)
+	}
+}
+
 func TestHTTPErrors(t *testing.T) {
 	f := newFixture(t, nil)
 	h := f.svc.Handler()

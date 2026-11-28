@@ -47,11 +47,13 @@ saves, _ := svc.RefreshFor(ctx, again.Session, "cloudsave")       // a token for
 | `SignInEmail` | Signs in with an email address and password |
 | `SignInIdentity` | Signs in with a provider credential, creating the account when the identity is new |
 | `LinkIdentity` | Links a provider identity to an account |
+| `ChangePassword` | Replaces an email account's password after checking the old one |
+| `UnlinkIdentity` | Removes a provider identity while retaining another sign-in method |
 | `Refresh` / `SignOut` | A new game server token for a session / revokes the session |
 | `RefreshFor` | A new token for a session meant for another audience: `ServiceAudience` or one of `audiences` |
 | `Profile` | The account, its email address and its identities; `Profile.Guest` reports a guest |
 
-Errors are `ErrNotFound`, `ErrTaken` (the address or identity belongs to another account), `ErrAlreadyLinked`, `ErrInvalidCredentials` (never saying whether the address, the password or the session was wrong), `ErrInvalidEmail`, `ErrWeakPassword`, `ErrUnknownProvider` and `ErrUnknownAudience` (a `RefreshFor` audience the configuration does not offer).
+Errors are `ErrNotFound`, `ErrTaken` (the address or identity belongs to another account), `ErrAlreadyLinked`, `ErrLastCredential`, `ErrInvalidCredentials` (never saying whether the address, the password or the session was wrong), `ErrInvalidEmail`, `ErrWeakPassword`, `ErrUnknownProvider` and `ErrUnknownAudience` (a `RefreshFor` audience the configuration does not offer).
 
 ## Identities
 
@@ -76,7 +78,7 @@ A token names the one consumer it is for in its audience, and each consumer acce
 | Audience | Who accepts it | How a device gets one |
 | --- | --- | --- |
 | `audience` of the configuration (`my-game`) | the game's servers, with `authtoken.NewVerifier` | every sign-in, `Refresh` |
-| `accounts` (`ServiceAudience`) | the service's own `GET /v1/me` and `POST /v1/link/*` | `RefreshFor(session, "accounts")` |
+| `accounts` (`ServiceAudience`) | the service's own `GET /v1/me`, `POST /v1/link/*`, password and identity management endpoints | `RefreshFor(session, "accounts")` |
 | an entry of `audiences` (`cloudsave`, `leaderboard`) | that service, with `authtoken.NewVerifierFor` | `RefreshFor(session, "cloudsave")` |
 
 A player sends the game server token to every server it joins, and whoever runs that server can replay it until it expires. Because cloud save, the leaderboard and the account service refuse it, a game server learns who the player is and nothing more: it cannot read, overwrite or purge the player's saves, submit scores for them, or link an email address or identity to their account. A device keeps its session to itself and sends each service only a token for that service.
@@ -187,10 +189,12 @@ func TestContract(t *testing.T) {
 | `POST /v1/signout` | `{"session"}` | 204 |
 | `POST /v1/link/email` | `{"email", "password"}`, with an `accounts` bearer token | 204 |
 | `POST /v1/link/identity` | `{"provider", "credential"}`, with an `accounts` bearer token | 204 |
+| `POST /v1/password` | `{"oldPassword", "newPassword"}`, with an `accounts` bearer token | 204 |
+| `POST /v1/unlink/identity` | `{"provider"}`, with an `accounts` bearer token | 204 |
 | `GET /v1/me` | `accounts` bearer token | profile |
 | `GET /v1/keys` | | the key set as YAML |
 
-Credentials are `{"account", "session", "token", "expires", "created"}`, with status 201 when the account is new. A sign-in's token is for game servers; `refresh` with `audience` returns one for that audience instead. The bearer endpoints accept only a token for `accounts` and answer `invalid_token` to any other. Errors are `{"error": code}`: `invalid_credentials` and `invalid_token` 401, `guests_disabled` 403, `not_found` 404, `taken` and `already_linked` 409, `request_too_large` 413, `bad_request`, `invalid_email`, `weak_password`, `unknown_provider` and `unknown_audience` 400, `unavailable` 503 when the request was cancelled or timed out (for example while waiting for a password hash slot under load), and `internal` 500. Request bodies are limited to 32 KiB and unknown fields are refused. For `allowedOrigins` the handler answers CORS preflight requests and allows `Authorization` and `Content-Type`; other origins receive no CORS headers. The handler does not limit request rates: run it behind TLS and a rate limiter.
+Credentials are `{"account", "session", "token", "expires", "created"}`, with status 201 when the account is new. A sign-in's token is for game servers; `refresh` with `audience` returns one for that audience instead. The bearer endpoints accept only a token for `accounts` and answer `invalid_token` to any other. Errors are `{"error": code}`: `invalid_credentials` and `invalid_token` 401, `guests_disabled` 403, `not_found` 404, `taken`, `already_linked` and `last_credential` 409, `request_too_large` 413, `bad_request`, `invalid_email`, `weak_password`, `unknown_provider` and `unknown_audience` 400, `unavailable` 503 when the request was cancelled or timed out (for example while waiting for a password hash slot under load), and `internal` 500. Request bodies are limited to 32 KiB and unknown fields are refused. For `allowedOrigins` the handler answers CORS preflight requests and allows `Authorization` and `Content-Type`; other origins receive no CORS headers. The handler does not limit request rates: run it behind TLS and a rate limiter.
 
 ## accountsd
 
