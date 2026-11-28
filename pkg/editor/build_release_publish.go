@@ -1419,7 +1419,7 @@ func (e *Editor) ConfirmReleaseUploads(sessionID uint64) error {
 	if e == nil || e.Project == nil {
 		return ErrNoProject
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrUploadRequiresPersonConfirmation
 	}
 	if e.playing {

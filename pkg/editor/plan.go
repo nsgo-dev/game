@@ -556,7 +556,7 @@ func (e *Editor) IsObjectPausedByPlan(id string) bool {
 	if e == nil || id == "" {
 		return false
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return false
 	}
 	e.plan.mu.Lock()

@@ -204,24 +204,25 @@ func TestAgentSettingsYouOnlyRefusesAgentActor(t *testing.T) {
 	err = ed.WithAgentActor(func() error {
 		checks := []struct {
 			name string
-			err  error
+			call func() error
 		}{
-			{"SetMCPToolEnabled", ed.SetMCPToolEnabled(editor.ToolNameGameDeleteFile, true)},
-			{"AddAgentMCPServer", ed.AddAgentMCPServer(editor.AgentMCPServer{Name: "evil", Command: "sh"})},
-			{"SetAgentMCPServerEnabled", ed.SetAgentMCPServerEnabled(editor.DefaultRunningGameMCPServerName, false)},
-			{"RemoveAgentMCPServer", ed.RemoveAgentMCPServer("evil")},
-			{"SetWeeklyRequestLimit", ed.SetWeeklyRequestLimit(99999)},
-			{"SetAgentPrivacy", ed.SetAgentPrivacy(editor.PrivacyGoSource, true)},
-			{"SetAgentTaskRoute", ed.SetAgentTaskRoute("scene_edits", "Evil")},
-			{"StoreAgentAPIKey", ed.StoreAgentAPIKey(editor.DefaultAgentAPIKeyAccount, "sk-evil")},
-			{"DeleteAgentAPIKey", ed.DeleteAgentAPIKey(editor.DefaultAgentAPIKeyAccount)},
+			{"SetMCPToolEnabled", func() error { return ed.SetMCPToolEnabled(editor.ToolNameGameDeleteFile, true) }},
+			{"AddAgentMCPServer", func() error { return ed.AddAgentMCPServer(editor.AgentMCPServer{Name: "evil", Command: "sh"}) }},
+			{"SetAgentMCPServerEnabled", func() error { return ed.SetAgentMCPServerEnabled(editor.DefaultRunningGameMCPServerName, false) }},
+			{"RemoveAgentMCPServer", func() error { return ed.RemoveAgentMCPServer("evil") }},
+			{"SetWeeklyRequestLimit", func() error { return ed.SetWeeklyRequestLimit(99999) }},
+			{"SetAgentPrivacy", func() error { return ed.SetAgentPrivacy(editor.PrivacyGoSource, true) }},
+			{"SetAgentTaskRoute", func() error { return ed.SetAgentTaskRoute("scene_edits", "Evil") }},
+			{"StoreAgentAPIKey", func() error { return ed.StoreAgentAPIKey(editor.DefaultAgentAPIKeyAccount, "sk-evil") }},
+			{"DeleteAgentAPIKey", func() error { return ed.DeleteAgentAPIKey(editor.DefaultAgentAPIKeyAccount) }},
 		}
-		if _, gerr := ed.AgentAPIKey(editor.DefaultAgentAPIKeyAccount); !errors.Is(gerr, editor.ErrAgentSettingsYouOnly) {
+		if gerr := ed.RunAsAgent(func() error { _, err := ed.AgentAPIKey(editor.DefaultAgentAPIKeyAccount); return err }); !errors.Is(gerr, editor.ErrAgentSettingsYouOnly) {
 			t.Errorf("AgentAPIKey under agent actor = %v, want ErrAgentSettingsYouOnly", gerr)
 		}
 		for _, c := range checks {
-			if !errors.Is(c.err, editor.ErrAgentSettingsYouOnly) {
-				t.Errorf("%s under agent actor = %v, want ErrAgentSettingsYouOnly", c.name, c.err)
+			err := ed.RunAsAgent(c.call)
+			if !errors.Is(err, editor.ErrAgentSettingsYouOnly) {
+				t.Errorf("%s under agent actor = %v, want ErrAgentSettingsYouOnly", c.name, err)
 			}
 		}
 		return nil

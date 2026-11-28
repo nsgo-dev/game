@@ -2,6 +2,7 @@ package editor_test
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -302,6 +303,81 @@ func TestProposedDeletionKeepAllLeavesFileConfirmDeletesAndUndoRestores(t *testi
 	}
 }
 
+// A background automation holds the process-wide actor marker, but the person's review action remains available.
+func TestPersonConfirmsProposedDeletionWhileAutomationRuns(t *testing.T) {
+	dir := writeProjectSettingsFixture(t)
+	personPath := filepath.Join(dir, "prefabs", "person-delete.prefab.yaml")
+	agentPath := filepath.Join(dir, "prefabs", "agent-delete.prefab.yaml")
+	if err := os.MkdirAll(filepath.Dir(personPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path := range map[string]string{
+		personPath: "id: person-delete\n",
+		agentPath:  "id: agent-delete\n",
+	} {
+		if err := os.WriteFile(path, []byte("id: "+filepath.Base(path)+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer ed.Close()
+
+	openDeletion := func(path string) {
+		ed.OpenAgentReview("clean up files", []editor.AgentReviewChange{
+			{ID: "keep-" + filepath.Base(path), Path: "scenes/keep.scene.yaml", Title: "keep.scene.yaml", OnKeep: func() error { return nil }},
+		})
+		if _, err := ed.ProposeFileDeletion(filepath.ToSlash(filepath.Join("prefabs", filepath.Base(path))), "clean up files"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ed.KeepAllReviewChanges(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	openDeletion(personPath)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- ed.WithAgentActor(func() error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+	if !ed.AgentActorActive() {
+		t.Fatal("precondition: automation actor should be active")
+	}
+	if err := ed.ConfirmProposedDeletion("prefabs/person-delete.prefab.yaml"); err != nil {
+		t.Fatalf("person ConfirmProposedDeletion while automation runs: %v", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("automation actor: %v", err)
+	}
+	if _, err := os.Stat(personPath); !os.IsNotExist(err) {
+		t.Fatalf("person deletion did not apply, stat error = %v", err)
+	}
+
+	openDeletion(agentPath)
+	if err := ed.RunAsAgent(func() error {
+		return ed.ConfirmProposedDeletion("prefabs/agent-delete.prefab.yaml")
+	}); !errors.Is(err, editor.ErrAutomationYouOnly) {
+		t.Fatalf("agent ConfirmProposedDeletion = %v, want ErrAutomationYouOnly", err)
+	}
+	if _, err := os.Stat(agentPath); err != nil {
+		t.Fatalf("agent refusal should leave file on disk: %v", err)
+	}
+}
+
 func TestPermissionsDraftAndDeletionUIFlowAndModEnterGuard(t *testing.T) {
 	dir := writeProjectSettingsFixture(t)
 	prefabPath := filepath.Join(dir, "prefabs", "slime_old.prefab.yaml")
@@ -445,7 +521,7 @@ func TestYouOnlySymlinkedNonExistentDirCaseSettingsAndBareStemRename(t *testing.
 	}
 
 	// 3. Bare-stem PreviewSafeRename("scratch.yaml", "permissions") under WithAgentActor MUST be refused!
-	err = ed.WithAgentActor(func() error {
+	err = ed.RunAsAgent(func() error {
 		_, rerr := ed.PreviewSafeRename("scratch.yaml", "permissions")
 		return rerr
 	})

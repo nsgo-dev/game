@@ -860,7 +860,7 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	if e == nil {
 		return nil
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	if err := ValidateEditorSettings(&s); err != nil {

@@ -834,7 +834,7 @@ func (e *Editor) StoreAgentAPIKey(account, apiKey string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	apiKey = strings.TrimSpace(apiKey)
@@ -878,7 +878,7 @@ func (e *Editor) DeleteAgentAPIKey(account string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	acc := agentAPIKeyAccount(account)
@@ -914,7 +914,7 @@ func (e *Editor) AgentAPIKey(account string) (string, error) {
 	if e == nil {
 		return "", keychain.ErrUnavailable
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return "", ErrAgentSettingsYouOnly
 	}
 	return e.readAgentSecret(account)
@@ -1043,7 +1043,7 @@ func (e *Editor) SetAgentTaskRoute(taskKey, model string) error {
 	if e == nil {
 		return nil
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	taskKey = strings.TrimSpace(taskKey)
@@ -1147,7 +1147,7 @@ func (e *Editor) SetMCPToolEnabled(name string, enabled bool) error {
 	if e == nil {
 		return nil
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	if !validAgentToolName(name) {
@@ -1257,7 +1257,7 @@ func (e *Editor) AddAgentMCPServer(srv AgentMCPServer) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	srv.Name = strings.TrimSpace(srv.Name)
@@ -1323,7 +1323,7 @@ func (e *Editor) SetAgentMCPServerEnabled(name string, enabled bool) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	e.settingsMu.Lock()
@@ -1362,7 +1362,7 @@ func (e *Editor) RemoveAgentMCPServer(name string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	if name == DefaultRunningGameMCPServerName {
@@ -1449,7 +1449,7 @@ func (e *Editor) SetWeeklyRequestLimit(limit int) error {
 	if e == nil {
 		return nil
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	if limit < 0 {
@@ -1547,7 +1547,7 @@ func (e *Editor) SetAgentPrivacy(kind PrivacyContentKind, allowed bool) error {
 	if e == nil {
 		return nil
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAgentSettingsYouOnly
 	}
 	e.settingsMu.Lock()

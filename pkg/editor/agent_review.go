@@ -512,7 +512,7 @@ func (e *Editor) ConfirmProposedDeletion(relPath string) error {
 	if e == nil || !e.agentReview.open {
 		return errors.New("editor: no review is open")
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	if e.playing {

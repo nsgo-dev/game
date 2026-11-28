@@ -584,7 +584,7 @@ func (e *Editor) PreviewSafeRename(oldRel, newName string) (*SafeRenamePlan, err
 	}
 	folder, oldStem, suffix := splitRenameParts(cleanOld)
 	plan, planErr := e.computeSafeRenamePlanWithReport(cleanOld, newName, rep)
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		if dom, ok := e.CheckYouOnlyTarget(cleanOld); ok {
 			return nil, fmt.Errorf("editor: refused (You only): %s is protected under %s and cannot be renamed by the agent", cleanOld, dom.DisplayName())
 		}

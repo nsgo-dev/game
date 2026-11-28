@@ -326,7 +326,7 @@ func (e *Editor) ToolEnabled(toolName string) bool {
 
 // SetToolEnabled toggles an MCP tool in Settings › Tools (person-only).
 func (e *Editor) SetToolEnabled(toolName string, enabled bool) {
-	if e == nil || strings.TrimSpace(toolName) == "" || e.AgentActorActive() {
+	if e == nil || strings.TrimSpace(toolName) == "" || e.AgentMutating() {
 		return
 	}
 	if err := e.SetMCPToolEnabled(toolName, enabled); err != nil {
@@ -729,7 +729,7 @@ func (e *Editor) ConfirmHeldPermissionLoosening(id string) error {
 	if e == nil {
 		return nil
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	e.ensurePermissionsInit()
@@ -803,7 +803,7 @@ func (e *Editor) RejectHeldPermissionLoosening(id string) error {
 	if e == nil {
 		return nil
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return ErrAutomationYouOnly
 	}
 	e.ensurePermissionsInit()
@@ -938,7 +938,7 @@ func (e *Editor) PermissionsDraftTickedCount() int {
 
 // SetPermissionsDraftRuleTicked sets the checkbox state of rule index in the open permissions draft (person-only).
 func (e *Editor) SetPermissionsDraftRuleTicked(index int, ticked bool) {
-	if e == nil || e.AgentActorActive() || e.perms.draft == nil || index < 0 || index >= len(e.perms.draft.Rules) {
+	if e == nil || e.AgentMutating() || e.perms.draft == nil || index < 0 || index >= len(e.perms.draft.Rules) {
 		return
 	}
 	if e.perms.draft.Rules[index].Ticked == ticked {
@@ -983,7 +983,7 @@ func (e *Editor) ApplyPermissionsDraft() (int, error) {
 	if e == nil || e.perms.draft == nil {
 		return 0, ErrNoPermissionsDraft
 	}
-	if e.AgentActorActive() {
+	if e.AgentMutating() {
 		return 0, ErrAutomationYouOnly
 	}
 	e.ensurePermissionsInit()
