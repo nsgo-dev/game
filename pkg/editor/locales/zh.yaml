@@ -3517,6 +3517,7 @@ strings:
   remote.rowLabel.taken: 已移除 {id}
   remote.sceneActiveHeader: 场景 · {scene}（{count}）
   remote.scenesHeader: 场景 · {count}
+  remote.selfVarsTitle: 对象独立变量（{count}）
   remote.setTimeScaleLabel: 将远程时间缩放设为 {scale}
   remote.spawnedHeader: 运行时生成
   remote.spawnedNote: 运行时动态生成，不在当前打开的场景文件中。
@@ -3537,6 +3538,7 @@ strings:
   remote.tunablesTitle: 可调参数（{count}）
   remote.undo: 撤销
   remote.undoLabel: 恢复为场景原值
+  remote.varsTitle: 游戏变量（{count}）
   remote.wasValue: 原为 {value}
   review.deleteThisFile: 删除此文件
   review.keepTheFile: 保留该文件
