@@ -50,16 +50,30 @@ type Report struct {
 	// Matrices holds labeled row-vs-column numeric matrices (such as deck-pair win rates in percent).
 	Matrices []MatrixChart `yaml:"matrices,omitempty"`
 	// Runs holds per-seed outcomes, durations, counters, timers, positioned events, perf readouts and recording paths.
-	Runs      []RunReport      `yaml:"runs"`
+	Runs []RunReport `yaml:"runs"`
+	// Baselines holds the result of each baseline policy declared in the playtest config, at most one per policy.
 	Baselines []BaselineReport `yaml:"baselines,omitempty"`
 }
 
+// Baseline policy names reported in BaselineReport.Name.
+const (
+	BaselineIdle      = "idle"
+	BaselineReference = "reference"
+	BaselineDegraded  = "degraded"
+)
+
+// BaselineReport records whether one declared baseline policy held across the seeded runs.
 type BaselineReport struct {
-	Name    string  `yaml:"name"`
-	Passed  bool    `yaml:"passed"`
-	Outcome string  `yaml:"outcome,omitempty"`
-	WinRate float64 `yaml:"winRate,omitempty"`
-	Note    string  `yaml:"note,omitempty"`
+	// Name is the policy: "idle", "reference" or "degraded".
+	Name string `yaml:"name"`
+	// Passed reports whether the policy held.
+	Passed bool `yaml:"passed"`
+	// Outcome is the outcome the idle runs reached, such as "lose" or "stall".
+	Outcome string `yaml:"outcome,omitempty"`
+	// WinRate is the measured win rate of the reference or degraded runs, from 0 to 1; nil when not measured.
+	WinRate *float64 `yaml:"winRate,omitempty"`
+	// Note is an optional one-line explanation, such as why the policy failed.
+	Note string `yaml:"note,omitempty"`
 }
 
 // SeriesChart holds labeled numeric bars or per-bucket aggregates across runs (such as hits per wave or shortest solution moves per level).
@@ -412,6 +426,20 @@ func ValidateReport(r *Report) error {
 			}
 		}
 	}
+	seenBaselines := make(map[string]struct{}, len(r.Baselines))
+	for i, b := range r.Baselines {
+		at := loaderr.Path("baselines", i)
+		if b.Name != BaselineIdle && b.Name != BaselineReference && b.Name != BaselineDegraded {
+			return loaderr.Errorf(loaderr.Join(at, "name"), "use idle, reference or degraded", "unknown baseline %q", b.Name)
+		}
+		if _, dup := seenBaselines[b.Name]; dup {
+			return loaderr.Errorf(loaderr.Join(at, "name"), "report each baseline once", "duplicate baseline %q", b.Name)
+		}
+		seenBaselines[b.Name] = struct{}{}
+		if b.WinRate != nil && !isUnitRate(*b.WinRate) {
+			return loaderr.Errorf(loaderr.Join(at, "winRate"), "set winRate between 0 and 1", "invalid baseline winRate %v", *b.WinRate)
+		}
+	}
 	return nil
 }
 
@@ -499,6 +527,9 @@ func normalizeReport(r *Report) {
 			p := sanitizePerf(*r.Runs[i].Perf)
 			r.Runs[i].Perf = &p
 		}
+	}
+	for i := range r.Baselines {
+		r.Baselines[i].WinRate = cleanZeroPtr(r.Baselines[i].WinRate)
 	}
 }
 
@@ -647,6 +678,14 @@ func cloneReport(r *Report) *Report {
 				cp.Perf = &p
 			}
 			out.Runs[i] = cp
+		}
+	}
+	if len(r.Baselines) > 0 {
+		out.Baselines = make([]BaselineReport, len(r.Baselines))
+		for i, b := range r.Baselines {
+			cp := b
+			cp.WinRate = cloneFloat(b.WinRate)
+			out.Baselines[i] = cp
 		}
 	}
 	return out

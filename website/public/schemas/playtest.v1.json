@@ -40,6 +40,14 @@
       "items": {
         "$ref": "#/definitions/Metric"
       }
+    },
+    "baselines": {
+      "description": "Baselines declares the reference, degraded and idle outcome policies.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Baselines"
+        }
+      ]
     }
   },
   "required": [
@@ -50,6 +58,37 @@
   ],
   "additionalProperties": false,
   "definitions": {
+    "Baselines": {
+      "description": "Baselines declares the outcome policies a playtest expects from its reference bot, a degraded copy of it, and no input at all.",
+      "type": "object",
+      "properties": {
+        "idle": {
+          "description": "Idle declares what a run with no input must reach, and how soon.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/IdleBaseline"
+            }
+          ]
+        },
+        "reference": {
+          "description": "Reference declares the minimum win rate of the configured bot across the declared seeds.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReferenceBaseline"
+            }
+          ]
+        },
+        "degraded": {
+          "description": "Degraded declares how the configured bot is weakened and how far below the reference its win rate must stay.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/DegradedBaseline"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "BotConfig": {
       "description": "BotConfig configures the bot profile and parameters driving input during playtest runs.",
       "type": "object",
@@ -94,6 +133,36 @@
       ],
       "additionalProperties": false
     },
+    "DegradedBaseline": {
+      "description": "DegradedBaseline declares a weakened copy of the configured bot and the win-rate limit it must stay under.",
+      "type": "object",
+      "properties": {
+        "reactionScale": {
+          "description": "ReactionScale multiplies the bot's reactionMin and reactionMax, such as 2 for half-speed reactions; set it, DropRate, or both.",
+          "type": "number",
+          "minimum": 0
+        },
+        "dropRate": {
+          "description": "DropRate is the share of the bot's actions discarded, chosen from the run's seed, from 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maxWinRate": {
+          "description": "MaxWinRate is the highest win rate the degraded bot may reach, from 0 to 1; set it, Margin, or both.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "margin": {
+          "description": "Margin is the minimum gap between the reference win rate and the degraded win rate, from 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "Goal": {
       "description": "Goal defines the target range or threshold for a Metric and the file the goal comes from.",
       "type": "object",
@@ -122,6 +191,32 @@
       },
       "required": [
         "source"
+      ],
+      "additionalProperties": false
+    },
+    "IdleBaseline": {
+      "description": "IdleBaseline declares the outcome a run with no input must reach within a simulated duration.",
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "description": "Outcome is the result the idle run must reach: \"lose\" or \"stall\".",
+          "type": "string",
+          "enum": [
+            "lose",
+            "stall"
+          ]
+        },
+        "within": {
+          "description": "Within is the simulated time the idle run may take to reach Outcome, such as \"20s\"; at most the run's maxDuration (60s when unset).",
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "required": [
+        "outcome",
+        "within"
       ],
       "additionalProperties": false
     },
@@ -213,6 +308,22 @@
       "required": [
         "name",
         "measure"
+      ],
+      "additionalProperties": false
+    },
+    "ReferenceBaseline": {
+      "description": "ReferenceBaseline declares the minimum win rate of the configured bot.",
+      "type": "object",
+      "properties": {
+        "winRate": {
+          "description": "WinRate is the minimum share of seeded runs the configured bot must win, from 0 to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "winRate"
       ],
       "additionalProperties": false
     },

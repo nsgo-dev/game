@@ -84,27 +84,46 @@ type Config struct {
 	Baselines *Baselines `yaml:"baselines,omitempty"`
 }
 
-// Baselines declares deterministic policy expectations for a playtest.
+// Idle baseline outcomes accepted by IdleBaseline.Outcome.
+const (
+	IdleOutcomeLose  = "lose"
+	IdleOutcomeStall = "stall"
+)
+
+// Baselines declares the outcome policies a playtest expects from its reference bot, a degraded copy of it, and no input at all.
 type Baselines struct {
-	Idle      *IdleBaseline      `yaml:"idle,omitempty"`
+	// Idle declares what a run with no input must reach, and how soon.
+	Idle *IdleBaseline `yaml:"idle,omitempty"`
+	// Reference declares the minimum win rate of the configured bot across the declared seeds.
 	Reference *ReferenceBaseline `yaml:"reference,omitempty"`
-	Degraded  *DegradedBaseline  `yaml:"degraded,omitempty"`
+	// Degraded declares how the configured bot is weakened and how far below the reference its win rate must stay.
+	Degraded *DegradedBaseline `yaml:"degraded,omitempty"`
 }
 
+// IdleBaseline declares the outcome a run with no input must reach within a simulated duration.
 type IdleBaseline struct {
-	Outcome string        `yaml:"outcome" schema:"required,enum=lose|stall"`
-	Within  time.Duration `yaml:"within" schema:"required"`
+	// Outcome is the result the idle run must reach: "lose" or "stall".
+	Outcome string `yaml:"outcome" schema:"required,enum=lose|stall"`
+	// Within is the simulated time the idle run may take to reach Outcome, such as "20s"; at most the run's maxDuration (60s when unset).
+	Within time.Duration `yaml:"within" schema:"required"`
 }
 
+// ReferenceBaseline declares the minimum win rate of the configured bot.
 type ReferenceBaseline struct {
+	// WinRate is the minimum share of seeded runs the configured bot must win, from 0 to 1.
 	WinRate float64 `yaml:"winRate" schema:"required,minimum=0,maximum=1"`
 }
 
+// DegradedBaseline declares a weakened copy of the configured bot and the win-rate limit it must stay under.
 type DegradedBaseline struct {
-	ReactionScale float64  `yaml:"reactionScale,omitempty" schema:"minimum=0"`
-	DropRate      float64  `yaml:"dropRate,omitempty" schema:"minimum=0,maximum=1"`
-	MaxWinRate    *float64 `yaml:"maxWinRate,omitempty" schema:"minimum=0,maximum=1"`
-	Margin        *float64 `yaml:"margin,omitempty" schema:"minimum=0,maximum=1"`
+	// ReactionScale multiplies the bot's reactionMin and reactionMax, such as 2 for half-speed reactions; set it, DropRate, or both.
+	ReactionScale float64 `yaml:"reactionScale,omitempty" schema:"minimum=0"`
+	// DropRate is the share of the bot's actions discarded, chosen from the run's seed, from 0 to 1.
+	DropRate float64 `yaml:"dropRate,omitempty" schema:"minimum=0,maximum=1"`
+	// MaxWinRate is the highest win rate the degraded bot may reach, from 0 to 1; set it, Margin, or both.
+	MaxWinRate *float64 `yaml:"maxWinRate,omitempty" schema:"minimum=0,maximum=1"`
+	// Margin is the minimum gap between the reference win rate and the degraded win rate, from 0 to 1.
+	Margin *float64 `yaml:"margin,omitempty" schema:"minimum=0,maximum=1"`
 }
 
 // Scope identifies the project, scene and optional template a playtest targets.
@@ -379,23 +398,54 @@ func (c *Config) Validate() error {
 		}
 		seenMetrics[m.Name] = struct{}{}
 	}
-	if b := c.Baselines; b != nil {
-		if b.Idle != nil {
-			if b.Idle.Outcome != "lose" && b.Idle.Outcome != "stall" {
-				return loaderr.Errorf("baselines.idle.outcome", "use lose or stall", "unknown idle baseline outcome %q", b.Idle.Outcome)
-			}
-			if b.Idle.Within <= 0 || (c.Runs.MaxDuration > 0 && b.Idle.Within > c.Runs.MaxDuration) {
-				return loaderr.Errorf("baselines.idle.within", "set idle.within no longer than runs.maxDuration", "idle.within %v exceeds runs.maxDuration %v", b.Idle.Within, c.Runs.MaxDuration)
-			}
-		}
-		if b.Reference != nil && (!isFinite(b.Reference.WinRate) || b.Reference.WinRate < 0 || b.Reference.WinRate > 1) {
-			return loaderr.Errorf("baselines.reference.winRate", "set winRate between 0 and 1", "invalid reference winRate %v", b.Reference.WinRate)
-		}
-		if b.Degraded != nil && (!isFinite(b.Degraded.ReactionScale) || b.Degraded.ReactionScale < 0 || b.Degraded.DropRate < 0 || b.Degraded.DropRate > 1) {
-			return loaderr.Errorf("baselines.degraded", "set finite reactionScale and dropRate between 0 and 1", "invalid degraded baseline")
+	if c.Baselines != nil {
+		if err := validateBaselines(c.Baselines, c.Runs.EffectiveMaxDuration()); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func validateBaselines(b *Baselines, maxDuration time.Duration) error {
+	if b.Idle != nil {
+		if b.Idle.Outcome != IdleOutcomeLose && b.Idle.Outcome != IdleOutcomeStall {
+			return loaderr.Errorf("baselines.idle.outcome", "use lose or stall", "unknown idle baseline outcome %q", b.Idle.Outcome)
+		}
+		if b.Idle.Within <= 0 {
+			return loaderr.Errorf("baselines.idle.within", "set idle.within to a positive duration such as 20s", "idle.within %v is not positive", b.Idle.Within)
+		}
+		if b.Idle.Within > maxDuration {
+			return loaderr.Errorf("baselines.idle.within", "set idle.within no longer than runs.maxDuration", "idle.within %v exceeds runs.maxDuration %v", b.Idle.Within, maxDuration)
+		}
+	}
+	if r := b.Reference; r != nil && !isUnitRate(r.WinRate) {
+		return loaderr.Errorf("baselines.reference.winRate", "set winRate between 0 and 1", "invalid reference winRate %v", r.WinRate)
+	}
+	if d := b.Degraded; d != nil {
+		if !isFinite(d.ReactionScale) || d.ReactionScale < 0 {
+			return loaderr.Errorf("baselines.degraded.reactionScale", "set reactionScale to a finite non-negative multiplier such as 2", "invalid degraded reactionScale %v", d.ReactionScale)
+		}
+		if !isUnitRate(d.DropRate) {
+			return loaderr.Errorf("baselines.degraded.dropRate", "set dropRate between 0 and 1", "invalid degraded dropRate %v", d.DropRate)
+		}
+		if d.ReactionScale == 0 && d.DropRate == 0 {
+			return loaderr.Errorf("baselines.degraded", "set reactionScale, dropRate, or both", "degraded baseline does not weaken the bot")
+		}
+		if d.MaxWinRate == nil && d.Margin == nil {
+			return loaderr.Errorf("baselines.degraded", "set maxWinRate, margin, or both", "degraded baseline has no win-rate limit")
+		}
+		if d.MaxWinRate != nil && !isUnitRate(*d.MaxWinRate) {
+			return loaderr.Errorf("baselines.degraded.maxWinRate", "set maxWinRate between 0 and 1", "invalid degraded maxWinRate %v", *d.MaxWinRate)
+		}
+		if d.Margin != nil && !isUnitRate(*d.Margin) {
+			return loaderr.Errorf("baselines.degraded.margin", "set margin between 0 and 1", "invalid degraded margin %v", *d.Margin)
+		}
+	}
+	return nil
+}
+
+func isUnitRate(v float64) bool {
+	return isFinite(v) && v >= 0 && v <= 1
 }
 
 // ValidateMetric checks that m is a valid Metric definition, as used by Config.Validate and playtest_define.
@@ -541,6 +591,17 @@ func normalizeConfig(c *Config) {
 			normalizeGoal(g)
 		}
 	}
+	if b := c.Baselines; b != nil {
+		if b.Reference != nil {
+			b.Reference.WinRate = cleanZero(b.Reference.WinRate)
+		}
+		if d := b.Degraded; d != nil {
+			d.ReactionScale = cleanZero(d.ReactionScale)
+			d.DropRate = cleanZero(d.DropRate)
+			d.MaxWinRate = cleanZeroPtr(d.MaxWinRate)
+			d.Margin = cleanZeroPtr(d.Margin)
+		}
+	}
 }
 
 func normalizeGoal(g *Goal) {
@@ -637,7 +698,38 @@ func cloneConfig(c *Config) *Config {
 			out.Metrics[i] = cloneMetric(m)
 		}
 	}
+	out.Baselines = cloneBaselines(c.Baselines)
 	return out
+}
+
+func cloneBaselines(b *Baselines) *Baselines {
+	if b == nil {
+		return nil
+	}
+	out := &Baselines{}
+	if b.Idle != nil {
+		v := *b.Idle
+		out.Idle = &v
+	}
+	if b.Reference != nil {
+		v := *b.Reference
+		out.Reference = &v
+	}
+	if b.Degraded != nil {
+		v := *b.Degraded
+		v.MaxWinRate = cloneFloat(b.Degraded.MaxWinRate)
+		v.Margin = cloneFloat(b.Degraded.Margin)
+		out.Degraded = &v
+	}
+	return out
+}
+
+func cloneFloat(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	cp := *v
+	return &cp
 }
 
 func cloneBot(b BotConfig) BotConfig {
@@ -690,6 +782,14 @@ func cleanZero(v float64) float64 {
 		return 0
 	}
 	return v
+}
+
+func cleanZeroPtr(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	cp := cleanZero(*v)
+	return &cp
 }
 
 // Float64 returns a pointer to v, useful for building Goal bounds in Go code.
