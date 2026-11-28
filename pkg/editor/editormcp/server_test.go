@@ -55,7 +55,7 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		uris = append(uris, r.URI)
 	}
 	slices.Sort(uris)
-	wantResources := []string{editormcp.AgentTurnURI, editormcp.BriefURI, editormcp.ContextURI, editormcp.RulesURI, editormcp.SceneURI, editormcp.SelectionURI, editormcp.SkillURIPrefix + "SKILL.md", editormcp.SkillURIPrefix + "references/cli-and-formats.md", editormcp.SkillURIPrefix + "references/mcp-tools.md", editormcp.SkillURIPrefix + "references/packages.md"}
+	wantResources := []string{editormcp.AgentTurnURI, editormcp.BriefURI, editormcp.ContextURI, editormcp.RulesURI, editormcp.SceneURI, editormcp.SelectionURI, editormcp.SkillURIPrefix + "SKILL.md", editormcp.SkillURIPrefix + "references/cli-and-formats.md", editormcp.SkillURIPrefix + "references/gates.md", editormcp.SkillURIPrefix + "references/mcp-tools.md", editormcp.SkillURIPrefix + "references/packages.md"}
 	slices.Sort(wantResources)
 	if !slices.Equal(uris, wantResources) {
 		t.Fatalf("resources = %v", uris)
