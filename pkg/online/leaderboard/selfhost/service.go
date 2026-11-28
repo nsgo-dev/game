@@ -160,6 +160,9 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 		if got, want := opts.Tokens.Audience(), cfg.TokenAudience(); got != want {
 			return nil, fmt.Errorf("selfhost: token verifier accepts audience %q, want %q: build it with authtoken.NewVerifierFor(keySet, %q)", got, want, want)
 		}
+		if opts.Tokens.AcceptsGameServerTokens() {
+			return nil, fmt.Errorf("selfhost: audience %q is the game servers' audience of the key set: set Config.Audience to one the account service lists in its audiences, such as %q", cfg.TokenAudience(), DefaultAudience)
+		}
 	}
 	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	s := &Service{cfg: cfg, store: opts.Store, tokens: opts.Tokens, keys: map[string]ed25519.PublicKey{}, boards: map[string]*board{}, log: opts.Logger, now: opts.Now, leeway: opts.Leeway}

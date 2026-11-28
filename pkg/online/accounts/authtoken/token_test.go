@@ -435,4 +435,11 @@ func TestVerifierForAnotherAudience(t *testing.T) {
 	if _, err := authtoken.NewVerifierFor(s.KeySet(), ""); err == nil {
 		t.Error("NewVerifierFor accepted an empty audience")
 	}
+	gameFor, err := authtoken.NewVerifierFor(s.KeySet(), s.KeySet().Audience)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !game.AcceptsGameServerTokens() || !gameFor.AcceptsGameServerTokens() || saves.AcceptsGameServerTokens() {
+		t.Errorf("AcceptsGameServerTokens = %v, %v, %v; want true, true, false", game.AcceptsGameServerTokens(), gameFor.AcceptsGameServerTokens(), saves.AcceptsGameServerTokens())
+	}
 }

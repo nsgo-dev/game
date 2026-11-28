@@ -29,7 +29,7 @@ const (
 	DefaultRadius = 5
 )
 
-// Handler serves the service over HTTP. Every request except GET /v1/openapi.yaml carries the player's account token as "Authorization: Bearer <token>", verified offline with Options.Tokens, whose subject is the account the request is for. Requests and responses are JSON; every response carries Cache-Control: no-store. The machine-readable OpenAPI 3.1 description lives in openapi.yaml and is served at GET /v1/openapi.yaml.
+// Handler serves the service over HTTP. Every request except GET /v1/openapi.yaml carries "Authorization: Bearer <token>" with a token from the account service for Config.TokenAudience, which a device gets with the account service's refresh, verified offline with Options.Tokens; its subject is the account the request is for. A token for any other audience, such as the one a player sends a game server, is invalid_token. Requests and responses are JSON; every response carries Cache-Control: no-store. The machine-readable OpenAPI 3.1 description lives in openapi.yaml and is served at GET /v1/openapi.yaml.
 //
 //	GET  /v1/openapi.yaml                                        -> the OpenAPI 3.1 description (unauthenticated)
 //	GET  /v1/boards                                              -> {"boards": [board]}

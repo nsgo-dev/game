@@ -24,7 +24,7 @@ import (
 )
 
 // ServiceAudience is the audience of tokens for the account service itself: GET /v1/me and the link endpoints accept only these, so a game server that holds a player's game token cannot read or change the account. A device gets one with RefreshFor.
-const ServiceAudience = "accounts"
+const ServiceAudience = authtoken.AccountServiceAudience
 
 // IdentityVerifier checks a credential a device got from an identity provider and returns the provider's stable subject for the player. A verifier for Game Center checks the signed identity against Apple's certificate, one for Play Games exchanges the server auth code, one for Steam authenticates the session ticket with the Steam Web API, and one for an OAuth provider verifies the OpenID Connect ID token.
 //

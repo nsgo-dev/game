@@ -107,6 +107,7 @@ func TestConfigRefusesInvalidFiles(t *testing.T) {
 		"origin trailing colon":     base + "allowedOrigins: ['http://a.example:']\n",
 		"origin empty host":         base + "allowedOrigins: ['http://:8080']\n",
 		"origin twice":              base + "allowedOrigins: [https://a.example, https://a.example]\n",
+		"account service audience":  "version: 1\naudience: accounts\nboards:\n  - name: b\n    order: descending\n    reset: allTime\n",
 	}
 	for name, src := range cases {
 		if _, err := selfhost.ParseConfig([]byte(src)); err == nil {

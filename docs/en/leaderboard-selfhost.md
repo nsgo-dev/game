@@ -107,7 +107,7 @@ A proof is `v1.<key id>.<unix seconds>.<signature>`, an Ed25519 signature over t
 
 ## HTTP
 
-`Service.Handler` serves the service as JSON. Every request except `GET /v1/openapi.yaml` carries the player's account token as `Authorization: Bearer <token>`; the handler verifies it offline with `Options.Tokens` and accepts only a token for the configuration's audience (see [Token audiences](accounts.md#token-audiences)), so the token a player sends a game server cannot submit scores for them; `New` refuses a verifier for another audience. The token's subject is the account a score is submitted for, so a player can only submit their own scores. The full machine-readable contract is published as an [OpenAPI 3.1 description](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) and served live at `GET /v1/openapi.yaml`.
+`Service.Handler` serves the service as JSON. Every request except `GET /v1/openapi.yaml` carries the player's account token as `Authorization: Bearer <token>`; the handler verifies it offline with `Options.Tokens` and accepts only a token for the configuration's audience (see [Token audiences](accounts.md#token-audiences)), so the token a player sends a game server cannot submit scores for them; `New` refuses a verifier for another audience or for the game servers' audience of its key set, and the configuration cannot name `accounts`, the account service's own audience. The token's subject is the account a score is submitted for, so a player can only submit their own scores. The full machine-readable contract is published as an [OpenAPI 3.1 description](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) and served live at `GET /v1/openapi.yaml`.
 
 | Request | Response |
 | --- | --- |
