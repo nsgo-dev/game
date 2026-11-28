@@ -89,7 +89,7 @@ metrics:
 
 - **`scope`**: the `project`, required `scene`, and optional `template`.
 - **`runs`**: `count`, optional explicit `seeds`, `seedStart` (defaults to `1`), fixed `rate` in steps per second (defaults to `60`), `speed` multiplier metadata (defaults to `1`), and `maxDuration` simulated time limit per run (defaults to `60s`).
-- **`bot`**: `profile` (such as `platformer-runner`, `topdown-explorer`, `shooter`, `puzzle-solver`, or `card-ai`), optional `strategy` text, `reactionMin` / `reactionMax` human reaction jitter durations, and optional scalar `params`.
+- **`bot`**: `profile` (such as `platformer-runner`, `topdown-explorer`, `shooter`, `puzzle-solver`, `card-ai`, or `idle`), optional `strategy` text, `reactionMin` / `reactionMax` human reaction jitter durations, and optional scalar `params`.
 - **`metrics`**: each metric has a unique `name`, optional `label` and `unit`, a `measure`, and an optional `goal`:
   - `measure.kind` is `event`, `counter`, `timer`, `outcome`, `ratio` (requiring `denomKey`), or `perf` (`frame_ms`, `update_ms`, `draw_ms`, `p50_frame_ms`, `p95_frame_ms`, `p99_frame_ms`, `max_frame_ms`, `allocs_per_frame`).
   - `measure.aggregate` is `count`, `sum`, `mean`, `median`, `min`, `max`, `p95`, `p99`, or `rate`.
@@ -129,6 +129,7 @@ Every built-in profile is deterministic for a given seed and registers itself vi
 - **`shooter`** (`playtest.ProfileShooter`, template `shmup2d`): fires constantly, collects power-ups within `powerUpRange` (default `80` px), and dodges predicted incoming bullets through a reaction-delayed perception buffer (fixed `180ms` when `reactionMin == reactionMax == 180ms`). Use `RecordShooterWave`, `RecordShooterHit` and `RecordShooterPowerUp` to report hits per wave (`hits_per_wave` series) and power-ups taken.
 - **`puzzle-solver`** (`playtest.ProfilePuzzleSolver`, template `puzzle2d`): pairs `SolvePuzzleBFS` (exact breadth-first search for the shortest solution up to `stateLimit`, default 2,000,000 states) with a human-like player that undoes after `undoAfterBadMoves` (default `3`) consecutive bad moves. Use `EvaluatePuzzlePack` or `NewPuzzlePackSim` to report solvable levels, moves over par, difficulty order dips, and solutions shorter than intended.
 - **`card-ai`** (`playtest.ProfileCardAI`, template `cards2d`): two greedy 1-turn-lookahead players (`CardAI.ChooseAction`) play every unordered deck pair `matchesPerPair` times, alternating who goes first. Use `RunCardTournament` or `NewCardTournamentSim` to report first-player win rate, median match length, most lopsided pair, deterministic think time, and the `deck_win_rates` matrix.
+- **`idle`** (`playtest.ProfileIdle`): sends no actions or axes on any frame and never reads the game observation. Pair it with a bounded `runs.maxDuration` and an `outcome` goal for an idle-loss baseline, so a game that a player wins by doing nothing fails its playtest.
 
 Register custom bot profiles with `playtest.RegisterBot(name, factory)`. The `platformer2d`, `rpg2d`, `shmup2d`, `puzzle2d`, and `cards2d` project templates each ship a canonical `playtest.yaml` configured for their matching profile alongside a `playtest_test.go` wired through `playtest.RunTest`, so running `go tool game playtest` inside a freshly created template writes a deterministic report right away:
 
@@ -164,7 +165,3 @@ The editor's MCP server (`game/editor/editormcp`, reached via `go tool game mcp`
 
 - `game_playtest` (`run`): validates `playtest.yaml`, runs the playtest headless with replays, writes the YAML report, and returns the structured report and summary.
 - `playtest_define` (`edit`): validates a proposed metric and returns a canonical `playtest.yaml` diff queued as a pending review (`Server.PlaytestReviews`, `Server.ApplyPlaytestReview`, `Server.DismissPlaytestReview`) without modifying `playtest.yaml` on disk until reviewed.
-
-## Idle bot
-
-The built-in `playtest.ProfileIdle` bot sends no actions or axes. Use it for an idle-loss baseline with a bounded `runs.maxDuration`; it never inspects the game observation.

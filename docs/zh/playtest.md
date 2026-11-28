@@ -89,7 +89,7 @@ metrics:
 
 - **`scope`**：项目名 `project`、必填的场景名 `scene`，以及可选的模板名 `template`。
 - **`runs`**：运行次数 `count`、可选显式种子列表 `seeds`、顺序种子起点 `seedStart`（默认为 `1`）、固定步频 `rate`（默认 `60`）、倍速元数据 `speed`（默认 `1`），以及单次运行的模拟时长上限 `maxDuration`（默认 `60s`）。
-- **`bot`**：机器人配置名 `profile`（例如 `platformer-runner`、`topdown-explorer`、`shooter`、`puzzle-solver` 或 `card-ai`）、可选的策略描述 `strategy`、人类反应抖动区间 `reactionMin` / `reactionMax`，以及可选的标量参数 `params`。
+- **`bot`**：机器人配置名 `profile`（例如 `platformer-runner`、`topdown-explorer`、`shooter`、`puzzle-solver`、`card-ai` 或 `idle`）、可选的策略描述 `strategy`、人类反应抖动区间 `reactionMin` / `reactionMax`，以及可选的标量参数 `params`。
 - **`metrics`**：每项指标有唯一的 `name`、可选的显示名称 `label` 与单位 `unit`、测量方式 `measure` 及可选目标 `goal`：
   - `measure.kind` 可选 `event`、`counter`、`timer`、`outcome`、`ratio`（需提供 `denomKey`）或 `perf`（`frame_ms`、`update_ms`、`draw_ms`、`p50_frame_ms`、`p95_frame_ms`、`p99_frame_ms`、`max_frame_ms`、`allocs_per_frame`）。
   - `measure.aggregate` 可选 `count`、`sum`、`mean`、`median`、`min`、`max`、`p95`、`p99` 或 `rate`。
@@ -129,6 +129,7 @@ metrics.Finish() // 或 metrics.Fail("out of lives")
 - **`shooter`**（`playtest.ProfileShooter`，对应 `shmup2d` 模板）：持续开火、拾取 `powerUpRange`（默认 `80` 像素）内的强化道具，并通过带固定反应延迟的感知缓冲躲避来袭弹幕（`reactionMin == reactionMax == 180ms` 时为精确 180ms 反应时间）。使用 `RecordShooterWave`、`RecordShooterHit` 和 `RecordShooterPowerUp` 可上报每波受击数（`hits_per_wave` 序列）与道具拾取率。
 - **`puzzle-solver`**（`playtest.ProfilePuzzleSolver`，对应 `puzzle2d` 模板）：结合 `SolvePuzzleBFS`（带 `stateLimit` 状态数上限、默认 200 万状态的广度优先最短解搜索）和连续走错 `undoAfterBadMoves`（默认 `3`）步后撤回的拟人玩家。使用 `EvaluatePuzzlePack` 或 `NewPuzzlePackSim` 可上报可解关卡数、超出标准步数、难度曲线倒挂次数以及短于预期解法的关卡。
 - **`card-ai`**（`playtest.ProfileCardAI`，对应 `cards2d` 模板）：两名向前看一回合的贪心 AI（`CardAI.ChooseAction`）对每对卡组交替先手对战 `matchesPerPair` 局。使用 `RunCardTournament` 或 `NewCardTournamentSim` 可上报先手胜率、对局回合数中位数、最悬殊卡组对阵胜率、确定性思考耗时以及 `deck_win_rates` 胜率矩阵。
+- **`idle`**（`playtest.ProfileIdle`）：每一帧都不发送任何动作或轴输入，也不读取游戏观察值。配合有上限的 `runs.maxDuration` 和 `outcome` 目标，可声明无输入失败基线：玩家什么都不做就能获胜的游戏会让试玩失败。
 
 可以用 `playtest.RegisterBot(name, factory)` 注册自定义机器人配置。`platformer2d`、`rpg2d`、`shmup2d`、`puzzle2d` 和 `cards2d` 模板均内置了对应机器人的规范 `playtest.yaml` 以及接入 `playtest.RunTest` 的 `playtest_test.go`，因此从这些模板创建项目后即可直接运行 `go tool game playtest` 生成确定性报告：
 
@@ -164,7 +165,3 @@ go tool game playtest -check
 
 - `game_playtest`（`run`）：校验 `playtest.yaml`，无头运行机器人并录制回放，写出 YAML 报告，返回结构化报告和汇总文本。
 - `playtest_define`（`edit`）：校验提议的新指标，生成规范化的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews`、`Server.ApplyPlaytestReview`、`Server.DismissPlaytestReview`），在用户确认前不会改写磁盘上的 `playtest.yaml`。
-
-## Idle 机器人
-
-内置的 `playtest.ProfileIdle` 不发送任何动作或轴输入。可用它声明有时间上限的无输入失败基线；它不会读取游戏观察值。
