@@ -265,3 +265,7 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 `ScreenCheckOptions.TextScale` names the largest scale the game supports. `CheckScreen` then lays the screen out at that scale as well as the theme's own and reports a `text_overflow` that appears only at the larger one with the scale in its message (`at text scale 200%`).
 
 The settings menu's Text Scale row does not drive `Root.TextScale` yet, and nothing reads `core.Env().FontScale()` for it; wire the player's setting in yourself (#1772).
+
+### Screen data bindings
+
+`gameui.Bindings` registers typed values and functions under dotted paths such as `player.score`. Screen integrations can read `String`, `Int` and `Bool` values and report an error when a path is missing or has the wrong type. Function sources are evaluated when read, so callers can connect them to their own state signals without per-frame polling in the binding registry.
