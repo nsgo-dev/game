@@ -76,6 +76,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/anim3d` | Experimental | [anim3d](anim3d.md) |
 | `game/pkg/animclip` | Experimental | [animclip](animclip.md) |
 | `game/pkg/assets` | Experimental | [assets](assets.md) |
+| `game/pkg/battle` | Experimental | [battle](battle.md) |
 | `game/pkg/bullets` | Experimental | [bullets](bullets.md) |
 | `game/pkg/cards` | Experimental | [cards](cards.md) |
 | `game/pkg/cutscene` | Experimental | [cutscene](cutscene.md) |

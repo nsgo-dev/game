@@ -37,6 +37,11 @@ pkg/assets:
       - any-glob-to-any-file:
           - pkg/assets/**
 
+pkg/battle:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/battle/**
+
 pkg/bullets:
   - changed-files:
       - any-glob-to-any-file:

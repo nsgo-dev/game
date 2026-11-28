@@ -76,6 +76,7 @@
 | `game/pkg/anim3d` | 实验性 | [anim3d](anim3d.md) |
 | `game/pkg/animclip` | 实验性 | [animclip](animclip.md) |
 | `game/pkg/assets` | 实验性 | [assets](assets.md) |
+| `game/pkg/battle` | 实验性 | [battle](battle.md) |
 | `game/pkg/bullets` | 实验性 | [bullets](bullets.md) |
 | `game/pkg/cards` | 实验性 | [cards](cards.md) |
 | `game/pkg/cutscene` | 实验性 | [cutscene](cutscene.md) |
