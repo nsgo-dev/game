@@ -235,3 +235,5 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 - missing `under`, `progress`, or `over` images on `image_progress` nodes.
 
 `refs` and `game mv` follow `sprite` paths, `image_progress` layer paths, and `textKey` references in `*.screen.yaml` files: `game mv art/heart.png art/ui/heart.png` rewrites `sprite:` in place, and `game mv -text-key hud.hint.lever hud.tip.lever` renames a localization key across both `*.screen.yaml` files and YAML string tables.
+
+The Settings Controls tab detects duplicate bindings within an action group and applies its configured swap, clear or refuse policy. Controller labels use the connected Xbox, PlayStation or Nintendo family when available.

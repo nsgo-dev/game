@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/quality"
 	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/screen"
@@ -88,12 +89,26 @@ type SettingsOptionItem struct {
 	Label string
 }
 
+// SettingsConflictPolicy controls how CaptureBinding resolves a binding already used by another action in the same group.
+type SettingsConflictPolicy uint8
+
+const (
+	// ConflictSwap gives the other action the binding replaced on the capturing action. If there is no replaced binding, it clears the conflict.
+	ConflictSwap SettingsConflictPolicy = iota
+	// ConflictClear removes the binding from the other action.
+	ConflictClear
+	// ConflictRefuse leaves every binding unchanged and keeps capture active.
+	ConflictRefuse
+)
+
 // SettingsAction describes a rebindable input action shown in the Controls tab.
 type SettingsAction struct {
 	// Name is the action key stored in save.Settings.Bindings (for example "jump", "left", "pause").
 	Name string
 	// Label is displayed in the Controls tab; defaults to Name when empty.
 	Label string
+	// Group identifies actions that may not share a binding. Actions with different groups may share one; the empty group is the default.
+	Group string
 	// Defaults lists default binding tokens (for example "key:space", "gamepad:south") restored on Reset.
 	Defaults []string
 	// AllowToggle reports whether the Controls tab offers a per-action Hold to Toggle assist switch for this action.
@@ -142,15 +157,16 @@ type SettingsText struct {
 	FrameCap      string
 	Uncapped      string
 
-	ControlsHint  string
-	CapturePrompt string
-	Unbound       string
-	ResetControls string
-	ActionToggle  string
-	ActionMash    string
-	MinPressTime  string
-	AcceptDelay   string
-	AssistOff     string
+	ControlsHint   string
+	CapturePrompt  string
+	ConflictStatus string
+	Unbound        string
+	ResetControls  string
+	ActionToggle   string
+	ActionMash     string
+	MinPressTime   string
+	AcceptDelay    string
+	AssistOff      string
 
 	LanguageHint  string
 	SystemDefault string
@@ -210,15 +226,16 @@ func DefaultSettingsText() SettingsText {
 		FrameCap:      "Frame Cap",
 		Uncapped:      "Uncapped",
 
-		ControlsHint:  "Select an action, then press a key or gamepad button to rebind.",
-		CapturePrompt: "Press key or button...",
-		Unbound:       "Unbound",
-		ResetControls: "Reset Controls to Defaults",
-		ActionToggle:  "Hold to Toggle",
-		ActionMash:    "Hold to Mash",
-		MinPressTime:  "Min Press Time",
-		AcceptDelay:   "Accept Delay",
-		AssistOff:     "Off",
+		ControlsHint:   "Select an action, then press a key or gamepad button to rebind.",
+		CapturePrompt:  "Press key or button...",
+		ConflictStatus: "Binding conflict with %s",
+		Unbound:        "Unbound",
+		ResetControls:  "Reset Controls to Defaults",
+		ActionToggle:   "Hold to Toggle",
+		ActionMash:     "Hold to Mash",
+		MinPressTime:   "Min Press Time",
+		AcceptDelay:    "Accept Delay",
+		AssistOff:      "Off",
 
 		LanguageHint:  "Choose display language",
 		SystemDefault: "System Default",
@@ -281,6 +298,7 @@ func resolveSettingsText(in SettingsText) SettingsText {
 	fill(&in.Uncapped, def.Uncapped)
 	fill(&in.ControlsHint, def.ControlsHint)
 	fill(&in.CapturePrompt, def.CapturePrompt)
+	fill(&in.ConflictStatus, def.ConflictStatus)
 	fill(&in.Unbound, def.Unbound)
 	fill(&in.ResetControls, def.ResetControls)
 	fill(&in.ActionToggle, def.ActionToggle)
@@ -454,6 +472,8 @@ type SettingsMenuConfig struct {
 	Video *screen.Video
 	// Env optionally supplies the platform environment so the Video tab hides controls that cannot apply on the current platform (hiding Window Mode where screen.CanFullScreen is false and hiding Resolution where screen.SupportsWindowResolution is false) and keeps Window Mode synchronized with Env.FullScreen. When nil, desktop capabilities are assumed unless HideResolution is set.
 	Env *core.Env
+	// Scope optionally resolves physical key codes to labels in the active keyboard layout. When nil, readable QWERTY fallback labels are used.
+	Scope *core.Scope
 	// Initial supplies starting settings when Store is nil (or if Store.Load fails).
 	Initial *save.Settings
 	// Defaults supplies baseline settings restored by Reset.
@@ -475,6 +495,10 @@ type SettingsMenuConfig struct {
 	FrameCaps []int
 	// Actions configures rebindable input actions in the Controls tab.
 	Actions []SettingsAction
+	// OnConflict selects how CaptureBinding handles a binding used by another action in the same group. The zero value is ConflictSwap.
+	OnConflict SettingsConflictPolicy
+	// DeviceTracker optionally supplies the controller family used by binding labels and is updated by StepGamepad. When nil, generic gamepad labels are used.
+	DeviceTracker *input.DeviceTracker
 	// Locales configures selectable languages in the Language tab.
 	Locales []SettingsLocale
 	// ColorBlindModes configures color-blind palette modes in the Accessibility tab.
@@ -529,6 +553,8 @@ type SettingsMenu struct {
 	qualityPresets  []SettingsOptionItem
 	frameCaps       []int
 	actions         []SettingsAction
+	onConflict      SettingsConflictPolicy
+	deviceTracker   *input.DeviceTracker
 	locales         []SettingsLocale
 	colorBlindModes []SettingsOptionItem
 
@@ -538,6 +564,7 @@ type SettingsMenu struct {
 	autoSave  bool
 
 	env                 *core.Env
+	scope               *core.Scope
 	canFullScreen       bool
 	lastEnvFull         bool
 	lastEnvReduceMotion bool
@@ -641,6 +668,9 @@ func NewSettingsMenu(cfg SettingsMenuConfig) *SettingsMenu {
 		autoApply:          cfg.AutoApply,
 		autoSave:           cfg.AutoSave,
 		env:                cfg.Env,
+		scope:              cfg.Scope,
+		onConflict:         cfg.OnConflict,
+		deviceTracker:      cfg.DeviceTracker,
 		canFullScreen:      screen.CanFullScreen(cfg.Env),
 		onChange:           cfg.OnChange,
 		onApply:            cfg.OnApply,
@@ -718,6 +748,11 @@ func NewSettingsMenu(cfg SettingsMenuConfig) *SettingsMenu {
 
 	m.buildTree(cfg.Viewport)
 	m.syncWidgets()
+	if m.deviceTracker != nil {
+		m.deviceTracker.OnChange(func(input.DeviceKind) {
+			m.syncWidgets()
+		})
+	}
 	m.applyTheme()
 	m.SetTab(SettingsTabAudio)
 	if len(m.tabControls[SettingsTabAudio]) > 0 {
@@ -841,6 +876,7 @@ func defaultSettingsActions(in []SettingsAction, initialBindings, defaultBinding
 			out = append(out, SettingsAction{
 				Name:        name,
 				Label:       label,
+				Group:       strings.TrimSpace(act.Group),
 				Defaults:    defs,
 				AllowToggle: act.AllowToggle,
 				AllowMash:   act.AllowMash,
@@ -1926,6 +1962,10 @@ func (m *SettingsMenu) syncWidgets() {
 
 	// Controls
 	m.controlsHintLabel.Text = m.text.ControlsHint
+	device := input.DeviceUnknown
+	if m.deviceTracker != nil {
+		device = m.deviceTracker.LastDeviceUntracked()
+	}
 	for i, act := range m.actions {
 		if m.capturingAction == act.Name {
 			m.actionButtons[i].Text = fmt.Sprintf("%s: [%s]", act.Label, m.text.CapturePrompt)
@@ -1938,7 +1978,7 @@ func (m *SettingsMenu) syncWidgets() {
 		}
 		labels := make([]string, 0, len(tokens))
 		for _, tok := range tokens {
-			if lbl := FormatBindingLabel(tok); lbl != "" {
+			if lbl := FormatBindingLabelForDevice(m.scope, tok, device); lbl != "" {
 				labels = append(labels, lbl)
 			}
 		}
@@ -2223,8 +2263,7 @@ func (m *SettingsMenu) CancelCapture() {
 	m.syncWidgets()
 }
 
-// CaptureBinding assigns token to the currently capturing action, replacing the existing binding
-// of the same input device class (keyboard vs gamepad vs mouse) while keeping other classes intact.
+// CaptureBinding assigns token to the currently capturing action, replacing the existing binding of the same input device class (keyboard vs gamepad vs mouse) while keeping other classes intact. Conflicts with actions in the same SettingsAction.Group are resolved with SettingsMenuConfig.OnConflict.
 func (m *SettingsMenu) CaptureBinding(token string) bool {
 	if m.capturingAction == "" {
 		return false
@@ -2237,13 +2276,54 @@ func (m *SettingsMenu) CaptureBinding(token string) bool {
 		return false
 	}
 	action := m.capturingAction
+	conflicts := m.conflictingActions(action, token)
+	if len(conflicts) > 0 && m.onConflict == ConflictRefuse {
+		m.statusLabel.Text = fmt.Sprintf(m.text.ConflictStatus, conflicts[0].Label)
+		m.syncWidgets()
+		return false
+	}
+
+	replaced := replacedBindingForClass(m.settings.Bindings[action], token)
 	m.capturingAction = ""
 	if m.settings.Bindings == nil {
 		m.settings.Bindings = make(map[string][]string)
 	}
 	m.settings.Bindings[action] = replaceBindingForClass(m.settings.Bindings[action], token)
+	for _, other := range conflicts {
+		replacement := ""
+		if m.onConflict != ConflictClear {
+			replacement = replaced
+		}
+		m.settings.Bindings[other.Name] = replaceConflictingBinding(m.settings.Bindings[other.Name], token, replacement)
+	}
 	m.onSettingMutated()
+	if len(conflicts) > 0 {
+		m.statusLabel.Text = fmt.Sprintf(m.text.ConflictStatus, conflicts[0].Label)
+	}
 	return true
+}
+
+func (m *SettingsMenu) conflictingActions(action, token string) []SettingsAction {
+	var group string
+	for _, act := range m.actions {
+		if act.Name == action {
+			group = act.Group
+			break
+		}
+	}
+	var conflicts []SettingsAction
+	for _, act := range m.actions {
+		if act.Name == action || act.Group != group {
+			continue
+		}
+		for _, existing := range m.settings.Bindings[act.Name] {
+			if bindingTokensEqual(existing, token) {
+				conflicts = append(conflicts, act)
+				break
+			}
+		}
+	}
+	return conflicts
 }
 
 // ResetControls restores all configured actions' bindings and motor assists to their default values.
@@ -2663,6 +2743,7 @@ func (m *SettingsMenu) StepGamepad(pads []gamepad.Pad) bool {
 
 	var risingMask uint32
 	var stickX, stickY float32
+	activeDevice := input.DeviceUnknown
 	for i := range sorted {
 		p := &sorted[i]
 		var mask uint32
@@ -2672,8 +2753,12 @@ func (m *SettingsMenu) StepGamepad(pads []gamepad.Pad) bool {
 			}
 		}
 		prev := m.prevPadButtons[p.ID]
-		risingMask |= mask &^ prev
+		rising := mask &^ prev
+		risingMask |= rising
 		m.prevPadButtons[p.ID] = mask
+		if activeDevice == input.DeviceUnknown && (rising != 0 || absf(p.Axes[gamepad.AxisLeftX]) >= 0.5 || absf(p.Axes[gamepad.AxisLeftY]) >= 0.5) {
+			activeDevice = gamepadDeviceKind(*p)
+		}
 
 		if ax := p.Axes[gamepad.AxisLeftX]; absf(ax) > absf(stickX) {
 			stickX = ax
@@ -2681,6 +2766,9 @@ func (m *SettingsMenu) StepGamepad(pads []gamepad.Pad) bool {
 		if ay := p.Axes[gamepad.AxisLeftY]; absf(ay) > absf(stickY) {
 			stickY = ay
 		}
+	}
+	if m.deviceTracker != nil && activeDevice != input.DeviceUnknown {
+		m.deviceTracker.OnGamepad(activeDevice)
 	}
 
 	// Capture mode consumes the first newly pressed button and ignores stick drift.
@@ -2742,6 +2830,19 @@ func (m *SettingsMenu) StepGamepad(pads []gamepad.Pad) bool {
 		}
 	}
 	return handled
+}
+
+func gamepadDeviceKind(p gamepad.Pad) input.DeviceKind {
+	switch p.Family {
+	case gamepad.FamilyXbox:
+		return input.DeviceGamepadXbox
+	case gamepad.FamilyPlayStation:
+		return input.DeviceGamepadPlayStation
+	case gamepad.FamilyNintendo:
+		return input.DeviceGamepadNintendo
+	default:
+		return input.DetectGamepadKind(p.Name)
+	}
 }
 
 func stickDir(v float32, prev int) int {

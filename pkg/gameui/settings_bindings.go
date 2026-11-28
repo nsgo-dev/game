@@ -30,11 +30,11 @@ var gamepadButtonTokenNames = [gamepad.ButtonCount]string{
 	gamepad.ButtonHome:       "home",
 }
 
-var gamepadButtonDisplayNames = [gamepad.ButtonCount]string{
-	gamepad.ButtonSouth:      "Pad A/South",
-	gamepad.ButtonEast:       "Pad B/East",
-	gamepad.ButtonWest:       "Pad X/West",
-	gamepad.ButtonNorth:      "Pad Y/North",
+var genericGamepadButtonDisplayNames = [gamepad.ButtonCount]string{
+	gamepad.ButtonSouth:      "Pad South",
+	gamepad.ButtonEast:       "Pad East",
+	gamepad.ButtonWest:       "Pad West",
+	gamepad.ButtonNorth:      "Pad North",
 	gamepad.ButtonLB:         "Pad LB",
 	gamepad.ButtonRB:         "Pad RB",
 	gamepad.ButtonLT:         "Pad LT",
@@ -48,6 +48,79 @@ var gamepadButtonDisplayNames = [gamepad.ButtonCount]string{
 	gamepad.ButtonDPadLeft:   "Pad Left",
 	gamepad.ButtonDPadRight:  "Pad Right",
 	gamepad.ButtonHome:       "Pad Home",
+}
+
+var xboxGamepadButtonDisplayNames = [gamepad.ButtonCount]string{
+	gamepad.ButtonSouth:      "Xbox A",
+	gamepad.ButtonEast:       "Xbox B",
+	gamepad.ButtonWest:       "Xbox X",
+	gamepad.ButtonNorth:      "Xbox Y",
+	gamepad.ButtonLB:         "Xbox LB",
+	gamepad.ButtonRB:         "Xbox RB",
+	gamepad.ButtonLT:         "Xbox LT",
+	gamepad.ButtonRT:         "Xbox RT",
+	gamepad.ButtonBack:       "Xbox View",
+	gamepad.ButtonStart:      "Xbox Menu",
+	gamepad.ButtonLeftStick:  "Xbox L3",
+	gamepad.ButtonRightStick: "Xbox R3",
+	gamepad.ButtonDPadUp:     "Xbox D-pad Up",
+	gamepad.ButtonDPadDown:   "Xbox D-pad Down",
+	gamepad.ButtonDPadLeft:   "Xbox D-pad Left",
+	gamepad.ButtonDPadRight:  "Xbox D-pad Right",
+	gamepad.ButtonHome:       "Xbox Home",
+}
+
+var playStationGamepadButtonDisplayNames = [gamepad.ButtonCount]string{
+	gamepad.ButtonSouth:      "PlayStation Cross",
+	gamepad.ButtonEast:       "PlayStation Circle",
+	gamepad.ButtonWest:       "PlayStation Square",
+	gamepad.ButtonNorth:      "PlayStation Triangle",
+	gamepad.ButtonLB:         "PlayStation L1",
+	gamepad.ButtonRB:         "PlayStation R1",
+	gamepad.ButtonLT:         "PlayStation L2",
+	gamepad.ButtonRT:         "PlayStation R2",
+	gamepad.ButtonBack:       "PlayStation Create",
+	gamepad.ButtonStart:      "PlayStation Options",
+	gamepad.ButtonLeftStick:  "PlayStation L3",
+	gamepad.ButtonRightStick: "PlayStation R3",
+	gamepad.ButtonDPadUp:     "PlayStation D-pad Up",
+	gamepad.ButtonDPadDown:   "PlayStation D-pad Down",
+	gamepad.ButtonDPadLeft:   "PlayStation D-pad Left",
+	gamepad.ButtonDPadRight:  "PlayStation D-pad Right",
+	gamepad.ButtonHome:       "PlayStation PS",
+}
+
+var nintendoGamepadButtonDisplayNames = [gamepad.ButtonCount]string{
+	gamepad.ButtonSouth:      "Nintendo B",
+	gamepad.ButtonEast:       "Nintendo A",
+	gamepad.ButtonWest:       "Nintendo Y",
+	gamepad.ButtonNorth:      "Nintendo X",
+	gamepad.ButtonLB:         "Nintendo L",
+	gamepad.ButtonRB:         "Nintendo R",
+	gamepad.ButtonLT:         "Nintendo ZL",
+	gamepad.ButtonRT:         "Nintendo ZR",
+	gamepad.ButtonBack:       "Nintendo -",
+	gamepad.ButtonStart:      "Nintendo +",
+	gamepad.ButtonLeftStick:  "Nintendo L3",
+	gamepad.ButtonRightStick: "Nintendo R3",
+	gamepad.ButtonDPadUp:     "Nintendo D-pad Up",
+	gamepad.ButtonDPadDown:   "Nintendo D-pad Down",
+	gamepad.ButtonDPadLeft:   "Nintendo D-pad Left",
+	gamepad.ButtonDPadRight:  "Nintendo D-pad Right",
+	gamepad.ButtonHome:       "Nintendo Home",
+}
+
+func gamepadButtonDisplayNames(device input.DeviceKind) *[gamepad.ButtonCount]string {
+	switch device {
+	case input.DeviceGamepadXbox:
+		return &xboxGamepadButtonDisplayNames
+	case input.DeviceGamepadPlayStation:
+		return &playStationGamepadButtonDisplayNames
+	case input.DeviceGamepadNintendo:
+		return &nintendoGamepadButtonDisplayNames
+	default:
+		return &genericGamepadButtonDisplayNames
+	}
 }
 
 // GamepadButtonToken returns the canonical binding token stored in save.Settings.Bindings
@@ -144,9 +217,13 @@ func ParseBindingToken(token string) (input.Input, bool) {
 	}
 }
 
-// FormatBindingLabel returns a concise human-readable label for a binding token
-// (for example "Space", "A", "Pad A/South", or "Mouse Left").
+// FormatBindingLabel returns a concise human-readable label for a binding token using generic gamepad names and readable key-code fallbacks.
 func FormatBindingLabel(token string) string {
+	return FormatBindingLabelForDevice(nil, token, input.DeviceUnknown)
+}
+
+// FormatBindingLabelForDevice returns a binding label using device's controller family. When cx is non-nil, physical key codes use the active keyboard layout; otherwise readable names such as "W" and "Left" are used.
+func FormatBindingLabelForDevice(cx *core.Scope, token string, device input.DeviceKind) string {
 	t := strings.TrimSpace(token)
 	if t == "" {
 		return ""
@@ -159,10 +236,16 @@ func FormatBindingLabel(token string) string {
 	case input.InputKey:
 		return formatKeyLabel(in.Key)
 	case input.InputKeyCode:
-		return in.Code
+		if cx != nil {
+			if label := strings.TrimSpace(core.KeyCodeLabel(cx, in.Code)); label != "" {
+				return label
+			}
+		}
+		return formatKeyCodeLabel(in.Code)
 	case input.InputGamepadButton:
-		if int(in.PadButton) < len(gamepadButtonDisplayNames) {
-			return gamepadButtonDisplayNames[in.PadButton]
+		names := gamepadButtonDisplayNames(device)
+		if int(in.PadButton) < len(names) {
+			return names[in.PadButton]
 		}
 		return t
 	case input.InputMouseButton:
@@ -225,6 +308,83 @@ func formatKeyLabel(key string) string {
 	}
 }
 
+func formatKeyCodeLabel(code string) string {
+	code = strings.TrimSpace(code)
+	if len(code) == 4 && strings.HasPrefix(code, "Key") && code[3] >= 'A' && code[3] <= 'Z' {
+		return code[3:]
+	}
+	if len(code) == 6 && strings.HasPrefix(code, "Digit") && code[5] >= '0' && code[5] <= '9' {
+		return code[5:]
+	}
+	if len(code) == 7 && strings.HasPrefix(code, "Numpad") && code[6] >= '0' && code[6] <= '9' {
+		return "Numpad " + code[6:]
+	}
+	switch code {
+	case "Space":
+		return "Space"
+	case "Enter", "NumpadEnter":
+		return "Enter"
+	case "Escape":
+		return "Esc"
+	case "ArrowLeft":
+		return "Left"
+	case "ArrowRight":
+		return "Right"
+	case "ArrowUp":
+		return "Up"
+	case "ArrowDown":
+		return "Down"
+	case "ShiftLeft":
+		return "Left Shift"
+	case "ShiftRight":
+		return "Right Shift"
+	case "ControlLeft":
+		return "Left Ctrl"
+	case "ControlRight":
+		return "Right Ctrl"
+	case "AltLeft":
+		return "Left Alt"
+	case "AltRight":
+		return "Right Alt"
+	case "MetaLeft":
+		return "Left Meta"
+	case "MetaRight":
+		return "Right Meta"
+	case "Backquote":
+		return "`"
+	case "Minus":
+		return "-"
+	case "Equal":
+		return "="
+	case "BracketLeft":
+		return "["
+	case "BracketRight":
+		return "]"
+	case "Backslash", "IntlBackslash":
+		return "\\"
+	case "Semicolon":
+		return ";"
+	case "Quote":
+		return "'"
+	case "Comma":
+		return ","
+	case "Period":
+		return "."
+	case "Slash", "NumpadDivide":
+		return "/"
+	case "NumpadMultiply":
+		return "Numpad *"
+	case "NumpadAdd":
+		return "Numpad +"
+	case "NumpadSubtract":
+		return "Numpad -"
+	case "NumpadDecimal":
+		return "Numpad ."
+	default:
+		return code
+	}
+}
+
 func bindingDeviceClass(token string) string {
 	in, ok := ParseBindingToken(token)
 	if !ok {
@@ -270,6 +430,48 @@ func replaceBindingForClass(existing []string, token string) []string {
 	}
 	if !replaced {
 		out = append(out, token)
+	}
+	return out
+}
+
+func bindingTokensEqual(a, b string) bool {
+	parsedA, okA := ParseBindingToken(a)
+	parsedB, okB := ParseBindingToken(b)
+	if okA && okB {
+		return FormatBindingToken(parsedA) == FormatBindingToken(parsedB)
+	}
+	return strings.TrimSpace(a) == strings.TrimSpace(b)
+}
+
+func replacedBindingForClass(existing []string, token string) string {
+	cls := bindingDeviceClass(token)
+	for _, item := range existing {
+		if bindingDeviceClass(item) == cls && !bindingTokensEqual(item, token) {
+			return strings.TrimSpace(item)
+		}
+	}
+	return ""
+}
+
+func replaceConflictingBinding(existing []string, token, replacement string) []string {
+	out := make([]string, 0, len(existing))
+	hasReplacement := false
+	for _, item := range existing {
+		if !bindingTokensEqual(item, token) && bindingTokensEqual(item, replacement) {
+			hasReplacement = true
+			break
+		}
+	}
+	inserted := false
+	for _, item := range existing {
+		if !bindingTokensEqual(item, token) {
+			out = append(out, item)
+			continue
+		}
+		if replacement != "" && !hasReplacement && !inserted {
+			out = append(out, replacement)
+			inserted = true
+		}
 	}
 	return out
 }

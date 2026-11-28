@@ -235,3 +235,5 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 - `image_progress` 节点引用的 `under`、`progress` 或 `over` 图片缺失。
 
 `refs` 与 `game mv` 会追踪 `*.screen.yaml` 中的 `sprite` 路径、`image_progress` 图层路径和 `textKey` 引用：`game mv art/heart.png art/ui/heart.png` 会原地更新 `sprite:`，而 `game mv -text-key hud.hint.lever hud.tip.lever` 会同步重命名所有 `*.screen.yaml` 与 YAML 本地化字符串表中的键。
+
+设置中的控制选项卡会检测同一操作组内的重复绑定，并按配置执行交换、清除或拒绝策略。连接手柄后，标签会使用 Xbox、PlayStation 或 Nintendo 家族名称。
