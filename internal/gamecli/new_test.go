@@ -258,6 +258,49 @@ func TestNewRefusesExistingFiles(t *testing.T) {
 	}
 }
 
+func TestNewFromDirectoryRecordsOriginAndSkipsMachineFiles(t *testing.T) {
+	stubGo(t, nil)
+	src := t.TempDir()
+	data, err := projectData(filepath.Join(t.TempDir(), "copied"), "Copied", "example.com/copied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := renderProject(projectTemplates[0].files, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeProject(src, files); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(src, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, ".env.local"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "go.work"), []byte("go 1.27.3"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "copied")
+	a, _, stderr := newTestApp(t)
+	if err := createProject(createProjectOptions{dir: dst, from: src, name: "Copied", module: "example.com/copied"}, a.stdout, a.stderr); err != nil {
+		t.Fatalf("createProject = %v (%s)", err, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".env.local")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("copied .env.local: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "go.work")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("copied go.work: %v", err)
+	}
+	f, err := project.ReadFS(os.DirFS(dst))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Origin == nil || f.Origin.Kind != "directory" || f.Origin.Source != src {
+		t.Fatalf("origin = %+v", f.Origin)
+	}
+}
+
 func TestNewIntoEmptyDirectory(t *testing.T) {
 	stubGo(t, nil)
 	dir := t.TempDir()

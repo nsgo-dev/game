@@ -67,6 +67,8 @@ To make the template your own, write a story in `story/story.yarn` and run its t
 
 ## Create a project from a template
 
+`game new -from <directory> <destination>` copies any existing project, example, template directory, or installed pack directory. Machine-local files such as `.git`, `.nsgo`, `.env*`, `node_modules`, `go.work`, and temporary files are excluded. The destination's `game.yaml` records an `origin` with the source kind and path so tools can explain where it came from. `-template` remains the short name for the embedded templates.
+
 ```sh
 go run github.com/nsgo-dev/game/cmd/game@latest new -list
 go run github.com/nsgo-dev/game/cmd/game@latest new -template starter mygame

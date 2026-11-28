@@ -67,6 +67,8 @@
 
 ## 用模板创建项目
 
+`game new -from <directory> <destination>` 可以复制任意已有项目、示例、模板目录或已安装的包目录。`.git`、`.nsgo`、`.env*`、`node_modules`、`go.work` 和临时文件等机器本地文件会被排除。目标项目的 `game.yaml` 会记录包含来源种类和路径的 `origin`，供工具说明项目来源。`-template` 仍是内置模板的简写。
+
 ```sh
 go run github.com/nsgo-dev/game/cmd/game@latest new -list
 go run github.com/nsgo-dev/game/cmd/game@latest new -template starter mygame
