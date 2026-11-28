@@ -183,3 +183,7 @@ if err := entities.LoadWorld(store, "slot1", fresh); err != nil {
 	return err
 }
 ```
+
+## Deterministic parallel iteration
+
+`entities.ParEach2` partitions a query into fixed-size chunks and runs component-local callbacks on worker goroutines. The callback may write only the two supplied components and must not change world structure. `Workers <= 1` uses the serial path, which is also the fallback for web builds. Chunk boundaries are independent of worker count, so reductions can combine chunk results in order.

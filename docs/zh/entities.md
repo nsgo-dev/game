@@ -183,3 +183,7 @@ if err := entities.LoadWorld(store, "slot1", fresh); err != nil {
 	return err
 }
 ```
+
+## 确定性并行迭代
+
+`entities.ParEach2` 将查询按固定大小分块，并在工作协程中运行只访问组件的回调。回调只能写入传入的两个组件，不能改变 World 结构。`Workers <= 1` 使用串行路径，Web 构建也回退到该路径。分块边界与工作线程数量无关，因此可以按块顺序组合归约结果。
