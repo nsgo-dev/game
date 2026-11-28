@@ -1,3 +1,3 @@
 ### Added
 
-- `editor MCP`: `selection_get` and `scene_read` report object origins, edit locations, edit permissions, and override reasons (#1929).
+- `pkg/editor/editormcp`: `selection_get` reports the selected object's `edit`, its origin (`local`, `instanced` or `inherited`), the scene file that defines it, and for an instanced or inherited object the overrides entry an edit to it writes (`recordsIn`); `scene_read` with `objects` lists the same for every object of the open scene (#1929).

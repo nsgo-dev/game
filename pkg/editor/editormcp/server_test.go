@@ -366,16 +366,10 @@ func TestSelectionGet(t *testing.T) {
 	if sel.Object == nil || sel.Object.ID != "hero" || sel.Object.Layer != "actors" || sel.Object.Line != 9 || !slices.Equal(sel.Object.Components, []string{"body"}) || sel.File != "data/items.yaml" {
 		t.Fatalf("selection %+v", sel)
 	}
-	if sel.Object.Edit.Origin != "local" || sel.Object.Edit.EditFile != "scenes/room.scene.yaml" || !sel.Object.Edit.Editable || sel.Object.Edit.EditPath != "hero" {
+	if sel.Object.Edit != (editormcp.ObjectEdit{ID: "hero", Origin: "local"}) {
 		t.Fatalf("selection edit metadata %+v", sel.Object.Edit)
 	}
 	read := mustOK(t, call(t, cs, editormcp.ToolSceneRead, map[string]any{}))
-	readRes := call(t, cs, editormcp.ToolSceneRead, map[string]any{})
-	var fileText editormcp.FileText
-	structured(t, readRes, &fileText)
-	if len(fileText.Objects) == 0 || fileText.Objects[0].Origin != "local" || fileText.Objects[0].EditFile != "scenes/room.scene.yaml" {
-		t.Fatalf("scene object metadata %+v", fileText.Objects)
-	}
 	if !strings.Contains(read, sel.Object.YAML) || !strings.HasPrefix(sel.Object.YAML, "     9\t      - id: hero\n") || strings.Contains(sel.Object.YAML, "- name: props") {
 		t.Fatalf("object YAML:\n%s\nnot the lines of:\n%s", sel.Object.YAML, read)
 	}

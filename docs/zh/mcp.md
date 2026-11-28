@@ -318,13 +318,13 @@ claude mcp add game-editor -- go tool game mcp
 
 | 工具 | 动作 | 参数 | 作用 |
 | --- | --- | --- | --- |
-| `scene_read` | read | `file`、`offset`、`limit`（均可选） | 以从 1 开始编号的行读取项目中的场景、预制体、数据表或其他文本文件，或 `game.yaml`。编辑器对打开的场景或 `game.yaml` 有未保存的编辑、或待确认智能体回合在内存中暂存了改动时，该文件按编辑器当前持有的内容读取，回复会注明这一点并说明其行号与磁盘上的文件不同；否则，以及其他任何文件，都从磁盘读取，保留注释，行号与 `game_check` 报告的一致。不给 `file` 时读取打开的场景。路径必须相对于项目根目录，且不能离开项目。 |
+| `scene_read` | read | `file`、`offset`、`limit`、`objects`（均可选） | 以从 1 开始编号的行读取项目中的场景、预制体、数据表或其他文本文件，或 `game.yaml`。编辑器对打开的场景或 `game.yaml` 有未保存的编辑、或待确认智能体回合在内存中暂存了改动时，该文件按编辑器当前持有的内容读取，回复会注明这一点并说明其行号与磁盘上的文件不同；否则，以及其他任何文件，都从磁盘读取，保留注释，行号与 `game_check` 报告的一致。不给 `file` 时读取打开的场景。路径必须相对于项目根目录，且不能离开项目。读取打开的场景并设置 `objects` 时，结构化结果会增加 `objects`：解析后场景中的每个对象，包括场景实例和基础场景带来的对象，每项给出 `origin`（`local`、`instanced` 或 `inherited`）、`sourceScene`（定义实例化或继承对象的场景文件，或本地对象所实例化的场景），以及实例化或继承对象的 `recordsIn`：覆盖写入的文件 `file`、存放该条目的 `overrides` 所属实例 `instance`（继承对象为空，其条目在场景自身的 `overrides` 中）和 `overridesKey`。对其他文件设置 `objects` 会被拒绝。 |
 | `scene_edit` | edit | `edits`（必填）、`file`、`label`、`why`（可选；每项编辑也可单独带 `why`） | 按顺序把编辑应用到打开的场景（或在智能体回合进行中，在内存中应用到项目中的任意场景或预制体），不写入磁盘。在活跃回合内，这些编辑归入同一个待确认回合，并把 `why` 说明记录到对应的派生变更上；在回合之外则记录为一条标签为 `label` 的普通撤销步骤。改动在保留并保存前一直不落盘。 |
 | `turn_start` | edit | `prompt`、`step`（可选） | 开启一个待确认智能体回合，使随后的 `scene_edit`、`object_set_field` 与 `file_edit` 跨文件编辑合并为同一个可审查回合，并在用户保留时成为单个撤销步骤。 |
 | `turn_end` | edit | `summary`、`step`（可选） | 将当前进行中的回合标记为待用户审查状态，附带可选的完成摘要（以及可选的进度步骤），并返回当前派生回合快照。 |
 | `turn_status` | read | 无 | 只读返回当前智能体回合的快照：状态（`working`、`pending`、`stopped`、`kept`、`reverted`）、请求提示词、进度步骤、摘要、每个文件的增删行数（`+added`/`−removed`）以及结构化派生的变更列表（含 `kind`、`title`、`detail`、`file`、从 1 开始的 `line`、`why` 与 `reverted`）。刻意不提供用于保留或还原回合的 MCP 工具，决定权始终在用户手中。 |
 | `file_edit` | edit | `file`（必填）、`yaml`（必填）、`why`、`label`（可选） | 在活跃智能体回合内校验并在内存中编辑 `game.yaml`、数据表（`data/*.yaml` / `*.table.yaml`）、动画片段（`*.anim.yaml` / `*.clip.yaml`）、预制体（`*.prefab.yaml`）或场景（`*.scene.yaml`），在用户保留并保存前不写入磁盘（强制校验符号链接包含性、“仅限本人”边界、拒绝 `.git/**` 与 2 MiB 单文件上限）。 |
-| `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、多选时的全部选中对象列表 `selectedIds`、文件浏览器中选中的文件、当前工具和视图模式。 |
+| `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、多选时的全部选中对象列表 `selectedIds`、文件浏览器中选中的文件、当前工具和视图模式。选中的对象带有 `edit`，即它的来源和对它的编辑记录在哪里，格式与 `scene_read` 在 `objects` 中列出的相同。 |
 | `viewport_image` | read | `scale`（可选，0.25 到 4）、`viewport_overlays`（可选字符串数组） | 视口当前样子的 PNG：通过编辑器视图看到的场景，以及相机框、瓦片网格、选择框与视口叠加层，尺寸为视口的点尺寸乘以 `scale`。省略 `viewport_overlays` 时使用编辑器当前启用的叠加层集合；传入叠加层 ID（`collision_shapes`、`triggers`、`connections`、`patrol_paths`、`navigation`、`camera_bounds`、`labels` 或已启用的插件叠加层 ID）时仅覆盖本次截图，传 `[]` 则不绘制任何叠加层。叠加层文字（如连接箭头上的 `"pulled → open"`）会渲染到 PNG 中；不在内存中的图片会被略去并给出数量。 |
 | `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`，并包含编辑器中打开且未保存的文档），返回其中的可见问题，每条带文件、从 1 开始的行号、列号（可定位时）和消息。 |
 | `problem_propose_fix` | read | `problem`（必填）、`explanation`（必填）、`edit`（必填） | 在克隆场景上校验针对实时问题的修复建议，计算精确的 `-`/`+` YAML 差异，并在编辑器的 Agent 面板展示审查卡片（含应用修复、定位查看、忽略与提问）。绝不自动应用修复或修改任何文件——没有任何 MCP 工具会直接应用修复。 |
