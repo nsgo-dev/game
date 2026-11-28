@@ -57,6 +57,11 @@ input:
       axis: leftX
       deadZone: 0.25
       axial: true
+autoload:
+  mainScene: level1
+  scenes:
+    - name: level1
+      path: scenes/level1.scene.yaml
 export:
   output: dist
   presets:

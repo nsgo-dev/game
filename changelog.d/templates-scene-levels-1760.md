@@ -1,1 +1,3 @@
-平台 2D 与 RPG 2D 模板现在附带可由编辑器打开的场景入口，用于查看和放置关卡对象。
+### Added
+
+- 2D platformer and RPG templates now include editor-openable scene entry levels with autoloaded main scenes (#1760).

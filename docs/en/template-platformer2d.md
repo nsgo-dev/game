@@ -76,6 +76,8 @@ tiles: |
 
 ## Where to change it
 
+The editor opens `scenes/level1.scene.yaml` as the `level1` autoloaded main scene. It is a reviewable entry layout for terrain, the player spawn, checkpoint and goal. The current runtime still reads `data/level.yaml` for its character-grid rules while the scene migration continues.
+
 - **A new level**: edit the tiles in `data/level.yaml` and keep `data/rooms.yaml` covering every column; `parseLevel` refuses a start (`P`) or lamp (`C`) with nothing to stand on, and `TestDataFilesAreCanonical` and `TestRoomsCoverTheLevel` report what is wrong. The playthrough test jumps at spikes, pits and walls ahead of the player, so a route that needs more than that needs a change to `obstacleAhead` in `game_test.go`.
 - **How the jump feels**: `data/player.yaml`. A longer `coyote_time` or `jump_buffer` forgives late and early presses, and `wall_jump_speed_y: 0` turns wall jumps off.
 - **A new tile kind**: a glyph in `level.go`, a case in `newWorld` for what it does and one in `newTilemap` for how it looks.

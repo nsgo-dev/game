@@ -1,25 +1,38 @@
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
 version: 1
 name: Hollowbrook
-virtualWidth: 320
-virtualHeight: 180
+virtualWidth: 480
+virtualHeight: 270
 layers:
   - name: world
-    space: world
     objects:
       - id: mira
         x: 80
-        y: 80
-        properties: {kind: npc, node: Mira}
+        "y": 80
+        properties:
+          kind: npc
+          node: Mira
       - id: bram
         x: 288
-        y: 80
-        properties: {kind: npc, node: Bram}
-      - id: town_potion
+        "y": 80
+        properties:
+          kind: npc
+          node: Bram
+      - id: pell
+        x: 496
+        "y": 80
+        properties:
+          kind: npc
+          node: Pell
+      - id: town-potion
         x: 144
-        y: 272
-        properties: {kind: item, item: potion}
-      - id: field_exit
+        "y": 272
+        properties:
+          item: potion
+          kind: item
+      - id: exit-field
         x: 528
-        y: 96
-        properties: {kind: exit, map: field}
+        "y": 96
+        properties:
+          kind: exit
+          map: field

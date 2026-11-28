@@ -50,6 +50,8 @@ Hollowbrook 神龛里的灯熄灭了。治疗师 Mira 需要从 Whisper Meadow �
 
 ## 在哪里修改
 
+编辑器会打开作为 `town` 自动加载主场景的 `scenes/town.scene.yaml`。它为第一张地图提供可选择的人物、物品和出口对象。当前运行时仍从 `data/world.yaml` 读取地图规则，场景迁移会继续进行。
+
 - **地图**：在 `data/world.yaml` 的 `maps` 中加一张，并从另一张地图加一个通往它的出口。新的图块或敌人种类放进 `tiles` 或 `foes`，图片写进 `art.go`。
 - **人物**：加到某张地图的 `people` 中，在 `data/cast.yaml` 中加上其立绘，并在 `data/dialogue.yarn` 中给他一个节点。
 - **物品**：加到 `data/items.yaml`。装备还需要在 `data/stats.yaml` 中有一个同名效果。
