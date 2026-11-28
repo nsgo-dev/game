@@ -1,0 +1,1 @@
+- Add the `pkg/cues` versioned YAML format and deterministic client cue dispatcher with rollback-safe one-shots and while-active reconciliation.
