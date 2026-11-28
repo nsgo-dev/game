@@ -1767,6 +1767,7 @@ func (e *Editor) launchDefaultTaskRunner(task AgentTask) {
 		CreatedAt:           now,
 		StartedAt:           now,
 		ThreadID:            taskThreadID,
+		Context:             e.captureAgentTurnContext(scenePath),
 		ReviewState:         AgentReviewRunning,
 		turnStartHistoryIdx: startHist,
 	})

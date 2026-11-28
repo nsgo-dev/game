@@ -276,6 +276,28 @@ type AgentTurnContext struct {
 	ViewMode       string   `json:"viewMode,omitempty"`
 }
 
+// captureAgentTurnContext snapshots the request scene and selection. The
+// snapshot remains the stable target while the person can select other objects
+// during foreground, background, or automation work.
+func (e *Editor) captureAgentTurnContext(scenePath string) AgentTurnContext {
+	ctx := AgentTurnContext{ScenePath: scenePath}
+	if e == nil {
+		return ctx
+	}
+	if e.Doc != nil {
+		ctx.SceneName = e.Doc.Name
+	}
+	ctx.SelectionIDs = e.SelectedIDs()
+	for _, obj := range e.SelectedObjects() {
+		if obj != nil {
+			ctx.SelectionNames = append(ctx.SelectionNames, contextObjectDisplayName(obj))
+		}
+	}
+	ctx.Layer = e.ActiveLayer
+	ctx.ViewMode = e.ViewMode.String()
+	return ctx
+}
+
 // AgentTurn is one user request (in-place ⌘L, Agent panel composer, terminal-initiated MCP turn, or background automation run)
 // and its attached context, streamed steps, follow-ups, pending review, and reply.
 type AgentTurn struct {
