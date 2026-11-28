@@ -68,6 +68,11 @@ type AnalyticsProvider interface {
 	Flush() error
 }
 
+// ConsentRevoker is optionally implemented by providers that buffer events. Purge is called when consent is revoked so already queued events cannot be sent later.
+type ConsentRevoker interface {
+	Purge() error
+}
+
 // Analytics gates event tracking on explicit player consent and optionally persists the consent choice in core.Storage.
 //
 // Events tracked while Consent is ConsentUnknown or ConsentDenied are dropped immediately — they are never sent and never buffered for later replay.
@@ -152,7 +157,7 @@ func (a *Analytics) SetConsent(state ConsentState) error {
 		return ErrInvalidConsent
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	previous := a.consentStateLocked()
 	if a.hasStore {
 		if state == ConsentUnknown {
 			a.store.RemoveItem(a.key)
@@ -162,11 +167,29 @@ func (a *Analytics) SetConsent(state ConsentState) error {
 				a.store.RemoveItem(a.key)
 				a.consent = ConsentDenied
 			}
+			a.mu.Unlock()
 			return err
 		}
 	}
 	a.consent = state
+	provider := a.provider
+	a.mu.Unlock()
+	if state != ConsentGranted && previous == ConsentGranted {
+		if revoker, ok := provider.(ConsentRevoker); ok && revoker != nil {
+			return revoker.Purge()
+		}
+	}
 	return nil
+}
+
+func (a *Analytics) consentStateLocked() ConsentState {
+	if a.hasStore {
+		if raw, ok := a.store.GetItem(a.key); ok {
+			return parseConsent(raw)
+		}
+		return ConsentUnknown
+	}
+	return a.consent
 }
 
 // Track dispatches an event to the configured provider only when Consent is ConsentGranted.

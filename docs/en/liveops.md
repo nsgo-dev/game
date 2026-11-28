@@ -60,6 +60,7 @@ loop.Run(cx)
 - `Track(name, props)` returns `false` and drops the event immediately whenever consent is `ConsentUnknown` or `ConsentDenied` — events are never sent and never buffered for retroactive replay.
 - When consent is `ConsentGranted`, `Track` defensively copies `props` and dispatches an `Event` to `AnalyticsProvider.Send`.
 - Calling `SetConsent(ConsentDenied)` immediately stops all subsequent `Track` and `Flush` calls.
+- A buffering provider may implement `ConsentRevoker.Purge`; revoking or clearing consent calls it once after the stored choice changes so queued events are discarded before future delivery.
 
 ```go
 analytics := liveops.NewAnalytics(cx.Storage(), "liveops.consent", myProvider)

@@ -60,6 +60,7 @@ loop.Run(cx)
 - 处于 `ConsentUnknown` 或 `ConsentDenied` 时，`Track(name, props)` 直接丢弃事件并返回 `false`，绝不发送，也不缓存供后续补发。
 - 处于 `ConsentGranted` 时，`Track` 对 `props` 做防御性拷贝，并通过 `AnalyticsProvider.Send` 分发 `Event`。
 - 调用 `SetConsent(ConsentDenied)` 撤回同意后，所有后续 `Track` 和 `Flush` 调用会立即停止。
+- 需要缓冲的提供方可以实现 `ConsentRevoker.Purge`；撤回或清除同意后，存储的状态更新完成即调用一次该方法，先丢弃队列中的事件再进行后续投递。
 
 ```go
 analytics := liveops.NewAnalytics(cx.Storage(), "liveops.consent", myProvider)
