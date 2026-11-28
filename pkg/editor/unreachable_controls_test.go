@@ -53,6 +53,7 @@ func TestUnreachableControlsRegisteredAsCommandsAndMenus(t *testing.T) {
 		editor.CmdToolPickTile,
 		editor.CmdToggleSnapGrid,
 		editor.CmdSnapSettings,
+		editor.CmdCheckForUpdates,
 	}
 
 	// Verify localization in both English and Chinese and presence in Command Palette.
@@ -101,6 +102,7 @@ func TestUnreachableControlsRegisteredAsCommandsAndMenus(t *testing.T) {
 		"View > Overlays > Show 3D Render Stats",
 		"View > Snap to Grid",
 		"View > Snap Settings...",
+		"Help > Check for Updates...",
 	}
 	for _, p := range wantMenuPaths {
 		if _, ok := menuByPath[p]; !ok {

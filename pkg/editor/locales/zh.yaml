@@ -1147,6 +1147,8 @@ strings:
   cmd.category.view: 视图
   cmd.changes.desc: 将修改过的场景、数据、代码和资源与 HEAD 对比并附带草拟消息提交
   cmd.changes.label: 更改与提交
+  cmd.checkForUpdates.desc: 检查编辑器是否有新版本并安装
+  cmd.checkForUpdates.label: 检查更新
   cmd.checkProblems.desc: 重新运行资源与项目校验检查
   cmd.checkProblems.label: 检查问题
   cmd.closeTab.desc: 关闭当前场景标签页，若有未保存更改会先询问
@@ -2616,6 +2618,7 @@ strings:
   menu.audioMixer: 音频总线混音器
   menu.buildRelease: 构建与发布…
   menu.changes: 变更与提交
+  menu.checkForUpdates: 检查更新...
   menu.checkProblems: 检查问题
   menu.closeTab: 关闭场景标签页
   menu.collider: 碰撞体
