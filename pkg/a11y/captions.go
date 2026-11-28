@@ -203,12 +203,10 @@ func tokenizeCaptionParagraph(para string) []captionToken {
 	for i := 0; i < len(runes); {
 		r := runes[i]
 		if unicode.IsSpace(r) {
-			start := i
 			for i < len(runes) && unicode.IsSpace(runes[i]) {
 				i++
 			}
 			tokens = append(tokens, captionToken{text: " ", runes: 1, space: true})
-			_ = start
 			continue
 		}
 		if isCJKWrapRune(r) {
