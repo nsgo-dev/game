@@ -115,6 +115,10 @@ const (
 	PublishDestGooglePlay PublishDestination = "google_play_internal"
 	// PublishDestTestFlight publishes iOS builds (.ipa) to Apple TestFlight.
 	PublishDestTestFlight PublishDestination = "testflight"
+	// PublishDestWeChat publishes a WeChat mini-program package through the developer tool API.
+	PublishDestWeChat PublishDestination = "wechat_miniprogram"
+	// PublishDestDouyin publishes a Douyin mini-program package through the developer tool API.
+	PublishDestDouyin PublishDestination = "douyin_miniprogram"
 )
 
 // AllPublishDestinations returns every supported store upload destination in display order.
@@ -123,13 +127,15 @@ func AllPublishDestinations() []PublishDestination {
 		PublishDestItchIO,
 		PublishDestGooglePlay,
 		PublishDestTestFlight,
+		PublishDestWeChat,
+		PublishDestDouyin,
 	}
 }
 
 // Valid reports whether d is a recognized PublishDestination.
 func (d PublishDestination) Valid() bool {
 	switch d {
-	case PublishDestItchIO, PublishDestGooglePlay, PublishDestTestFlight:
+	case PublishDestItchIO, PublishDestGooglePlay, PublishDestTestFlight, PublishDestWeChat, PublishDestDouyin:
 		return true
 	default:
 		return false
@@ -145,6 +151,10 @@ func (d PublishDestination) DisplayName() string {
 		return "Google Play · internal testing"
 	case PublishDestTestFlight:
 		return "TestFlight"
+	case PublishDestWeChat:
+		return "WeChat Mini Program"
+	case PublishDestDouyin:
+		return "Douyin Mini Program"
 	default:
 		return string(d)
 	}
@@ -159,6 +169,10 @@ func DefaultPublishDestinationForPlatform(platform string) (PublishDestination, 
 		return PublishDestGooglePlay, "internal track"
 	case "ios":
 		return PublishDestTestFlight, "TestFlight beta"
+	case "miniprogram_wechat":
+		return PublishDestWeChat, "versioned upload"
+	case "miniprogram_douyin":
+		return PublishDestDouyin, "versioned upload"
 	case "web":
 		return PublishDestItchIO, "html5"
 	case "macos", "windows", "linux":
@@ -1570,6 +1584,29 @@ func (e *Editor) executeConfirmedReleaseUploads(
 			notifyUI()
 			continue
 		}
+		if item.Destination == PublishDestWeChat || item.Destination == PublishDestDouyin {
+			provider := "wechat"
+			if item.Destination == PublishDestDouyin {
+				provider = "douyin"
+			}
+			if err := ValidateMiniProgramPreflight(MiniProgramPreflight{
+				Provider:  provider,
+				AppID:     item.CredentialAccount,
+				Version:   item.Version,
+				UploadKey: secret,
+			}); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
+					it.Status = UploadStatusFailed
+					it.Err = err.Error()
+					it.StatusMessage = "Preflight failed"
+				})
+				notifyUI()
+				continue
+			}
+		}
 
 		req := ReleaseUploadRequest{
 			ProjectDir:       projectDir,
@@ -1944,6 +1981,23 @@ func buildNSGoPublishArgs(req ReleaseUploadRequest) ([]string, error) {
 		}
 		return []string{"publish", "ios", safePositionalArg(projectRelativeArg(req.ProjectDir, ipaPath))}, nil
 
+	case PublishDestWeChat, PublishDestDouyin:
+		provider := "wechat"
+		target := "miniprogram_wechat"
+		if req.Destination == PublishDestDouyin {
+			provider = "douyin"
+			target = "miniprogram_douyin"
+		}
+		version := strings.TrimSpace(req.Version)
+		if version == "" || strings.HasPrefix(version, "-") {
+			return nil, fmt.Errorf("editor: invalid %s mini-program version %q", provider, req.Version)
+		}
+		args := []string{"publish", "miniprogram", "-target", target, "-version", version}
+		if p := strings.TrimSpace(req.ArtifactPath); p != "" {
+			args = append(args, safePositionalArg(projectRelativeArg(req.ProjectDir, p)))
+		}
+		return args, nil
+
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrInvalidPublishDestination, req.Destination)
 	}
@@ -2058,6 +2112,12 @@ func buildNSGoPublishEnv(baseEnv []string, req ReleaseUploadRequest) ([]string, 
 		}
 		if key != "" && key != secret {
 			secrets = append(secrets, key)
+		}
+	case PublishDestWeChat, PublishDestDouyin:
+		env = unsetEnvVars(env, "BUTLER_API_KEY", "NSGO_PLAY_SERVICE_ACCOUNT", "NSGO_APP_STORE_KEY", "NSGO_APP_STORE_KEY_ID", "NSGO_APP_STORE_ISSUER", "NSGO_MINIPROGRAM_UPLOAD_KEY")
+		env = setEnvVar(env, "NSGO_MINIPROGRAM_UPLOAD_KEY", secret)
+		if account := strings.TrimSpace(req.Credential.Account); account != "" {
+			env = setEnvVar(env, "NSGO_MINIPROGRAM_APP_ID", account)
 		}
 	default:
 		return nil, nil, fmt.Errorf("%w: %q", ErrInvalidPublishDestination, req.Destination)

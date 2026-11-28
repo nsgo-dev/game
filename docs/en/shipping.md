@@ -234,3 +234,6 @@ To also build `android_x64` (for x86_64 emulators or Chromebooks), install an An
   Without a keystore, `nsgo build` signs APKs with the project's debug key (for sideloading only, rejected by Google Play).
 - **Google Play**: build with `-channel store` to produce a signed `.aab` (Android App Bundle) for Google Play Console. Increment `build_number` (`versionCode`) on every upload, set `android.target_sdk` to Google Play's current required API level (`minSdkVersion` is 28), and declare any extra permissions under `android.permissions`.
 - **Orientation**: the manifest does not fix an orientation; the game requests the one it plays in at runtime with `cx.RequestOrientation` (see [Orientation on phones](screen.md#orientation-on-phones)).
+### WeChat and Douyin mini-game publishing
+
+The Build and Release screen recognizes `miniprogram_wechat` and `miniprogram_douyin` as versioned upload destinations. It shows a phone preview QR for the selected app ID and performs an app-ID, version, upload-key, and optional source-IP allowlist preflight before a person confirms the upload. Credentials stay in the system keychain and are passed to the provider tool through `NSGO_MINIPROGRAM_UPLOAD_KEY`; external developer tools remain required for the final upload.

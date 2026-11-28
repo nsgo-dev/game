@@ -234,3 +234,6 @@ go tool nsgo build -target android_arm64
   未配置密钥库时，`nsgo build` 会使用项目自带的调试密钥签名 APK（仅限侧载测试，无法上传 Google Play）。
 - **Google Play**：使用 `-channel store` 生成已签名的 `.aab`（Android App Bundle）上传至 Google Play Console。每次上传需递增 `build_number`（`versionCode`），按 Google Play 当前要求设置 `android.target_sdk`（`minSdkVersion` 为 28），并在 `android.permissions` 下声明额外权限。
 - **屏幕方向**：清单不固定屏幕方向；游戏在运行时通过 `cx.RequestOrientation` 请求游玩时的方向（见[手机上的屏幕方向](screen.md#手机上的屏幕方向)）。
+### 微信与抖音小游戏发布
+
+“构建与发布”界面将 `miniprogram_wechat` 和 `miniprogram_douyin` 识别为带版本号的上传目标。它会为所选 AppID 显示手机预览二维码，并在用户确认上传前校验 AppID、版本、上传密钥和可选的来源 IP 白名单。凭据保存在系统钥匙串中，通过 `NSGO_MINIPROGRAM_UPLOAD_KEY` 传给平台工具，最终上传仍需要平台开发者工具。

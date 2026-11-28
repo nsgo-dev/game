@@ -201,6 +201,35 @@ func EncodeBuildQR(rawURL string) (*qrcode.Code, error) {
 	return qrcode.Encode(strings.TrimSpace(rawURL), qrcode.Medium)
 }
 
+// MiniProgramPreviewURL returns the local preview URL encoded in the QR card
+// shown for a mini-program upload. The URL carries no credential and is safe to
+// print or embed in editor snapshots.
+func MiniProgramPreviewURL(provider, appID, version string) (string, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider != "wechat" && provider != "douyin" {
+		return "", fmt.Errorf("editor: unsupported mini-program provider %q", provider)
+	}
+	appID = strings.TrimSpace(appID)
+	if appID == "" || strings.ContainsAny(appID, "\r\n \t") {
+		return "", errors.New("editor: mini-program app id is required")
+	}
+	version = strings.TrimSpace(version)
+	if version == "" || strings.HasPrefix(version, "-") {
+		return "", errors.New("editor: mini-program version is required")
+	}
+	return "https://mini-preview.nsgo.dev/" + provider + "/" + url.PathEscape(appID) + "?version=" + url.QueryEscape(version), nil
+}
+
+// EncodeMiniProgramPreviewQR returns a deterministic QR code for a mini-program
+// preview URL. Developer-tool availability is checked by the caller.
+func EncodeMiniProgramPreviewQR(provider, appID, version string) (*qrcode.Code, error) {
+	u, err := MiniProgramPreviewURL(provider, appID, version)
+	if err != nil {
+		return nil, err
+	}
+	return EncodeBuildQR(u)
+}
+
 // isLocalOrLANIP reports whether ip is strictly a loopback, RFC 1918 / RFC 4193 private LAN,
 // or link-local address. Publicly routable addresses always return false.
 func isLocalOrLANIP(ip net.IP) bool {
