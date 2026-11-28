@@ -180,6 +180,33 @@ func TestSceneEditPlacesAnObjectAsOneUndoStep(t *testing.T) {
 	}
 }
 
+func TestSceneEditRejectsStaleRevisionAndDuplicateRequest(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+	base := f.ed.Revision()
+	res := call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"baseRevision": base, "requestId": "scene-write-1",
+		"edits": []any{map[string]any{"op": "move", "id": "hero", "x": 110, "y": 20}},
+	})
+	mustOK(t, res)
+	res = call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"baseRevision": base, "requestId": "scene-write-2",
+		"edits": []any{map[string]any{"op": "move", "id": "hero", "x": 120, "y": 20}},
+	})
+	if !res.IsError || !strings.Contains(text(res), "stale") {
+		t.Fatalf("stale scene write = error:%v text:%q", res.IsError, text(res))
+	}
+	res = call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"requestId": "scene-write-1",
+		"edits":     []any{map[string]any{"op": "move", "id": "hero", "x": 130, "y": 20}},
+	})
+	if !res.IsError || !strings.Contains(text(res), "already applied") {
+		t.Fatalf("duplicate scene write = error:%v text:%q", res.IsError, text(res))
+	}
+}
+
 func TestSceneEditRecordsAttributionOnActiveAgentThread(t *testing.T) {
 	f := openFixture(t)
 	s := editormcp.New(f.ed, editormcp.Options{})

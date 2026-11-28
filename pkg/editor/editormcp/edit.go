@@ -20,6 +20,8 @@ const sceneEditSchema = `{"type":"object","additionalProperties":false,"required
 	`"file":{"type":"string","description":"The scene or prefab to edit, by its path from the project root; empty names the scene open in the editor (during an active turn, any scene or prefab in the project may be edited in memory)"},` +
 	`"label":{"type":"string","description":"What the edits do, as the undo step names it; derived from the edits when absent"},` +
 	`"why":{"type":"string","description":"Optional reason explaining why these edits were made, shown alongside derived changes in turn review"},` +
+	`"baseRevision":{"type":"integer","minimum":0,"description":"Revision returned by the preceding read; the edit is refused if the editor changed since then"},` +
+	`"requestId":{"type":"string","description":"Unique retry key; a request ID already applied is refused"},` +
 	`"edits":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"required":["op"],"properties":{` +
 	`"op":{"type":"string","enum":["add","remove","move","set","add_component","remove_component","set_property","remove_property","reparent","move_to_layer"]},` +
 	`"id":{"type":"string","description":"The object the edit changes"},` +
@@ -37,10 +39,12 @@ const sceneEditSchema = `{"type":"object","additionalProperties":false,"required
 
 // sceneEditArgs are scene_edit's arguments.
 type sceneEditArgs struct {
-	File  string     `json:"file"`
-	Label string     `json:"label"`
-	Why   string     `json:"why"`
-	Edits []editArgs `json:"edits"`
+	File         string     `json:"file"`
+	Label        string     `json:"label"`
+	Why          string     `json:"why"`
+	BaseRevision *uint64    `json:"baseRevision"`
+	RequestID    string     `json:"requestId"`
+	Edits        []editArgs `json:"edits"`
 }
 
 // editArgs are one edit of a scene_edit call.
@@ -144,8 +148,9 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		}()
 	}
 	var (
-		res    EditResult
-		inTurn bool
+		res          EditResult
+		inTurn       bool
+		releaseWrite func()
 	)
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
@@ -173,6 +178,11 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		}
 		if holdErr := sketchHoldEditError(ed, name); holdErr != nil {
 			return holdErr
+		}
+		var guardErr error
+		releaseWrite, guardErr = c.beginWriteGuard(ed, ToolSceneEdit, args.RequestID, args.BaseRevision, name)
+		if guardErr != nil {
+			return guardErr
 		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
@@ -260,6 +270,9 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		return nil
 	})
 	if err != nil {
+		if releaseWrite != nil {
+			releaseWrite()
+		}
 		return nil, err
 	}
 	committed = true
