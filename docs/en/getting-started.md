@@ -21,7 +21,7 @@ cd mygame
 go tool nsgo dev
 ```
 
-Inside the created project, `go tool game <command>` runs the module's pinned `game` tool (for example `go tool game check` or `go tool game generate`).
+Inside the created project, `go tool game <command>` runs the module's pinned `game` tool (for example `go tool game check` or `go tool game generate`). Run `go tool game doctor` to check the project before you build or release it.
 
 The starter includes an animated sprite, tap-to-score input, and tests. Its settings live in `game.yaml`, the [project file](project.md), which `nsgo.yaml` mirrors. `new` names the game after its directory in both files' `name` and `id` and in the module path; `-name` and `-module` choose others, such as `-module example.com/mygame`. [Command Line](cli.md#new) describes every flag, and `-template` starts from another of the [templates](templates.md), which `new -list` lists. Change the identifier to your own before you ship the game: edit the game's name and identifier in `game.yaml`, then run `go run github.com/nsgo-dev/game/cmd/game project sync` to write them into `nsgo.yaml`.
 

@@ -243,6 +243,14 @@ go tool game check [flags] [dir]
 | --- | --- | --- |
 | `-in string` |  | directory to check (alternative to the positional argument; defaults to the current directory) |
 
+## game doctor
+
+检查项目模块、固定版本的 `game` 和 `nsgo` 工具、`game.yaml` 与 `nsgo.yaml` 的一致性、应用 ID 以及导出预设。结果以 `文件：严重级别：消息；修复：...` 输出。与代理和编辑器集成时使用 `-json`。
+
+```sh
+go tool game doctor [-json] [dir]
+```
+
 ## game assets
 
 Pack atlases, encode textures, convert audio, bake fonts, pack models and generate the manifest from game.yaml, rebuilding only what changed.

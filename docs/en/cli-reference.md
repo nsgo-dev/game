@@ -243,6 +243,14 @@ go tool game check [flags] [dir]
 | --- | --- | --- |
 | `-in string` |  | directory to check (alternative to the positional argument; defaults to the current directory) |
 
+## game doctor
+
+Check a project module, its pinned `game` and `nsgo` tools, `game.yaml` and `nsgo.yaml` agreement, application ID and export presets. Findings are printed as `file: severity: message; fix: ...`. Use `-json` for agent and editor integrations.
+
+```sh
+go tool game doctor [-json] [dir]
+```
+
 ## game assets
 
 Pack atlases, encode textures, convert audio, bake fonts, pack models and generate the manifest from game.yaml, rebuilding only what changed.
