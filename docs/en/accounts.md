@@ -204,3 +204,7 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ```
 
 `init` never overwrites a configuration and writes no `allowedOrigins`; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `accounts.yaml` before `serve`. `genkey` never overwrites a key and adds the new public key to the key set file, the first step of a rotation; it replaces the file through a temporary file and a rename, so a game server reading it never sees half of it, and it removes the new key again when the key set cannot be written. `serve -keyset` accepts and serves every key in the key set, so tokens signed with an old key keep working on the service after a rotation. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM. A game that links platform identities builds its own command around `accounts.New` with its verifiers.
+
+## China anti-addiction rules
+
+The core-free `online/antiaddiction` package evaluates the mainland China minor play window using a server-supplied clock and holiday date set. It also exposes the under-8, 8–15 and 16–17 per-payment and monthly spending caps. Keep the clock and holiday calendar on the server. Client clocks and age flags are not authoritative.

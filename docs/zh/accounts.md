@@ -204,3 +204,7 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ```
 
 `init` 从不覆盖已有配置，且不写入 `allowedOrigins`；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `accounts.yaml` 的 `allowedOrigins`。`genkey` 从不覆盖已有密钥，并把新公钥加进密钥集文件，这是轮换的第一步；它先写临时文件再改名替换，游戏服务器读取时不会读到写了一半的文件，密钥集写入失败时还会删掉刚生成的密钥。`serve -keyset` 接受并提供密钥集中的所有公钥，所以轮换后用旧密钥签名的令牌在服务上依然有效。`serve` 把 JSON 日志写到 stderr，收到 SIGINT 或 SIGTERM 时停止。需要绑定平台身份的游戏，用自己的校验器围绕 `accounts.New` 构建自己的命令。
+
+## 中国防沉迷规则
+
+无核心依赖的 `online/antiaddiction` 包使用服务器提供的时钟和节假日日期集合，判断中国大陆未成年人的游戏时间窗口，并提供 8 岁以下、8–15 岁和 16–17 岁的单笔及月度消费上限。时钟和节假日日历必须由服务器维护，客户端时钟和年龄标记不能作为依据。
