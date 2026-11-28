@@ -23,7 +23,7 @@ The files a game's author writes are YAML, apart from those under JSON files and
 ```yaml
 version: 1
 name: Cave Run
-id: dev.nsgo.caverun
+id: dev.nsgo.game.examples.caverun
 appVersion: 0.1.0
 window:
   title: Cave Run

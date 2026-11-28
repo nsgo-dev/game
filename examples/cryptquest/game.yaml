@@ -1,6 +1,6 @@
 version: 1
 name: CryptQuest
-id: dev.nsgo.game.cryptquest
+id: dev.nsgo.game.examples.cryptquest
 appVersion: 0.1.0
 window:
   width: 960

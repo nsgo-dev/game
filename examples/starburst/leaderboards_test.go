@@ -10,7 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-const highScoreGameCenterID = "dev.nsgo.game.starburst.high_score"
+const highScoreGameCenterID = "dev.nsgo.game.examples.starburst.high_score"
 
 func startWithEnv(t *testing.T, env core.Environment) (*nsgotest.App, *GameController) {
 	t.Helper()

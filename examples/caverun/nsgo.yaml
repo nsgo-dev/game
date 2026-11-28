@@ -1,5 +1,5 @@
 name: Cave Run
-id: dev.nsgo.caverun
+id: dev.nsgo.game.examples.caverun
 version: 0.1.0
 
 dev:

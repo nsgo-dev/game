@@ -67,7 +67,7 @@ func newSample(cx *core.Scope) (*sample, core.Node) {
 		panic(err)
 	}
 
-	mixer := sound.NewMixer(cx, "vnsample.sound")
+	mixer := sound.NewMixer(cx, "observatory.sound")
 	voices := &vn.EffectVoices{Clips: map[string]vn.VoiceClip{}}
 	for i, id := range voiceIDs {
 		audio.LoadSound(cx, audio.Source{Data: voiceWAV(i)}, func(snd *audio.Sound, err error) {
@@ -307,7 +307,7 @@ func voiceWAV(i int) []byte {
 	}
 	wav, err := sound.EncodeWAV(samples, rate, 1)
 	if err != nil {
-		panic(fmt.Sprintf("vnsample: voice %d: %v", i, err))
+		panic(fmt.Sprintf("observatory: voice %d: %v", i, err))
 	}
 	return wav
 }

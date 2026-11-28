@@ -1,4 +1,4 @@
-module github.com/nsgo-dev/game/examples/vnsample
+module github.com/nsgo-dev/game/examples/observatory
 
 go 1.27.3
 

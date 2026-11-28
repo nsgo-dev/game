@@ -1,5 +1,5 @@
 name: CryptQuest
-id: dev.nsgo.game.cryptquest
+id: dev.nsgo.game.examples.cryptquest
 version: 0.1.0
 
 dev:

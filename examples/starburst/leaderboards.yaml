@@ -1,4 +1,4 @@
 version: 1
 leaderboards:
   - name: high-score
-    gameCenter: dev.nsgo.game.starburst.high_score
+    gameCenter: dev.nsgo.game.examples.starburst.high_score

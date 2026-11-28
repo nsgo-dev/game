@@ -154,8 +154,8 @@ if i, ok := p.ChoiceAt(size, style, ev.Position); ok {
 
 ## 示例
 
-`examples/vnsample` 播放一段双角色的短场景，立绘与语音都由代码绘制和合成。点击继续、点选选项，并使用 Auto、Skip 与 Log；选择重看后，Skip 会快进过已读的台词。
+`examples/observatory` 播放一段双角色的短场景，立绘与语音都由代码绘制和合成。点击继续、点选选项，并使用 Auto、Skip 与 Log；选择重看后，Skip 会快进过已读的台词。
 
 ```sh
-go tool nsgo dev ./examples/vnsample
+go tool nsgo dev ./examples/observatory
 ```

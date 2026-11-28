@@ -1,6 +1,6 @@
 version: 1
 name: SlideGem
-id: dev.nsgo.examples.slidegem
+id: dev.nsgo.game.examples.slidegem
 appVersion: 0.1.0
 window:
   width: 440

@@ -1,5 +1,5 @@
 name: SlideGem
-id: dev.nsgo.examples.slidegem
+id: dev.nsgo.game.examples.slidegem
 version: 0.1.0
 
 dev:

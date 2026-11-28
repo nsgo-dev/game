@@ -36,7 +36,7 @@ type File struct {
 	Version int `yaml:"version" schema:"required"`
 	// Name is the game's display name, which nsgo.yaml's name follows.
 	Name string `yaml:"name" schema:"required"`
-	// ID is the game's reverse-DNS application identifier, such as dev.nsgo.caverun, which nsgo.yaml's id follows.
+	// ID is the game's reverse-DNS application identifier, such as dev.nsgo.game.examples.caverun, which nsgo.yaml's id follows.
 	ID string `yaml:"id" schema:"required"`
 	// AppVersion is the game's release version, such as 0.1.0, which nsgo.yaml's version follows.
 	AppVersion string `yaml:"appVersion" schema:"required"`
