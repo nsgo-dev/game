@@ -273,3 +273,6 @@ Games that do not use scene files get the same behavior from `scene.ScreenNotifi
 ## Spawning scene components into ECS
 
 A `sceneformat.ComponentType` can declare an optional `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` factory that turns a YAML component into typed ECS state in `game/entities` ([Entities](entities.md#spawning-from-yaml-scenes)). Pass the registry to `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})` (or to `sceneformat.SpawnConnected`, which forwards its registry automatically). Every component is validated and resolved with its registered defaults before the first entity is spawned; entities spawn in depth-first document order and each object's components run in sorted component-name order. If any `Spawn` returns an error, all entities created so far are destroyed and the error names the layer, object ID and component. `SpawnEntities(doc, world)` remains equivalent to `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`.
+# Scene partitioning
+
+`sceneformat.Partition` divides large scenes into deterministic cells. Objects are assigned by bounds, and `Needed` computes sorted cells around streaming sources with load and unload radii.

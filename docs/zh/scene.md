@@ -273,3 +273,6 @@ connections:
 ## 将场景组件生成到 ECS
 
 `sceneformat.ComponentType` 可以声明可选的 `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` 工厂函数，将 YAML 组件转换为 `game/entities` 中的强类型 ECS 组件状态（[实体](entities.md#从-yaml-场景生成实体)）。将组件注册表传入 `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})`（或传入 `sceneformat.SpawnConnected`，它会自动转发注册表）即可启用。在生成第一个实体之前，所有组件都会先按注册表校验并填充默认值；随后实体按深度优先的文档顺序生成，同一对象上的组件按组件名升序执行 `Spawn`。若任一 `Spawn` 返回错误，已生成的实体会全部销毁回滚，并返回包含图层名、对象 ID 与组件名的错误。`SpawnEntities(doc, world)` 仍等价于 `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`。
+# 场景分区
+
+`sceneformat.Partition` 将大型场景划分为确定性的网格单元。对象按边界分配，`Needed` 根据流式来源及加载、卸载半径计算排序后的单元列表。
