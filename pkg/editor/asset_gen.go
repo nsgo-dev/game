@@ -61,12 +61,16 @@ const (
 	// AssetGenImages produces image candidates (PNG/JPEG/GIF decoded strictly to pixels in memory).
 	AssetGenImages AssetGeneratorKind = "images"
 	// AssetGenSound produces audio candidates (WAV/OGG decoded strictly in memory).
-	AssetGenSound AssetGeneratorKind = "sound"
+	AssetGenSound     AssetGeneratorKind = "sound"
+	AssetGenTextures  AssetGeneratorKind = "textures"
+	AssetGenModels    AssetGeneratorKind = "models"
+	AssetGenAnimation AssetGeneratorKind = "animation"
+	AssetGenTiles     AssetGeneratorKind = "tiles"
 )
 
 // Valid reports whether k is a supported asset generator kind.
 func (k AssetGeneratorKind) Valid() bool {
-	return k == AssetGenImages || k == AssetGenSound
+	return k == AssetGenImages || k == AssetGenSound || k == AssetGenTextures || k == AssetGenModels || k == AssetGenAnimation || k == AssetGenTiles
 }
 
 // GeneratorServerConfig describes one MCP generator server configured under Settings > Tools.
@@ -74,7 +78,7 @@ type GeneratorServerConfig struct {
 	// Name uniquely identifies the generator server (for example "pixel-gen" or "sfx-gen").
 	Name string `yaml:"name" schema:"required,minLength=1"`
 	// Kind declares what kind of assets the generator produces ("images" or "sound").
-	Kind AssetGeneratorKind `yaml:"kind" schema:"required,enum=images|sound"`
+	Kind AssetGeneratorKind `yaml:"kind" schema:"required,enum=images|sound|textures|models|animation|tiles"`
 	// Command is the executable launched over stdio MCP transport when connecting from Settings > Tools.
 	Command string `yaml:"command,omitempty"`
 	// Args are command-line arguments passed to Command.
@@ -1639,6 +1643,7 @@ func (e *Editor) PickGeneratedCandidate(requestID, candidateID string) error {
 
 	srcDoc := &importsettings.AssetSource{
 		Version:       importsettings.AssetSourceVersion,
+		Kind:          string(req.Kind),
 		Generator:     req.Generator,
 		Model:         req.Model,
 		Prompt:        req.Prompt,
