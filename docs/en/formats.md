@@ -2902,6 +2902,22 @@ These formats are JSON: a program writes most of them for itself, and the rest a
 
 The names are those the game registered with `RegisterFloat`, `RegisterInt`, `RegisterBool` and `RegisterString`; `LoadTunables` skips a name nothing registered, refuses a value outside its range or of the wrong JSON type, and applies none of the values when it refuses one.
 
+<!-- format: tooling/gamedebug#vlog -->
+### Visual log
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Any `.jsonl` file the game or a tool saves a `gamedebug.VLog` to | `version: 1` on the header line | `gamedebug.VLog.WriteJSONL`, `gamedebug.ReadVLog` | [gamedebug](gamedebug.md#visual-log) |
+
+```json
+{"format":"gamedebug.vlog","version":1}
+{"type":"entry","step":120,"entity":"enemy-3","category":"ai","level":"warn","message":"path blocked, repathing"}
+{"type":"entry","step":120,"entity":"enemy-3","category":"stats","level":"info","fields":[{"name":"health","value":"40"}]}
+{"type":"shape","step":120,"entity":"enemy-3","kind":"path","points":[[0,0,0],[4,0,2],[6,0,8]]}
+```
+
+The first line is the header; every entry follows in recorded order, then every shape. `step` is the fixed step the record was made at, `level` is `info`, `warn` or `error`, an entry carries a `message`, the `fields` of a category snapshot, or both, and `points` are world-space `[x, y, z]`. `ReadVLog` refuses a missing or unknown header, an unknown `type` or `level`, and unknown fields.
+
 <!-- format: tooling/devstate -->
 ### Dev session snapshot
 

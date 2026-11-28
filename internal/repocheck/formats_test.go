@@ -86,6 +86,7 @@ var codeFormats = map[string]codeFormat{
 	"entities":                            {decl: "World.Restore", lang: "json", read: readWorldSnapshot},
 	"input":                               {decl: "Actions.Load", lang: "json", read: readInputBindings},
 	"tooling/gamedebug":                   {decl: "Console.LoadTunables", lang: "json", read: readTunables},
+	"tooling/gamedebug#vlog":              {decl: "ReadVLog", lang: "json", read: readVisualLog},
 	"tooling/devstate":                    {decl: "Store.LoadSnapshot", lang: "json", read: readDevSnapshot},
 	"online/liveops":                      {decl: "DecodeCloudSave", lang: "json", read: readCloudSave},
 	"online/liveops#sync":                 {decl: "syncState", lang: "json", checkedBy: "TestSyncStateExamplesOnFormatsPage"},
@@ -182,6 +183,7 @@ var formatVersions = map[string]string{
 	"physics.SnapshotVersion":                       "",
 	"physics3d.SnapshotVersion":                     "",
 	"platformer.CurrentVersion":                     "platformer",
+	"tooling/gamedebug.VLogVersion":                 "tooling/gamedebug#vlog",
 	"tooling/playtest.CurrentVersion":               "tooling/playtest",
 	"tooling/playtest.ReportVersion":                "tooling/playtest#report",
 	"gameplugin.APIVersion":                         "",
@@ -432,6 +434,14 @@ func readLeaderboardRecords(t *testing.T, data []byte) error {
 	err = store.Load(context.Background(), func(selfhost.Record) error { n++; return nil })
 	if err == nil && n == 0 {
 		err = errors.New("Load read no record")
+	}
+	return err
+}
+
+func readVisualLog(_ *testing.T, data []byte) error {
+	entries, shapes, err := gamedebug.ReadVLog(bytes.NewReader(data))
+	if err == nil && len(entries)+len(shapes) == 0 {
+		err = errors.New("ReadVLog read no record")
 	}
 	return err
 }
