@@ -14,7 +14,7 @@ const (
 	ToolTasksList = "tasks_list"
 	// ToolTasksSubmit queues or runs a background agent request in parallel.
 	ToolTasksSubmit = "tasks_submit"
-	// ToolTasksControl controls background tasks (revert of the session's own task, dismiss of failed tasks, stop, retry, open, focus). Its keep, allow and deny actions are always refused: keeping a review and answering a permission prompt are the person's decisions.
+	// ToolTasksControl controls background tasks (stop and revert of the session's own task, dismiss of failed tasks, retry, open, focus). Its keep, allow and deny actions are always refused: keeping a review and answering a permission prompt are the person's decisions.
 	ToolTasksControl = "tasks_control"
 )
 
@@ -30,7 +30,7 @@ const tasksSubmitSchema = `{"type":"object","additionalProperties":false,"requir
 	`}}`
 
 const tasksControlSchema = `{"type":"object","additionalProperties":false,"required":["action"],"properties":{` +
-	`"action":{"type":"string","enum":["keep","revert","dismiss","stop","retry","open","focus","allow","deny"],"description":"Action to perform on task_id or task_ids; keep, allow and deny are the person's decisions and are always refused, revert applies only to this session's own task, and dismiss applies only to failed tasks"},` +
+	`"action":{"type":"string","enum":["keep","revert","dismiss","stop","retry","open","focus","allow","deny"],"description":"Action to perform on task_id or task_ids; keep, allow and deny are the person's decisions and are always refused, stop and revert apply only to this session's own task and stop never to one that is Ready to review, and dismiss applies only to failed tasks"},` +
 	`"task_id":{"type":"string","description":"Target task ID"},` +
 	`"task_ids":{"type":"array","items":{"type":"string"},"description":"Target task IDs (for bulk dismiss)"}` +
 	`}}`
@@ -63,7 +63,7 @@ func taskTools() []Tool {
 		{
 			Name:        ToolTasksControl,
 			Title:       "Control background tasks",
-			Description: "Stop, retry, focus, or open background agent tasks, revert this session's own task, or dismiss failed tasks. Keeping a task, dismissing one that is Ready to review, and answering a permission prompt (keep, allow, deny) are the person's decisions and are refused.",
+			Description: "Retry, focus, or open background agent tasks, stop or revert this session's own task, or dismiss failed tasks. Keeping a task, stopping or dismissing one that is Ready to review, and answering a permission prompt (keep, allow, deny) are the person's decisions and are refused.",
 			InputSchema: []byte(tasksControlSchema),
 			Action:      ActionEdit,
 			Handler:     tasksControlTool,
@@ -171,6 +171,13 @@ func tasksControlTool(ctx context.Context, c *Call) (*Result, error) {
 			n := ed.DismissTasks(ids)
 			msg = fmt.Sprintf("Dismissed %d tasks (%s)", n, strings.Join(ids, ", "))
 		case "stop":
+			// Stopping ends a task without reverting its edits, so a session may stop only the task it is bound to, and never once it is Ready to review (StopTask refuses that too).
+			if c.taskID == "" || args.TaskID != c.taskID {
+				return fmt.Errorf("stop of task %s is the person's decision: this session may stop only its own task", args.TaskID)
+			}
+			if task, ok := ed.Task(args.TaskID); ok && task.State == editor.TaskReadyToReview {
+				return fmt.Errorf("stopping task %s, which is Ready to review, is the person's decision: %w", args.TaskID, editor.ErrTaskDecisionYouOnly)
+			}
 			if err := ed.StopTask(args.TaskID); err != nil {
 				return err
 			}

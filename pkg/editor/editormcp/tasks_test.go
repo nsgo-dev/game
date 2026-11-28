@@ -933,17 +933,23 @@ func TestTasksControlRefusesAgentReviewAndPermissionDecisions(t *testing.T) {
 	refused(untethered, "untethered session", map[string]any{"action": "revert", "task_id": "t1"})
 	refused(c1, "t1 session", map[string]any{"action": "dismiss", "task_id": "t1"})
 	refused(c2, "t2 session", map[string]any{"action": "dismiss", "task_ids": []any{"t1"}})
+	refused(c1, "t1 session", map[string]any{"action": "stop", "task_id": "t1"})
+	refused(c2, "t2 session", map[string]any{"action": "stop", "task_id": "t1"})
+	refused(untethered, "untethered session", map[string]any{"action": "stop", "task_id": "t2"})
 
 	if t1, _ := ed.Task("t1"); t1.State != editor.TaskReadyToReview || t1.Dismissed || (t1.Review != nil && t1.Review.Kept) {
 		t.Fatalf("t1 after agent attempts = state %s dismissed %v review %+v, want unkept Ready to review", t1.State, t1.Dismissed, t1.Review)
 	}
+	if !ed.HasOpenTaskReview() {
+		t.Fatal("t1's review closed after the agents' attempts, want it open")
+	}
 	if t2, _ := ed.Task("t2"); t2.State != editor.TaskNeedsYou {
 		t.Fatalf("t2 after agent attempts = %s, want needs_you", t2.State)
 	}
-	if err := ed.WithAgentActor(func() error { return ed.KeepTask("t1") }); !errors.Is(err, editor.ErrTaskDecisionYouOnly) {
+	if err := ed.RunAsAgent(func() error { return ed.KeepTask("t1") }); !errors.Is(err, editor.ErrTaskDecisionYouOnly) {
 		t.Fatalf("agent KeepTask = %v, want ErrTaskDecisionYouOnly", err)
 	}
-	if err := ed.WithAgentActor(func() error { return ed.ResolveTaskPermission("t2", true) }); !errors.Is(err, editor.ErrTaskDecisionYouOnly) {
+	if err := ed.RunAsAgent(func() error { return ed.ResolveTaskPermission("t2", true) }); !errors.Is(err, editor.ErrTaskDecisionYouOnly) {
 		t.Fatalf("agent ResolveTaskPermission = %v, want ErrTaskDecisionYouOnly", err)
 	}
 
