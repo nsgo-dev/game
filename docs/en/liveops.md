@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - `Pause(true)` and `ResetInput` run before the ad shows and `Pause(false)` before the result is reported, so the loop and the mixer stay paused and no key stays held while the ad covers the game.
 
 Not yet available: an `ads.yaml` declaring unit IDs and placements, banner ads, and the mini-game `AdHost`, which waits on NSGo's mini-game ad API ([nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)). Grant currency rewards on the server, keyed by your own show ID, so a reward is not granted twice.
+
+### Redeemable codes
+
+`liveops/redeem.Store` provides a concurrency-safe redemption core with expiry, total-use and per-account limits. Redemption returns the reward identifier or typed errors for unknown, used, expired and limited codes. Persist campaigns and apply rewards through the server economy with the code as an idempotency key.
