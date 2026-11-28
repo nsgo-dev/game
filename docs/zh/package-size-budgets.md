@@ -125,3 +125,7 @@ go tool game size -kind wasm -budget benchmarks/web-budget.json -markdown
 - 面向 Google Play 发布 `.aab`，让商店只下发目标设备对应的 ABI，避免用户下载多余架构的原生库。
 - 背景音乐优先使用压缩格式（`.m4a` / `.ogg`），精灵图片尽量打包为图集，避免散落大量未压缩资源。
 - 引入新依赖或新资源后，留意 CI 摘要中的 `Largest Files` 表格变化。
+
+### Cave Run 预算
+
+CI 还会使用 `benchmarks/caverun-web-budget.json` 检查完整的 Cave Run Web 构建。当前上限为原始 26 MiB、gzip 7 MiB，基于约 23.43 MiB 原始大小和 5.86 MiB gzip 大小的最新构建。Android 发布流程使用 `benchmarks/caverun-android-aab-budget.json`，总大小上限为 20 MiB，每个 ABI 上限为 12 MiB。两项检查都在 Depot 的 `depot-ubuntu-24.04-4` runner 上运行。

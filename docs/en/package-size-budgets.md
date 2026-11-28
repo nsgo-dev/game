@@ -125,3 +125,7 @@ When a budget fails, `game size` still renders the full violation list, category
 - Ship `.aab` bundles to Google Play so users download only their device's ABI instead of every architecture.
 - Prefer compressed audio (`.m4a` / `.ogg`) for music and packed sprite atlases over loose uncompressed PNGs or WAVs.
 - Watch the `Largest Files` table in CI summaries whenever adding new dependencies or assets.
+
+### Cave Run budgets
+
+CI also checks the real Cave Run web build with `benchmarks/caverun-web-budget.json`. Its current allowance is 26 MiB raw and 7 MiB gzip, based on a fresh approximately 23.43 MiB raw and 5.86 MiB gzip build. The Android release workflow uses `benchmarks/caverun-android-aab-budget.json`, which allows 20 MiB total and 12 MiB per ABI. Both checks run on Depot's `depot-ubuntu-24.04-4` runner.

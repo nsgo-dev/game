@@ -94,6 +94,29 @@ jobs:
           set -o pipefail
           go tool game size -kind wasm -budget benchmarks/web-budget.json -markdown | tee -a "$GITHUB_STEP_SUMMARY"
 
+  caverun-web-size-budget:
+    name: Cave Run WebAssembly size budget
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/caverun/go.mod
+          cache: true
+          cache-dependency-path: examples/caverun/go.sum
+      - name: Build and check Cave Run WebAssembly
+        working-directory: examples/caverun
+        run: |
+          set -euo pipefail
+          trap 'rm -f cave-run.wasm' EXIT
+          GOOS=js GOARCH=wasm go build -trimpath -ldflags='-s -w' -o cave-run.wasm .
+          go run ../../cmd/game size -kind wasm -budget ../../benchmarks/caverun-web-budget.json -wasm cave-run.wasm -markdown | tee -a "$GITHUB_STEP_SUMMARY"
+
   android-size-budget:
     name: Android AAB size budget
     runs-on: depot-ubuntu-24.04-4

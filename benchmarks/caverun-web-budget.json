@@ -1,0 +1,7 @@
+{
+  "target": "./examples/caverun",
+  "ldflags": "-s -w",
+  "max_raw_bytes": 27262976,
+  "max_gzip_bytes": 7340032,
+  "note": "Cave Run WebAssembly size budget (GOOS=js GOARCH=wasm -trimpath -ldflags=\"-s -w\"). Baseline is approximately 23.43 MiB raw / 5.86 MiB gzipped; budget allows 26.00 MiB raw and 7.00 MiB gzipped. Refresh after a reviewed dependency change."
+}
