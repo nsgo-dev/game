@@ -902,6 +902,10 @@ func (e *Editor) collectMentionItems(query string, group MentionGroup) []Mention
 		e.syncComposerMetaCache(ix.rootDir, ix.fingerprint)
 		for _, f := range ix.files {
 			p := f.path
+			// A file that looks like a credential is never offered as a chip, since the agent could never read it.
+			if ClassifyProjectFilePrivacy(p) == PrivacySecrets {
+				continue
+			}
 			low := strings.ToLower(p)
 			base := path.Base(p)
 			dir := path.Dir(p)
