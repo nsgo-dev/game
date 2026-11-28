@@ -117,3 +117,7 @@ To test mini-game friend rankings in `nsgotest`, start the app with `core.Enviro
 ## Example
 
 [Starburst](https://github.com/nsgo-dev/game/tree/main/examples/starburst) declares a `high-score` board in `leaderboards.yaml`, submits the score when a run ends, and shows a LEADERBOARD button on the game-over screen once the player is signed in, or a SIGN IN button that signs the player in and submits the run while signed out.
+
+## Epic Online Services
+
+The EOS boundary exposes asynchronous score submission and global or friends ranges through `eos.Service.SubmitScore` and `eos.Service.Scores`. Results are delivered on the engine goroutine.

@@ -101,3 +101,7 @@ Both providers accept injectable backends so tests run deterministically without
 - Pass `DiscordConfig.Dial` with a `net.Pipe()` connected to an in-process mock IPC server to verify raw wire frames, handshake, `SET_ACTIVITY`, and `Clear`.
 - Pass `SteamConfig.Driver` with a mock `SteamDriver` to assert every `SetRichPresence(key, value)` and `ClearRichPresence()` call.
 - Pass `ManagerConfig.Now` with a controllable clock to test `MinInterval` coalescing without sleeps.
+
+## Epic Online Services
+
+The EOS online boundary accepts rich presence through `eos.Service.Presence`, including details, status, and join information. Updates and completion callbacks run on the engine goroutine.
