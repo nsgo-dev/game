@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/editor/internal/profiler"
 	"github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/game/pkg/replay"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -471,7 +472,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 			Profiler: playProf,
 			GC:       playGC,
 		})
-		e.attachProfilerClient(NewBridgeProfilerClient(bridge), true, "Play · live")
+		e.profiler.Attach(profiler.NewBridgeClient(bridge), true, "Play · live")
 	}
 
 	var updateCost time.Duration
@@ -533,7 +534,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 			u := updateCost
 			updateCost = 0
 			playOverlay.RecordFrame(total, u, drawCost)
-			if e.isPlayProfilerActive() && (e.playFrames == 1 || e.playFrames%10 == 0) {
+			if e.profiler.PlayActive() && (e.playFrames == 1 || e.playFrames%10 == 0) {
 				_ = e.PollProfiler(context.Background())
 			}
 			e.notify()
@@ -543,7 +544,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	cx.Run(func() {
 		e.playStop = loop.Run(cx)
 		cx.Cleanup(func() {
-			e.detachPlayProfiler()
+			e.profiler.DetachPlay()
 		})
 	})
 	e.notify()
@@ -625,7 +626,7 @@ func (e *Editor) stopInternal(sendMarks bool) error {
 	e.playReplayRunIndex = 0
 	e.playMarks.askOpen = false
 	e.playMarks.agentPill = ""
-	e.detachPlayProfiler()
+	e.profiler.DetachPlay()
 
 	snap := e.playSnapshot
 	e.playSnapshot = nil

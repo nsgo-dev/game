@@ -24,6 +24,7 @@ import (
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/datatable"
+	"github.com/nsgo-dev/game/pkg/editor/internal/profiler"
 	"github.com/nsgo-dev/game/pkg/editor/keychain"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
@@ -811,7 +812,7 @@ type Editor struct {
 	// output holds the docked Output / Log panel history and filter state.
 	output outputPanelState
 	// profiler holds the live remote/play-mode performance telemetry, recorded frame timeline, zones table, and panel visibility.
-	profiler profilerState
+	profiler *profiler.State
 	// gameRun tracks the live `go tool game dev` child process started by RunGame / RunGameWith.
 	gameRun gameRunState
 	// goToolchain caches Go toolchain discovery and version check results for the Start Screen and Play/Create actions.
@@ -1136,6 +1137,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 			overlays: DefaultHUDOverlays(),
 		},
 	}
+	ed.profiler = profiler.New(ed.newProfilerHost())
 	ed.agent.initDefaults()
 	ed.automations.initDefaults()
 	ed.History = ed.newTabHistory()
@@ -1226,11 +1228,11 @@ func (e *Editor) applyScope(cx *core.Scope) {
 	e.problems.setScope(cx)
 	e.gameRun.setScope(cx)
 	e.assetBuild.setScope(cx)
-	e.profiler.setScope(cx)
-	if cx != nil && e.ProfilerConnected() && !e.isPlayProfilerActive() {
-		e.startProfilerPoller()
+	e.profiler.SetScope(cx)
+	if cx != nil && e.profiler.Connected() && !e.profiler.PlayActive() {
+		e.profiler.StartPoller()
 	} else if cx == nil {
-		e.stopProfilerPoller()
+		e.profiler.StopPoller()
 	}
 	e.startScreen.setScope(cx)
 	e.firstRun.setScope(cx)
