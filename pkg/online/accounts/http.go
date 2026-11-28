@@ -27,6 +27,8 @@ const maxRequestBytes = 32 << 10
 //	POST /v1/signout           {"session"}                 -> 204
 //	POST /v1/link/email        {"email", "password"}       -> 204, with a bearer token for "accounts"
 //	POST /v1/link/identity     {"provider", "credential"}  -> 204, with a bearer token for "accounts"
+//	POST /v1/password          {"oldPassword", "newPassword"} -> 204, with a bearer token for "accounts"
+//	POST /v1/unlink/identity   {"provider"}                 -> 204, with a bearer token for "accounts"
 //	GET  /v1/me                                            -> profile, with a bearer token for "accounts"
 //	GET  /v1/keys                                          -> the key set as YAML
 //
@@ -104,6 +106,28 @@ func (s *Service) Handler() http.Handler {
 		}
 		writeDone(w, s.LinkIdentity(r.Context(), claims.Subject, req.Provider, req.Credential))
 	})
+	mux.HandleFunc("POST /v1/password", func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := s.bearer(w, r)
+		if !ok {
+			return
+		}
+		var req passwordChangeRequest
+		if !readBody(w, r, &req) {
+			return
+		}
+		writeDone(w, s.ChangePassword(r.Context(), claims.Subject, req.OldPassword, req.NewPassword))
+	})
+	mux.HandleFunc("POST /v1/unlink/identity", func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := s.bearer(w, r)
+		if !ok {
+			return
+		}
+		var req providerRequest
+		if !readBody(w, r, &req) {
+			return
+		}
+		writeDone(w, s.UnlinkIdentity(r.Context(), claims.Subject, req.Provider))
+	})
 	mux.HandleFunc("GET /v1/me", func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := s.bearer(w, r)
 		if !ok {
@@ -145,6 +169,15 @@ type emailRequest struct {
 type identityRequest struct {
 	Provider   string `json:"provider"`
 	Credential string `json:"credential"`
+}
+
+type providerRequest struct {
+	Provider string `json:"provider"`
+}
+
+type passwordChangeRequest struct {
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
 }
 
 type sessionRequest struct {
@@ -262,6 +295,7 @@ func writeError(w http.ResponseWriter, err error) {
 	}{
 		{ErrInvalidCredentials, http.StatusUnauthorized, "invalid_credentials"},
 		{ErrGuestsDisabled, http.StatusForbidden, "guests_disabled"},
+		{ErrLastCredential, http.StatusConflict, "last_credential"},
 		{ErrNotFound, http.StatusNotFound, "not_found"},
 		{ErrTaken, http.StatusConflict, "taken"},
 		{ErrAlreadyLinked, http.StatusConflict, "already_linked"},

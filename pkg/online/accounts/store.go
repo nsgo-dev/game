@@ -25,6 +25,8 @@ var (
 	ErrUnknownAudience = errors.New("accounts: unknown token audience")
 	// ErrGuestsDisabled reports CreateGuest on a service configured with DisableGuests.
 	ErrGuestsDisabled = errors.New("accounts: guest accounts are disabled")
+	// ErrLastCredential reports an attempt to remove the account's last way to sign in.
+	ErrLastCredential = errors.New("accounts: cannot remove the last sign-in method")
 )
 
 // Account is one player's account.
@@ -71,6 +73,8 @@ type Store interface {
 	SetPasswordHash(ctx context.Context, id, passwordHash string) error
 	// LinkIdentity links an identity to an account. It returns nil when the identity is already linked to this account, ErrNotFound for no such account, ErrTaken when another account has the identity, and ErrAlreadyLinked when the account has another identity of the provider.
 	LinkIdentity(ctx context.Context, id string, identity Identity, at time.Time) error
+	// UnlinkIdentity removes the account's identity for provider, or returns ErrNotFound when it has none.
+	UnlinkIdentity(ctx context.Context, id, provider string) error
 	// AccountByIdentity returns the account an identity is linked to, or ErrNotFound.
 	AccountByIdentity(ctx context.Context, identity Identity) (Account, error)
 	// Identities returns the identities linked to an account, sorted by provider; none for an unknown account.
