@@ -1,0 +1,1 @@
+- Add replay build and result metadata with a deterministic verification helper.

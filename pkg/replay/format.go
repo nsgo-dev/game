@@ -12,13 +12,16 @@ import (
 
 // recordingDoc is the YAML form of a Recording. Field order here is the key order Encode writes. Seed and TotalSteps are pointers so a missing key is refused rather than read as 0, which would replay from the wrong seed or as an empty run.
 type recordingDoc struct {
-	Version    int       `yaml:"version"`
-	Seed       *uint64   `yaml:"seed"`
-	Rate       int       `yaml:"rate"`
-	Actions    []string  `yaml:"actions,omitempty,flow"`
-	Axes       []string  `yaml:"axes,omitempty,flow"`
-	TotalSteps *int      `yaml:"total_steps"`
-	Steps      []stepDoc `yaml:"steps,omitempty"`
+	Version    int               `yaml:"version"`
+	Seed       *uint64           `yaml:"seed"`
+	Rate       int               `yaml:"rate"`
+	Actions    []string          `yaml:"actions,omitempty,flow"`
+	Axes       []string          `yaml:"axes,omitempty,flow"`
+	TotalSteps *int              `yaml:"total_steps"`
+	Build      string            `yaml:"build,omitempty"`
+	Ticket     string            `yaml:"ticket,omitempty"`
+	Result     map[string]string `yaml:"result,omitempty"`
+	Steps      []stepDoc         `yaml:"steps,omitempty"`
 }
 
 // stepDoc is the YAML form of a StepEvent, naming actions and axes instead of indexing them. Step is a pointer so a missing step key is refused rather than read as step 0.
@@ -124,6 +127,7 @@ func (r *Recording) Encode() ([]byte, error) {
 		Actions:    r.Actions,
 		Axes:       r.Axes,
 		TotalSteps: &totalSteps,
+		Build:      r.Build, Ticket: r.Ticket, Result: r.Result,
 	}
 	if len(r.Events) > 0 {
 		doc.Steps = make([]stepDoc, len(r.Events))
@@ -224,7 +228,7 @@ func decode(data []byte) (*Recording, error) {
 		Rate:       doc.Rate,
 		Actions:    doc.Actions,
 		Axes:       doc.Axes,
-		TotalSteps: *doc.TotalSteps,
+		TotalSteps: *doc.TotalSteps, Build: doc.Build, Ticket: doc.Ticket, Result: doc.Result,
 	}
 	if err := validateNames("actions", "action", rec.Actions); err != nil {
 		return nil, err

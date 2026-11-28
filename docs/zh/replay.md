@@ -123,3 +123,7 @@ func TestLevel1ClearReplay(t *testing.T) {
 ## 在 CI 中回放录像
 
 `go tool game replay` 无界面回放项目的录像：它先检查给定目录下的每个 `*.replay.yaml` 文件都能回放，再运行名字中含 `Replay` 的测试，例如上面的 `TestLevel1ClearReplay`，录像损坏、某次回放的结束状态与测试期望的不同，或者没有任何测试通过时失败，这样命名不对的测试不会让录像无人回放。见[命令行](cli.md#replay)。
+
+## 验证元数据
+
+录制可以包含 `build`、`ticket` 以及带有 `score` 和 `state_hash` 的 `result` 映射。`replay.Verify` 使用 `Player` 运行确定性模拟并检查声明的结果。
