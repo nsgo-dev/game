@@ -341,3 +341,18 @@ func TestConfigYAMLDocsExampleRoundTrip(t *testing.T) {
 		t.Fatalf("round trip changed the document:\n--- got ---\n%s--- want ---\n%s", out, docsYAML)
 	}
 }
+
+func TestConfig3DSimulationRoundTrip(t *testing.T) {
+	cfg := particles.Emitter3DConfig{Simulation: "gpu"}
+	data, err := particles.MarshalConfig3DYAML(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := particles.UnmarshalConfig3DYAML(data)
+	if err != nil || got.Simulation != "gpu" {
+		t.Fatalf("simulation=%q err=%v", got.Simulation, err)
+	}
+	if _, err := particles.UnmarshalConfig3DYAML([]byte("version: 1\nsimulation: bad\n")); err == nil {
+		t.Fatal("invalid simulation accepted")
+	}
+}

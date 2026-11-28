@@ -68,6 +68,7 @@ type shape3DDoc struct {
 }
 
 type config3DDoc struct {
+	Simulation         string         `json:"simulation,omitempty" yaml:"simulation,omitempty"`
 	Version            docInt         `json:"version,omitempty" yaml:"version,omitempty"`
 	Position           *vec3Doc       `json:"position,omitempty" yaml:"position,omitempty"`
 	Direction          *vec3Doc       `json:"direction,omitempty" yaml:"direction,omitempty"`
@@ -169,6 +170,9 @@ func unmarshalConfig3DYAML(data []byte) (Emitter3DConfig, error) {
 	if doc.Version != FormatVersion {
 		return Emitter3DConfig{}, versionError(int(doc.Version))
 	}
+	if doc.Simulation != "" && doc.Simulation != "cpu" && doc.Simulation != "gpu" {
+		return Emitter3DConfig{}, fmt.Errorf("particles: simulation must be cpu or gpu")
+	}
 	return config3DFromDoc(&doc)
 }
 
@@ -202,6 +206,9 @@ func unmarshalConfig3DJSON(data []byte) (Emitter3DConfig, error) {
 	}
 	if doc.Version != FormatVersion {
 		return Emitter3DConfig{}, versionError(int(doc.Version))
+	}
+	if doc.Simulation != "" && doc.Simulation != "cpu" && doc.Simulation != "gpu" {
+		return Emitter3DConfig{}, fmt.Errorf("particles: simulation must be cpu or gpu")
 	}
 	return config3DFromDoc(&doc)
 }
@@ -250,6 +257,7 @@ func config3DToDoc(cfg Emitter3DConfig) (*config3DDoc, error) {
 	}
 	doc := &config3DDoc{
 		Version:            FormatVersion,
+		Simulation:         cfg.Simulation,
 		Position:           vec3ToDoc(cfg.Position),
 		Direction:          vec3ToDoc(cfg.Direction),
 		Up:                 vec3ToDoc(cfg.Up),
@@ -316,6 +324,7 @@ func config3DFromDoc(doc *config3DDoc) (Emitter3DConfig, error) {
 	}
 
 	cfg := Emitter3DConfig{
+		Simulation:         doc.Simulation,
 		Position:           vec3FromDoc(doc.Position),
 		Direction:          vec3FromDoc(doc.Direction),
 		Up:                 vec3FromDoc(doc.Up),
