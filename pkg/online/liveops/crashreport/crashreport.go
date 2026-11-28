@@ -5,9 +5,12 @@
 package crashreport
 
 import (
+	"crypto/sha256"
 	"encoding"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -66,4 +69,30 @@ func jsonSafePanic(v any) any {
 		return fmt.Sprint(v)
 	}
 	return v
+}
+
+// Fingerprint returns a stable identifier for the panic's top application
+// frames. File paths, line numbers, goroutine IDs and runtime/testing frames
+// are omitted so line shifts and scheduling details do not split one bug into
+// multiple groups.
+func (r CrashReport) Fingerprint() string {
+	frames := strings.Split(r.Stack, "\n")
+	var names []string
+	for i := 0; i+1 < len(frames) && len(names) < 8; i++ {
+		fn := strings.TrimSpace(frames[i])
+		if fn == "" || strings.HasPrefix(fn, "goroutine ") || strings.HasPrefix(fn, "runtime.") || strings.HasPrefix(fn, "testing.") {
+			continue
+		}
+		if strings.Contains(fn, "/runtime.") || strings.Contains(fn, "/testing.") {
+			continue
+		}
+		if strings.HasPrefix(frames[i+1], "\t") {
+			names = append(names, fn)
+		}
+	}
+	if len(names) == 0 {
+		names = []string{r.Message}
+	}
+	h := sha256.Sum256([]byte(strings.Join(names, "\n")))
+	return hex.EncodeToString(h[:])
 }

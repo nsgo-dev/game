@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - 广告展示前调用 `Pause(true)` 与 `ResetInput`，报告结果前调用 `Pause(false)`，因此广告遮住游戏期间循环与混音器保持暂停，也不会有按键一直处于按下状态。
 
 尚未提供：声明广告单元 ID 与广告位的 `ads.yaml`、横幅广告，以及小游戏 `AdHost`（等待 NSGo 的小游戏广告 API，[nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)）。发放货币类奖励请在服务端进行，并以你自己的展示 ID 作为幂等键，避免重复发放。
+
+### 崩溃指纹
+
+`liveops.CrashReport.Fingerprint()` 返回稳定的 SHA-256 分组键，来自堆栈顶部的应用帧。它忽略文件路径、行号、goroutine ID 和 runtime 帧，因此移动代码行或在另一个 goroutine 中恢复同一个 panic 时仍使用相同的分组键。上传报告时应一并发送指纹，同时保留完整堆栈用于诊断。
