@@ -112,7 +112,7 @@ go tool game mcp install
 claude mcp add game-editor -- go tool game mcp
 ```
 
-一个基于标准输入输出的 MCP 服务器，由 Claude Code、Codex 等智能体在项目目录（或其中任一子目录）里启动，或用 `-project` 指定项目。它找到打开了该项目的编辑器，把编辑器的工具 `scene_read`、`scene_edit`、`selection_get`、`viewport_image`、`game_check`、`game_playtest`、`playtest_define`、`states_write`、`states_test`、`tileset_read` 和 `tileset_edit` 以及变更流转发给智能体；没有编辑器打开该项目时，每次调用都会说明如何打开它。在项目中运行一次 `go tool game mcp install`（可附加 `-project`）会在项目根目录写入或更新 `.mcp.json`（供 Claude Code 使用）与 `.codex/config.toml`（供 Codex 使用）中的 `nsgo-game-editor` 项，同时保留已有的其他配置与文件权限。工具与连接流程见 [mcp](mcp.md#编辑器工具)。
+一个基于标准输入输出的 MCP 服务器，由 Claude Code、Codex 等智能体在项目目录（或其中任一子目录）里启动，或用 `-project` 指定项目。它找到打开了该项目的编辑器，把 [mcp](mcp.md#编辑器工具) 列出的全部编辑器工具以及变更流转发给智能体；没有编辑器打开该项目时，每次调用都会说明如何打开它。在项目中运行一次 `go tool game mcp install`（可附加 `-project`）会在项目根目录的 `.mcp.json`（供 Claude Code 使用）与 `.codex/config.toml`（供 Codex 使用）中写入或更新 `nsgo-game-editor` 项，以及当前用户在**设置 › 工具**中启用的每个 MCP 服务器，并删除与那里已禁用服务器同名的项目项。已启用服务器的命令和参数会从当前用户的编辑器设置复制到这些项目文件中，因此提交前请检查文件内容。无关服务器和其他 Codex 配置会保留，现有文件权限保持不变，内容相同的文件不会重写。工具与连接流程见 [mcp](mcp.md#编辑器工具)。
 
 ### release
 
