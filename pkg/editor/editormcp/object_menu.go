@@ -34,7 +34,7 @@ const (
 
 	objectPasteYAMLSchema = `{"type":"object","additionalProperties":false,"properties":{` +
 		`"yaml":{"type":"string","description":"Canonical sceneformat YAML to paste; when omitted, pastes the editor's current object clipboard"},` +
-		`"layer":{"type":"string","description":"Optional target layer name; defaults to the selected object's layer or active layer"}}}`
+		`"layer":{"type":"string","description":"Optional target layer name; defaults to the layer of the objects the open agent turn pinned, else the layer a copied scene YAML names, never the live selection or active layer"}}}`
 
 	objectDuplicateSchema = `{"type":"object","additionalProperties":false,"properties":{` +
 		`"id":{"type":"string","description":"Object ID to duplicate; inside an agent turn, defaults to the one object the person's request pinned when it was sent (agent_turn_get selectionIds), never the live selection; outside a turn it is required"}}}`
@@ -178,7 +178,10 @@ func objectCopyYAML(ctx context.Context, c *Call) (*Result, error) {
 
 // ObjectPasteYAMLResult is returned by object_paste_yaml.
 type ObjectPasteYAMLResult struct {
-	ID       string `json:"id"`
+	// ID is the pasted object's fresh ID.
+	ID string `json:"id"`
+	// Layer is the layer the object was pasted into, resolved once before the hold.
+	Layer    string `json:"layer"`
 	Revision uint64 `json:"revision"`
 }
 
@@ -188,6 +191,10 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 		Layer string `json:"layer"`
 	}
 	if err := c.Decode(&args); err != nil {
+		return nil, fmt.Errorf("object_paste_yaml: %w", err)
+	}
+	target, err := c.resolvePasteLayer(ctx, args.Layer, args.YAML)
+	if err != nil {
 		return nil, fmt.Errorf("object_paste_yaml: %w", err)
 	}
 	committed := false
@@ -208,17 +215,7 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 			}
 		}
 		if len(holdTargets) == 0 {
-			layerKey := args.Layer
-			if layerKey == "" {
-				_ = c.Editor(ctx, func(ed *editor.Editor) error {
-					layerKey = ed.ActiveLayer
-					return nil
-				})
-			}
-			if layerKey == "" {
-				layerKey = "default"
-			}
-			holdTargets = append(holdTargets, "layer:"+layerKey)
+			holdTargets = append(holdTargets, "layer:"+target.layer)
 		}
 		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, holdTargets)
 		if err != nil {
@@ -232,7 +229,7 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 	}
 	var out ObjectPasteYAMLResult
 	var sceneFile string
-	err := c.Editor(ctx, func(ed *editor.Editor) error {
+	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		sceneFile = sceneName(ed, projectRoot(ed))
 		if holdErr := sketchHoldEditError(ed, sceneFile); holdErr != nil {
 			return holdErr
@@ -250,22 +247,14 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 			ed.BeginAgentStep(nil, "pasting object")
 			defer ed.EndAgentStep()
 		}
-		var (
-			id  string
-			err error
-		)
-		if strings.TrimSpace(args.YAML) != "" {
-			id, err = ed.PasteObjectYAML(args.YAML, args.Layer)
-		} else {
-			id, err = ed.PasteObject()
-		}
+		id, err := ed.PasteObjectYAML(target.text, target.layer)
 		if err != nil {
 			return err
 		}
 		if ed.SketchApproved() {
 			ed.RecordSketchReviewEdits("Agent: paste "+id, []string{id}, nil, nil)
 		}
-		out = ObjectPasteYAMLResult{ID: id, Revision: ed.Revision()}
+		out = ObjectPasteYAMLResult{ID: id, Layer: target.layer, Revision: ed.Revision()}
 		return nil
 	})
 	if err != nil {
@@ -276,7 +265,7 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 		c.s.recordTaskObjectChange(c.taskID, sceneFile, out.ID, "added", "paste "+out.ID)
 	}
 	return &Result{
-		Text:       fmt.Sprintf("Pasted object %s.", out.ID),
+		Text:       fmt.Sprintf("Pasted object %s on layer %s.", out.ID, out.Layer),
 		Structured: out,
 	}, nil
 }

@@ -1,0 +1,3 @@
+### Fixed
+
+- `game/editor`: the `object_paste_yaml` MCP tool resolves its destination layer once, before taking the layer hold, and pastes onto that same layer, so a click or an active-layer change while the agent works no longer makes the hold and the paste name different layers. Without `layer` it pastes onto the layer of the objects the open agent turn pinned, else the layer a copied scene YAML names, never the selected object's layer or the active layer; when none names a layer it refuses with an `EditError` that asks for `layer`. The result reports the layer as `layer`. `Editor.ObjectClipboardText` and `Editor.ObjectYAMLLayer` expose the clipboard text and the copied YAML's layer (#1982).

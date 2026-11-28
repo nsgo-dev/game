@@ -332,7 +332,7 @@ claude mcp add game-editor -- go tool game mcp
 | `tile_review_revert_all` | edit | none | Reverts all pending tile review changes back to the pre-review tilemap and closes the review. |
 | `object_set_field` | edit | `field`, `value` (required), `id`, `component`, `property`, `label`, `why` (optional) | Sets one inspector field, component field (`component`) or custom property (`property: true`) on the object `id` through the inspector's own `Editor` methods, as one undo step outside a turn. Without `id`, see [Edit targets](#edit-targets). |
 | `object_copy_yaml` | read | `id` (optional) | Serializes an object (local or resolved) in the open scene as canonical `sceneformat` YAML, copies it to the editor clipboard, and shows the copy toast. |
-| `object_paste_yaml` | edit | `yaml`, `layer` (optional) | Parses canonical `sceneformat` object YAML (or the editor's current clipboard when `yaml` is omitted, capped at 4 MiB) and places a copy with fresh unique IDs on `layer` as one undo step. |
+| `object_paste_yaml` | edit | `yaml`, `layer` (optional) | Parses canonical `sceneformat` object YAML (or the editor's current clipboard when `yaml` is omitted, capped at 4 MiB) and places a copy with fresh unique IDs on `layer` as one undo step, reporting the layer as `layer`. Without `layer`, see [Edit targets](#edit-targets). |
 | `object_duplicate` | edit | `id` (optional) | Clones the object `id` (and its children) on the same layer with fresh unique IDs as one undo step, reporting it as `sourceId`. Without `id`, see [Edit targets](#edit-targets). |
 | `object_group` | edit | `ids`, `name` (optional) | Creates a new parent group object and reparents the objects `ids` under it in one undo step while preserving world transforms, reporting them as `children`. Without `ids`, see [Edit targets](#edit-targets). |
 | `object_move_under` | edit | `id`, `parent`, `listCandidates` (optional) | Reparents the object `id` under `parent` (or to the top level of its layer when `parent` is empty) in one undo step while preserving world transform, or lists valid candidate parents without modifying the scene when `listCandidates: true`, which alone defaults `id` to the selected object. Without `id` for a move, see [Edit targets](#edit-targets). |
@@ -391,6 +391,13 @@ The selection is context, never a write target: the person and the agent share o
 - Without it, inside an open agent turn, they edit the objects the person's request pinned when it was sent, the `selectionIds` `agent_turn_get` returns, whatever is selected now. A tool that edits one object refuses a pin of several and asks for `id`.
 - Without it, outside a turn, they refuse with an `EditError` whose fix reads `pass id; selection_get shows the selected object`, and change nothing; in a turn whose request pinned nothing, the fix points at `agent_turn_get` instead.
 - When a pinned object is no longer in the open scene, they refuse with the problem `the object the request was about was removed or renamed` and the fix to read the scene again with `scene_read`, distinct from the error for an unknown `id`.
+
+`object_paste_yaml` resolves its destination layer the same way, once, before it holds the layer (`layer:<name>`), and holds, pastes onto and reports (`layer`) that same layer:
+
+- With `layer`, it pastes onto the layer named.
+- Without it, inside an open agent turn whose request pinned objects, it pastes onto their layer, whatever is selected now and whichever layer is active. A pin whose objects are on several layers is refused and asks for `layer`; a pinned object that is no longer in the open scene is refused with the same removed-or-renamed problem.
+- Otherwise, it pastes onto the layer a copied scene YAML (as `object_copy_yaml` writes) names, when the open scene has that layer.
+- Otherwise, it refuses with an `EditError` whose fix reads `pass layer; scene_read lists the layers`, and changes nothing. It never falls back to the selected object's layer or the active layer.
 
 The read-only `object_locate_yaml`, `object_copy_yaml` and `object_find_usages` still default to the selected object, since they cannot write to the wrong place.
 

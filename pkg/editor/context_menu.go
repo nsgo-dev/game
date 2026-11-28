@@ -261,7 +261,7 @@ func (e *Editor) CanPasteObject() bool {
 
 // PasteObjectYAML parses yamlText (either a canonical sceneformat SceneDoc as CopyObjectYAML writes,
 // or a standalone ObjectDoc mapping) through sceneformat, assigns fresh unique IDs to the object and
-// its descendants, and places it on layerName (or the active/source layer when empty) as one undoable step.
+// its descendants, and places it on layerName as one undoable step. An empty layerName picks the selected object's layer, else the layer the YAML names when the scene has it (ObjectYAMLLayer), else the active layer; a caller that must not depend on what the person selects passes layerName.
 func (e *Editor) PasteObjectYAML(yamlText, layerName string) (string, error) {
 	if e == nil || e.Doc == nil {
 		return "", errors.New("editor: no scene open")
@@ -269,15 +269,7 @@ func (e *Editor) PasteObjectYAML(yamlText, layerName string) (string, error) {
 	if e.playing {
 		return "", ErrPlaying
 	}
-	raw := bytes.TrimSpace([]byte(yamlText))
-	if len(raw) == 0 {
-		return "", errors.New("editor: clipboard has no object YAML to paste")
-	}
-	if len(raw) > maxObjectYAMLBytes {
-		return "", fmt.Errorf("editor: pasted object YAML exceeds maximum size (%d bytes)", maxObjectYAMLBytes)
-	}
-
-	obj, srcLayer, err := e.parseObjectYAML(raw)
+	obj, srcLayer, err := e.parsePastedObjectYAML(yamlText)
 	if err != nil {
 		return "", err
 	}
@@ -314,6 +306,14 @@ func (e *Editor) PasteObject() (string, error) {
 	if e == nil {
 		return "", errors.New("editor: nil editor")
 	}
+	return e.PasteObjectYAML(e.ObjectClipboardText(), "")
+}
+
+// ObjectClipboardText returns the object YAML PasteObject pastes: ReadClipboard's text when it is set and not blank, otherwise the cached object clipboard.
+func (e *Editor) ObjectClipboardText() string {
+	if e == nil {
+		return ""
+	}
 	text := ""
 	if e.ReadClipboard != nil {
 		e.ReadClipboard(func(clip string) {
@@ -325,7 +325,34 @@ func (e *Editor) PasteObject() (string, error) {
 	if strings.TrimSpace(text) == "" {
 		text = e.clipboardText
 	}
-	return e.PasteObjectYAML(text, "")
+	return text
+}
+
+// ObjectYAMLLayer returns the layer a copied scene YAML (as CopyObjectYAML writes) names for its object when the open scene has a layer of that name, or "" for a bare object mapping or a layer the scene lacks. It refuses yamlText with the error PasteObjectYAML would.
+func (e *Editor) ObjectYAMLLayer(yamlText string) (string, error) {
+	if e == nil || e.Doc == nil {
+		return "", errors.New("editor: no scene open")
+	}
+	_, srcLayer, err := e.parsePastedObjectYAML(yamlText)
+	if err != nil {
+		return "", err
+	}
+	if srcLayer == "" || e.layerIndex(srcLayer) < 0 {
+		return "", nil
+	}
+	return srcLayer, nil
+}
+
+// parsePastedObjectYAML checks yamlText's size and parses it with parseObjectYAML.
+func (e *Editor) parsePastedObjectYAML(yamlText string) (sceneformat.ObjectDoc, string, error) {
+	raw := bytes.TrimSpace([]byte(yamlText))
+	if len(raw) == 0 {
+		return sceneformat.ObjectDoc{}, "", errors.New("editor: clipboard has no object YAML to paste")
+	}
+	if len(raw) > maxObjectYAMLBytes {
+		return sceneformat.ObjectDoc{}, "", fmt.Errorf("editor: pasted object YAML exceeds maximum size (%d bytes)", maxObjectYAMLBytes)
+	}
+	return e.parseObjectYAML(raw)
 }
 
 func (e *Editor) parseObjectYAML(raw []byte) (sceneformat.ObjectDoc, string, error) {

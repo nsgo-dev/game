@@ -3,6 +3,7 @@ package editormcp
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/editor"
@@ -83,4 +84,61 @@ func nonEmpty(id string) []string {
 		return nil
 	}
 	return []string{id}
+}
+
+// pasteTarget is where object_paste_yaml places its object, resolved once before the tool takes its hold, so the hold and the paste name the same layer whatever the person selects in between.
+type pasteTarget struct {
+	// layer is the destination layer's name.
+	layer string
+	// text is the YAML to paste: the call's yaml, or the editor's object clipboard read once when the call gave none.
+	text string
+}
+
+// resolvePasteLayer resolves object_paste_yaml's destination layer: the call's explicit layer, else the layer of the objects the open agent turn pinned, else the layer a copied scene YAML names when the open scene has it. It never reads the live selection or the active layer, which the person may change while the agent works, and refuses the call when none of these names a layer. Nothing is held or changed when it fails.
+func (c *Call) resolvePasteLayer(ctx context.Context, explicit, yamlText string) (pasteTarget, error) {
+	var out pasteTarget
+	err := c.Editor(ctx, func(ed *editor.Editor) error {
+		file := sceneName(ed, projectRoot(ed))
+		out.text = yamlText
+		if strings.TrimSpace(out.text) == "" {
+			out.text = ed.ObjectClipboardText()
+		}
+		if explicit != "" {
+			out.layer = explicit
+			return nil
+		}
+		if pin, ok := ed.OpenAgentTurnPin(c.taskID); ok && len(pin.SelectionIDs) > 0 {
+			if !pin.SceneOpen {
+				return &EditError{File: file, Problem: "the objects the request was about are in " + pin.ScenePath + ", which is no longer the open scene", Fix: "open " + pin.ScenePath + " again, or read the open scene with scene_read and pass layer"}
+			}
+			var layers []string
+			for _, id := range pin.SelectionIDs {
+				obj, layer := ed.FindResolvedObject(id)
+				if obj == nil {
+					return &EditError{File: file, Object: id, Problem: "the object the request was about was removed or renamed", Fix: "read the scene again with scene_read and pass layer"}
+				}
+				if !slices.Contains(layers, layer) {
+					layers = append(layers, layer)
+				}
+			}
+			if len(layers) > 1 {
+				return &EditError{File: file, Problem: fmt.Sprintf("no layer was given and the objects the request of turn %s is about are on %d layers (%s)", pin.TurnID, len(layers), strings.Join(layers, ", ")), Fix: "pass layer naming the one to paste onto"}
+			}
+			out.layer = layers[0]
+			return nil
+		}
+		src, err := ed.ObjectYAMLLayer(out.text)
+		if err != nil {
+			return err
+		}
+		if src == "" {
+			return &EditError{File: file, Problem: "no layer was given, no open agent turn pinned an object, and the YAML names no layer of the open scene; the selection and the active layer are context, never a write target", Fix: "pass layer; scene_read lists the layers"}
+		}
+		out.layer = src
+		return nil
+	})
+	if err != nil {
+		return pasteTarget{}, err
+	}
+	return out, nil
 }
