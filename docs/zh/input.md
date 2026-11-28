@@ -494,3 +494,8 @@ _ = found
 通过 `Unbind`、`UnbindAxis`、`UnbindMotionAxis`、`UnbindPointerAxis`、`UnbindGamepadAxis`（或不带输入调用 `Bind`）显式解绑的条目也会由 `Save` 记录下来（动作写为 `[{"kind":"none"}]`，反向动作轴写为 `{}`，运动轴、指针轴与手柄轴写为 `{"axis":"none"}`），因此 `Load` 会保持它们未绑定，而不会恢复默认键位。如果需要按存档快照完整替换所有绑定、丢弃存档中未出现的默认绑定，请改用 `LoadReplace`。
 
 当 `key` 不存在时，`Load` 和 `LoadReplace` 都返回 `(false, nil)` 并保留现有默认绑定；若存储内容不是有效 JSON、包含未知字段或格式版本未知，则返回 `(false, err)` 且不改动当前绑定。
+# Steam Deck
+
+`input.DetectGamepadKind` 会把 Steam Deck 和 Valve 手持控制器识别为 `DeviceGamepadSteamDeck`，提示系统可选择 Deck 图标，同时继续使用标准手柄输入。
+
+该 Deck 切片保持提供商无关。游戏可以在 `PromptTable` 中注册 Deck 专用 `Prompt`，由 `DeviceTracker` 在控制器名称识别为 Deck 时响应式地选择它。Steam 键盘调用、Steam Input 动作集文件以及 1280×800 全屏默认值仍需独立的 Steamworks 和平台集成层。

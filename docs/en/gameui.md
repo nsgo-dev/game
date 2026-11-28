@@ -257,3 +257,6 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 - missing `under`, `progress`, or `over` images on `image_progress` nodes.
 
 `tooling/refs` and `game mv` follow `sprite` paths, `image_progress` layer paths, and `textKey` references in `*.screen.yaml` files: `game mv art/heart.png art/ui/heart.png` rewrites `sprite:` in place, and `game mv -text-key hud.hint.lever hud.tip.lever` renames a localization key across both `*.screen.yaml` files and YAML string tables.
+# Steam Deck prompts
+
+Use the input device tracker to select Steam Deck-specific glyphs when a Deck controller is active.
