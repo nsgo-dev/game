@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -42,6 +43,8 @@ func runCLI(args []string) error {
 		summaryPath        = fs.String("summary", "", "optional path to append Markdown summary (defaults to $GITHUB_STEP_SUMMARY when set)")
 		timeout            = fs.Duration("timeout", 5*time.Minute, "per-task grading timeout (nsgo check and the MCP verification test)")
 		agentTimeout       = fs.Duration("agent-timeout", 15*time.Minute, "per-task agent budget in -mode=command or -mode=agent, separate from -timeout")
+		trials             = fs.Int("trials", 1, "independent trials per task")
+		comparePath        = fs.String("compare", "", "optional previous JSON report to compare criterion pass states")
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -60,6 +63,9 @@ func runCLI(args []string) error {
 	}
 	if *agentTimeout < 0 {
 		return fmt.Errorf("agenteval: -agent-timeout must be non-negative (got %s)", *agentTimeout)
+	}
+	if *trials < 1 {
+		return fmt.Errorf("agenteval: -trials must be at least 1 (got %d)", *trials)
 	}
 
 	root, err := findRepoRoot()
@@ -92,6 +98,7 @@ func runCLI(args []string) error {
 		MinScoreOverride:   *minScore,
 		Timeout:            *timeout,
 		AgentTimeout:       *agentTimeout,
+		Trials:             *trials,
 	})
 	if err != nil {
 		return err
@@ -108,6 +115,19 @@ func runCLI(args []string) error {
 	if *markdownOut != "" {
 		if err := report.WriteMarkdown(*markdownOut); err != nil {
 			return err
+		}
+	}
+	if *comparePath != "" {
+		data, err := os.ReadFile(*comparePath)
+		if err != nil {
+			return fmt.Errorf("read comparison report: %w", err)
+		}
+		var previous SuiteReport
+		if err := json.Unmarshal(data, &previous); err != nil {
+			return fmt.Errorf("decode comparison report: %w", err)
+		}
+		for _, change := range CompareSuiteReports(report, previous) {
+			fmt.Printf("criterion changed: %s/%s %t -> %t\n", change.TaskID, change.Criterion, change.PreviousPassed, change.CurrentPassed)
 		}
 	}
 

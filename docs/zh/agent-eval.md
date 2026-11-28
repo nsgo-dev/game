@@ -9,3 +9,9 @@
 ## 任务
 
 `editor-workflow` 要求做与 `add-menu` 相同的菜单，按同一套评分细则打分；它的提示词要求智能体在编辑前检查场景和图层，通过 `scene_edit` 编辑，并用 `game_check` 校验。
+
+## 试验
+
+运行 `go run ./tools/agenteval -mode=reference -trials 3`，即可在独立工作区重复每个任务。JSON 报告会为每个任务包含 `trials`、`pass_rate`、`mean_score` 和 `stddev`。
+
+报告还会记录暂存文档与技能的确定性 `context_hash` 以及 `commit_sha`。向 `-compare report.json` 传入上一份 JSON 报告后，会打印通过状态发生变化的评分标准。模式或模型不同时会忽略比较，避免模型升级被误报为回归。定时工作流仍负责历史发布与保留期限。

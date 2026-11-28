@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ type RunOptions struct {
 	MinScoreOverride   int           // < 0 uses each task's min_score (or 100 in reference mode).
 	Timeout            time.Duration // grading budget per task (nsgo check and the MCP verification test)
 	AgentTimeout       time.Duration // agent budget per task in command/agent mode, separate from Timeout
+	Trials             int           // repeated independent trials per task, default 1
 }
 
 // RunSuite loads tasks, executes each selected task in an isolated temporary workspace, and returns the SuiteReport.
@@ -79,6 +81,9 @@ func RunSuite(ctx context.Context, opts RunOptions) (SuiteReport, error) {
 	if opts.AgentTimeout <= 0 {
 		opts.AgentTimeout = 15 * time.Minute
 	}
+	if opts.Trials <= 0 {
+		opts.Trials = 1
+	}
 
 	tasks, err := LoadTasksDir(opts.TasksDir)
 	if err != nil {
@@ -92,18 +97,46 @@ func RunSuite(ctx context.Context, opts RunOptions) (SuiteReport, error) {
 
 	results := make([]TaskReport, 0, len(selected))
 	for _, task := range selected {
-		rep, err := runSingleTask(ctx, opts, task)
-		if err != nil {
-			return SuiteReport{}, fmt.Errorf("task %s: %w", task.ID, err)
+		trials := make([]TaskReport, 0, opts.Trials)
+		for i := 0; i < opts.Trials; i++ {
+			rep, err := runSingleTask(ctx, opts, task)
+			if err != nil {
+				return SuiteReport{}, fmt.Errorf("task %s trial %d: %w", task.ID, i+1, err)
+			}
+			trials = append(trials, rep)
 		}
+		rep := AggregateTaskReports(trials)
 		results = append(results, rep)
 	}
 	report := BuildSuiteReport(opts.Mode, results)
+	report.CommitSHA, report.ContextHash = evaluationMetadata(opts.RepoRoot)
 	if opts.Mode == ModeAgent {
 		report.Provider = opts.Agent.Provider
 		report.Model = opts.Agent.Model
 	}
 	return report, nil
+}
+
+func evaluationMetadata(root string) (commit, contextHash string) {
+	if out, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output(); err == nil {
+		commit = strings.TrimSpace(string(out))
+	}
+	h := sha256.New()
+	for _, rel := range []string{"docs/en", "docs/zh", "skills/nsgo-game"} {
+		base := filepath.Join(root, rel)
+		_ = filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil || info.IsDir() {
+				return nil
+			}
+			data, readErr := os.ReadFile(path)
+			if readErr == nil {
+				fmt.Fprintf(h, "%s\x00", filepath.ToSlash(path[len(root)+1:]))
+				h.Write(data)
+			}
+			return nil
+		})
+	}
+	return commit, fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func filterTasks(tasks []*Task, filter []string) ([]*Task, error) {
