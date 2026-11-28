@@ -48,6 +48,32 @@
     "approvedBy": {
       "description": "ApprovedBy names the person who picked and approved the generated candidate.",
       "type": "string"
+    },
+    "sha256": {
+      "description": "SHA256 is the hex SHA-256 digest of the picked asset bytes.",
+      "type": "string"
+    },
+    "parameters": {
+      "description": "Parameters records canonical generator parameters sent with the request.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "derivedFrom": {
+      "description": "DerivedFrom records the parent asset used by vary/refine operations.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/AssetSourceParent"
+        }
+      ]
+    },
+    "referenceHashes": {
+      "description": "ReferenceHashes records SHA-256 values for references while References remains compatible with version 1 sidecars.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   },
   "required": [
@@ -55,5 +81,19 @@
     "generator",
     "prompt"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "definitions": {
+    "AssetSourceParent": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

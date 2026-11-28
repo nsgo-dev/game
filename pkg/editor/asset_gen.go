@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -1647,6 +1648,12 @@ func (e *Editor) PickGeneratedCandidate(requestID, candidateID string) error {
 		License:       firstNonEmpty(cand.License, req.License),
 		CommercialUse: cand.CommercialUse,
 		ApprovedBy:    e.AssetApprovalAuthor(),
+	}
+	digest := sha256.Sum256(cand.CleanBytes)
+	srcDoc.SHA256 = fmt.Sprintf("%x", digest[:])
+	srcDoc.Parameters = map[string]string{"kind": string(req.Kind), "count": strconv.Itoa(req.Count)}
+	if req.ReferenceAsset != "" {
+		srcDoc.DerivedFrom = &importsettings.AssetSourceParent{Asset: req.ReferenceAsset}
 	}
 	sourceBytes, err := importsettings.EncodeAssetSource(srcDoc)
 	if err != nil {
