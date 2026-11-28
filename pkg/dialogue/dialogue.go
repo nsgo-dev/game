@@ -1300,8 +1300,9 @@ func (r *Runner) State() State {
 // LoadState restores variables and visit counts from a previously saved State.
 func (r *Runner) LoadState(state State) {
 	if r.opts.Vars != nil {
-		for k, v := range state.Vars {
-			_ = r.opts.Vars.SetFromExpr(k, v)
+		// Sorted so the store's OnChange listeners see the restored variables in a deterministic order.
+		for _, k := range slices.Sorted(maps.Keys(state.Vars)) {
+			_ = r.opts.Vars.SetFromExpr(k, state.Vars[k])
 		}
 	} else {
 		r.vars = make(map[string]any, len(state.Vars))
