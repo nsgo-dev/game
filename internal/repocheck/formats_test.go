@@ -174,6 +174,7 @@ var formatVersions = map[string]string{
 	"online/netplay/wire.HandshakeWelcomeVersion":   "",
 	"online/netplay/wire.RelayFrameVersion":         "",
 	"online/netplay/wire.ReplicationMessageVersion": "",
+	"particles.EffectFormatVersion":                 "particles#effect",
 	"particles.FormatVersion":                       "particles",
 	"physics.SnapshotVersion":                       "",
 	"physics3d.SnapshotVersion":                     "",

@@ -186,6 +186,43 @@ watcher.Watch("fx/fire.yaml", func(data []byte) {
 
 From a background goroutine, call `StageBytes` and apply the staged definition on the game loop with `Flush`.
 
+## Effect files
+
+An effect file groups several emitters that play as one effect, such as the flash, sparks and smoke of an explosion, and declares the typed parameters the game sets on it. `UnmarshalEffectYAML` reads one into an `Effect` and `MarshalEffectYAML` writes it back, with the same deterministic saving as emitter definitions (parameters sorted by name):
+
+```yaml
+version: 1
+emitters:
+  - config:
+      space: world
+      shape:
+        kind: circle
+        radius: 6
+      rate: 45
+      lifetimeMin: 300ms
+      lifetimeMax: 700ms
+    duration: 200ms
+  - file: fx/sparks.particles.yaml
+    offsetX: 4
+    offsetY: -2
+    delay: 50ms
+    minQuality: medium
+params:
+  speed:
+    type: float
+    float: 1.5
+  tint:
+    type: color
+    color: "#ff8800ff"
+```
+
+- Each emitter has exactly one of `file`, a slash-separated path of an emitter definition relative to the asset root, and `config`, an inline definition in the emitter file schema without its `version`.
+- `offsetX` and `offsetY` move the emitter from the effect's origin, `delay` is when it starts after the effect does, `duration` is how long it emits (zero for as long as the effect plays), and `minQuality` is the lowest quality level it plays at (`low`, `medium` or `high`; omitted for every level). `delay` and `duration` are duration strings and may not be negative.
+- A parameter's `type` is `float`, `int`, `color` or `vec2`, and its default sits under the key of that type: a number, an integer, a quoted `"#rrggbb"` or `"#rrggbbaa"` color, or a list of two numbers. A value under another type's key, a missing value, and a value that is not finite are refused.
+- `Effect.SetParam(name, value)` sets a declared parameter to a `float64` or `float32`, an `int`, a `core.Color`, or a `[2]float32`, and refuses an undeclared name or a value of the wrong type without changing the parameter. `Effect.Validate` reports what `MarshalEffectYAML` would refuse.
+
+The effect file is a format and its parameter values so far: nothing plays an `Effect` yet, file-backed emitters are not loaded by `UnmarshalEffectYAML`, and fields of an emitter's config cannot yet be bound to a parameter. Playback with delays, durations and `minQuality`, parameter binding, particle events and culling are tracked in [#1730](https://github.com/nsgo-dev/game/issues/1730).
+
 ## Performance
 
 Each live particle is one sprite in the emitter's `sprite.Batch`. Untinted particles, those without a `ColorCurve` or with a white one, draw in runs of one `DrawAtlas` call each ([nsgo-dev/game#28](https://github.com/nsgo-dev/game/issues/28)). A particle tinted by a non-white `ColorCurve` keeps its own image draw, which also allocates once inside NSGo's `Drawing`, so tinting thousands of particles costs more than fading them with `AlphaCurve`.
