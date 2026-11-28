@@ -40,7 +40,7 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"agent_report_step", "agent_turn_get", "agent_turn_reply", "brief_edit", "checkpoint_list", "checkpoint_restore", "code_review_propose", "code_review_run_checks", "code_review_status", "cutscene_scrub", "cutscene_write", "datatable_review_checks", "datatable_review_propose", "datatable_review_status", "file_edit", "game_check", "game_playtest", "history_list", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "object_copy_yaml", "object_duplicate", "object_find_usages", "object_group", "object_locate_yaml", "object_move_under", "object_paste_yaml", "object_select_same_prefab", "object_set_field", "object_visibility", "permissions_draft", "phone_call_tool", "phone_sessions_list", "plan_propose", "plan_step_update", "play_frozen_context", "play_replay_step", "playtest_define", "playtest_report", "problem_propose_fix", "project_context", "refactor_rename", "refs_find", "release_notes_draft", "release_review_uploads", "review_notes_get", "review_redo", "review_status", "rules_edit", "scene_edit", "scene_read", "selection_get", "sketch_read", "sketch_reading", "states_test", "states_write", "tasks_control", "tasks_list", "tasks_submit", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "turn_end", "turn_start", "turn_status", "viewport_image"}
+	want := []string{"agent_report_step", "agent_turn_get", "agent_turn_reply", "brief_edit", "checkpoint_list", "checkpoint_restore", "code_review_propose", "code_review_run_checks", "code_review_status", "cutscene_scrub", "cutscene_write", "datatable_review_checks", "datatable_review_propose", "datatable_review_status", "file_edit", "game_check", "game_playtest", "history_list", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "object_copy_yaml", "object_duplicate", "object_find_usages", "object_group", "object_locate_yaml", "object_move_under", "object_paste_yaml", "object_select_same_prefab", "object_set_field", "object_visibility", "permissions_draft", "phone_call_tool", "phone_sessions_list", "plan_propose", "plan_step_update", "play_frozen_context", "play_replay_step", "playtest_define", "playtest_report", "problem_propose_fix", "project_context", "refactor_rename", "refs_find", "release_notes_draft", "release_review_uploads", "review_notes_get", "review_redo", "review_status", "rules_edit", "scene_edit", "scene_read", "selection_get", "sketch_read", "sketch_reading", "skill_get", "states_test", "states_write", "tasks_control", "tasks_list", "tasks_submit", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "turn_end", "turn_start", "turn_status", "viewport_image"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -55,7 +55,9 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		uris = append(uris, r.URI)
 	}
 	slices.Sort(uris)
-	if !slices.Equal(uris, []string{editormcp.AgentTurnURI, editormcp.BriefURI, editormcp.ContextURI, editormcp.RulesURI, editormcp.SceneURI, editormcp.SelectionURI}) {
+	wantResources := []string{editormcp.AgentTurnURI, editormcp.BriefURI, editormcp.ContextURI, editormcp.RulesURI, editormcp.SceneURI, editormcp.SelectionURI, "skill://nsgo-game/SKILL.md", "skill://nsgo-game/references/cli-and-formats.md", "skill://nsgo-game/references/mcp-tools.md", "skill://nsgo-game/references/packages.md"}
+	slices.Sort(wantResources)
+	if !slices.Equal(uris, wantResources) {
 		t.Fatalf("resources = %v", uris)
 	}
 }
@@ -132,6 +134,21 @@ func TestMCPAppsWidgetsAreNegotiatedAndGated(t *testing.T) {
 	res = call(t, apps, editormcp.ToolViewportImage, map[string]any{})
 	if !res.IsError || widgetURI(res) != "" {
 		t.Fatalf("viewport_image with viewport images off: error=%v meta=%+v", res.IsError, res.Meta)
+	}
+}
+
+func TestSkillGetReturnsEmbeddedSection(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+	res := call(t, cs, editormcp.ToolSkillGet, map[string]any{"file": "SKILL.md", "section": "Core rules"})
+	if res.IsError || !strings.Contains(text(res), "Core rules") {
+		t.Fatalf("skill_get = error:%v text:%q", res.IsError, text(res))
+	}
+	bad := call(t, cs, editormcp.ToolSkillGet, map[string]any{"file": "SKILL.md", "section": "Missing"})
+	if !bad.IsError {
+		t.Fatal("unknown skill section accepted")
 	}
 }
 
