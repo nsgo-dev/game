@@ -95,7 +95,8 @@ func BakeTile(g *Geometry, settings Settings, agent AgentType, coord world3d.Chu
 
 	minY, maxY := float32(math.Inf(1)), float32(math.Inf(-1))
 	hits := 0
-	for t, l := range g.layers {
+	for _, t := range g.trianglesInBounds(math3d.AABB{Min: math3d.Vec3{X: float32(tileMinX - border), Y: float32(math.Inf(-1)), Z: float32(tileMinZ - border)}, Max: math3d.Vec3{X: float32(tileMaxX + border), Y: float32(math.Inf(1)), Z: float32(tileMaxZ + border)}}) {
+		l := g.layers[t]
 		if l&settings.LayerMask == 0 {
 			continue
 		}
@@ -191,9 +192,24 @@ func bakeMeshInBounds(g *Geometry, s Settings, a AgentType, b math3d.AABB) (*Mes
 		return areaNull
 	}
 	solid := make([]bool, len(g.layers))
+	candidates := g.trianglesInBounds(b)
+	candidateSet := make([]bool, len(g.layers))
+	for _, t := range candidates {
+		candidateSet[t] = true
+	}
 	var areas []uint8
 	for _, r := range g.solids {
 		if g.layers[r[0]]&s.LayerMask == 0 {
+			continue
+		}
+		selected := false
+		for t := r[0]; t < r[1]; t++ {
+			if candidateSet[t] {
+				selected = true
+				break
+			}
+		}
+		if !selected {
 			continue
 		}
 		areas = areas[:0]
@@ -203,7 +219,8 @@ func bakeMeshInBounds(g *Geometry, s Settings, a AgentType, b math3d.AABB) (*Mes
 		}
 		hf.rasterizeSolid(g.verts[r[0]*3:r[1]*3], areas, walkClimb, buf)
 	}
-	for t, l := range g.layers {
+	for _, t := range candidates {
+		l := g.layers[t]
 		if l&s.LayerMask == 0 || solid[t] {
 			continue
 		}
