@@ -368,6 +368,8 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdReplayTips, e.T("menu.replayTips"), false),
 			sep,
 			cmdItem(CmdShortcutsSheet, e.T("menu.shortcutsSheet"), false),
+			sep,
+			cmdItem(CmdCheckForUpdates, e.T("menu.checkForUpdates"), false),
 		},
 	}
 

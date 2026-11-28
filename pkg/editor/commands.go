@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/updater"
 )
 
 // Built-in editor command IDs registered in the unified command registry.
@@ -152,6 +153,7 @@ const (
 	CmdAddLightProbeGrid  = "scene.addLightProbeGrid"
 	CmdBakeProbes3D       = "project.bakeProbes3D"
 	CmdReplayTips         = "help.replayTips"
+	CmdCheckForUpdates    = "help.checkForUpdates"
 	CmdReviewNext         = "review.next"
 	CmdReviewPrev         = "review.prev"
 	CmdReviewNote         = "review.note"
@@ -2257,6 +2259,20 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdCheckForUpdates,
+			Label:       "Check for Updates",
+			Description: "Check for a newer version of the editor and install it",
+			Category:    "Help",
+			Keywords:    []string{"help", "update", "upgrade", "version", "release", "install"},
+			Scope:       ScopeGlobal,
+			Enabled:     func() bool { return e.scope != nil },
+			Run: func() error {
+				// The platform's updater answers in windows of its own (Sparkle, WinSparkle) or in an alert updater shows, so there is nothing to report here.
+				updater.Check(e.scope)
+				return nil
+			},
+		},
+		{
 			ID:          CmdReplayTips,
 			Label:       "Replay tips",
 			Description: "Reset dismissed first-run review tips so they show again",
@@ -2901,6 +2917,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdPermissionsSettings:       {"cmd.permissionsSettings.label", "cmd.permissionsSettings.desc", "cmd.category.project"},
 	CmdMergeConflicts:            {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 	CmdToggleAssetsMode:          {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
+	CmdCheckForUpdates:           {"cmd.checkForUpdates.label", "cmd.checkForUpdates.desc", "cmd.category.help"},
 	CmdReplayTips:                {"cmd.replayTips.label", "cmd.replayTips.desc", "cmd.category.help"},
 	CmdReviewNext:                {"cmd.reviewNext.label", "cmd.reviewNext.desc", "cmd.category.review"},
 	CmdReviewPrev:                {"cmd.reviewPrev.label", "cmd.reviewPrev.desc", "cmd.category.review"},

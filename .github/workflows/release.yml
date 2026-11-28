@@ -40,6 +40,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
+      build: ${{ steps.resolve.outputs.build }}
       ref: ${{ steps.resolve.outputs.ref }}
       sha: ${{ steps.resolve.outputs.sha }}
     steps:
@@ -89,10 +90,31 @@ jobs:
             version=$(sed -nE 's/^version: *"?([0-9.]+)"? *$/\1/p' cmd/editor/nsgo.yaml)
             tag="v$version"
           fi
+          # The editor's updater compares the appcast's sparkle:version, the build number, with the running copy's CFBundleVersion, so every release needs a larger one than the last; nsgo.yaml's build_number is fixed, so derive it from the version: X.Y.Z is X*1000000+Y*10000+Z*100+99, and a prerelease X.Y.Z-<name>.N (N 1-98) is X*1000000+Y*10000+Z*100+N, below its release.
+          if ! [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z-]+\.([0-9]+))?$ ]]; then
+            echo "::error::Version '$version' is not X.Y.Z or X.Y.Z-<name>.N, so no build number can be derived from it."
+            exit 1
+          fi
+          major=$((10#${BASH_REMATCH[1]})) minor=$((10#${BASH_REMATCH[2]})) patch=$((10#${BASH_REMATCH[3]}))
+          if [ -n "${BASH_REMATCH[4]}" ]; then
+            pre=$((10#${BASH_REMATCH[5]}))
+            if [ "$pre" -lt 1 ] || [ "$pre" -gt 98 ]; then
+              echo "::error::Prerelease number $pre of '$version' is outside 1-98."
+              exit 1
+            fi
+          else
+            pre=99
+          fi
+          if [ "$minor" -gt 99 ] || [ "$patch" -gt 99 ]; then
+            echo "::error::Version '$version' has a minor or patch number over 99, which the build number cannot hold."
+            exit 1
+          fi
+          build=$((major * 1000000 + minor * 10000 + patch * 100 + pre))
           {
             echo "mode=$mode"
             echo "tag=$tag"
             echo "version=$version"
+            echo "build=$build"
             echo "ref=$ref"
             echo "sha=$sha"
           } >> "$GITHUB_OUTPUT"
@@ -396,6 +418,7 @@ jobs:
       - name: Build NSGo Game Editor
         env:
           VERSION: ${{ needs.meta.outputs.version }}
+          BUILD: ${{ needs.meta.outputs.build }}
           TARGETS: ${{ matrix.targets }}
           KEYCHAIN: ${{ steps.signing.outputs.keychain }}
           NOTARY_KEY: ${{ steps.signing.outputs.notary-key }}
@@ -414,6 +437,7 @@ jobs:
           go tool nsgo build \
             -open=false \
             -version "$VERSION" \
+            -build-number "$BUILD" \
             -target "$TARGETS" \
             -output "$RUNNER_TEMP/packages" \
             -release-notes "$RUNNER_TEMP/release-notes.md" \
