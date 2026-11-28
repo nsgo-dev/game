@@ -205,17 +205,14 @@ func (s *Service) showMiniGame(b Board, bounds core.Bounds, hasBounds bool) erro
 
 func (s *Service) signInMiniGame(done func(Player, error)) {
 	var once sync.Once
-	s.cx.SignInMiniProgram(core.MiniProgramSignInOptions{}, func(cred core.MiniProgramCredential, err error) {
+	s.cx.SignInMiniProgram(core.MiniProgramSignInOptions{}, func(_ core.MiniProgramCredential, err error) {
 		once.Do(func() {
 			s.post(func() {
 				var p Player
 				var outErr error
 				if err == nil {
-					p = Player{
-						ID:            cred.Code,
-						DisplayName:   string(cred.Platform),
-						Authenticated: true,
-					}
+					// The credential is a short-lived login code for the game's server to exchange, not a stable player identity, so it is never exposed as Player.ID; the host names no display name either.
+					p = Player{Authenticated: true}
 					s.player.Set(p)
 				} else {
 					outErr = mapMiniProgramSignInError(err)

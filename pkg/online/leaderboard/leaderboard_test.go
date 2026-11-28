@@ -525,7 +525,7 @@ func TestMiniGameSignInAndAsyncHostCallback(t *testing.T) {
 	var signErr error
 	svc.SignIn(func(p leaderboard.Player, err error) { signedIn, signErr = p, err })
 	app.Settle()
-	if signErr != nil || !signedIn.Authenticated || signedIn.ID != "wx-code-42" || signedIn.DisplayName != "wechat" || !svc.SignedIn() {
+	if signErr != nil || !signedIn.Authenticated || signedIn.ID != "" || signedIn.DisplayName != "" || !svc.SignedIn() {
 		t.Fatalf("SignIn: player=%+v err=%v signedIn=%v", signedIn, signErr, svc.SignedIn())
 	}
 
