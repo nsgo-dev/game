@@ -76,7 +76,7 @@ tiles: |
 
 ## Where to change it
 
-The editor opens `scenes/level1.scene.yaml` as the `level1` autoloaded main scene. It is a reviewable entry layout for terrain, the player spawn, checkpoint and goal. The current runtime still reads `data/level.yaml` for its character-grid rules while the scene migration continues.
+The editor opens `scenes/level1.scene.yaml` as the `level1` autoloaded main scene. It places the player start, the lamp and the beacon on the cells `data/level.yaml` gives them, and `TestLevelSceneMatchesTheLevel` fails when the two disagree. The tiles, and every rule, still come from `data/level.yaml`; moving a marker in the scene does not move it in the game yet.
 
 - **A new level**: edit the tiles in `data/level.yaml` and keep `data/rooms.yaml` covering every column; `parseLevel` refuses a start (`P`) or lamp (`C`) with nothing to stand on, and `TestDataFilesAreCanonical` and `TestRoomsCoverTheLevel` report what is wrong. The playthrough test jumps at spikes, pits and walls ahead of the player, so a route that needs more than that needs a change to `obstacleAhead` in `game_test.go`.
 - **How the jump feels**: `data/player.yaml`. A longer `coyote_time` or `jump_buffer` forgives late and early presses, and `wall_jump_speed_y: 0` turns wall jumps off.

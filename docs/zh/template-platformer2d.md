@@ -76,7 +76,7 @@ tiles: |
 
 ## 在哪里修改
 
-编辑器会打开作为 `level1` 自动加载主场景的 `scenes/level1.scene.yaml`。它是包含地形、玩家起点、检查点和终点的可评审入口布局。当前运行时仍从 `data/level.yaml` 读取字符网格规则，场景迁移会继续进行。
+编辑器会打开作为 `level1` 自动加载主场景的 `scenes/level1.scene.yaml`。它把玩家起点、灯和信标放在 `data/level.yaml` 中对应的格子上，两者不一致时 `TestLevelSceneMatchesTheLevel` 会失败。图块和所有规则仍来自 `data/level.yaml`；在场景里移动标记暂时不会改变游戏中的位置。
 
 - **新关卡**：编辑 `data/level.yaml` 里的图块，并让 `data/rooms.yaml` 覆盖每一列；`parseLevel` 会拒绝脚下没有地面或平台的起点（`P`）和灯（`C`），`TestDataFilesAreCanonical` 和 `TestRoomsCoverTheLevel` 会指出问题所在。通关测试会在玩家前方遇到尖刺、深坑和墙时起跳，路线如果需要更多操作，就要修改 `game_test.go` 里的 `obstacleAhead`。
 - **跳跃手感**：`data/player.yaml`。更长的 `coyote_time` 或 `jump_buffer` 能容忍按晚了或按早了，`wall_jump_speed_y: 0` 关闭蹬墙跳。
