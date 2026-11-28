@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/gltf"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/math3d"
@@ -79,7 +80,7 @@ func (e *Editor) GridMapPalette() GridMapPalette {
 		p.Message = e.T("gridmap.emptyMeshLibrary", l10n.Param("library", strconv.Quote(e.gridMap.meshLibrary)))
 		return p
 	}
-	pal := e.activeSpecPalette()
+	pal := e.activePalette()
 	p.Items = make([]GridMapPaletteItem, 0, len(defs))
 	for _, def := range defs {
 		name := def.Name
@@ -103,7 +104,7 @@ type gridMapThumbTri struct {
 	color   core.Color
 }
 
-func buildGridMapThumbnail(pal SpecPalette, doc *gltf.Document, def world3d.MeshTileDef) []gridMapThumbTri {
+func buildGridMapThumbnail(pal theme.Palette, doc *gltf.Document, def world3d.MeshTileDef) []gridMapThumbTri {
 	if doc != nil && int(def.MeshID) < len(doc.Meshes) {
 		if tris := extractGLTFThumbTris(pal, doc, int(def.MeshID), def.ID); len(tris) > 0 {
 			return tris
@@ -125,7 +126,7 @@ func rgbColor(r, g, b float64) core.Color {
 	return colorFromRGBA8(clamp(r), clamp(g), clamp(b), 255)
 }
 
-func extractGLTFThumbTris(pal SpecPalette, doc *gltf.Document, meshIdx int, tileID uint16) []gridMapThumbTri {
+func extractGLTFThumbTris(pal theme.Palette, doc *gltf.Document, meshIdx int, tileID uint16) []gridMapThumbTri {
 	mesh := &doc.Meshes[meshIdx]
 	bounds := math3d.AABBEmpty()
 	var raw [][3]math3d.Vec3
@@ -193,7 +194,7 @@ func extractGLTFThumbTris(pal SpecPalette, doc *gltf.Document, meshIdx int, tile
 	return out
 }
 
-func boxThumbTris(pal SpecPalette, bounds math3d.AABB, tileID uint16) []gridMapThumbTri {
+func boxThumbTris(pal theme.Palette, bounds math3d.AABB, tileID uint16) []gridMapThumbTri {
 	hx, hy, hz := float32(0.65), float32(0.65), float32(0.65)
 	if !bounds.Empty() {
 		s := bounds.Size()
@@ -235,7 +236,7 @@ func boxThumbTris(pal SpecPalette, bounds math3d.AABB, tileID uint16) []gridMapT
 }
 
 // drawGridMapThumbnail renders an isometric 3D shaded thumbnail of item rotated by orient onto d.
-func drawGridMapThumbnail(d *core.Drawing, pal SpecPalette, item GridMapPaletteItem, orient uint8, w, h float32) {
+func drawGridMapThumbnail(d *core.Drawing, pal theme.Palette, item GridMapPaletteItem, orient uint8, w, h float32) {
 	if d == nil || w <= 0 || h <= 0 || len(item.Thumbnail) == 0 {
 		return
 	}
@@ -304,7 +305,7 @@ func drawGridMapThumbnail(d *core.Drawing, pal SpecPalette, item GridMapPaletteI
 			ClosePath().Fill()
 	}
 	// Subtle wireframe accent on top of shaded thumbnail for crisp legibility at small sizes.
-	d.SetStrokeColor(specAlpha(pal.Bg, 0.35)).SetLineWidth(0.75)
+	d.SetStrokeColor(ui.Alpha(pal.Bg, 0.35)).SetLineWidth(0.75)
 	for _, pt := range projected {
 		d.BeginPath().MoveTo(pt.x0, pt.y0).LineTo(pt.x1, pt.y1).LineTo(pt.x2, pt.y2).ClosePath().Stroke()
 	}
@@ -409,7 +410,7 @@ func gridMapPalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						Draw: func(d *core.Drawing, size core.Size) {
 							o := orient.Get()
-							drawGridMapThumbnail(d, ed.SpecPalette(cx), item, o, float32(size.Width), float32(size.Height))
+							drawGridMapThumbnail(d, ed.Palette(cx), item, o, float32(size.Width), float32(size.Height))
 						},
 					},
 					core.Text{

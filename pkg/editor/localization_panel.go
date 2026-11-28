@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
@@ -794,7 +795,7 @@ func LocalizationPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 }
 
 func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	newKey := core.NewSignal(cx, "")
 	newKeyPlural := core.NewSignal(cx, false)
 	newLocale := core.NewSignal(cx, "")
@@ -1003,7 +1004,7 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			return ed.LocalizationError() != nil
 		},
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			dismissBtn := specPanelButton(p, specPanelButtonSpec{
 				TestID:  "l10n-error-dismiss",
 				Icon:    lucide.X,
@@ -1038,7 +1039,7 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			if structure.Get() == "" {
 				return nil
 			}
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			if ed.LocalizationLoading() {
 				return specLoadingState(p, "l10n-loading", ed.T("l10nPanel.loading"))
 			}
@@ -1211,7 +1212,7 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	return specPanelContainer(cx, p, "l10n-panel", ed.T("l10nPanel.title"), 272, header, errorBanner, table)
 }
 
-func localizationCell(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], loc, key string, isPlural bool, disabled func() bool) core.Node {
+func localizationCell(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64], loc, key string, isPlural bool, disabled func() bool) core.Node {
 	isMissing := func() bool {
 		_ = rev.Get()
 		return ed.LocalizationIsMissing(loc, key)
@@ -1222,7 +1223,7 @@ func localizationCell(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signa
 		core.Show{
 			When: isMissing,
 			Then: func(cx *core.Scope) core.Node {
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				return core.View{
 					TestID: "l10n-missing-" + loc + "-" + key,
 					Style: core.Style{

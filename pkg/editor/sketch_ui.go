@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -25,7 +26,7 @@ func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 	themeMemo := core.NewMemo(cx, func() overlayThemeKey {
 		_ = rev.Get()
 		return overlayThemeKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
@@ -33,7 +34,7 @@ func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		When: active.Get,
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := SpecPaletteFor(themeMemo.Get().dark)
+				p := theme.PaletteFor(themeMemo.Get().dark)
 				divider := func() core.Node {
 					return core.View{
 						Style: core.Style{
@@ -290,7 +291,7 @@ func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 									if !ok {
 										return core.View{}
 									}
-									pal := ed.SpecPalette(cx)
+									pal := ed.Palette(cx)
 									return core.View{
 										TestID: "sketch-mark-label-bar",
 										Style: core.Style{
@@ -386,7 +387,7 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	darkMemo := core.NewMemo(cx, func() sketchTreeKey {
 		_ = rev.Get()
 		return sketchTreeKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
@@ -394,7 +395,7 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 		When: shown.Get,
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := SpecPaletteFor(darkMemo.Get().dark)
+				p := theme.PaletteFor(darkMemo.Get().dark)
 				return core.View{
 					TestID: "scene-tree-sketch-section",
 					Style: core.Style{
@@ -505,7 +506,7 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			}
 		}
 		return panelKey{
-			dark:          ed.SpecPalette(cx).Dark,
+			dark:          ed.Palette(cx).Dark,
 			lang:          ed.ResolvedLanguage(),
 			markCount:     ed.SketchMarkCount(),
 			selectedMark:  ed.SelectedSketchMark(),
@@ -529,13 +530,13 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	darkMemo := core.NewMemo(cx, func() panelThemeKey {
 		_ = rev.Get()
 		return panelThemeKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(darkMemo.Get().dark)
+		p := theme.PaletteFor(darkMemo.Get().dark)
 		return core.View{
 			TestID: "sketch-agent-panel",
 			Role:   core.RoleRegion,
@@ -624,7 +625,7 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					Children: []core.Node{
 						core.Dynamic(func(cx *core.Scope) core.Node {
 							_ = stateKey.Get()
-							pal := ed.SpecPalette(cx)
+							pal := ed.Palette(cx)
 							var items []core.Node
 
 							// 1. Post-sketch Review card (Sketch overlay toggle + Keep / Revert).
@@ -778,7 +779,7 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	})
 }
 
-func sketchReadingCardView(ed *Editor, p SpecPalette, rd *SketchReading) core.Node {
+func sketchReadingCardView(ed *Editor, p theme.Palette, rd *SketchReading) core.Node {
 	var children []core.Node
 
 	if req, ok := ed.LastSketchRequest(); ok && req.Prompt != "" {
@@ -968,7 +969,7 @@ func sketchReadingCardView(ed *Editor, p SpecPalette, rd *SketchReading) core.No
 	}
 }
 
-func sketchReviewCardView(ed *Editor, p SpecPalette) core.Node {
+func sketchReviewCardView(ed *Editor, p theme.Palette) core.Node {
 	changes := ed.SketchReviewChanges()
 	countLabel := ed.T("sketchExtra.changesMany", l10n.Param("count", len(changes)))
 	if len(changes) == 1 {
@@ -1154,7 +1155,7 @@ func sketchReviewCardView(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func sketchPreviewCardView(ed *Editor, p SpecPalette) core.Node {
+func sketchPreviewCardView(ed *Editor, p theme.Palette) core.Node {
 	marks := ed.SketchMarks()
 	rows := make([]core.Node, 0, len(marks))
 	for _, m := range marks {
@@ -1235,7 +1236,7 @@ func sketchPreviewCardView(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette) core.Node {
 	submit := func() {
 		text := strings.TrimSpace(ed.SketchPromptDraft())
 		if ed.SketchHoldState() == SketchHoldReading && text != "" {
@@ -1274,7 +1275,7 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p 
 							return ed.SketchAttached()
 						},
 						Then: func(cx *core.Scope) core.Node {
-							pal := ed.SpecPalette(cx)
+							pal := ed.Palette(cx)
 							return core.View{
 								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
 								Children: []core.Node{

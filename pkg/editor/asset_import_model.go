@@ -13,6 +13,7 @@ import (
 
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/anim3d"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/gltf"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/render3d"
@@ -875,7 +876,7 @@ func (e *Editor) RenderModelPreview(relPath string, width, height int) (*image.R
 		ColorAttachments: []gpu.ColorAttachment{{
 			LoadOp:     gpu.LoadClear,
 			StoreOp:    gpu.StoreStore,
-			ClearColor: e.activeSpecPalette().Viewport,
+			ClearColor: e.activePalette().Viewport,
 		}},
 		DepthStencil: &gpu.DepthStencilAttachment{
 			DepthLoadOp:  gpu.LoadClear,
@@ -912,7 +913,7 @@ func (e *Editor) DrawModelPreview(d *core.Drawing, size core.Size, relPath strin
 	if !isFiniteFloat32(cw) || !isFiniteFloat32(ch) || cw <= 0 || ch <= 0 {
 		return
 	}
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	d.SetFillColor(spec.Viewport).FillRect(0, 0, cw, ch)
 	if e == nil {
 		return
@@ -932,7 +933,7 @@ func (e *Editor) DrawModelPreview(d *core.Drawing, size core.Size, relPath strin
 	drawModelPreviewTriad(d, e.ModelPreviewCamera(), cw, ch, spec)
 }
 
-func drawModelPreviewTriad(d *core.Drawing, cam OrbitCamera3D, cw, ch float32, spec SpecPalette) {
+func drawModelPreviewTriad(d *core.Drawing, cam OrbitCamera3D, cw, ch float32, spec theme.Palette) {
 	if cw < 48 || ch < 48 {
 		return
 	}

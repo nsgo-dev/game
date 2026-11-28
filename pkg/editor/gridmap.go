@@ -13,11 +13,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/gltf"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/world3d"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // ErrNoGridMap is returned when a GridMap operation is called while no GridMap is open in the editor.
@@ -1413,7 +1415,7 @@ func (e *Editor) drawGridMap3D(d *core.Drawing, w, h float32) {
 			cmp.Compare(a.coord.X, b.coord.X),
 		)
 	})
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	for _, item := range cells {
 		col := gridMapTileColor(spec, item.cell.TileID, 0.9)
 		lw := float32(1.4)
@@ -1433,12 +1435,12 @@ func (e *Editor) drawGridMap3D(d *core.Drawing, w, h float32) {
 		bmin := gm.CellBounds(minC).Min
 		bmax := gm.CellBounds(maxC).Max
 		e.drawAABBWireframe3D(d, bmin, bmax, toWorld, spec.Accent.Fg, 2.2, w, h)
-		e.fillCellFloorQuad3D(d, bmin, bmax, toWorld, specAlpha(spec.Accent.Fg, 0.22), w, h)
+		e.fillCellFloorQuad3D(d, bmin, bmax, toWorld, ui.Alpha(spec.Accent.Fg, 0.22), w, h)
 		return
 	}
 	if hc, ok := e.HoveredGridMapCell(); ok {
 		col := spec.Accent.Fg
-		fill := specAlpha(spec.Accent.Fg, 0.22)
+		fill := ui.Alpha(spec.Accent.Fg, 0.22)
 		mode := e.gridMap.tool
 		if e.gridMap.hover.picking {
 			mode = GridMapToolPick
@@ -1446,10 +1448,10 @@ func (e *Editor) drawGridMap3D(d *core.Drawing, w, h float32) {
 		switch mode {
 		case GridMapToolErase:
 			col = spec.Removed.Fg
-			fill = specAlpha(spec.Removed.Fg, 0.25)
+			fill = ui.Alpha(spec.Removed.Fg, 0.25)
 		case GridMapToolPick:
 			col = spec.Warning.Fg
-			fill = specAlpha(spec.Warning.Fg, 0.22)
+			fill = ui.Alpha(spec.Warning.Fg, 0.22)
 		}
 		cb := gm.CellBounds(hc)
 		e.fillCellFloorQuad3D(d, cb.Min, cb.Max, toWorld, fill, w, h)
@@ -1473,7 +1475,7 @@ func (e *Editor) drawGridMapFloor3D(d *core.Drawing, gm *world3d.GridMap, toWorl
 	zMin := gm.Origin.Z + float32(centerZ-half)*gm.CellSize.Z
 	zMax := gm.Origin.Z + float32(centerZ+half)*gm.CellSize.Z
 
-	d.Save().SetStrokeColor(specAlpha(e.activeSpecPalette().Accent.Fg, 0.32)).SetLineWidth(1).BeginPath()
+	d.Save().SetStrokeColor(ui.Alpha(e.activePalette().Accent.Fg, 0.32)).SetLineWidth(1).BeginPath()
 	hasSeg := false
 	for i := centerX - half; i <= centerX+half; i++ {
 		x := gm.Origin.X + float32(i)*gm.CellSize.X
@@ -1597,9 +1599,9 @@ func (e *Editor) fillCellFloorQuad3D(d *core.Drawing, bmin, bmax math3d.Vec3, to
 		ClosePath().Fill().Restore()
 }
 
-func gridMapTileColor(pal SpecPalette, tileID uint16, alpha float32) core.Color {
+func gridMapTileColor(pal theme.Palette, tileID uint16, alpha float32) core.Color {
 	if tileID == 0 {
-		return specAlpha(pal.TextFaint, alpha)
+		return ui.Alpha(pal.TextFaint, alpha)
 	}
 	swatches := [8]core.Color{
 		pal.Accent.Fg,
@@ -1612,7 +1614,7 @@ func gridMapTileColor(pal SpecPalette, tileID uint16, alpha float32) core.Color 
 		pal.TextSecondary,
 	}
 	base := swatches[int(tileID-1)%len(swatches)]
-	return specAlpha(base, alpha)
+	return ui.Alpha(base, alpha)
 }
 
 // --- Scene Object GridMap setter ---

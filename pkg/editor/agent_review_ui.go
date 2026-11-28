@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -11,7 +12,7 @@ import (
 
 // AgentReviewPanelView renders the Review changes panel including proposed file deletions
 // that Keep all never applies (matching design/editor/Permissions.dc.html "Proposed deletion")
-// using strictly SpecPalette tokens in both Dark and Light appearances.
+// using strictly theme.Palette tokens in both Dark and Light appearances.
 func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type reviewKey struct {
 		open   bool
@@ -24,7 +25,7 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		return reviewKey{
 			open:   ed.AgentReviewOpen() && !ed.Playing() && !ed.StartScreenOpen() && !ed.MergeConflictOpen(),
 			revNum: ed.agentReviewRev(),
-			dark:   ed.SpecPalette(cx).Dark,
+			dark:   ed.Palette(cx).Dark,
 			lang:   ed.ResolvedLanguage(),
 		}
 	})
@@ -38,7 +39,7 @@ func AgentReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				if snap == nil {
 					return nil
 				}
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				focusRing := p.FocusRing(2)
 
 				unkeptRegular := 0

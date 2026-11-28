@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -11,7 +12,7 @@ import (
 )
 
 // FirstRunScreenView renders the active full-window First Run stage (Step 3 Plan, Step 4 Building, or Step 5 Review)
-// using exclusively SpecPalette tokens (Dark & Light) matching design/editor/FirstRun.dc.html.
+// using exclusively theme.Palette tokens (Dark & Light) matching design/editor/FirstRun.dc.html.
 func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.SettingsOpen() || ed.ShortcutsSheetOpen() {
@@ -55,7 +56,7 @@ func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		_ = rev.Get()
 		return firstRunRenderKey{
 			stage: ed.FirstRunStage(),
-			dark:  ed.SpecPalette(cx).Dark,
+			dark:  ed.Palette(cx).Dark,
 			lang:  ed.ResolvedLanguage(),
 		}
 	})
@@ -75,7 +76,7 @@ func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 }
 
 // startWhatHappensNextView renders the 3-step WHAT HAPPENS NEXT strip on Step 1 of the Start Screen.
-func startWhatHappensNextView(p SpecPalette, ed *Editor) core.Node {
+func startWhatHappensNextView(p theme.Palette, ed *Editor) core.Node {
 	stepRow := func(num, title, note string) core.Node {
 		return core.View{
 			Style: core.Style{
@@ -155,7 +156,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 			ed.DeferFirstRunConnect()
 		}
 	})
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 
 	return core.View{
 		TestID: "first-run-connect",
@@ -558,7 +559,7 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	}
 }
 
-func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Node {
+func firstRunConnectTimeoutView(p theme.Palette, ed *Editor, kind string) core.Node {
 	agentName := firstRunAgentDisplayName(kind)
 	bin := "claude"
 	if kind == "codex" {
@@ -635,7 +636,7 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 	}
 }
 
-func firstRunAPIKeySection(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func firstRunAPIKeySection(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.View{
 		TestID: "first-run-api-key-section",
 		Style:  core.Style{Gap: 8},
@@ -770,7 +771,7 @@ func firstRunAPIKeySection(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 // firstRunPlanView renders Step 3 (The first plan): read-only template preview with planned ghosts on the left,
 // and the Agent panel with the plan card, clarifying question, numbered steps, Just do it, and Approve ⌘↵ on the right.
 func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	approveShortcut := FormatShortcut("mod+enter", cx.Env().OS())
 
 	planCard := func(cx *core.Scope) core.Node {
@@ -1394,7 +1395,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 // live viewport preview, right Agent panel with object counts + progress bar, Esc/Cancel confirmation dialog,
 // and check-failure proposed fix card.
 func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 
 	buildStageBar := func(cx *core.Scope) core.Node {
 		_ = rev.Get()
@@ -2083,7 +2084,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 // top plan banner with amber deviations, left change list, center viewport (showing "Before: an empty folder"
 // in Before mode or when holding B), and the three one-time onboarding tips shown one at a time.
 func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 
 	segBtn := func(testID, label string, active bool, onPress func()) core.Node {
 		bg := core.Transparent
@@ -2467,7 +2468,7 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 }
 
-func firstRunReviewTipPopover(cx *core.Scope, p SpecPalette, ed *Editor, tipIdx int) core.Node {
+func firstRunReviewTipPopover(cx *core.Scope, p theme.Palette, ed *Editor, tipIdx int) core.Node {
 	askShortcut := FormatShortcut("mod+l", cx.Env().OS())
 	var stepLabel, body, nextLabel string
 	var left, top core.Points
@@ -2566,7 +2567,7 @@ func firstRunReviewTipPopover(cx *core.Scope, p SpecPalette, ed *Editor, tipIdx 
 	}
 }
 
-func firstRunPreviewShapeNode(p SpecPalette, sh FirstRunPreviewShape) core.Node {
+func firstRunPreviewShapeNode(p theme.Palette, sh FirstRunPreviewShape) core.Node {
 	bg := p.LineRaised
 	radius := core.Points(2)
 	switch sh.Kind {
@@ -2612,7 +2613,7 @@ func firstRunPreviewShapeNode(p SpecPalette, sh FirstRunPreviewShape) core.Node 
 	return core.View{Style: st}
 }
 
-func firstRunGhostNode(p SpecPalette, g FirstRunGhost) core.Node {
+func firstRunGhostNode(p theme.Palette, g FirstRunGhost) core.Node {
 	radius := core.Points(3)
 	bg := core.Transparent
 	if g.Kind == "room" && g.Step > 1 {

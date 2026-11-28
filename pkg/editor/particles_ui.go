@@ -208,7 +208,7 @@ func particleEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Style: core.Style{
 					Width:        core.Pt(244),
 					Height:       core.Pt(170),
-					Background:   ed.SpecPalette(cx).Viewport,
+					Background:   ed.Palette(cx).Viewport,
 					CornerRadius: 6,
 					BorderWidth:  1,
 					BorderColor:  colors.Line(),
@@ -320,10 +320,10 @@ func drawParticlePreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	}
 	cx, cy := w/2, h/2
 
-	spec := ed.activeSpecPalette()
+	spec := ed.activePalette()
 	// Subtle grid & origin crosshair.
 	d.Save()
-	d.SetStrokeColor(specAlpha(spec.TextFaint, 0.16)).SetLineWidth(1)
+	d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.16)).SetLineWidth(1)
 	d.BeginPath().MoveTo(cx, 0).LineTo(cx, h).MoveTo(0, cy).LineTo(w, cy).Stroke()
 
 	em := ed.ParticlePreview()
@@ -336,7 +336,7 @@ func drawParticlePreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	d.Translate(cx-em.X, cy-em.Y)
 
 	// Draw spawn shape guide.
-	d.SetStrokeColor(specAlpha(spec.Accent.Fg, 0.45)).SetLineDash(4, 3).SetLineWidth(1)
+	d.SetStrokeColor(ui.Alpha(spec.Accent.Fg, 0.45)).SetLineDash(4, 3).SetLineWidth(1)
 	sh := em.Shape
 	switch sh.Kind() {
 	case "circle", "ring":
@@ -353,7 +353,7 @@ func drawParticlePreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	// Draw preview floor collider when enabled.
 	if ed.ParticlePreviewFloor() {
 		fy := em.Y + 60
-		d.SetStrokeColor(specAlpha(spec.Warning.Fg, 0.7)).SetLineWidth(1.5)
+		d.SetStrokeColor(ui.Alpha(spec.Warning.Fg, 0.7)).SetLineWidth(1.5)
 		d.BeginPath().MoveTo(em.X-w, fy).LineTo(em.X+w, fy).Stroke()
 	}
 
@@ -1258,7 +1258,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					Style: core.Style{
 						Width:        core.Pt(graphW),
 						Height:       core.Pt(graphH),
-						Background:   ed.SpecPalette(cx).Viewport,
+						Background:   ed.Palette(cx).Viewport,
 						CornerRadius: 6,
 						BorderWidth:  1,
 						BorderColor:  colors.Line(),
@@ -1269,10 +1269,10 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 						minY, maxY := curveYBounds(kind, curve)
 						sel := ed.ParticleSelectedStop()
 
-						spec := ed.activeSpecPalette()
+						spec := ed.activePalette()
 						// Grid lines at t = 0, 0.25, 0.5, 0.75, 1 and mid Y.
 						d.Save()
-						d.SetStrokeColor(specAlpha(spec.TextFaint, 0.2)).SetLineWidth(1)
+						d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.2)).SetLineWidth(1)
 						d.BeginPath()
 						for g := range 5 {
 							gx := padX + (float32(g)/4)*(graphW-2*padX)
@@ -1362,7 +1362,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					Style: core.Style{
 						Width:        core.Pt(graphW),
 						Height:       core.Pt(barH),
-						Background:   ed.SpecPalette(cx).Viewport,
+						Background:   ed.Palette(cx).Viewport,
 						CornerRadius: 6,
 						BorderWidth:  1,
 						BorderColor:  colors.Line(),
@@ -1380,7 +1380,7 @@ func particleCurveWidgetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 							d.SetFillColor(curve.At(t))
 							d.FillRect(padX+float32(i)*(innerW/steps), 6, segW, barH-16)
 						}
-						spec := ed.activeSpecPalette()
+						spec := ed.activePalette()
 						for i, s := range curve {
 							sx := padX + clamp01f32(s.T)*innerW
 							stroke := spec.TextPrimary

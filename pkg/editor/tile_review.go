@@ -10,6 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // ErrNoTileReview is returned by tile review actions when no tile edit review is open.
@@ -2325,21 +2326,21 @@ func (e *Editor) drawTileReviewOverlay(d *core.Drawing) {
 		}
 		var lineColor, fillColor core.Color
 		dashed := true
-		pal := e.activeSpecPalette()
+		pal := e.activePalette()
 		switch r.Kind {
 		case TileReviewPainted:
 			lineColor = pal.Added.Fg
-			fillColor = specAlpha(pal.Added.Fg, 0.16)
+			fillColor = ui.Alpha(pal.Added.Fg, 0.16)
 		case TileReviewReplaced:
 			lineColor = pal.Changed.Fg
-			fillColor = specAlpha(pal.Changed.Fg, 0.16)
+			fillColor = ui.Alpha(pal.Changed.Fg, 0.16)
 		case TileReviewErased:
 			lineColor = pal.Removed.Fg
-			fillColor = specAlpha(pal.Removed.Fg, 0.18)
+			fillColor = ui.Alpha(pal.Removed.Fg, 0.18)
 			dashed = false
 		default:
 			lineColor = pal.Accent.Fg
-			fillColor = specAlpha(pal.Accent.Fg, 0.16)
+			fillColor = ui.Alpha(pal.Accent.Fg, 0.16)
 		}
 
 		for _, c := range r.Cells {
@@ -2355,7 +2356,7 @@ func (e *Editor) drawTileReviewOverlay(d *core.Drawing) {
 
 		if r.ID == rev.focusedID && len(perimeter) > 0 {
 			d.SetLineDash()
-			d.SetStrokeColor(specAlpha(pal.Accent.Fg, 0.45)).SetLineWidth(4 / scale)
+			d.SetStrokeColor(ui.Alpha(pal.Accent.Fg, 0.45)).SetLineWidth(4 / scale)
 			d.BeginPath()
 			for _, s := range perimeter {
 				d.MoveTo(ox+float32(s.c0)*tw, oy+float32(s.r0)*th).

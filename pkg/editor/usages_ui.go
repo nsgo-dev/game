@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -70,7 +71,7 @@ func ReferencesScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "references-screen",
 			Role:   core.RoleRegion,
@@ -101,7 +102,7 @@ func ReferencesScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	})
 }
 
-func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
+func referencesHeaderView(cx *core.Scope, p theme.Palette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = refsRev.Get()
 		st := ed.ReferencesScreen()
@@ -191,9 +192,9 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 					Width:          core.Pt(18),
 					Height:         core.Pt(18),
 					CornerRadius:   9,
-					Background:     specAlpha(p.Added.Fg, 0.12),
+					Background:     ui.Alpha(p.Added.Fg, 0.12),
 					BorderWidth:    1,
-					BorderColor:    specAlpha(p.Added.Fg, 0.45),
+					BorderColor:    ui.Alpha(p.Added.Fg, 0.45),
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 				},
@@ -405,7 +406,7 @@ func referencesHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 	})
 }
 
-func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
+func referencesSidebarView(cx *core.Scope, p theme.Palette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
 	inRename := core.NewMemo(cx, func() bool {
 		_ = refsRev.Get()
 		return ed.usages.open && ed.usages.mode == ReferencesModeRename
@@ -560,7 +561,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 		if st == nil {
 			return core.View{}
 		}
-		rowActiveBg := specAlpha(p.Accent.Fg, 0.16)
+		rowActiveBg := ui.Alpha(p.Accent.Fg, 0.16)
 
 		// Grouped usage list rows.
 		var rows []core.Node
@@ -855,7 +856,7 @@ func referencesSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *c
 	}
 }
 
-func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
+func referencesCenterView(cx *core.Scope, p theme.Palette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = refsRev.Get()
 		st := ed.ReferencesScreen()
@@ -965,7 +966,7 @@ func referencesCenterView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *co
 	})
 }
 
-func referencesRenamePlanCard(ed *Editor, p SpecPalette, plan *SafeRenamePlan) core.Node {
+func referencesRenamePlanCard(ed *Editor, p theme.Palette, plan *SafeRenamePlan) core.Node {
 	type planRow struct {
 		kind string // "step", "ok", "warn"
 		text string
@@ -1019,7 +1020,7 @@ func referencesRenamePlanCard(ed *Editor, p SpecPalette, plan *SafeRenamePlan) c
 		var iconNode core.Node
 		switch it.kind {
 		case "ok":
-			iconBg = specAlpha(p.Added.Fg, 0.12)
+			iconBg = ui.Alpha(p.Added.Fg, 0.12)
 			iconNode = core.Icon{SVG: lucide.Check(), Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: p.Added.Fg}}
 		case "warn":
 			iconBg = p.Warning.Fill
@@ -1080,7 +1081,7 @@ func referencesRenamePlanCard(ed *Editor, p SpecPalette, plan *SafeRenamePlan) c
 	}
 }
 
-func referencesDoneProblemsCard(p SpecPalette, ed *Editor, problems []SafeRenameProblem) core.Node {
+func referencesDoneProblemsCard(p theme.Palette, ed *Editor, problems []SafeRenameProblem) core.Node {
 	rows := make([]core.Node, 0, len(problems))
 	for _, item := range problems {
 		prob := item
@@ -1127,7 +1128,7 @@ func referencesDoneProblemsCard(p SpecPalette, ed *Editor, problems []SafeRename
 	}
 }
 
-func referencesSceneCard(p SpecPalette, ed *Editor, st *ReferencesScreenState, fg UsageFileGroup) core.Node {
+func referencesSceneCard(p theme.Palette, ed *Editor, st *ReferencesScreenState, fg UsageFileGroup) core.Node {
 	filePath := fg.File
 	focused := st.FocusedFile == filePath
 	borderCol := p.LineRaised
@@ -1247,7 +1248,7 @@ func referencesSceneCard(p SpecPalette, ed *Editor, st *ReferencesScreenState, f
 	}
 }
 
-func referencesCodeView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
+func referencesCodeView(cx *core.Scope, p theme.Palette, ed *Editor, refsRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = refsRev.Get()
 		st := ed.ReferencesScreen()
@@ -1255,10 +1256,10 @@ func referencesCodeView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core
 			return core.View{}
 		}
 		codeTitle, codeMeta, lines := ed.buildUsagePreviewLines(st)
-		hitBg := specAlpha(p.Accent.Fg, 0.18)
-		hitDimBg := specAlpha(p.Accent.Fg, 0.08)
-		delBg := specAlpha(p.Removed.Fg, 0.10)
-		addBg := specAlpha(p.Added.Fg, 0.10)
+		hitBg := ui.Alpha(p.Accent.Fg, 0.18)
+		hitDimBg := ui.Alpha(p.Accent.Fg, 0.08)
+		delBg := ui.Alpha(p.Removed.Fg, 0.10)
+		addBg := ui.Alpha(p.Added.Fg, 0.10)
 
 		codeNodes := make([]core.Node, 0, len(lines))
 		for _, l := range lines {
@@ -1461,7 +1462,7 @@ func referencesCodeView(cx *core.Scope, p SpecPalette, ed *Editor, refsRev *core
 	})
 }
 
-func refsKeyCap(p SpecPalette, text string) core.Node {
+func refsKeyCap(p theme.Palette, text string) core.Node {
 	return core.View{
 		Style: core.Style{
 			Height:         core.Pt(18),

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -611,7 +612,7 @@ func TestAgentRewindScreenshots(t *testing.T) {
 	app.Press("id:agent-rewind-trigger-1")
 	app.Settle()
 
-	dark := editor.DarkSpecPalette()
+	dark := theme.Dark()
 	if got := app.Find("id:agent-rewind-popover").Style.Background; got != dark.Raised {
 		t.Fatalf("dark rewind popover bg = %#x, want %#x", uint32(got), uint32(dark.Raised))
 	}
@@ -646,7 +647,7 @@ func TestAgentRewindScreenshots(t *testing.T) {
 	app.Press("id:agent-rewind-trigger-1")
 	app.Settle()
 
-	light := editor.LightSpecPalette()
+	light := theme.Light()
 	if got := app.Find("id:agent-rewind-popover").Style.Background; got != light.Raised {
 		t.Fatalf("light rewind popover bg = %#x, want %#x", uint32(got), uint32(light.Raised))
 	}

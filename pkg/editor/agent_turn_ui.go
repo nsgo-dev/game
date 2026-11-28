@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -17,8 +18,8 @@ func RightPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 
 // agentTurnSection renders the active, pending, stopped, kept, or reverted multi-file agent turn
 // (prompt bubble, progress steps + Stop control, completion message, summary card, and post-decision note)
-// matching design/editor/Main.dc.html using exclusively SpecPalette tokens.
-func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnSnapshot) core.Node {
+// matching design/editor/Main.dc.html using exclusively theme.Palette tokens.
+func agentTurnSection(cx *core.Scope, ed *Editor, p theme.Palette, snap AgentTurnSnapshot) core.Node {
 	var thread []core.Node
 
 	// User request bubble (right-aligned, matching Main.dc.html).
@@ -232,7 +233,7 @@ func agentTurnSection(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnS
 	}
 }
 
-func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentTurnSnapshot) core.Node {
+func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p theme.Palette, snap AgentTurnSnapshot) core.Node {
 	fileCount := len(snap.Files)
 	changeWord := ed.T("agentTurn.changesWord")
 	if snap.TotalChanges == 1 {
@@ -589,7 +590,7 @@ func agentTurnSummaryCard(cx *core.Scope, ed *Editor, p SpecPalette, snap AgentT
 	}
 }
 
-func agentTurnChangeRow(ed *Editor, p SpecPalette, idx int, ch AgentTurnChange) core.Node {
+func agentTurnChangeRow(ed *Editor, p theme.Palette, idx int, ch AgentTurnChange) core.Node {
 	sign := "+"
 	signColor := p.Added.Fg
 	switch ch.Kind {

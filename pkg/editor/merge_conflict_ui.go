@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -79,7 +80,7 @@ func MergeConflictView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "scene-merge-conflict",
 			Role:   core.RoleRegion,
@@ -110,7 +111,7 @@ func MergeConflictView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	})
 }
 
-func mergeHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
+func mergeHeaderView(cx *core.Scope, p theme.Palette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = mergeRev.Get()
 		sess := ed.MergeSession()
@@ -125,8 +126,8 @@ func mergeHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 		pillIcon := lucide.GitMerge
 		progressText := sess.headerProgressText()
 		if sess.Finished {
-			pillBg = specAlpha(p.Added.Fg, 0.12)
-			pillBorder = specAlpha(p.Added.Fg, 0.45)
+			pillBg = ui.Alpha(p.Added.Fg, 0.12)
+			pillBorder = ui.Alpha(p.Added.Fg, 0.45)
 			pillFg = p.Added.Fg
 			pillIcon = lucide.Check
 		}
@@ -137,9 +138,9 @@ func mergeHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 		var finishBorder core.Color
 		var finishBorderW core.Points
 		if sess.Finished {
-			finishBg = specAlpha(p.Added.Fg, 0.12)
+			finishBg = ui.Alpha(p.Added.Fg, 0.12)
 			finishFg = p.Added.Fg
-			finishBorder = specAlpha(p.Added.Fg, 0.45)
+			finishBorder = ui.Alpha(p.Added.Fg, 0.45)
 			finishBorderW = 1
 		} else if allDone {
 			finishBg = p.Accent.Fg
@@ -318,7 +319,7 @@ func mergeHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 	})
 }
 
-func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
+func mergeSidebarView(cx *core.Scope, p theme.Palette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = mergeRev.Get()
 		sess := ed.MergeSession()
@@ -327,10 +328,10 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 		}
 		total := len(sess.Conflicts)
 		resolved := sess.ResolvedCount()
-		accentTint := specAlpha(p.Accent.Fg, 0.18)
-		accentEdge := specAlpha(p.Accent.Fg, 0.55)
-		agentTint := specAlpha(p.Agent.Fg, 0.12)
-		agentEdge := specAlpha(p.Agent.Fg, 0.45)
+		accentTint := ui.Alpha(p.Accent.Fg, 0.18)
+		accentEdge := ui.Alpha(p.Accent.Fg, 0.55)
+		agentTint := ui.Alpha(p.Agent.Fg, 0.12)
+		agentEdge := ui.Alpha(p.Agent.Fg, 0.45)
 
 		conflictRows := make([]core.Node, 0, total)
 		for _, item := range sess.Conflicts {
@@ -634,7 +635,7 @@ func mergeSidebarView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.
 	})
 }
 
-func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
+func mergeCenterView(cx *core.Scope, p theme.Palette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = mergeRev.Get()
 		sess := ed.MergeSession()
@@ -946,7 +947,7 @@ func mergeCenterView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.M
 	})
 }
 
-func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
+func mergeInspectorView(cx *core.Scope, p theme.Palette, ed *Editor, mergeRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = mergeRev.Get()
 		sess := ed.MergeSession()
@@ -965,7 +966,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 				},
 			}
 		}
-		agentEdge := specAlpha(p.Agent.Fg, 0.45)
+		agentEdge := ui.Alpha(p.Agent.Fg, 0.45)
 
 		optionCard := func(testID string, opt MergeOption, isAgent bool) core.Node {
 			selected := item.Choice == opt.Choice
@@ -1321,7 +1322,7 @@ func mergeInspectorView(cx *core.Scope, p SpecPalette, ed *Editor, mergeRev *cor
 					CornerRadius: 12,
 					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specAlpha(p.Removed.Fg, 0.50),
+					BorderColor:  ui.Alpha(p.Removed.Fg, 0.50),
 				},
 				Children: []core.Node{
 					core.Text{
@@ -1455,7 +1456,7 @@ func truncateMergeText(s string, maxRunes int) string {
 func drawMergeScenePreview(
 	d *core.Drawing,
 	size core.Size,
-	p SpecPalette,
+	p theme.Palette,
 	sess *MergeConflictSession,
 	doc *sceneformat.SceneDoc,
 	built *sceneformat.BuiltScene,
@@ -1569,8 +1570,8 @@ func drawMergeScenePreview(
 		}
 	}
 
-	problemTint := specAlpha(p.Removed.Fg, 0.14)
-	changedTint := specAlpha(p.Changed.Fg, 0.18)
+	problemTint := ui.Alpha(p.Removed.Fg, 0.14)
+	changedTint := ui.Alpha(p.Changed.Fg, 0.18)
 
 	// Draw deleted-object markers in MINE/THEIRS and dual-position ghosts for unresolved conflicts in RESULT.
 	for _, item := range sess.Conflicts {
@@ -1680,7 +1681,7 @@ func mergeObjectRect(o *sceneformat.ObjectDoc, wx, wy float32) (x, y, w, h float
 	return wx, wy, w, h
 }
 
-func drawMergeObjectBlock(d *core.Drawing, p SpecPalette, o *sceneformat.ObjectDoc, wx, wy float32, ghost bool) {
+func drawMergeObjectBlock(d *core.Drawing, p theme.Palette, o *sceneformat.ObjectDoc, wx, wy float32, ghost bool) {
 	rx, ry, rw, rh := mergeObjectRect(o, wx, wy)
 	lower := strings.ToLower(o.ID + " " + o.Name + " " + o.Prefab)
 
@@ -1694,10 +1695,10 @@ func drawMergeObjectBlock(d *core.Drawing, p SpecPalette, o *sceneformat.ObjectD
 		fill = p.Changed.Fg
 		radius = 5
 	case strings.Contains(lower, "slime") || strings.Contains(lower, "enemy"):
-		fill = specAlpha(p.Added.Fg, 0.55)
+		fill = ui.Alpha(p.Added.Fg, 0.55)
 		radius = 6
 	case strings.Contains(lower, "coin") || strings.Contains(lower, "pickup"):
-		fill = specAlpha(p.Warning.Fg, 0.80)
+		fill = ui.Alpha(p.Warning.Fg, 0.80)
 		radius = 5
 	case strings.Contains(lower, "door"):
 		fill = p.TextFaint
@@ -1707,7 +1708,7 @@ func drawMergeObjectBlock(d *core.Drawing, p SpecPalette, o *sceneformat.ObjectD
 		radius = 2
 	}
 	if ghost {
-		fill = specAlpha(p.TextFaint, 0.18)
+		fill = ui.Alpha(p.TextFaint, 0.18)
 	}
 	d.Save()
 	d.SetFillColor(fill)
@@ -1740,7 +1741,7 @@ func drawDashedRect(d *core.Drawing, x, y, w, h float32, color core.Color, lineW
 	d.Restore()
 }
 
-func drawFocusRing(d *core.Drawing, p SpecPalette, x, y, w, h, scale float32) {
+func drawFocusRing(d *core.Drawing, p theme.Palette, x, y, w, h, scale float32) {
 	pad := 5 / scale
 	d.Save()
 	d.SetStrokeColor(p.Accent.Fg).SetLineWidth(2 / scale)

@@ -15,9 +15,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/tooling/atlaspack"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const (
@@ -786,7 +788,7 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 		return
 	}
 
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	// Draw alpha checkerboard background.
 	d.SetFillColor(spec.Viewport).FillRect(0, 0, cw, ch)
 	const tile float32 = 8
@@ -814,7 +816,7 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 	}
 	dw, dh := float32(imgW)*scale, float32(imgH)*scale
 	d.DrawImageFrom(core.ImageSource{Pixels: rgba}, 0, 0, float32(imgW), float32(imgH), ox, oy, dw, dh)
-	d.SetStrokeColor(specAlpha(spec.TextFaint, 0.5)).SetLineWidth(1).StrokeRect(ox, oy, dw, dh)
+	d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.5)).SetLineWidth(1).StrokeRect(ox, oy, dw, dh)
 
 	info, err := e.InspectAssetImport(relPath)
 	if err != nil {
@@ -873,7 +875,7 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 			if i == sel {
 				continue
 			}
-			d.SetStrokeColor(specAlpha(spec.Accent.Edge, 0.65)).SetLineWidth(1).StrokeRect(rx, ry, rw, rh)
+			d.SetStrokeColor(ui.Alpha(spec.Accent.Edge, 0.65)).SetLineWidth(1).StrokeRect(rx, ry, rw, rh)
 		}
 		sr := rects[sel]
 		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5).StrokeRect(
@@ -911,11 +913,11 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 	drawCellImagePoints(d, spec, ox, oy, scale, bounds, info, -1, true, dragForThis, drag)
 }
 
-func drawCollisionPolygons(d *core.Drawing, spec SpecPalette, ox, oy, scale float32, cell image.Rectangle, polys []atlaspack.Polygon) {
+func drawCollisionPolygons(d *core.Drawing, spec theme.Palette, ox, oy, scale float32, cell image.Rectangle, polys []atlaspack.Polygon) {
 	if len(polys) == 0 {
 		return
 	}
-	fill := specAlpha(spec.Added.Fg, 0.22)
+	fill := ui.Alpha(spec.Added.Fg, 0.22)
 	stroke := spec.Added.Fg
 	for _, poly := range polys {
 		if len(poly) < 3 {
@@ -954,7 +956,7 @@ func drawCollisionPolygons(d *core.Drawing, spec SpecPalette, ox, oy, scale floa
 	}
 }
 
-func drawCellImagePoints(d *core.Drawing, spec SpecPalette, ox, oy, scale float32, cell image.Rectangle, info AssetImportInfo, cellIdx int, showLabels, dragForThis bool, drag imagePivotDragState) {
+func drawCellImagePoints(d *core.Drawing, spec theme.Palette, ox, oy, scale float32, cell image.Rectangle, info AssetImportInfo, cellIdx int, showLabels, dragForThis bool, drag imagePivotDragState) {
 	pts, overridden := info.EffectiveCellImagePoints(cellIdx)
 	if len(pts) == 0 {
 		return
@@ -970,7 +972,7 @@ func drawCellImagePoints(d *core.Drawing, spec SpecPalette, ox, oy, scale float3
 	}
 }
 
-func drawImagePointMarker(d *core.Drawing, spec SpecPalette, x, y float32, name string, overridden, showLabel, dragging bool) {
+func drawImagePointMarker(d *core.Drawing, spec theme.Palette, x, y float32, name string, overridden, showLabel, dragging bool) {
 	fill := spec.Accent.Fg
 	if overridden {
 		fill = spec.Warning.Fg
@@ -980,7 +982,7 @@ func drawImagePointMarker(d *core.Drawing, spec SpecPalette, x, y float32, name 
 	}
 	const r float32 = 4.5
 	// Contrast dark diamond halo, then filled diamond + crisp stroke.
-	d.SetStrokeColor(specAlpha(spec.Bg, 0.92)).SetLineWidth(2.5)
+	d.SetStrokeColor(ui.Alpha(spec.Bg, 0.92)).SetLineWidth(2.5)
 	d.BeginPath().MoveTo(x, y-r).LineTo(x+r, y).LineTo(x, y+r).LineTo(x-r, y).ClosePath().Stroke()
 	d.SetFillColor(fill)
 	d.BeginPath().MoveTo(x, y-r).LineTo(x+r, y).LineTo(x, y+r).LineTo(x-r, y).ClosePath().Fill()
@@ -995,12 +997,12 @@ func drawImagePointMarker(d *core.Drawing, spec SpecPalette, x, y float32, name 
 		lx := x + r + 3
 		ly := y - 5
 		tw := float32(len(name))*5.8 + 6
-		d.SetFillColor(specAlpha(spec.Bg, 0.78)).FillRect(lx-2, ly-1, tw, 12)
+		d.SetFillColor(ui.Alpha(spec.Bg, 0.78)).FillRect(lx-2, ly-1, tw, 12)
 		d.SetFillColor(spec.TextPrimary).FillText(name, lx+1, ly+8, core.Font{Size: 9})
 	}
 }
 
-func drawPivotMarker(d *core.Drawing, spec SpecPalette, x, y float32, overridden, selected, dragging bool) {
+func drawPivotMarker(d *core.Drawing, spec theme.Palette, x, y float32, overridden, selected, dragging bool) {
 	fill := spec.Warning.Fg // amber for inherited/default pivot
 	if overridden {
 		fill = spec.Accent.Fg // accent for per-cell override or explicit default
@@ -1016,7 +1018,7 @@ func drawPivotMarker(d *core.Drawing, spec SpecPalette, x, y float32, overridden
 	}
 
 	// Contrast dark crosshair halo then colored crosshair lines.
-	d.SetStrokeColor(specAlpha(spec.Bg, 0.9)).SetLineWidth(2.5)
+	d.SetStrokeColor(ui.Alpha(spec.Bg, 0.9)).SetLineWidth(2.5)
 	d.BeginPath().MoveTo(x-cross, y).LineTo(x+cross, y).MoveTo(x, y-cross).LineTo(x, y+cross).Stroke()
 	d.SetStrokeColor(fill).SetLineWidth(1.25)
 	d.BeginPath().MoveTo(x-cross, y).LineTo(x+cross, y).MoveTo(x, y-cross).LineTo(x, y+cross).Stroke()

@@ -20,6 +20,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/world3d"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const (
@@ -480,7 +481,7 @@ func (e *Editor) drawColliderGizmo3D(d *core.Drawing, obj *sceneformat.ObjectDoc
 		activeSign = e.drag3D.colliderSign
 	}
 
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	axisColor := func(ax GizmoAxis3D) core.Color {
 		switch ax {
 		case Axis3DX:
@@ -506,7 +507,7 @@ func (e *Editor) drawColliderGizmo3D(d *core.Drawing, obj *sceneformat.ObjectDoc
 			d.Save().SetStrokeColor(col.Faded(0.55)).SetLineWidth(1.25).BeginPath().MoveTo(x0, y0).LineTo(x1, y1).Stroke().Restore()
 		}
 		if px, py, _, vis := e.Camera3D.Project(hh.Pos, w, h); vis {
-			d.Save().SetFillColor(col).SetStrokeColor(specAlpha(spec.Bg, 0.95)).SetLineWidth(1.25).
+			d.Save().SetFillColor(col).SetStrokeColor(ui.Alpha(spec.Bg, 0.95)).SetLineWidth(1.25).
 				BeginPath().
 				MoveTo(px, py-half).
 				LineTo(px+half, py).

@@ -125,7 +125,7 @@ func cleanEmptyPhysics(f *project.File) {
 }
 
 func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	newName := core.NewSignal(cx, "")
 	newBit := core.NewSignal(cx, 0)
 	layerErr := core.NewSignal(cx, "")

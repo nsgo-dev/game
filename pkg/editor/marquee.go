@@ -243,7 +243,7 @@ func (e *Editor) drawMarqueeOverlay(d *core.Drawing) {
 	if w <= 0 && h <= 0 {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	d.Save()
 	d.SetFillColor(ui.Alpha(spec.Accent.Fg, 0.14))
 	d.FillRect(r.X0, r.Y0, w, h)

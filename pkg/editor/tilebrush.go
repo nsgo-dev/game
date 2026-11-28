@@ -10,6 +10,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // TileRect is an inclusive cell rectangle on an inline tilemap, with Col0 <= Col1 and Row0 <= Row1.
@@ -978,10 +979,10 @@ func (e *Editor) drawTileSelectionOverlay(d *core.Drawing) {
 	y := float32(rect.Row0 * tm.TileHeight)
 	w := float32(rect.Width() * tm.TileWidth)
 	h := float32(rect.Height() * tm.TileHeight)
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	d.Save()
 	applyAffine(d, m)
-	d.SetFillColor(specAlpha(spec.Accent.Fg, 0.14)).FillRect(x, y, w, h)
+	d.SetFillColor(ui.Alpha(spec.Accent.Fg, 0.14)).FillRect(x, y, w, h)
 	d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5/strokeScale(m)).SetLineDash(4/strokeScale(m), 3/strokeScale(m)).StrokeRect(x, y, w, h)
 	d.Restore()
 }
@@ -1011,13 +1012,13 @@ func (e *Editor) drawTilePreviewOverlay(d *core.Drawing) bool {
 		p := e.TilePalette()
 		pal = &p
 	}
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	d.Save()
 	applyAffine(d, m)
 	for _, cell := range s.preview {
 		x, y := float32(cell.Col)*tw, float32(cell.Row)*th
 		if cell.Erase || cell.Tile == 0 {
-			d.SetFillColor(specAlpha(spec.Removed.Fg, 0.25)).FillRect(x, y, tw, th)
+			d.SetFillColor(ui.Alpha(spec.Removed.Fg, 0.25)).FillRect(x, y, tw, th)
 			d.SetStrokeColor(spec.Removed.Edge).SetLineWidth(lw).StrokeRect(x, y, tw, th)
 		} else {
 			e.drawGhostTileID(d, tm, cell.Tile, cell.Flip, x, y, pal)
@@ -1040,7 +1041,7 @@ func (e *Editor) drawStampHoverOverlay(d *core.Drawing, tm *sceneformat.TilemapD
 		p := e.TilePalette()
 		pal = &p
 	}
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	hasFlips := len(stamp.Flips) == len(stamp.Tiles)
 	for dy := range stamp.Height {
 		mr := row + dy
@@ -1058,7 +1059,7 @@ func (e *Editor) drawStampHoverOverlay(d *core.Drawing, tm *sceneformat.TilemapD
 			}
 			x, y := float32(mc)*tw, float32(mr)*th
 			if tid == 0 {
-				d.SetFillColor(specAlpha(spec.Removed.Fg, 0.18)).FillRect(x, y, tw, th)
+				d.SetFillColor(ui.Alpha(spec.Removed.Fg, 0.18)).FillRect(x, y, tw, th)
 			} else {
 				e.drawGhostTileID(d, tm, tid, flip, x, y, pal)
 			}

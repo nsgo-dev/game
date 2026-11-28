@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -137,7 +138,7 @@ func TestViewport3DDrawsTheSceneOnTheGPUView(t *testing.T) {
 	cw, ch := ed.CanvasSize()
 	overlay := &core.Drawing{}
 	ed.DrawViewport(overlay, core.Size{Width: core.Points(cw), Height: core.Points(ch)})
-	bg := editor.SpecPaletteFor(ed.Dark()).Viewport
+	bg := theme.PaletteFor(ed.Dark()).Viewport
 	if canvasBackgroundFilled(overlay, cw, ch, bg) {
 		t.Fatal("the canvas over the GPU view paints a background over the scene")
 	}
@@ -203,7 +204,7 @@ func TestViewport3DWithoutAGPUDrawsTheWireframeView(t *testing.T) {
 	cw, ch := ed.CanvasSize()
 	d := &core.Drawing{}
 	ed.DrawViewport(d, core.Size{Width: core.Points(cw), Height: core.Points(ch)})
-	if !canvasBackgroundFilled(d, cw, ch, editor.SpecPaletteFor(ed.Dark()).Viewport) {
+	if !canvasBackgroundFilled(d, cw, ch, theme.PaletteFor(ed.Dark()).Viewport) {
 		t.Fatal("the wireframe view does not fill the scene's background")
 	}
 	if got := fmt.Sprint(app.Find("id:editor-viewport").Ops); got != fmt.Sprint(d.Ops) {

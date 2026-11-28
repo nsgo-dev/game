@@ -19,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/core"
@@ -908,7 +909,7 @@ func TestBuildReleasePublishSecurityLifecycleFocusAndSpecLight(t *testing.T) {
 
 	// Verify Spec Light palette surface on Review uploads dialog.
 	dlg := app.Find("id:build-review-uploads-dialog")
-	lightRaised := editor.LightSpecPalette().Raised
+	lightRaised := theme.Light().Raised
 	if dlg.Style.Background != lightRaised {
 		t.Fatalf("Spec Light Review uploads background = %v, want %v", dlg.Style.Background, lightRaised)
 	}

@@ -129,7 +129,7 @@ func spriteFieldsFiltered(
 				},
 			}
 		}
-		spec := ed.SpecPalette(cx)
+		spec := ed.Palette(cx)
 		rows = append(rows, multiAxisRow(
 			ed.T("inspectorEditExtra.origin"),
 			[]string{"originX", "originY"},
@@ -483,7 +483,7 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		}
 	}
 
-	spec := ed.SpecPalette(cx)
+	spec := ed.Palette(cx)
 	askBtn := core.View{
 		TestID:   "inspector-ask-to-add",
 		Role:     core.RoleButton,
@@ -556,7 +556,7 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = rev.Get()
-				dynSpec := ed.SpecPalette(cx)
+				dynSpec := ed.Palette(cx)
 				groups := ed.AddableComponentGroups(objID, query.Get())
 				if len(groups) == 0 {
 					return nil

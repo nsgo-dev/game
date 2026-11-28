@@ -551,7 +551,7 @@ func (e *Editor) drawViewportDotGrid(d *core.Drawing, size core.Size) {
 	if !(w > 0 && h > 0) || !isFiniteFloat32(w) || !isFiniteFloat32(h) || w > 8192 || h > 8192 {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	const (
 		step float32 = 16
 		dot  float32 = 1.2
@@ -577,7 +577,7 @@ func (e *Editor) drawNonSpriteMarkers2D(d *core.Drawing, scene *sceneformat.Buil
 	if e == nil || d == nil || scene == nil || e.playing {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	fill := spec.Raised
 	stroke := ui.Alpha(spec.TextFaint, 0.72)
 	centerDot := spec.TextMuted
@@ -660,7 +660,7 @@ func drawWorldRectHandles(e *Editor, d *core.Drawing, x, y, w, h float32, active
 		if handle == active {
 			half = rectHandleHalf + 1
 			f = activeFill
-			s = e.activeSpecPalette().TextPrimary
+			s = e.activePalette().TextPrimary
 		}
 		d.SetFillColor(f).FillRect(cx-half, cy-half, 2*half, 2*half)
 		d.SetStrokeColor(s).StrokeRect(cx-half, cy-half, 2*half, 2*half)
@@ -684,7 +684,7 @@ func (e *Editor) drawCameraFrameOverlay(d *core.Drawing) {
 	}
 	vw, vh := e.ViewportSize()
 	highlight := e.ShowingSceneSettings()
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	d.Save()
 	// Camera frame, camera bounds, and camera handle use neutral Spec tokens in a 1 px hairline/dotted
 	// style distinct from all semantic overlay legend kinds (never Accent, Agent, Added, Changed, Removed, Problem).
@@ -741,7 +741,7 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 	}
 	space, px, py := e.layerSpaceAndParallax(layerName)
 	m := e.layerAffineFor(space, px, py)
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	d.Save()
 	applyAffine(d, m)
 	// The tile grid is a neutral hairline using Spec tokens, distinct from every legend kind.
@@ -897,7 +897,7 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if len(ids) == 0 {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	canvas := core.Size{Width: core.Points(e.canvasW), Height: core.Points(e.canvasH)}
 	d.Save()
 	drawn := 0
@@ -943,7 +943,7 @@ func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.Built
 	if len(ovs) == 0 || scene == nil {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	now := e.overlayNow()
 	rm := e.ReduceMotion()
 	canvas := core.Size{Width: core.Points(e.canvasW), Height: core.Points(e.canvasH)}
@@ -1665,7 +1665,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		}
 	})
 
-	spec := ed.SpecPalette(cx)
+	spec := ed.Palette(cx)
 	if ed.focus.ctrl != nil {
 		ed.focus.ctrl.registerCandidate(cx, RegionViewport, &frame, func() bool {
 			return !ed.Playing()
@@ -2191,7 +2191,7 @@ func viewport3DErrorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	return core.Show{
 		When: func() bool { return message() != "" },
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Text{
 				TestID:      "editor-viewport-3d-error",
 				ContentFunc: message,

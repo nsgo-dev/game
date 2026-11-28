@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -24,7 +25,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	overlayListKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		if ed.SpecPalette(cx).Dark {
+		if ed.Palette(cx).Dark {
 			b.WriteString("D:")
 		} else {
 			b.WriteString("L:")
@@ -47,7 +48,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	return core.Show{
 		When: visible.Get,
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			barDivider := func() core.Node {
 				return core.View{
 					Style: core.Style{
@@ -81,7 +82,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = overlayListKey.Get()
-						rowPal := ed.SpecPalette(cx)
+						rowPal := ed.Palette(cx)
 						ovs := ed.viewportOverlaysFor(rowPal)
 						rows := make([]core.Node, 0, len(ovs))
 						for _, ov := range ovs {
@@ -217,7 +218,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								},
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									bg := core.Transparent
 									if ed.SnapToGrid {
 										bg = cur.LineRaised
@@ -245,7 +246,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 										},
 										StyleFunc: func() core.Style {
 											_ = rev.Get()
-											cur := ed.SpecPalette(cx)
+											cur := ed.Palette(cx)
 											col := cur.TextFaint
 											if ed.SnapToGrid {
 												col = cur.TextPrimary
@@ -400,7 +401,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	}
 }
 
-func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], p SpecPalette, o ViewportOverlay) core.Node {
+func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], p theme.Palette, o ViewportOverlay) core.Node {
 	id := o.ID
 	name := ed.overlayDisplayName(o)
 	col := o.Color

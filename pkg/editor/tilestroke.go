@@ -8,6 +8,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // TileStrokeMode says what a tile stroke (Editor.BeginTileStroke) does to the cells under the pointer.
@@ -920,7 +921,7 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 		d.Restore()
 		return
 	}
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	color := spec.Accent.Fg
 	switch mode {
 	case TileStrokePaint:
@@ -936,7 +937,7 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 		e.drawGhostTerrainTile(d, layer, col, row, x, y)
 	case TileStrokeErase, TileStrokeEraseTerrain:
 		color = spec.Removed.Fg
-		d.SetFillColor(specAlpha(spec.Removed.Fg, 0.25)).FillRect(x, y, w, h)
+		d.SetFillColor(ui.Alpha(spec.Removed.Fg, 0.25)).FillRect(x, y, w, h)
 	case TileStrokePick:
 		color = spec.Warning.Fg
 	}

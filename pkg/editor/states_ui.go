@@ -7,21 +7,22 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/animclip"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-func statesActiveNodeBg(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.Accent.Fg, 0.12), p.Raised)
+func statesActiveNodeBg(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.Accent.Fg, 0.12), p.Raised)
 }
 
-func statesEdgeLineColor(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.TextFaint, 0.45), p.Viewport)
+func statesEdgeLineColor(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.TextFaint, 0.45), p.Viewport)
 }
 
-func statesAccentTextColor(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.TextPrimary, 0.62), p.Accent.Fg)
+func statesAccentTextColor(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.TextPrimary, 0.62), p.Accent.Fg)
 }
 
 const (
@@ -67,7 +68,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	graphSize := core.NewSignal(cx, core.Size{})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 
 		header := core.View{
 			TestID: "states-header",
@@ -120,7 +121,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 								return ed.StatesDirty()
 							},
 							Then: func(cx *core.Scope) core.Node {
-								curPal := ed.SpecPalette(cx)
+								curPal := ed.Palette(cx)
 								return core.View{
 									TestID: "states-dirty-dot",
 									Style: core.Style{
@@ -201,7 +202,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							},
 							StyleFunc: func() core.Style {
 								_ = rev.Get()
-								curPal := ed.SpecPalette(cx)
+								curPal := ed.Palette(cx)
 								var op core.Opacity
 								if ed.Playing() {
 									op = core.Alpha(0.45)
@@ -223,7 +224,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 								core.View{
 									StyleFunc: func() core.Style {
 										_ = rev.Get()
-										curPal := ed.SpecPalette(cx)
+										curPal := ed.Palette(cx)
 										bg := curPal.LineRaised
 										if ed.StatesDriveWithKeys() {
 											bg = curPal.Accent.Fg
@@ -240,7 +241,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 										core.View{
 											StyleFunc: func() core.Style {
 												_ = rev.Get()
-												curPal := ed.SpecPalette(cx)
+												curPal := ed.Palette(cx)
 												left := core.Pt(2)
 												knobBg := curPal.TextPrimary
 												if ed.StatesDriveWithKeys() {
@@ -326,7 +327,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					},
 					Draw: func(d *core.Drawing, size core.Size) {
 						_ = rev.Get()
-						drawStatesGraphCanvas(d, size, ed, ed.SpecPalette(cx))
+						drawStatesGraphCanvas(d, size, ed, ed.Palette(cx))
 					},
 				},
 				// Interactive state node cards + transition edge label pills + Any state pill.
@@ -364,7 +365,7 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						return ed.states.err != nil
 					},
 					Then: func(cx *core.Scope) core.Node {
-						curPal := ed.SpecPalette(cx)
+						curPal := ed.Palette(cx)
 						return core.View{
 							Style: core.Style{
 								Padding:     core.Symmetric(6, 12),
@@ -412,7 +413,7 @@ func driveKeyPill(cx *core.Scope, ed *Editor, testID, text, label string, active
 		Label:   label,
 		OnPress: func(core.PressEvent) { onPress() },
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			border := p.LineRaised
 			bg := p.Raised
 			if active() {
@@ -435,7 +436,7 @@ func driveKeyPill(cx *core.Scope, ed *Editor, testID, text, label string, active
 			core.Text{
 				Content: text,
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{FontSize: 11.5, FontWeight: 500, Color: p.TextPrimary}
 				},
 			},
@@ -443,7 +444,7 @@ func driveKeyPill(cx *core.Scope, ed *Editor, testID, text, label string, active
 	}
 }
 
-func specButton(p SpecPalette, testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
+func specButton(p theme.Palette, testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
 	bg := p.LineRaised
 	fg := p.TextSecondary
 	weight := core.FontWeight(500)
@@ -584,7 +585,7 @@ func anyNodeScreenPos(doc *animclip.StateMachineDoc, avail core.Size) (x, y floa
 	return maxRight + gap, y
 }
 
-func drawStatesGraphCanvas(d *core.Drawing, size core.Size, ed *Editor, p SpecPalette) {
+func drawStatesGraphCanvas(d *core.Drawing, size core.Size, ed *Editor, p theme.Palette) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
@@ -706,7 +707,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 	if doc == nil {
 		return nil
 	}
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	var children []core.Node
 
 	// Transition edge label pills.
@@ -774,7 +775,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 					Content: labelText,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						curPal := ed.SpecPalette(cx)
+						curPal := ed.Palette(cx)
 						cur := ed.StatesCurrentState()
 						prev := ed.StatesPreviousState()
 						hot := (trCopy.From == prev && trCopy.To == cur) || (trCopy.From == animclip.AnyState && trCopy.To == cur)
@@ -850,7 +851,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 						frameName = active
 					}
 				}
-				drawSpriteThumbnail(d, size, ed, ed.SpecPalette(cx), ed.states.meta.target, frameName)
+				drawSpriteThumbnail(d, size, ed, ed.Palette(cx), ed.states.meta.target, frameName)
 			},
 		}
 
@@ -863,7 +864,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
-				curPal := ed.SpecPalette(cx)
+				curPal := ed.Palette(cx)
 				active := ed.StatesCurrentState() == stateName
 				bg := curPal.Raised
 				border := curPal.LineRaised
@@ -901,7 +902,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 									Content: stateName,
 									StyleFunc: func() core.Style {
 										_ = rev.Get()
-										curPal := ed.SpecPalette(cx)
+										curPal := ed.Palette(cx)
 										col := curPal.TextSecondary
 										if ed.StatesCurrentState() == stateName {
 											col = curPal.TextPrimary
@@ -912,7 +913,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 								core.Show{
 									When: func() bool { return isEntry },
 									Then: func(cx *core.Scope) core.Node {
-										curPal := ed.SpecPalette(cx)
+										curPal := ed.Palette(cx)
 										return core.Text{
 											Content: ed.T("states.entryBadge"),
 											Style:   core.Style{FontSize: 9, FontWeight: 600, Color: curPal.Added.Fg},
@@ -943,7 +944,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], av
 	}
 }
 
-func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette) core.Node {
 	// Live preview card (Animation.dc.html lines 134-144).
 	previewCard := core.View{
 		TestID: "states-preview-card",
@@ -962,7 +963,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecP
 				},
 				Draw: func(d *core.Drawing, size core.Size) {
 					_ = rev.Get()
-					drawStatesPreviewCard(d, size, ed, ed.SpecPalette(cx))
+					drawStatesPreviewCard(d, size, ed, ed.Palette(cx))
 				},
 			},
 			core.View{
@@ -1024,7 +1025,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecP
 
 	leavingList := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = leavingKey.Get()
-		curPal := ed.SpecPalette(cx)
+		curPal := ed.Palette(cx)
 		cur := ed.StatesCurrentState()
 		outs := ed.StatesOutgoingFor(cur)
 		if len(outs) == 0 {
@@ -1091,7 +1092,7 @@ func statesSidebar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecP
 	}
 }
 
-func drawSpriteThumbnail(d *core.Drawing, size core.Size, ed *Editor, p SpecPalette, target, frameName string) {
+func drawSpriteThumbnail(d *core.Drawing, size core.Size, ed *Editor, p theme.Palette, target, frameName string) {
 	sw, sh := float32(size.Width), float32(size.Height)
 	if sw <= 0 || sh <= 0 {
 		return
@@ -1119,7 +1120,7 @@ func drawSpriteThumbnail(d *core.Drawing, size core.Size, ed *Editor, p SpecPale
 	d.DrawImageFrom(entry.Image, f.X, f.Y, f.W, f.H, (sw-dw)/2, (sh-dh)/2, dw, dh)
 }
 
-func drawStatesPreviewCard(d *core.Drawing, size core.Size, ed *Editor, p SpecPalette) {
+func drawStatesPreviewCard(d *core.Drawing, size core.Size, ed *Editor, p theme.Palette) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return

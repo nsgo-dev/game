@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/a11y"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
@@ -1314,7 +1315,7 @@ func (e *Editor) hudProblemsForDoc(doc *gameui.ScreenDoc, activeLocale string) [
 		return nil
 	}
 	// HUD screens composite over a dark game viewport surface regardless of the editor's UI appearance.
-	hudFallbackBackdrop := DarkSpecPalette().Panel
+	hudFallbackBackdrop := theme.Dark().Panel
 	opts := gameui.ScreenCheckOptions{
 		Locales:          e.hud.localeStrings,
 		Plurals:          e.hud.localePlurals,
@@ -1406,7 +1407,7 @@ func hudNodeContrastRatio(doc *gameui.ScreenDoc, n *gameui.ScreenNodeDoc) float6
 			fg = parsed
 		}
 	}
-	backdrop := DarkSpecPalette().Panel
+	backdrop := theme.Dark().Panel
 	bg := backdrop
 	if n.Background != "" {
 		if parsed, err := core.ParseColor(n.Background); err == nil && parsed != core.Transparent {

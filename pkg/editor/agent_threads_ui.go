@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -24,7 +25,7 @@ func agentThreadHeaderBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], 
 	return core.View{
 		TestID: "agent-thread-header",
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				Height:      core.Pt(specHeaderHeight),
 				FlexShrink:  0,
@@ -52,7 +53,7 @@ func agentThreadHeaderBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], 
 					return ed.T("threads.switcherTriggerLabel", l10n.Param("title", title))
 				},
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					bg := core.Color(0)
 					if ed.AgentSwitcherOpen() {
 						bg = p.LineRaised
@@ -77,7 +78,7 @@ func agentThreadHeaderBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], 
 				},
 				Children: []core.Node{
 					specDynamicIcon(func() *core.SVG { return lucide.MessageSquare() }, 14, func() core.Color {
-						return ed.SpecPalette(cx).TextFaint
+						return ed.Palette(cx).TextFaint
 					}),
 					core.Text{
 						TestID: "agent-thread-title",
@@ -90,7 +91,7 @@ func agentThreadHeaderBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], 
 						},
 						MaxLines: 1,
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{
 								FlexGrow:   1,
 								FlexShrink: 1,
@@ -107,7 +108,7 @@ func agentThreadHeaderBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], 
 						}
 						return lucide.ChevronDown()
 					}, 12, func() core.Color {
-						return ed.SpecPalette(cx).TextFaint
+						return ed.Palette(cx).TextFaint
 					}),
 				},
 			},
@@ -118,7 +119,7 @@ func agentThreadHeaderBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], 
 					Role:   core.RoleButton,
 					Label:  specShortcutTip(ed.T("threads.newThread"), newShortcut),
 					StyleFunc: func() core.Style {
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						return core.Style{
 							Width:          core.Pt(28),
 							Height:         core.Pt(28),
@@ -135,7 +136,7 @@ func agentThreadHeaderBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], 
 					},
 					Children: []core.Node{
 						specDynamicIcon(func() *core.SVG { return lucide.SquarePen() }, 14, func() core.Color {
-							return ed.SpecPalette(cx).TextMuted
+							return ed.Palette(cx).TextMuted
 						}),
 					},
 				},
@@ -154,7 +155,7 @@ func agentThreadSwitcherPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	return core.View{
 		TestID: "agent-thread-switcher",
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				Position:     core.Absolute,
 				Top:          core.Pt(4),
@@ -171,7 +172,7 @@ func agentThreadSwitcherPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 		Children: []core.Node{
 			core.View{
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						Direction:   core.Row,
 						AlignItems:  core.AlignCenter,
@@ -206,7 +207,7 @@ func agentThreadSwitcherPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 						Role:   core.RoleButton,
 						Label:  specShortcutTip(ed.T("threads.newButton"), newShortcut),
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{
 								Height:         core.Pt(28),
 								FlexShrink:     0,
@@ -228,13 +229,13 @@ func agentThreadSwitcherPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 							core.Text{
 								Content: ed.T("threads.newButton"),
 								StyleFunc: func() core.Style {
-									return core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: ed.SpecPalette(cx).TextPrimary}
+									return core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: ed.Palette(cx).TextPrimary}
 								},
 							},
 							core.Text{
 								Content: newShortcut,
 								StyleFunc: func() core.Style {
-									return core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: ed.SpecPalette(cx).TextMuted}
+									return core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: ed.Palette(cx).TextMuted}
 								},
 							},
 						},
@@ -253,7 +254,7 @@ func agentThreadSwitcherPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = groupsMemo.Get()
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						groups := ed.AgentThreadGroups(ed.AgentSwitcherQuery())
 						if len(groups) == 0 {
 							return core.View{
@@ -335,7 +336,7 @@ func agentThreadSwitcherPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 			core.View{
 				TestID: "agent-thread-switcher-footer",
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						Height:      core.Pt(30),
 						FlexShrink:  0,
@@ -353,7 +354,7 @@ func agentThreadSwitcherPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 							return core.Style{
 								FontSize:   11,
 								FontFamily: core.FontMonospace,
-								Color:      ed.SpecPalette(cx).TextFaint,
+								Color:      ed.Palette(cx).TextFaint,
 							}
 						},
 					},
@@ -363,7 +364,7 @@ func agentThreadSwitcherPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	}
 }
 
-func agentEmptyThreadBody(cx *core.Scope, ed *Editor, p SpecPalette) core.Node {
+func agentEmptyThreadBody(cx *core.Scope, ed *Editor, p theme.Palette) core.Node {
 	items := ed.AgentAlwaysReadItems()
 	chips := make([]core.Node, 0, len(items))
 	for _, it := range items {
@@ -497,7 +498,7 @@ func agentThreadConversationBody(
 	cx *core.Scope,
 	ed *Editor,
 	rev *core.Signal[uint64],
-	p SpecPalette,
+	p theme.Palette,
 	osKind core.OS,
 	t *AgentThread,
 	turns []AgentTurn,
@@ -1029,7 +1030,7 @@ func agentThreadConversationBody(
 	}
 }
 
-func agentStepGlyph(p SpecPalette, status AgentThreadStepStatus) core.Node {
+func agentStepGlyph(p theme.Palette, status AgentThreadStepStatus) core.Node {
 	switch status {
 	case AgentThreadStepDone:
 		return core.View{
@@ -1096,7 +1097,7 @@ func AgentHistoryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		Role:   core.RoleRegion,
 		Label:  ed.T("threads.history.title"),
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				FlexGrow:   1,
 				FlexBasis:  core.Pt(0),
@@ -1107,7 +1108,7 @@ func AgentHistoryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		Children: []core.Node{
 			core.View{
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						Height:         core.Pt(specHeaderHeight),
 						FlexShrink:     0,
@@ -1123,13 +1124,13 @@ func AgentHistoryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 					core.Text{
 						Content: ed.T("threads.history.title"),
 						StyleFunc: func() core.Style {
-							return core.Style{FontSize: 13, FontWeight: core.FontWeightSemibold, Color: ed.SpecPalette(cx).TextPrimary}
+							return core.Style{FontSize: 13, FontWeight: core.FontWeightSemibold, Color: ed.Palette(cx).TextPrimary}
 						},
 					},
 					core.Text{
 						Content: ed.T("threads.history.subtitle"),
 						StyleFunc: func() core.Style {
-							return core.Style{FontSize: 11.5, Color: ed.SpecPalette(cx).TextFaint}
+							return core.Style{FontSize: 11.5, Color: ed.Palette(cx).TextFaint}
 						},
 					},
 				},
@@ -1140,7 +1141,7 @@ func AgentHistoryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = historyKey.Get()
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						entries := ed.AgentHistoryEntries()
 						rows := make([]core.Node, 0, len(entries))
 						for i, en := range entries {
@@ -1272,7 +1273,7 @@ func inspectorThreadFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		if !ok {
 			return nil
 		}
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		label := ed.T("threads.inspectorFooter",
 			l10n.Param("title", attr.RequestTitle),
 			l10n.Param("age", attr.AgeLabel),

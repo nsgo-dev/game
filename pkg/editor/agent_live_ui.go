@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -25,7 +26,7 @@ func (e *Editor) drawAgentLiveOverlays(d *core.Drawing, scene *sceneformat.Built
 	if e == nil || d == nil || scene == nil || e.playing || e.HistoryPreviewActive() {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	overlays := e.VisibleViewportLiveOverlays()
 	if len(overlays) == 0 {
 		return
@@ -90,7 +91,7 @@ func (e *Editor) drawAgentLiveOverlays3D(d *core.Drawing, w, h float32) {
 	if len(overlays) == 0 {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	proj := e.Projection3D(w, h)
 	var placedPills []canvasRect
 
@@ -431,7 +432,7 @@ func toolbarAgentPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			n = len(ed.agentLive.turn.changes)
 		}
 		return pillKey{
-			dark:   ed.SpecPalette(cx).Dark,
+			dark:   ed.Palette(cx).Dark,
 			lang:   ed.ResolvedLanguage(),
 			state:  st,
 			detail: detail,
@@ -453,7 +454,7 @@ func toolbarAgentPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				k := keyMemo.Get()
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				text := ed.AgentHeaderPillText()
 				if text == "" {
 					return core.View{}
@@ -649,7 +650,7 @@ func inspectorAgentWorkingBannerView(cx *core.Scope, ed *Editor, rev *core.Signa
 					BorderWidth:  1,
 				},
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						Background:  p.Agent.Fill,
 						BorderColor: ui.Alpha(p.Agent.Edge, 0.55),
@@ -659,7 +660,7 @@ func inspectorAgentWorkingBannerView(cx *core.Scope, ed *Editor, rev *core.Signa
 					core.Canvas{
 						Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), FlexShrink: 0},
 						Draw: func(d *core.Drawing, _ core.Size) {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							d.SetFillColor(p.Agent.Fg).BeginPath().
 								MoveTo(6, 1).LineTo(7.6, 4.4).LineTo(11, 6).LineTo(7.6, 7.6).
 								LineTo(6, 11).LineTo(4.4, 7.6).LineTo(1, 6).LineTo(4.4, 4.4).ClosePath().Fill()
@@ -676,7 +677,7 @@ func inspectorAgentWorkingBannerView(cx *core.Scope, ed *Editor, rev *core.Signa
 							FlexShrink: 1,
 						},
 						StyleFunc: func() core.Style {
-							return core.Style{Color: ed.SpecPalette(cx).TextSecondary}
+							return core.Style{Color: ed.Palette(cx).TextSecondary}
 						},
 					},
 				},

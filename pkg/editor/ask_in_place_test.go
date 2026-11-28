@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -448,7 +449,7 @@ func TestAskInPlaceHardeningThemeLifecycleFocusAndBounds(t *testing.T) {
 	t.Cleanup(func() { _ = ed.Close() })
 	_ = ed.SetAppearance(editor.AppearanceLight)
 
-	// Host OS is Dark Mode, but user selected AppearanceLight -> composer MUST use LightSpecPalette!
+	// Host OS is Dark Mode, but user selected AppearanceLight -> composer MUST use theme.Light!
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true}), nsgotest.Size(1440, 900))
@@ -464,9 +465,9 @@ func TestAskInPlaceHardeningThemeLifecycleFocusAndBounds(t *testing.T) {
 		t.Fatal("meta+l did not open composer")
 	}
 
-	// 1. Spec Light override renders LightSpecPalette().Raised even on Dark OS.
+	// 1. Spec Light override renders theme.Light().Raised even on Dark OS.
 	composer := app.Find("id:ask-in-place-composer")
-	if want := editor.LightSpecPalette().Raised; composer.Style.Background != want {
+	if want := theme.Light().Raised; composer.Style.Background != want {
 		t.Fatalf("AppearanceLight composer background = %v, want %v", composer.Style.Background, want)
 	}
 

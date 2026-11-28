@@ -558,7 +558,7 @@ func (e *Editor) buildPaletteItemsForUI(cx *core.Scope, files []ProjectFile, que
 				EllipsizeMode: core.EllipsizeTail,
 				Style:         core.Style{FontSize: 12, MaxWidth: core.Pt(240), FlexShrink: 1},
 				StyleFunc: func() core.Style {
-					return core.Style{Color: e.SpecPalette(cx).Agent.Fg}
+					return core.Style{Color: e.Palette(cx).Agent.Fg}
 				},
 			}
 		}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/sprite"
@@ -142,7 +143,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 
 		header := core.View{
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8},
@@ -222,7 +223,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = rev.Get()
-						curPal := ed.SpecPalette(cx)
+						curPal := ed.Palette(cx)
 						if !ed.TilesetOpen() {
 							return nil
 						}
@@ -321,7 +322,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = rev.Get()
-						curPal := ed.SpecPalette(cx)
+						curPal := ed.Palette(cx)
 						if !ed.TilesetOpen() || ed.tileset.selectedTerrain == "" {
 							return nil
 						}
@@ -421,7 +422,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			Style: core.Style{FlexGrow: 1},
 			Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = rev.Get()
-				curPal := ed.SpecPalette(cx)
+				curPal := ed.Palette(cx)
 				if !ed.TilesetOpen() {
 					return nil
 				}
@@ -466,7 +467,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 									Background: curPal.Bg,
 								},
 								Draw: func(d *core.Drawing, size core.Size) {
-									drawPal := ed.SpecPalette(cx)
+									drawPal := ed.Palette(cx)
 									w, h := float32(size.Width), float32(size.Height)
 									if hasVis {
 										drawPaletteTile(d, PaletteTile{Image: img, Frame: frame}, w, h)
@@ -512,7 +513,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			Style: core.Style{Width: core.Pt(328)},
 			Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = rev.Get()
-				curPal := ed.SpecPalette(cx)
+				curPal := ed.Palette(cx)
 				if !ed.TilesetOpen() {
 					return nil
 				}
@@ -547,7 +548,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						return ed.TilesetError() != nil
 					},
 					Then: func(cx *core.Scope) core.Node {
-						curPal := ed.SpecPalette(cx)
+						curPal := ed.Palette(cx)
 						return core.Text{
 							TestID: "tileset-editor-error",
 							ContentFunc: func() string {
@@ -575,7 +576,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	})
 }
 
-func tilesetTerrainMaskTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled func() bool) core.Node {
+func tilesetTerrainMaskTab(cx *core.Scope, ed *Editor, p theme.Palette, disabled func() bool) core.Node {
 	st := ed.tileset
 	selTile := st.selectedTile
 	selTerrain := st.selectedTerrain
@@ -657,7 +658,7 @@ func tilesetTerrainMaskTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled f
 							drawPaletteTile(d, PaletteTile{Image: img, Frame: frame}, w, h)
 						}
 						if assigned || conflict >= 0 {
-							drawTileMaskDots(d, ed.SpecPalette(cx), w, h, mask)
+							drawTileMaskDots(d, ed.Palette(cx), w, h, mask)
 						}
 					},
 				},
@@ -748,7 +749,7 @@ func tilesetTerrainMaskTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled f
 	return core.View{TestID: "tileset-mask-editor", Style: core.Style{Gap: 6}, Children: children}
 }
 
-func tilesetCollisionTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled func() bool, flagsDraft *core.Signal[string]) core.Node {
+func tilesetCollisionTab(cx *core.Scope, ed *Editor, p theme.Palette, disabled func() bool, flagsDraft *core.Signal[string]) core.Node {
 	st := ed.tileset
 	doc := st.doc
 	selTile := st.selectedTile
@@ -839,7 +840,7 @@ func tilesetCollisionTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled fun
 				TestID: "tileset-shape-canvas-draw",
 				Style:  core.Style{Width: core.Pt(core.Points(canvasSize)), Height: core.Pt(core.Points(canvasSize))},
 				Draw: func(d *core.Drawing, size core.Size) {
-					drawPal := ed.SpecPalette(cx)
+					drawPal := ed.Palette(cx)
 					w, h := float32(size.Width), float32(size.Height)
 					if hasVis {
 						drawPaletteTile(d, PaletteTile{Image: img, Frame: frame}, w, h)
@@ -968,7 +969,7 @@ func tilesetCollisionTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled fun
 		}
 		rowBg := p.Raised
 		if idx == selShape {
-			rowBg = specAlpha(p.Accent.Fg, 0.18)
+			rowBg = ui.Alpha(p.Accent.Fg, 0.18)
 		}
 		shapeRows = append(shapeRows, core.View{
 			TestID: fmt.Sprintf("tileset-shape-row-%d", idx),
@@ -1056,7 +1057,7 @@ func tilesetCollisionTab(cx *core.Scope, ed *Editor, p SpecPalette, disabled fun
 	}
 }
 
-func tilesetAnimationTab(ed *Editor, p SpecPalette, disabled func() bool, tileAnimRev *core.Signal[uint64], tileDraft, durDraft *core.Signal[string]) core.Node {
+func tilesetAnimationTab(ed *Editor, p theme.Palette, disabled func() bool, tileAnimRev *core.Signal[uint64], tileDraft, durDraft *core.Signal[string]) core.Node {
 	selTile := ed.TilesetSelectedTile()
 	info, _ := ed.TilesetTileInfo(selTile)
 	playing := ed.TilesetAnimPlaying()
@@ -1222,7 +1223,7 @@ func tilesetAnimationTab(ed *Editor, p SpecPalette, disabled func() bool, tileAn
 	}
 }
 
-func tilesetDataTab(ed *Editor, p SpecPalette, disabled func() bool, nameDraft, weightDraft, keyDraft, typeDraft, valDraft *core.Signal[string]) core.Node {
+func tilesetDataTab(ed *Editor, p theme.Palette, disabled func() bool, nameDraft, weightDraft, keyDraft, typeDraft, valDraft *core.Signal[string]) core.Node {
 	selTile := ed.TilesetSelectedTile()
 	info, _ := ed.TilesetTileInfo(selTile)
 
@@ -1474,7 +1475,7 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		tsPath, tileID, ok := ed.inspectedTilesetTile()
 		if !ok {
 			return nil
@@ -1720,7 +1721,7 @@ func tileInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 }
 
 // drawTileShapesOverlay draws a tile's collision shapes (rect, ellipse, polygon, polyline) and any in-progress draft polygon over a tile canvas.
-func drawTileShapesOverlay(d *core.Drawing, p SpecPalette, tileW, tileH int, canvasW, canvasH float32, shapes []tilemap.TileShapeDoc, selectedIdx int, draftPoly [][2]float32) {
+func drawTileShapesOverlay(d *core.Drawing, p theme.Palette, tileW, tileH int, canvasW, canvasH float32, shapes []tilemap.TileShapeDoc, selectedIdx int, draftPoly [][2]float32) {
 	if tileW <= 0 || tileH <= 0 || canvasW <= 0 || canvasH <= 0 {
 		return
 	}
@@ -1729,10 +1730,10 @@ func drawTileShapesOverlay(d *core.Drawing, p SpecPalette, tileW, tileH int, can
 
 	for i, s := range shapes {
 		stroke := p.Added.Fg
-		fill := specAlpha(p.Added.Fg, 0.12)
+		fill := ui.Alpha(p.Added.Fg, 0.12)
 		if i == selectedIdx {
 			stroke = p.Accent.Fg
-			fill = specAlpha(p.Accent.Fg, 0.18)
+			fill = ui.Alpha(p.Accent.Fg, 0.18)
 		}
 		d.SetFillColor(fill).SetStrokeColor(stroke).SetLineWidth(1.5)
 		switch s.Kind {
@@ -1775,7 +1776,7 @@ func drawTileShapesOverlay(d *core.Drawing, p SpecPalette, tileW, tileH int, can
 }
 
 // drawTileMaskDots draws small Spec-token indicators on the center and every active edge and corner of a tile thumbnail.
-func drawTileMaskDots(d *core.Drawing, p SpecPalette, w, h float32, mask uint8) {
+func drawTileMaskDots(d *core.Drawing, p theme.Palette, w, h float32, mask uint8) {
 	if w <= 0 || h <= 0 {
 		return
 	}

@@ -287,7 +287,7 @@ func drawn(ed *editor.Editor) *core.Drawing {
 // The viewport outlines the hovered cell on its grid lines, wherever in the cell the mouse is, in the color of what a press would do, and draws the tile Paint would write faded inside it.
 func TestHoverOutlineIsDrawnOnTheCell(t *testing.T) {
 	ed := floorEditor(t)
-	pal := ed.SpecPalette(nil)
+	pal := ed.Palette(nil)
 	ed.SetTool(editor.ToolPaintTile)
 	ed.SetActiveTileID(2)
 	for _, at := range [][2]float32{{33, 17}, {47, 31}} {
@@ -425,7 +425,7 @@ func TestHoverOutlineFollowsTheMouse(t *testing.T) {
 	if col, row, ok := ed.HoveredTile(); !ok || col != 3 || row != 0 {
 		t.Fatalf("HoveredTile = (%d, %d, %v), want (3, 0)", col, row, ok)
 	}
-	r, ok := hoverRect(app.Find("id:editor-viewport").Ops, ed.SpecPalette(nil).Accent.Fg)
+	r, ok := hoverRect(app.Find("id:editor-viewport").Ops, ed.Palette(nil).Accent.Fg)
 	if !ok || r.X != 48 || r.Y != 0 || r.W != 16 || r.H != 16 {
 		t.Fatalf("the canvas outlines %+v (%v), want the cell (3,0)", r, ok)
 	}

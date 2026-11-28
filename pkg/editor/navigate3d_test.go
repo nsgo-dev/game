@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -1021,13 +1022,13 @@ func TestViewport3DSpecLightThemeMemoizedAxesDynamicShortcutsAndPlayGuard(t *tes
 		Locale: "en-US",
 	}))
 
-	// 1. Light Spec theme: 3D HUD bars use LightSpecPalette().PillBg (not hardcoded dark #171A21).
-	wantPillBg := editor.LightSpecPalette().PillBg
+	// 1. Light Spec theme: 3D HUD bars use theme.Light().PillBg (not hardcoded dark #171A21).
+	wantPillBg := theme.Light().PillBg
 	if got := app.Find("id:view3d-bar").Style.Background; got != wantPillBg {
-		t.Fatalf("Light theme view3d-bar background = 0x%08x, want LightSpecPalette().PillBg 0x%08x", uint32(got), uint32(wantPillBg))
+		t.Fatalf("Light theme view3d-bar background = 0x%08x, want theme.Light().PillBg 0x%08x", uint32(got), uint32(wantPillBg))
 	}
 	if got := app.Find("id:view3d-bottom-bar").Style.Background; got != wantPillBg {
-		t.Fatalf("Light theme view3d-bottom-bar background = 0x%08x, want LightSpecPalette().PillBg 0x%08x", uint32(got), uint32(wantPillBg))
+		t.Fatalf("Light theme view3d-bottom-bar background = 0x%08x, want theme.Light().PillBg 0x%08x", uint32(got), uint32(wantPillBg))
 	}
 
 	// 2. Unrelated rev ticks must NOT remount view3d-axis-right (60 Hz focus stability).

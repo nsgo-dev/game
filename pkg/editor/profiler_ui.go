@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/nsgo/core"
@@ -66,7 +67,7 @@ func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			})
 
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				return core.View{
 					TestID: "profiler-strip",
 					Role:   core.RoleRegion,
@@ -203,9 +204,9 @@ func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											AlignItems:   core.AlignCenter,
 											Padding:      core.Symmetric(0, 8),
 											CornerRadius: 10,
-											Background:   specAlpha(p.Bg, 0.92),
+											Background:   ui.Alpha(p.Bg, 0.92),
 											BorderWidth:  1,
-											BorderColor:  specAlpha(p.Removed.Fg, 0.50),
+											BorderColor:  ui.Alpha(p.Removed.Fg, 0.50),
 										},
 										Children: []core.Node{
 											core.Text{
@@ -318,7 +319,7 @@ func ProfilerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		When: open.Get,
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 
 				metricTab := func(testID string, metric ProfilerMetric) core.Node {
 					metricLabel := profilerMetricLabel(ed, metric)
@@ -545,8 +546,8 @@ func ProfilerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 										bg := p.Raised
 										border := p.LineRaised
 										if s.Connected {
-											bg = specAlpha(p.Added.Fg, 0.12)
-											border = specAlpha(p.Added.Fg, 0.45)
+											bg = ui.Alpha(p.Added.Fg, 0.12)
+											border = ui.Alpha(p.Added.Fg, 0.45)
 										}
 										return core.Style{
 											Height:       core.Pt(24),
@@ -873,7 +874,7 @@ func ProfilerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 }
 
-func profilerLegendItem(p SpecPalette, swatch core.Color, label string) core.Node {
+func profilerLegendItem(p theme.Palette, swatch core.Color, label string) core.Node {
 	return core.View{
 		Style: core.Style{
 			Direction:  core.Row,
@@ -900,7 +901,7 @@ func profilerLegendItem(p SpecPalette, swatch core.Color, label string) core.Nod
 	}
 }
 
-func specActionButton(p SpecPalette, testID string, textFunc func() string, label string, primary bool, onPress func()) core.Node {
+func specActionButton(p theme.Palette, testID string, textFunc func() string, label string, primary bool, onPress func()) core.Node {
 	bg := p.Raised
 	fg := p.TextSecondary
 	border := p.LineRaised
@@ -960,7 +961,7 @@ func profilerMetricLabel(ed *Editor, m ProfilerMetric) string {
 	}
 }
 
-func profilerKPICard(ed *Editor, p SpecPalette, testID, title string, valueFunc, subFunc func() string, valueColor func() core.Color, active func() bool, onPress func()) core.Node {
+func profilerKPICard(ed *Editor, p theme.Palette, testID, title string, valueFunc, subFunc func() string, valueColor func() core.Color, active func() bool, onPress func()) core.Node {
 	return core.View{
 		TestID: testID,
 		Role:   core.RoleButton,
@@ -1053,7 +1054,7 @@ func profilerP99Ms(s ProfilerSnapshot) float64 {
 }
 
 // drawProfilerStripChart renders the PlayMode.dc.html 60 s frame time bar strip with 8.3 ms & 16.7 ms lines and a right-edge playhead bar.
-func drawProfilerStripChart(d *core.Drawing, size core.Size, p SpecPalette, s ProfilerSnapshot) {
+func drawProfilerStripChart(d *core.Drawing, size core.Size, p theme.Palette, s ProfilerSnapshot) {
 	if d == nil || size.Width <= 0 || size.Height <= 0 {
 		return
 	}
@@ -1127,7 +1128,7 @@ func drawProfilerStripChart(d *core.Drawing, size core.Size, p SpecPalette, s Pr
 	}
 	barW := max(float32(1), slotW-gap)
 	startSlot := profilerStripBars - len(visible)
-	barNormal := specAlpha(p.TextFaint, 0.45)
+	barNormal := ui.Alpha(p.TextFaint, 0.45)
 
 	for i, f := range visible {
 		x := float32(startSlot+i) * slotW
@@ -1153,7 +1154,7 @@ func drawProfilerStripChart(d *core.Drawing, size core.Size, p SpecPalette, s Pr
 }
 
 // drawProfilerMainChart renders the selected time-series chart in the full Profiler panel using only Spec tokens.
-func drawProfilerMainChart(ed *Editor, d *core.Drawing, size core.Size, p SpecPalette, s ProfilerSnapshot) {
+func drawProfilerMainChart(ed *Editor, d *core.Drawing, size core.Size, p theme.Palette, s ProfilerSnapshot) {
 	if d == nil || size.Width <= 0 || size.Height <= 0 {
 		return
 	}
@@ -1192,7 +1193,7 @@ func drawProfilerMainChart(ed *Editor, d *core.Drawing, size core.Size, p SpecPa
 	d.Restore()
 }
 
-func drawFrameBreakdownChart(ed *Editor, d *core.Drawing, p SpecPalette, w, h float32, frames []ProfilerFrame) {
+func drawFrameBreakdownChart(ed *Editor, d *core.Drawing, p theme.Palette, w, h float32, frames []ProfilerFrame) {
 	topPad := float32(18)
 	plotH := max(float32(16), h-topPad)
 	maxMs := 20.0
@@ -1237,7 +1238,7 @@ func drawFrameBreakdownChart(ed *Editor, d *core.Drawing, p SpecPalette, w, h fl
 	}
 	barW := max(float32(1), slotW-gap)
 	startSlot := profilerStripBars - len(frames)
-	barNormal := specAlpha(p.TextFaint, 0.45)
+	barNormal := ui.Alpha(p.TextFaint, 0.45)
 
 	for i, f := range frames {
 		x := float32(startSlot+i) * slotW
@@ -1286,7 +1287,7 @@ func drawFrameBreakdownChart(ed *Editor, d *core.Drawing, p SpecPalette, w, h fl
 	d.SetFillColor(p.TextMuted).FillText("GC", w-52, 12, font)
 }
 
-func drawFPSChart(d *core.Drawing, p SpecPalette, w, h float32, frames []ProfilerFrame) {
+func drawFPSChart(d *core.Drawing, p theme.Palette, w, h float32, frames []ProfilerFrame) {
 	topPad := float32(18)
 	plotH := max(float32(16), h-topPad)
 	maxFPS := 75.0
@@ -1336,7 +1337,7 @@ func drawFPSChart(d *core.Drawing, p SpecPalette, w, h float32, frames []Profile
 	d.Restore()
 }
 
-func drawAllocsGCChart(ed *Editor, d *core.Drawing, p SpecPalette, w, h float32, frames []ProfilerFrame) {
+func drawAllocsGCChart(ed *Editor, d *core.Drawing, p theme.Palette, w, h float32, frames []ProfilerFrame) {
 	topPad := float32(18)
 	plotH := max(float32(16), h-topPad)
 	maxAllocs := 10.0
@@ -1396,7 +1397,7 @@ func drawAllocsGCChart(ed *Editor, d *core.Drawing, p SpecPalette, w, h float32,
 	d.SetFillColor(p.TextMuted).FillText(ed.T("profiler.chart.hitch"), w-44, 12, font)
 }
 
-func drawMemoryChart(ed *Editor, d *core.Drawing, p SpecPalette, w, h float32, frames []ProfilerFrame, summary *mcp.PerfMemorySummary) {
+func drawMemoryChart(ed *Editor, d *core.Drawing, p theme.Palette, w, h float32, frames []ProfilerFrame, summary *mcp.PerfMemorySummary) {
 	topPad := float32(18)
 	plotH := max(float32(16), h-topPad)
 	var maxBytes int64 = 1 << 20
@@ -1428,7 +1429,7 @@ func drawMemoryChart(ed *Editor, d *core.Drawing, p SpecPalette, w, h float32, f
 	if budget > 0 {
 		yb := yFor(budget)
 		d.Save()
-		d.SetStrokeColor(specAlpha(p.Removed.Fg, 0.50)).SetLineWidth(1).SetLineDash(4, 3).BeginPath().MoveTo(0, yb).LineTo(w, yb).Stroke()
+		d.SetStrokeColor(ui.Alpha(p.Removed.Fg, 0.50)).SetLineWidth(1).SetLineDash(4, 3).BeginPath().MoveTo(0, yb).LineTo(w, yb).Stroke()
 		d.Restore()
 		d.SetFillColor(p.Removed.Fg).FillText(ed.T("profiler.chart.budget", l10n.Param("size", formatProfilerBytes(budget))), 4, max(topPad, yb-3), core.Font{Family: core.FontMonospace, Size: 10})
 	}

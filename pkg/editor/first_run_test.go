@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/playtest"
@@ -872,13 +873,13 @@ func TestFirstRunSecurityFocusConcurrencySpecLightAndIntegrations(t *testing.T) 
 			return 0, ctx.Err()
 		}
 
-		// Mount in Spec Light mode to verify Start Screen uses light SpecPalette tokens everywhere.
+		// Mount in Spec Light mode to verify Start Screen uses light theme.Palette tokens everywhere.
 		_ = ed2.SetAppearance(editor.AppearanceLight)
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 			return editor.EditorView(cx, ed2)
 		}, nsgotest.Size(1280, 800), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: false}))
 
-		light := editor.SpecPaletteFor(false)
+		light := theme.PaletteFor(false)
 		if got := app.Find("id:editor-start-screen").Style.Background; got != light.Bg {
 			t.Fatalf("Spec Light editor-start-screen background = %v, want %v", got, light.Bg)
 		}

@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -74,7 +75,7 @@ type PlayTaskDotState struct {
 }
 
 // Color returns the Spec token color for the dot's most urgent state (never raw hex).
-func (d PlayTaskDotState) Color(p SpecPalette) core.Color {
+func (d PlayTaskDotState) Color(p theme.Palette) core.Color {
 	switch d.UrgentState {
 	case TaskFailed:
 		return p.Removed.Fg

@@ -508,7 +508,7 @@ func TestEditorNavMesh3DOrthographicOverlayAlignment(t *testing.T) {
 	ops := app.Find("id:nav-ortho-canvas").Ops
 	var fillPts [][2]float32
 	inNavFill := false
-	wantNavFill := ui.Alpha(ed.SpecPalette(nil).Accent.Fg, 0.24)
+	wantNavFill := ui.Alpha(ed.Palette(nil).Accent.Fg, 0.24)
 	for _, op := range ops {
 		if op.Kind == core.DrawFillColor && op.Color == wantNavFill {
 			inNavFill = true

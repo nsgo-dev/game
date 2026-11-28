@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/nsgo/core"
@@ -508,7 +509,7 @@ func TestBottomPanelsSpecLightThemeParity(t *testing.T) {
 	})
 	app.Settle()
 
-	assertPalette := func(label string, want editor.SpecPalette) {
+	assertPalette := func(label string, want theme.Palette) {
 		t.Helper()
 		panels := []struct {
 			key string
@@ -537,7 +538,7 @@ func TestBottomPanelsSpecLightThemeParity(t *testing.T) {
 		}
 	}
 
-	assertPalette("light", editor.LightSpecPalette())
+	assertPalette("light", theme.Light())
 
 	app.SetEnvironment(core.Environment{
 		OS:     core.OSMacOS,
@@ -546,7 +547,7 @@ func TestBottomPanelsSpecLightThemeParity(t *testing.T) {
 		Locale: "en-US",
 	})
 	app.Settle()
-	assertPalette("dark", editor.DarkSpecPalette())
+	assertPalette("dark", theme.Dark())
 }
 
 // #1063 regression: anim-play and datatable column sort icons must be memoized so unrelated rev ticks cause 0 icon remounts.

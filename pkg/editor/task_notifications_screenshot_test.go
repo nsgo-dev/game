@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -134,8 +135,8 @@ func TestTaskNotificationsAndPlayDotScreenshots(t *testing.T) {
 	})
 
 	gallery := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		cx.SetTheme(editor.SpecTheme())
-		p := editor.DarkSpecPalette()
+		cx.SetTheme(theme.Core())
+		p := theme.Dark()
 		sectionLabel := func(text string) core.Node {
 			return core.Text{
 				Content: text,

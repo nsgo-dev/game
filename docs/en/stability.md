@@ -86,6 +86,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/editor` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editorcmd` | Experimental | [editor](editor.md) |
 | `game/pkg/editor/editormcp` | Experimental | [mcp](mcp.md) |
+| `game/pkg/editor/theme` | Experimental | [editor](editor.md) |
 | `game/pkg/entities` | Experimental | [entities](entities.md) |
 | `game/pkg/fighting` | Experimental | [fighting](fighting.md) |
 | `game/pkg/flow` | Stable | [flow](flow.md) |

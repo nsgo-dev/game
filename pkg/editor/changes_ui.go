@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -35,7 +36,7 @@ func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "changes-panel",
 			Role:   core.RoleRegion,
@@ -69,7 +70,7 @@ func ChangesPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 func changesHeaderView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
@@ -337,7 +338,7 @@ func changesCategoryLabel(ed *Editor, cat ChangesCategory) string {
 func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
@@ -412,14 +413,14 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 					}
 				}
 
-				badgeBg := specAlpha(p.Changed.Fg, 0.16)
+				badgeBg := ui.Alpha(p.Changed.Fg, 0.16)
 				badgeFg := p.Changed.Fg
 				switch f.StatusCode {
 				case "A":
-					badgeBg = specAlpha(p.Added.Fg, 0.14)
+					badgeBg = ui.Alpha(p.Added.Fg, 0.14)
 					badgeFg = p.Added.Fg
 				case "D":
-					badgeBg = specAlpha(p.Removed.Fg, 0.14)
+					badgeBg = ui.Alpha(p.Removed.Fg, 0.14)
 					badgeFg = p.Removed.Fg
 				}
 
@@ -602,7 +603,7 @@ func changesSidebarView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64
 func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], changesRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
@@ -869,7 +870,7 @@ func changesCenterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], cha
 	})
 }
 
-func changesSceneCompareView(ed *Editor, p SpecPalette, sess *ChangesSession, f *ChangedFile) core.Node {
+func changesSceneCompareView(ed *Editor, p theme.Palette, sess *ChangesSession, f *ChangedFile) core.Node {
 	sc := f.Scene
 
 	sceneCard := func(testID, title, badge string, doc *sceneformat.SceneDoc, built *sceneformat.BuiltScene, isHead bool) core.Node {
@@ -1034,7 +1035,7 @@ func changesSceneCompareView(ed *Editor, p SpecPalette, sess *ChangesSession, f 
 	}
 }
 
-func changesLegendChip(p SpecPalette, testID string, color core.Color, text string) core.Node {
+func changesLegendChip(p theme.Palette, testID string, color core.Color, text string) core.Node {
 	return core.View{
 		Style: core.Style{
 			Direction:  core.Row,
@@ -1088,7 +1089,7 @@ func changesObjectBadge(label string, bg, border, fg core.Color) core.Node {
 	}
 }
 
-func changesTextDiffView(cx *core.Scope, p SpecPalette, ed *Editor, sess *ChangesSession, f *ChangedFile) core.Node {
+func changesTextDiffView(cx *core.Scope, p theme.Palette, ed *Editor, sess *ChangesSession, f *ChangedFile) core.Node {
 	// Check status bar (nsgo check & nsgo test + timestamp).
 	checkIconColor := p.TextFaint
 	checkText := ed.T("changes.checkNotRun")
@@ -1206,13 +1207,13 @@ func changesTextDiffView(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 		lineNo := ""
 		switch l.Kind {
 		case DiffLineAdd:
-			rowBg = specAlpha(p.Added.Fg, 0.08)
+			rowBg = ui.Alpha(p.Added.Fg, 0.08)
 			fg = p.Added.Fg
 			if l.NewLine > 0 {
 				lineNo = fmt.Sprintf("%d", l.NewLine)
 			}
 		case DiffLineDel:
-			rowBg = specAlpha(p.Removed.Fg, 0.08)
+			rowBg = ui.Alpha(p.Removed.Fg, 0.08)
 			fg = p.Removed.Fg
 			if l.OldLine > 0 {
 				lineNo = fmt.Sprintf("%d", l.OldLine)
@@ -1305,7 +1306,7 @@ func changesTextDiffView(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 	}
 }
 
-func changesAudioCompareView(p SpecPalette, ed *Editor, f *ChangedFile) core.Node {
+func changesAudioCompareView(p theme.Palette, ed *Editor, f *ChangedFile) core.Node {
 	info := f.Audio
 	playing := ed.ChangesAuditioningPath() == f.Path
 	filePath := f.Path
@@ -1442,7 +1443,7 @@ func changesAudioCompareView(p SpecPalette, ed *Editor, f *ChangedFile) core.Nod
 	}
 }
 
-func changesGenericAssetView(p SpecPalette, f *ChangedFile) core.Node {
+func changesGenericAssetView(p theme.Palette, f *ChangedFile) core.Node {
 	return core.View{
 		Style: core.Style{
 			FlexGrow:       1,
@@ -1481,7 +1482,7 @@ func changesGenericAssetView(p SpecPalette, f *ChangedFile) core.Node {
 func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uint64], draftRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = changesRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		sess := ed.ChangesSession()
 		if sess == nil {
 			return core.View{}
@@ -1983,7 +1984,7 @@ func changesCommitPaneView(cx *core.Scope, ed *Editor, changesRev *core.Memo[uin
 	})
 }
 
-func changesShareSection(cx *core.Scope, p SpecPalette, ed *Editor, sess *ChangesSession) core.Node {
+func changesShareSection(cx *core.Scope, p theme.Palette, ed *Editor, sess *ChangesSession) core.Node {
 	ghAvailable := ed.ChangesGHAvailable()
 	busy := ed.ChangesBusy()
 	base := nonEmpty(sess.BaseBranch, "main")
@@ -2080,7 +2081,7 @@ func changesShareSection(cx *core.Scope, p SpecPalette, ed *Editor, sess *Change
 	}
 }
 
-func changesHistorySection(p SpecPalette, ed *Editor, sess *ChangesSession) core.Node {
+func changesHistorySection(p theme.Palette, ed *Editor, sess *ChangesSession) core.Node {
 	now := ed.now()
 	rows := []core.Node{
 		core.Text{
@@ -2150,7 +2151,7 @@ func changesHistorySection(p SpecPalette, ed *Editor, sess *ChangesSession) core
 func drawChangesScenePreview(
 	d *core.Drawing,
 	size core.Size,
-	p SpecPalette,
+	p theme.Palette,
 	sc *SceneComparison,
 	doc *sceneformat.SceneDoc,
 	built *sceneformat.BuiltScene,
@@ -2262,7 +2263,7 @@ func drawChangesScenePreview(
 	d.Restore()
 }
 
-func drawAudioWaveform(d *core.Drawing, size core.Size, p SpecPalette, bars []float32, playing bool) {
+func drawAudioWaveform(d *core.Drawing, size core.Size, p theme.Palette, bars []float32, playing bool) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 || len(bars) == 0 {
 		return

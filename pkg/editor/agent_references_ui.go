@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -60,7 +61,7 @@ func buildAgentComposerRefKey(ed *Editor) agentComposerRefKey {
 
 // agentImagePreviewPopover renders the floating preview card above the composer when the user
 // hovers or focuses an attached image chip or the brief.yaml Always chip.
-func agentImagePreviewPopover(ed *Editor, p SpecPalette) core.Node {
+func agentImagePreviewPopover(ed *Editor, p theme.Palette) core.Node {
 	previewID := ed.AgentImagePreviewID()
 	if previewID == "" {
 		return nil
@@ -170,7 +171,7 @@ func agentImagePreviewPopover(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentBriefPreviewPopover(ed *Editor, p SpecPalette) core.Node {
+func agentBriefPreviewPopover(ed *Editor, p theme.Palette) core.Node {
 	imgs := ed.BriefReferenceImages()
 	children := []core.Node{
 		core.View{
@@ -291,7 +292,7 @@ func agentBriefPreviewPopover(ed *Editor, p SpecPalette) core.Node {
 
 // agentPinNoticeCardView renders the "Pin to brief" confirmation card matching design/editor/Sketch.dc.html:
 // green check, "Pinned <name>", Undo button, monospace YAML diff with added lines highlighted, and caption.
-func agentPinNoticeCardView(ed *Editor, p SpecPalette) core.Node {
+func agentPinNoticeCardView(ed *Editor, p theme.Palette) core.Node {
 	notice := ed.AgentLastPinNotice()
 	if notice == nil {
 		return nil
@@ -473,7 +474,7 @@ func agentPinNoticeCardView(ed *Editor, p SpecPalette) core.Node {
 }
 
 // agentComposerDropZoneView renders the "Drop to attach" target shown while dragging images over the composer.
-func agentComposerDropZoneView(ed *Editor, p SpecPalette) core.Node {
+func agentComposerDropZoneView(ed *Editor, p theme.Palette) core.Node {
 	if !ed.AgentComposerDragOver() {
 		return nil
 	}
@@ -521,7 +522,7 @@ func agentComposerDropZoneView(ed *Editor, p SpecPalette) core.Node {
 }
 
 // agentAttachErrorBannerView renders the refusal reason when an unsupported file type is dropped or pasted.
-func agentAttachErrorBannerView(ed *Editor, p SpecPalette) core.Node {
+func agentAttachErrorBannerView(ed *Editor, p theme.Palette) core.Node {
 	msg := ed.AgentAttachError()
 	if msg == "" {
 		return nil
@@ -594,7 +595,7 @@ func agentAttachErrorBannerView(ed *Editor, p SpecPalette) core.Node {
 
 // agentAttachedImageChipsView renders the attached PNG/JPEG/WebP image chips inside the composer
 // matching Sketch.dc.html: 32×24 thumbnail, filename, "Pin to brief" / "Pinned" toggle, and × remove button.
-func agentAttachedImageChipsView(ed *Editor, p SpecPalette) []core.Node {
+func agentAttachedImageChipsView(ed *Editor, p theme.Palette) []core.Node {
 	imgs := ed.AgentAttachedImages()
 	if len(imgs) == 0 {
 		return nil
@@ -788,7 +789,7 @@ func agentAttachedImageChipsView(ed *Editor, p SpecPalette) []core.Node {
 // count when non-zero) for the unified AgentComposerView Always row. When pinned references exist,
 // hovering or pressing previews the pinned reference images; when none exist and chipID is provided,
 // hovering shows the exact brief.yaml YAML payload preview while pressing opens the brief reference popover.
-func agentBriefAlwaysChipView(ed *Editor, p SpecPalette, chipID string) core.Node {
+func agentBriefAlwaysChipView(ed *Editor, p theme.Palette, chipID string) core.Node {
 	exists, refs := ed.readBriefMeta()
 	if !exists && len(refs) == 0 {
 		return nil
@@ -888,7 +889,7 @@ func agentBriefAlwaysChipView(ed *Editor, p SpecPalette, chipID string) core.Nod
 }
 
 // agentAttachImageButtonView renders the composer toolbar button matching Sketch.dc.html's image icon button.
-func agentAttachImageButtonView(ed *Editor, p SpecPalette) core.Node {
+func agentAttachImageButtonView(ed *Editor, p theme.Palette) core.Node {
 	btn := core.View{
 		TestID: "agent-composer-attach-image",
 		Role:   core.RoleButton,
@@ -923,7 +924,7 @@ func agentAttachImageButtonView(ed *Editor, p SpecPalette) core.Node {
 }
 
 // agentTurnImagesRowView renders compact thumbnails of reference images sent with a user turn bubble.
-func agentTurnImagesRowView(turnIdx int, imgs []AgentReferenceImage, p SpecPalette) core.Node {
+func agentTurnImagesRowView(turnIdx int, imgs []AgentReferenceImage, p theme.Palette) core.Node {
 	if len(imgs) == 0 {
 		return nil
 	}

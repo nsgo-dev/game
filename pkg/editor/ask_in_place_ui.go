@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -11,7 +12,7 @@ import (
 )
 
 // AskInPlaceComposerView renders the anchored ⌘L in-place agent composer inside the editor viewport
-// using exclusively SpecPalette tokens (matching design/editor/AskInPlace.dc.html and Spec.dc.html).
+// using exclusively theme.Palette tokens (matching design/editor/AskInPlace.dc.html and Spec.dc.html).
 func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	openMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
@@ -135,7 +136,7 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			cardKey := core.NewMemo(cx, func() chromeKey {
 				_ = rev.Get()
 				return chromeKey{
-					dark: ed.SpecPalette(cx).Dark,
+					dark: ed.Palette(cx).Dark,
 					lang: ed.ResolvedLanguage(),
 					seq:  ed.askInPlace.seq,
 				}
@@ -150,7 +151,7 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 			suggestionsKey := core.NewMemo(cx, func() suggestKey {
 				_ = rev.Get()
 				return suggestKey{
-					dark:   ed.SpecPalette(cx).Dark,
+					dark:   ed.Palette(cx).Dark,
 					lang:   ed.ResolvedLanguage(),
 					seq:    ed.askInPlace.seq,
 					selIdx: ed.AskInPlaceSelectedSuggestion(),
@@ -159,7 +160,7 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				k := cardKey.Get()
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				snap := ed.AskInPlaceSnapshot()
 				targetOS := cx.Env().OS()
 
@@ -431,7 +432,7 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					Children: []core.Node{
 						core.Dynamic(func(cx *core.Scope) core.Node {
 							sk := suggestionsKey.Get()
-							sp := SpecPaletteFor(sk.dark)
+							sp := theme.PaletteFor(sk.dark)
 							curSnap := ed.AskInPlaceSnapshot()
 							footerChildren := make([]core.Node, 0, len(curSnap.Suggestions)+1)
 							if len(curSnap.Suggestions) > 0 {

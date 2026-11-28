@@ -11,243 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 	"github.com/nsgo-dev/nsgo/ui"
 )
-
-func TestSpecThemeParsesAndMapsAllRoles(t *testing.T) {
-	th, err := core.ParseTheme(editor.SpecThemeYAML())
-	if err != nil {
-		t.Fatalf("core.ParseTheme(SpecThemeYAML): %v", err)
-	}
-	if th.Radius != 8 {
-		t.Fatalf("SpecTheme.Radius = %v, want 8", th.Radius)
-	}
-
-	dark := editor.DarkSpecPalette()
-	light := editor.LightSpecPalette()
-	if !dark.Dark {
-		t.Fatal("DarkSpecPalette().Dark = false, want true")
-	}
-	if light.Dark {
-		t.Fatal("LightSpecPalette().Dark = true, want false")
-	}
-	if dark.Bg == light.Bg || dark.Panel == light.Panel || dark.Raised == light.Raised {
-		t.Fatalf("dark and light surfaces must differ: dark=%+v light=%+v", dark, light)
-	}
-	if editor.SpecPaletteFor(true) != dark {
-		t.Fatal("SpecPaletteFor(true) != DarkSpecPalette()")
-	}
-	if editor.SpecPaletteFor(false) != light {
-		t.Fatal("SpecPaletteFor(false) != LightSpecPalette()")
-	}
-
-	// Verify exact Spec.dc.html dark token values.
-	wantDark := map[string]struct {
-		got  core.Color
-		want core.Color
-	}{
-		"bg":            {dark.Bg, core.RGB(0x101216)},
-		"panel":         {dark.Panel, core.RGB(0x12141A)},
-		"raised":        {dark.Raised, core.RGB(0x171A21)},
-		"line":          {dark.Line, core.RGB(0x1F232A)},
-		"lineRaised":    {dark.LineRaised, core.RGB(0x262B35)},
-		"textPrimary":   {dark.TextPrimary, core.RGB(0xFFFFFF)},
-		"textSecondary": {dark.TextSecondary, core.RGB(0xD9DDE5)},
-		"textMuted":     {dark.TextMuted, core.RGB(0xB4BAC6)},
-		"textFaint":     {dark.TextFaint, core.RGB(0x8B92A0)},
-		"accent":        {dark.Accent.Fg, core.RGB(0x3B7BFF)},
-		"accentOnFill":  {dark.Accent.OnFill, core.RGB(0x101216)},
-		"agent":         {dark.Agent.Fg, core.RGB(0x9B7BFF)},
-		"added":         {dark.Added.Fg, core.RGB(0x4FD38A)},
-		"changed":       {dark.Changed.Fg, core.RGB(0xE9A84A)},
-		"removed":       {dark.Removed.Fg, core.RGB(0xFF6B6B)},
-		"warning":       {dark.Warning.Fg, core.RGB(0xF2C14E)},
-		"warningFill":   {dark.Warning.Fill, core.RGB(0x2A2414)},
-		"warningEdge":   {dark.Warning.Edge, core.RGB(0x4A3F1F)},
-	}
-	for name, tc := range wantDark {
-		if tc.got != tc.want {
-			t.Errorf("dark %s = #%08X, want #%08X", name, uint32(tc.got), uint32(tc.want))
-		}
-	}
-
-	// Verify NSGo core.Palette role mappings on SpecTheme for both dark and light.
-	for _, tc := range []struct {
-		name string
-		p    core.Palette
-		spec editor.SpecPalette
-	}{
-		{"dark", th.Dark, dark},
-		{"light", th.Light, light},
-	} {
-		if tc.p.Background != tc.spec.Bg {
-			t.Errorf("%s Palette.Background = #%08X, want #%08X", tc.name, uint32(tc.p.Background), uint32(tc.spec.Bg))
-		}
-		if tc.p.Surface != tc.spec.Panel {
-			t.Errorf("%s Palette.Surface = #%08X, want #%08X", tc.name, uint32(tc.p.Surface), uint32(tc.spec.Panel))
-		}
-		if raised, ok := tc.p.Color("raised"); !ok || raised != tc.spec.Raised {
-			t.Errorf("%s Palette.Color(raised) = #%08X (ok=%v), want #%08X", tc.name, uint32(raised), ok, uint32(tc.spec.Raised))
-		}
-		if line, ok := tc.p.Color("line"); !ok || line != tc.spec.Line {
-			t.Errorf("%s Palette.Color(line) = #%08X (ok=%v), want #%08X", tc.name, uint32(line), ok, uint32(tc.spec.Line))
-		}
-		if tc.p.Border != tc.spec.LineRaised {
-			t.Errorf("%s Palette.Border = #%08X, want #%08X", tc.name, uint32(tc.p.Border), uint32(tc.spec.LineRaised))
-		}
-		if tc.p.Text != tc.spec.TextSecondary {
-			t.Errorf("%s Palette.Text = #%08X, want #%08X", tc.name, uint32(tc.p.Text), uint32(tc.spec.TextSecondary))
-		}
-		if tc.p.TextMuted != tc.spec.TextFaint {
-			t.Errorf("%s Palette.TextMuted = #%08X, want #%08X", tc.name, uint32(tc.p.TextMuted), uint32(tc.spec.TextFaint))
-		}
-		if tc.p.Accent != tc.spec.Accent.Fg {
-			t.Errorf("%s Palette.Accent = #%08X, want #%08X", tc.name, uint32(tc.p.Accent), uint32(tc.spec.Accent.Fg))
-		}
-		if tc.p.AccentText != tc.spec.Accent.OnFill {
-			t.Errorf("%s Palette.AccentText = #%08X, want #%08X", tc.name, uint32(tc.p.AccentText), uint32(tc.spec.Accent.OnFill))
-		}
-		if tc.p.Success != tc.spec.Added.Fg {
-			t.Errorf("%s Palette.Success = #%08X, want #%08X", tc.name, uint32(tc.p.Success), uint32(tc.spec.Added.Fg))
-		}
-		if tc.p.Warning != tc.spec.Warning.Fg {
-			t.Errorf("%s Palette.Warning = #%08X, want #%08X", tc.name, uint32(tc.p.Warning), uint32(tc.spec.Warning.Fg))
-		}
-		if tc.p.Danger != tc.spec.Removed.Fg {
-			t.Errorf("%s Palette.Danger = #%08X, want #%08X", tc.name, uint32(tc.p.Danger), uint32(tc.spec.Removed.Fg))
-		}
-		if tc.p.Focus != tc.spec.Accent.Edge {
-			t.Errorf("%s Palette.Focus = #%08X, want #%08X", tc.name, uint32(tc.p.Focus), uint32(tc.spec.Accent.Edge))
-		}
-		if ring, ok := tc.p.Color("ring"); !ok || ring != tc.spec.Accent.Edge {
-			t.Errorf("%s Palette.Color(ring) = #%08X (ok=%v), want #%08X (declared in spec_theme.yaml)", tc.name, uint32(ring), ok, uint32(tc.spec.Accent.Edge))
-		}
-		if tc.spec.AccentHover == 0 || tc.spec.AccentHover != tc.p.AccentHover {
-			t.Errorf("%s SpecPalette.AccentHover = #%08X, want #%08X", tc.name, uint32(tc.spec.AccentHover), uint32(tc.p.AccentHover))
-		}
-		if tc.spec.AccentPressed == 0 || tc.spec.AccentPressed != tc.p.AccentPressed {
-			t.Errorf("%s SpecPalette.AccentPressed = #%08X, want #%08X", tc.name, uint32(tc.spec.AccentPressed), uint32(tc.p.AccentPressed))
-		}
-	}
-}
-
-func TestSpecContrastTableDarkAndLight(t *testing.T) {
-	// Verify every row of the Spec WCAG 2.2 contrast table passes for BOTH dark and light palettes.
-	for _, theme := range []struct {
-		name    string
-		palette editor.SpecPalette
-	}{
-		{"dark", editor.DarkSpecPalette()},
-		{"light", editor.LightSpecPalette()},
-	} {
-		t.Run(theme.name, func(t *testing.T) {
-			rows := editor.SpecContrastTable(theme.palette)
-			if len(rows) == 0 {
-				t.Fatal("SpecContrastTable returned empty table")
-			}
-			for _, row := range rows {
-				ratio := row.Ratio()
-				if ratio < row.MinRatio {
-					t.Errorf("%s: %s contrast = %.2f:1 (fg=#%06X on bg=#%06X), want >= %.1f:1 (%s)",
-						theme.name, row.Name, ratio, uint32(row.Foreground)>>8, uint32(row.Background)>>8, row.MinRatio, row.Usage)
-				}
-			}
-		})
-	}
-
-	// Verify exact WCAG 2.2 dark ratios published in design/editor/Spec.dc.html.
-	dark := editor.DarkSpecPalette()
-	wantPublished := []struct {
-		name  string
-		fg    core.Color
-		bg    core.Color
-		ratio float64
-	}{
-		{"text strong on panel", dark.TextPrimary, dark.Panel, 18.41},
-		{"text on panel", dark.TextSecondary, dark.Panel, 13.52},
-		{"text on raised", dark.TextSecondary, dark.Raised, 12.79},
-		{"secondary on panel", dark.TextMuted, dark.Panel, 9.45},
-		{"secondary on raised", dark.TextMuted, dark.Raised, 8.94},
-		{"muted on bg", dark.TextFaint, dark.Bg, 6.00},
-		{"muted on panel", dark.TextFaint, dark.Panel, 5.89},
-		{"muted on raised", dark.TextFaint, dark.Raised, 5.57},
-		{"#101216 on accent", dark.Accent.OnFill, dark.Accent.Fg, 4.88},
-		{"#101216 on text strong", dark.OnTextPrimary, dark.TextPrimary, 18.75},
-		{"warning on warning fill", dark.Warning.Fg, dark.Warning.Fill, 9.19},
-		{"text on warning fill", dark.TextSecondary, dark.Warning.Fill, 11.33},
-		{"agent on panel", dark.Agent.Fg, dark.Panel, 5.85},
-		{"added on panel", dark.Added.Fg, dark.Panel, 9.66},
-		{"changed on panel", dark.Changed.Fg, dark.Panel, 8.91},
-		{"removed on panel", dark.Removed.Fg, dark.Panel, 6.63},
-		{"accent edge on panel", dark.Accent.Edge, dark.Panel, 4.79},
-		{"accent edge on raised", dark.Accent.Edge, dark.Raised, 4.53},
-		{"accent edge on viewport", dark.Accent.Edge, dark.Viewport, 4.63},
-	}
-	for _, tc := range wantPublished {
-		got := editor.ContrastRatio(tc.fg, tc.bg)
-		if math.Abs(got-tc.ratio) > 0.02 {
-			t.Errorf("Spec dark published ratio %q = %.2f, want %.2f", tc.name, got, tc.ratio)
-		}
-	}
-
-	// Verify hover/pressed accent fills in SpecTheme also satisfy >= 4.5:1 with AccentText.
-	th := editor.SpecTheme()
-	for _, tc := range []struct {
-		name string
-		p    core.Palette
-	}{
-		{"dark", th.Dark},
-		{"light", th.Light},
-	} {
-		if r := editor.ContrastRatio(tc.p.AccentText, tc.p.AccentHover); r < 4.5 {
-			t.Errorf("%s AccentText on AccentHover = %.2f:1, want >= 4.5:1", tc.name, r)
-		}
-		if r := editor.ContrastRatio(tc.p.AccentText, tc.p.AccentPressed); r < 4.5 {
-			t.Errorf("%s AccentText on AccentPressed = %.2f:1, want >= 4.5:1", tc.name, r)
-		}
-	}
-}
-
-func TestSpecNoWhiteOnFailingAccentOrAgent(t *testing.T) {
-	white := core.RGB(0xFFFFFF)
-
-	// Confirm the Spec dark guardrail: white fails AA on dark accent (3.84:1) and dark agent (3.15:1),
-	// so DarkSpecPalette must NEVER use white as OnFill on accent or agent.
-	dark := editor.DarkSpecPalette()
-	if r := editor.ContrastRatio(white, dark.Accent.Fg); r >= 4.5 {
-		t.Fatalf("expected white on dark accent to fail 4.5:1, got %.2f", r)
-	}
-	if dark.Accent.OnFill == white {
-		t.Fatal("dark Accent.OnFill must never be white")
-	}
-	if r := editor.ContrastRatio(dark.Accent.OnFill, dark.Accent.Fg); r < 4.5 {
-		t.Fatalf("dark Accent.OnFill contrast = %.2f, want >= 4.5", r)
-	}
-
-	if r := editor.ContrastRatio(white, dark.Agent.Fg); r >= 4.5 {
-		t.Fatalf("expected white on dark agent to fail 4.5:1, got %.2f", r)
-	}
-	if dark.Agent.OnFill == white {
-		t.Fatal("dark Agent.OnFill must never be white")
-	}
-	if r := editor.ContrastRatio(dark.Agent.OnFill, dark.Agent.Fg); r < 4.5 {
-		t.Fatalf("dark Agent.OnFill contrast = %.2f, want >= 4.5", r)
-	}
-
-	// In light mode, OnFill on Accent and Agent must pass >= 4.5:1 as well.
-	light := editor.LightSpecPalette()
-	if r := editor.ContrastRatio(light.Accent.OnFill, light.Accent.Fg); r < 4.5 {
-		t.Fatalf("light Accent.OnFill contrast = %.2f, want >= 4.5", r)
-	}
-	if r := editor.ContrastRatio(light.Agent.OnFill, light.Agent.Fg); r < 4.5 {
-		t.Fatalf("light Agent.OnFill contrast = %.2f, want >= 4.5", r)
-	}
-}
 
 // #1062 Acceptance 2: With Appearance set to system, changing the system appearance live
 // repaints the editor between the Spec dark and light palettes without a restart.
@@ -265,14 +35,14 @@ func TestEditorSystemAppearanceLiveSwitchWithoutRestart(t *testing.T) {
 		t.Fatalf("default Appearance = %q, want system", ed.Appearance())
 	}
 
-	var activeSpec editor.SpecPalette
+	var activeSpec theme.Palette
 	var uiBg, uiSurface, uiRaised, uiAccent, uiOnAccent core.Color
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		node := editor.EditorView(cx, ed)
 		colors := ui.ColorsOf(cx)
 		cx.Effect(func() {
-			activeSpec = ed.SpecPalette(cx)
+			activeSpec = ed.Palette(cx)
 			uiBg = colors.Background()
 			uiSurface = colors.Surface()
 			uiRaised = colors.Raised()
@@ -287,7 +57,7 @@ func TestEditorSystemAppearanceLiveSwitchWithoutRestart(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	assertPalette := func(step string, want editor.SpecPalette) {
+	assertPalette := func(step string, want theme.Palette) {
 		t.Helper()
 		if activeSpec != want {
 			t.Fatalf("%s: activeSpec.Dark=%v Bg=#%06X, want Dark=%v Bg=#%06X",
@@ -315,7 +85,7 @@ func TestEditorSystemAppearanceLiveSwitchWithoutRestart(t *testing.T) {
 	}
 
 	// Starts in Spec Dark on a dark system.
-	assertPalette("initial dark system", editor.DarkSpecPalette())
+	assertPalette("initial dark system", theme.Dark())
 
 	// Switch the system appearance live to Light -> repaints immediately to Spec Light without restart.
 	app.SetEnvironment(core.Environment{
@@ -324,7 +94,7 @@ func TestEditorSystemAppearanceLiveSwitchWithoutRestart(t *testing.T) {
 		Dark:   false,
 		Locale: "en-US",
 	})
-	assertPalette("live switch to light system", editor.LightSpecPalette())
+	assertPalette("live switch to light system", theme.Light())
 
 	// Switch back to Dark live -> repaints immediately to Spec Dark without restart.
 	app.SetEnvironment(core.Environment{
@@ -333,7 +103,7 @@ func TestEditorSystemAppearanceLiveSwitchWithoutRestart(t *testing.T) {
 		Dark:   true,
 		Locale: "en-US",
 	})
-	assertPalette("live switch back to dark system", editor.DarkSpecPalette())
+	assertPalette("live switch back to dark system", theme.Dark())
 
 	// Explicit AppearanceLight override stays on Spec Light even while system is Dark.
 	app.Post(func() {
@@ -342,7 +112,7 @@ func TestEditorSystemAppearanceLiveSwitchWithoutRestart(t *testing.T) {
 		}
 	})
 	app.Settle()
-	assertPalette("explicit light on dark system", editor.LightSpecPalette())
+	assertPalette("explicit light on dark system", theme.Light())
 }
 
 func TestEditorToastQueueAndSpecStyling(t *testing.T) {
@@ -382,7 +152,7 @@ func TestEditorToastQueueAndSpecStyling(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	light := editor.LightSpecPalette()
+	light := theme.Light()
 	if got := app.Find("id:editor-toast-message").Text; !strings.Contains(got, "Kept 6 changes") {
 		t.Fatalf("active toast message = %q", got)
 	}
@@ -525,7 +295,7 @@ func TestSpecToastCardClampsNonFiniteProgress(t *testing.T) {
 		{"overOne", 1.5},
 		{"half", 0.5},
 	}
-	pal := editor.LightSpecPalette()
+	pal := theme.Light()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
@@ -556,10 +326,10 @@ func TestSpecLightChromeOverlaysAndMarqueeContrast(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	light := editor.LightSpecPalette()
-	dark := editor.DarkSpecPalette()
+	light := theme.Light()
+	dark := theme.Dark()
 
-	assertChrome := func(label string, want editor.SpecPalette) {
+	assertChrome := func(label string, want theme.Palette) {
 		t.Helper()
 		bar := app.Find("id:viewport-overlay-bar").Style
 		wantBarBg := ui.Alpha(want.Raised, 0.96)
@@ -592,7 +362,7 @@ func TestSpecLightChromeOverlaysAndMarqueeContrast(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		appearance editor.Appearance
-		pal        editor.SpecPalette
+		pal        theme.Palette
 	}{
 		{"light", editor.AppearanceLight, light},
 		{"dark", editor.AppearanceDark, dark},
@@ -605,128 +375,19 @@ func TestSpecLightChromeOverlaysAndMarqueeContrast(t *testing.T) {
 			t.Fatalf("%s: expected built-in overlays", tc.name)
 		}
 		for _, ov := range ovs {
-			ratio := editor.ContrastRatio(ov.Color, tc.pal.Viewport)
+			ratio := theme.ContrastRatio(ov.Color, tc.pal.Viewport)
 			if ratio < 3.0 {
 				t.Errorf("%s: overlay %q color #%06X on Viewport #%06X has contrast %.2f:1, want >= 3.0:1",
 					tc.name, ov.ID, uint32(ov.Color)>>8, uint32(tc.pal.Viewport)>>8, ratio)
 			}
 		}
-		collStroke := editor.CompositeOver(ui.Alpha(tc.pal.TextMuted, 0.85), tc.pal.Viewport)
-		if ratio := editor.ContrastRatio(collStroke, tc.pal.Viewport); ratio < 3.0 {
+		collStroke := theme.CompositeOver(ui.Alpha(tc.pal.TextMuted, 0.85), tc.pal.Viewport)
+		if ratio := theme.ContrastRatio(collStroke, tc.pal.Viewport); ratio < 3.0 {
 			t.Errorf("%s: collision stroke contrast %.2f:1, want >= 3.0:1", tc.name, ratio)
 		}
-		if ratio := editor.ContrastRatio(tc.pal.Accent.Edge, tc.pal.Viewport); ratio < 3.0 {
+		if ratio := theme.ContrastRatio(tc.pal.Accent.Edge, tc.pal.Viewport); ratio < 3.0 {
 			t.Errorf("%s: marquee/selection Accent.Edge contrast %.2f:1, want >= 3.0:1", tc.name, ratio)
 		}
-	}
-}
-
-func TestSpecDesignTokenConstantsAndReducedMotion(t *testing.T) {
-	if editor.SpecFontFamilySans != "Inter" || editor.SpecFontFamilyMono != "JetBrains Mono" {
-		t.Fatalf("font families = (%q, %q), want (Inter, JetBrains Mono)", editor.SpecFontFamilySans, editor.SpecFontFamilyMono)
-	}
-	if editor.SpecFontTitleSize != 14 || editor.SpecFontTitleWeight != core.FontWeightSemibold {
-		t.Fatalf("title type = %v/%v, want 14/600", editor.SpecFontTitleSize, editor.SpecFontTitleWeight)
-	}
-	if editor.SpecFontBodySize != 12.5 || editor.SpecFontBodyWeight != core.FontWeightNormal {
-		t.Fatalf("body type = %v/%v, want 12.5/400", editor.SpecFontBodySize, editor.SpecFontBodyWeight)
-	}
-	if editor.SpecFontSectionSize != 11 || editor.SpecFontSectionWeight != core.FontWeightSemibold || math.Abs(float64(editor.SpecFontSectionTrack)-0.66) > 1e-6 {
-		t.Fatalf("section type = %v/%v/+%v, want 11/600/+0.66 (+6%%)", editor.SpecFontSectionSize, editor.SpecFontSectionWeight, editor.SpecFontSectionTrack)
-	}
-	if editor.SpecFontCodeSize != 11.5 || editor.SpecFontCodeWeight != core.FontWeightNormal {
-		t.Fatalf("code type = %v/%v, want 11.5/400", editor.SpecFontCodeSize, editor.SpecFontCodeWeight)
-	}
-	if editor.SpecSpace4 != 4 || editor.SpecSpace8 != 8 || editor.SpecSpace12 != 12 || editor.SpecSpace16 != 16 || editor.SpecSpace24 != 24 {
-		t.Fatalf("spacing scale = %v,%v,%v,%v,%v, want 4,8,12,16,24",
-			editor.SpecSpace4, editor.SpecSpace8, editor.SpecSpace12, editor.SpecSpace16, editor.SpecSpace24)
-	}
-	if editor.SpecRadiusControl != 6 || editor.SpecRadiusButton != 8 || editor.SpecRadiusCard != 12 || editor.SpecRadiusDialog != 18 {
-		t.Fatalf("radii = %v,%v,%v,%v, want 6,8,12,18",
-			editor.SpecRadiusControl, editor.SpecRadiusButton, editor.SpecRadiusCard, editor.SpecRadiusDialog)
-	}
-	if editor.SpecRowHeight != 28 || editor.SpecMinHitSize != 28 || editor.SpecButtonHeight != 30 || editor.SpecButtonTallHeight != 32 || editor.SpecHeaderHeight != 44 {
-		t.Fatalf("heights = row:%v hit:%v btn:%v btnTall:%v header:%v",
-			editor.SpecRowHeight, editor.SpecMinHitSize, editor.SpecButtonHeight, editor.SpecButtonTallHeight, editor.SpecHeaderHeight)
-	}
-	if editor.SpecBorderWidth != 1 || editor.SpecIconSize != 15 || math.Abs(float64(editor.SpecIconStrokeWidth)-1.8) > 1e-6 {
-		t.Fatalf("border/icon = border:%v icon:%v stroke:%v", editor.SpecBorderWidth, editor.SpecIconSize, editor.SpecIconStrokeWidth)
-	}
-	if editor.SpecMotionHover != 120*time.Millisecond ||
-		editor.SpecMotionPanel != 180*time.Millisecond ||
-		editor.SpecMotionOverlay != 240*time.Millisecond ||
-		editor.SpecMotionAgentPulse != 1600*time.Millisecond {
-		t.Fatalf("motion = hover:%v panel:%v overlay:%v pulse:%v",
-			editor.SpecMotionHover, editor.SpecMotionPanel, editor.SpecMotionOverlay, editor.SpecMotionAgentPulse)
-	}
-
-	// Verify 3D axis tokens match design/editor/Viewport3D.dc.html.
-	dark := editor.DarkSpecPalette()
-	if dark.AxisX != core.RGB(0xFF6B6B) || dark.AxisY != core.RGB(0x4FD38A) || dark.AxisZ != core.RGB(0x3B7BFF) {
-		t.Fatalf("dark 3D axes = (#%06X, #%06X, #%06X), want (#FF6B6B, #4FD38A, #3B7BFF)",
-			uint32(dark.AxisX)>>8, uint32(dark.AxisY)>>8, uint32(dark.AxisZ)>>8)
-	}
-
-	// Verify motion disables cleanly under Env.ReduceMotion.
-	var normalHover, reducedHover time.Duration
-	var normalMidPulse, reducedMidPulse float32
-	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		cx.Effect(func() {
-			if cx.Env().ReduceMotion() {
-				reducedHover = editor.SpecMotionDuration(cx, editor.SpecMotionHover)
-				reducedMidPulse = editor.SpecAgentPulseOpacity(cx, editor.SpecMotionAgentPulse/2)
-			} else {
-				normalHover = editor.SpecMotionDuration(cx, editor.SpecMotionHover)
-				normalMidPulse = editor.SpecAgentPulseOpacity(cx, editor.SpecMotionAgentPulse/2)
-			}
-		})
-		return core.View{}
-	}, nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true, ReduceMotion: false}))
-
-	if normalHover != 120*time.Millisecond {
-		t.Fatalf("normal SpecMotionDuration(Hover) = %v, want 120ms", normalHover)
-	}
-	if math.Abs(float64(normalMidPulse-0.45)) > 0.01 {
-		t.Fatalf("normal SpecAgentPulseOpacity(800ms) = %v, want 0.45", normalMidPulse)
-	}
-
-	app.SetEnvironment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true, ReduceMotion: true})
-	if reducedHover != 0 {
-		t.Fatalf("ReduceMotion SpecMotionDuration(Hover) = %v, want 0", reducedHover)
-	}
-	if reducedMidPulse != 1.0 {
-		t.Fatalf("ReduceMotion SpecAgentPulseOpacity(800ms) = %v, want 1.0", reducedMidPulse)
-	}
-}
-
-// #1002 Acceptance 1: Setting dark text_muted back to the retired #6F7684 causes the
-// theme-file WCAG 2.2 contrast table check to fail below 4.5:1.
-func TestSpecContrastTableRejectsRetiredMutedColor(t *testing.T) {
-	raw := string(editor.SpecThemeYAML())
-	mutated := strings.Replace(raw, `specTextFaint: "#8B92A0"`, `specTextFaint: "#6F7684"`, 1)
-	if mutated == raw {
-		t.Fatal("failed to locate dark specTextFaint in spec_theme.yaml")
-	}
-	th, err := core.ParseTheme([]byte(mutated))
-	if err != nil {
-		t.Fatalf("core.ParseTheme(mutated): %v", err)
-	}
-	retired, ok := th.Dark.Color("specTextFaint")
-	if !ok || retired != core.RGB(0x6F7684) {
-		t.Fatalf("mutated specTextFaint = #%06X (ok=%v), want #6F7684", uint32(retired)>>8, ok)
-	}
-
-	pal := editor.DarkSpecPalette()
-	pal.TextFaint = retired
-
-	failed := 0
-	for _, row := range editor.SpecContrastTable(pal) {
-		if row.Ratio() < row.MinRatio {
-			failed++
-		}
-	}
-	if failed == 0 {
-		t.Fatal("expected SpecContrastTable to fail when dark text_muted is reverted to #6F7684")
 	}
 }
 
@@ -989,7 +650,7 @@ func checkSpecColorLiteralsInFile(fset *token.FileSet, relPath string, file *ast
 					}
 					if allConst {
 						pos := fset.Position(node.Pos())
-						violations = append(violations, pos.String()+": forbidden colorFromRGBA8 call with all-constant arguments outside spec_theme.go")
+						violations = append(violations, pos.String()+": forbidden colorFromRGBA8 call with all-constant arguments outside theme/theme.go")
 					}
 				}
 			}
@@ -997,13 +658,13 @@ func checkSpecColorLiteralsInFile(fset *token.FileSet, relPath string, file *ast
 			switch coreFunc {
 			case "RGB", "RGBA":
 				pos := fset.Position(node.Pos())
-				violations = append(violations, pos.String()+": forbidden core."+coreFunc+" call outside spec_theme.go")
+				violations = append(violations, pos.String()+": forbidden core."+coreFunc+" call outside theme/theme.go")
 			case "ParseColor":
 				if len(node.Args) == 1 {
 					if lit, ok := node.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						if s, err := strconv.Unquote(lit.Value); err == nil && isSpecColorStringLiteral(s) {
 							pos := fset.Position(node.Pos())
-							violations = append(violations, pos.String()+": forbidden core.ParseColor("+lit.Value+") literal outside spec_theme.go")
+							violations = append(violations, pos.String()+": forbidden core.ParseColor("+lit.Value+") literal outside theme/theme.go")
 						}
 					}
 				}
@@ -1011,7 +672,7 @@ func checkSpecColorLiteralsInFile(fset *token.FileSet, relPath string, file *ast
 				if len(node.Args) == 1 {
 					if val, ok := evalConstInt(node.Args[0]); ok && val != 0 && !allowedCoreColorConstInContext(relPath, stack) {
 						pos := fset.Position(node.Pos())
-						violations = append(violations, pos.String()+": forbidden non-zero constant core.Color(...) literal outside spec_theme.go")
+						violations = append(violations, pos.String()+": forbidden non-zero constant core.Color(...) literal outside theme/theme.go")
 					}
 				}
 			}
@@ -1021,7 +682,7 @@ func checkSpecColorLiteralsInFile(fset *token.FileSet, relPath string, file *ast
 				if s, err := strconv.Unquote(node.Value); err == nil && isSpecColorStringLiteral(s) {
 					if !allowedColorStringInContext(relPath, stack) {
 						pos := fset.Position(node.Pos())
-						violations = append(violations, pos.String()+": forbidden color string literal "+node.Value+" outside spec_theme.go")
+						violations = append(violations, pos.String()+": forbidden color string literal "+node.Value+" outside theme/theme.go")
 					}
 				}
 			}
@@ -1039,11 +700,7 @@ func checkSpecColorLiteralsInFile(fset *token.FileSet, relPath string, file *ast
 	return violations
 }
 
-// #1002 Acceptance 2: Every non-test Go file in pkg/editor outside spec_theme.go
-// must use Spec theme tokens instead of core.RGB, core.RGBA, constant core.Color/colorFromRGBA8,
-// or hardcoded UI hex/rgb/rgba color literals. Scene content defaults (such as scene.BackgroundColor,
-// sky/fog/light defaults, and hex input placeholders) stay scene data and are narrowed by exact
-// struct field / call site context.
+// #1002 Acceptance 2: Every non-test Go file in pkg/editor outside theme/theme.go must use Spec theme tokens instead of core.RGB, core.RGBA, constant core.Color/colorFromRGBA8, or hardcoded UI hex/rgb/rgba color literals. Scene content defaults (such as scene.BackgroundColor, sky/fog/light defaults, and hex input placeholders) stay scene data and are narrowed by exact struct field / call site context.
 func TestSpecNoHardcodedColorLiteralsInEditor(t *testing.T) {
 	fset := token.NewFileSet()
 	var violations []string
@@ -1063,7 +720,7 @@ func TestSpecNoHardcodedColorLiteralsInEditor(t *testing.T) {
 			return nil
 		}
 		rel := filepath.ToSlash(filepath.Clean(path))
-		if rel == "spec_theme.go" {
+		if rel == "theme/theme.go" {
 			return nil
 		}
 
@@ -1079,7 +736,7 @@ func TestSpecNoHardcodedColorLiteralsInEditor(t *testing.T) {
 		t.Fatalf("WalkDir: %v", err)
 	}
 	if len(violations) > 0 {
-		t.Fatalf("found %d hardcoded color literal(s) outside spec_theme.go:\n%s", len(violations), strings.Join(violations, "\n"))
+		t.Fatalf("found %d hardcoded color literal(s) outside theme/theme.go:\n%s", len(violations), strings.Join(violations, "\n"))
 	}
 }
 
@@ -1238,7 +895,7 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	verifyMode := func(label string, want editor.SpecPalette) {
+	verifyMode := func(label string, want theme.Palette) {
 		t.Helper()
 		if got := app.Find("id:scene-editor").Style.Background; got != want.Bg {
 			t.Errorf("%s: root bg = #%06X, want Bg #%06X", label, uint32(got)>>8, uint32(want.Bg)>>8)
@@ -1249,17 +906,17 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 			t.Errorf("%s: header bg=#%06X bottomBorder=#%06X, want Bg=#%06X Line=#%06X",
 				label, uint32(tb.Background)>>8, uint32(tb.BorderColors.Bottom)>>8, uint32(want.Bg)>>8, uint32(want.Line)>>8)
 		}
-		if h := tbView.Bounds().Size.Height; h != editor.SpecHeaderHeight {
-			t.Errorf("%s: header height = %v, want SpecHeaderHeight %v", label, h, editor.SpecHeaderHeight)
+		if h := tbView.Bounds().Size.Height; h != theme.HeaderHeight {
+			t.Errorf("%s: header height = %v, want theme.HeaderHeight %v", label, h, theme.HeaderHeight)
 		}
 		if got := app.Find("id:header-brand-mark").Style.Background; got != want.Accent.Fg {
 			t.Errorf("%s: header-brand-mark bg = #%06X, want Accent.Fg #%06X", label, uint32(got)>>8, uint32(want.Accent.Fg)>>8)
 		}
 		sectionTitle := app.Find("id:scene-rail-title").TextStyle
-		if sectionTitle.Font.Size != editor.SpecFontSectionSize || sectionTitle.Font.Weight != editor.SpecFontSectionWeight || sectionTitle.Color != want.TextFaint {
+		if sectionTitle.Font.Size != theme.FontSectionSize || sectionTitle.Font.Weight != theme.FontSectionWeight || sectionTitle.Color != want.TextFaint {
 			t.Errorf("%s: scene-rail-title = %v/%v/#%06X, want %v/%v/#%06X",
 				label, sectionTitle.Font.Size, sectionTitle.Font.Weight, uint32(sectionTitle.Color)>>8,
-				editor.SpecFontSectionSize, editor.SpecFontSectionWeight, uint32(want.TextFaint)>>8)
+				theme.FontSectionSize, theme.FontSectionWeight, uint32(want.TextFaint)>>8)
 		}
 		if got := app.Find("id:editor-viewport-container").Style.Background; got != want.Viewport {
 			t.Errorf("%s: viewport surround = #%06X, want Viewport #%06X", label, uint32(got)>>8, uint32(want.Viewport)>>8)
@@ -1341,7 +998,7 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 		}
 	}
 
-	verifyMode("dark", editor.DarkSpecPalette())
+	verifyMode("dark", theme.Dark())
 
 	app.SetEnvironment(core.Environment{
 		OS:     core.OSMacOS,
@@ -1349,12 +1006,12 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 		Dark:   false,
 		Locale: "en-US",
 	})
-	verifyMode("light", editor.LightSpecPalette())
+	verifyMode("light", theme.Light())
 }
 
 func TestSpecLightModePlayUIAndTilePaletteContrast(t *testing.T) {
 	ed := newTestEditor(t)
-	light := editor.LightSpecPalette()
+	light := theme.Light()
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
@@ -1400,7 +1057,7 @@ func TestSpecLightModePlayUIAndTilePaletteContrast(t *testing.T) {
 			t.Fatalf("light play-tab-inspector text = #%06X, want TextPrimary #%06X",
 				uint32(n.TextStyle.Color)>>8, uint32(light.TextPrimary)>>8)
 		}
-		if r := editor.ContrastRatio(n.TextStyle.Color, light.Panel); r < 4.5 {
+		if r := theme.ContrastRatio(n.TextStyle.Color, light.Panel); r < 4.5 {
 			t.Fatalf("light play-tab-inspector contrast = %.2f:1, want >= 4.5:1", r)
 		}
 		foundLightTabText = true
@@ -1469,10 +1126,10 @@ func TestSpecViewport3DGridUsesActiveSpecPalette(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		appearance editor.Appearance
-		want       editor.SpecPalette
+		want       theme.Palette
 	}{
-		{"dark", editor.AppearanceDark, editor.DarkSpecPalette()},
-		{"light", editor.AppearanceLight, editor.LightSpecPalette()},
+		{"dark", editor.AppearanceDark, theme.Dark()},
+		{"light", editor.AppearanceLight, theme.Light()},
 	} {
 		if err := ed.SetAppearance(tc.appearance); err != nil {
 			t.Fatalf("SetAppearance(%s): %v", tc.name, err)
@@ -1499,10 +1156,60 @@ func TestSpecViewport3DGridUsesActiveSpecPalette(t *testing.T) {
 	}
 }
 
-// TestSpecNoDarkOnlyPackageColorVarsInEditor enforces that no non-test file under pkg/editor
-// (outside spec_theme.go) declares package-level color variables initialized from darkSpecPalette
-// or lightSpecPalette, ensuring every editor panel and overlay reacts dynamically to Dark/Light
-// theme changes via Editor.SpecPalette(cx) or Editor.activeSpecPalette().
+// themeImportNames returns the names file uses for the github.com/nsgo-dev/game/pkg/editor/theme package.
+func themeImportNames(file *ast.File) map[string]bool {
+	names := map[string]bool{}
+	for _, imp := range file.Imports {
+		importPath, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || importPath != "github.com/nsgo-dev/game/pkg/editor/theme" {
+			continue
+		}
+		switch {
+		case imp.Name == nil:
+			names["theme"] = true
+		case imp.Name.Name != "_" && imp.Name.Name != ".":
+			names[imp.Name.Name] = true
+		}
+	}
+	return names
+}
+
+// checkDarkOnlyPackageColorVarsInFile reports every package-level var in file whose value selects theme.Dark or theme.Light, which would freeze that color to one appearance.
+func checkDarkOnlyPackageColorVarsInFile(fset *token.FileSet, file *ast.File) []string {
+	themeNames := themeImportNames(file)
+	if len(themeNames) == 0 {
+		return nil
+	}
+	var violations []string
+	for _, decl := range file.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, val := range vs.Values {
+				ast.Inspect(val, func(n ast.Node) bool {
+					sel, ok := n.(*ast.SelectorExpr)
+					if !ok || (sel.Sel.Name != "Dark" && sel.Sel.Name != "Light") {
+						return true
+					}
+					if x, ok := sel.X.(*ast.Ident); ok && themeNames[x.Name] {
+						pos := fset.Position(sel.Pos())
+						violations = append(violations, pos.String()+": forbidden package-level var referencing "+x.Name+"."+sel.Sel.Name+" (use ed.Palette(cx) instead)")
+					}
+					return true
+				})
+			}
+		}
+	}
+	return violations
+}
+
+// TestSpecNoDarkOnlyPackageColorVarsInEditor enforces that no non-test file under pkg/editor declares package-level color variables initialized from theme.Dark or theme.Light, ensuring every editor panel and overlay reacts dynamically to Dark/Light theme changes via Editor.Palette(cx) or Editor.activePalette().
 func TestSpecNoDarkOnlyPackageColorVarsInEditor(t *testing.T) {
 	fset := token.NewFileSet()
 	var violations []string
@@ -1511,7 +1218,8 @@ func TestSpecNoDarkOnlyPackageColorVarsInEditor(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "testdata" || strings.HasPrefix(d.Name(), ".") {
+			// The walk root is ".", so a hidden-directory check must not match it, or the walk would skip every file.
+			if d.Name() == "testdata" || (path != "." && strings.HasPrefix(d.Name(), ".")) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -1519,35 +1227,11 @@ func TestSpecNoDarkOnlyPackageColorVarsInEditor(t *testing.T) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		rel := filepath.ToSlash(path)
-		if rel == "spec_theme.go" {
-			return nil
-		}
 		file, parseErr := parser.ParseFile(fset, path, nil, 0)
 		if parseErr != nil {
 			return parseErr
 		}
-		for _, decl := range file.Decls {
-			gd, ok := decl.(*ast.GenDecl)
-			if !ok || gd.Tok != token.VAR {
-				continue
-			}
-			for _, spec := range gd.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for _, val := range vs.Values {
-					ast.Inspect(val, func(n ast.Node) bool {
-						if id, ok := n.(*ast.Ident); ok && (id.Name == "darkSpecPalette" || id.Name == "lightSpecPalette") {
-							pos := fset.Position(id.Pos())
-							violations = append(violations, pos.String()+": forbidden package-level var referencing "+id.Name+" outside spec_theme.go (use ed.SpecPalette(cx) instead)")
-						}
-						return true
-					})
-				}
-			}
-		}
+		violations = append(violations, checkDarkOnlyPackageColorVarsInFile(fset, file)...)
 		return nil
 	})
 	if err != nil {
@@ -1555,5 +1239,38 @@ func TestSpecNoDarkOnlyPackageColorVarsInEditor(t *testing.T) {
 	}
 	if len(violations) > 0 {
 		t.Fatalf("found %d dark/light-only package-level color var(s):\n%s", len(violations), strings.Join(violations, "\n"))
+	}
+}
+
+// TestSpecDarkOnlyPackageColorVarGuardrailCatchesPatterns keeps TestSpecNoDarkOnlyPackageColorVarsInEditor from passing vacuously: it must reject package-level vars built from theme.Dark or theme.Light, under any import name, and accept the same calls inside functions.
+func TestSpecDarkOnlyPackageColorVarGuardrailCatchesPatterns(t *testing.T) {
+	check := func(src string) []string {
+		t.Helper()
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, "x.go", src, 0)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		return checkDarkOnlyPackageColorVarsInFile(fset, file)
+	}
+	const imp = `import "github.com/nsgo-dev/game/pkg/editor/theme"; `
+	for _, src := range []string{
+		`package editor; ` + imp + `var bg = theme.Dark().Bg`,
+		`package editor; ` + imp + `var line = theme.Light().Line`,
+		`package editor; ` + imp + `var pal = theme.Dark`,
+		`package editor; import tk "github.com/nsgo-dev/game/pkg/editor/theme"; var bg = tk.Dark().Bg`,
+		`package editor; ` + imp + `var (a = 1; fg = theme.Light().TextPrimary)`,
+	} {
+		if got := check(src); len(got) != 1 {
+			t.Errorf("guardrail reported %d violation(s), want 1, for %s: %v", len(got), src, got)
+		}
+	}
+	for _, src := range []string{
+		`package editor; ` + imp + `func f() { _ = theme.Dark().Bg }`,
+		`package editor; type x struct{ Dark bool }; var v x; var d = v.Dark`,
+	} {
+		if got := check(src); len(got) != 0 {
+			t.Errorf("guardrail reported %v, want none, for %s", got, src)
+		}
 	}
 }

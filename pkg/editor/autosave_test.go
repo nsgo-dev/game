@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -902,7 +903,7 @@ func TestAutoSaveStatusBarSpecLightAndDarkThemeParity(t *testing.T) {
 	}))
 	app.Settle()
 
-	assertTheme := func(label string, want editor.SpecPalette) {
+	assertTheme := func(label string, want theme.Palette) {
 		t.Helper()
 		pill := app.Find("id:status-save-error")
 		if pill.Style.Background != want.Problem().Fill || pill.Style.BorderColor != want.Problem().Edge {
@@ -920,7 +921,7 @@ func TestAutoSaveStatusBarSpecLightAndDarkThemeParity(t *testing.T) {
 		}
 	}
 
-	assertTheme("light", editor.LightSpecPalette())
+	assertTheme("light", theme.Light())
 
 	app.SetEnvironment(core.Environment{
 		OS:     core.OSMacOS,
@@ -929,5 +930,5 @@ func TestAutoSaveStatusBarSpecLightAndDarkThemeParity(t *testing.T) {
 		Locale: "en-US",
 	})
 	app.Settle()
-	assertTheme("dark", editor.DarkSpecPalette())
+	assertTheme("dark", theme.Dark())
 }

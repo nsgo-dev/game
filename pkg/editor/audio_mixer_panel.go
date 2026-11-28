@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sound"
@@ -914,7 +915,7 @@ func formatGainDB(gain float32) string {
 }
 
 func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	newBusName := core.NewSignal(cx, "")
 	addEffectKind := core.NewSignal(cx, AudioEffectReverb)
 	renameText := core.NewSignal(cx, ed.SelectedAudioBus())
@@ -1040,7 +1041,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		nil,
 	)
 
-	// Audition toolbar row styled with SpecPalette tokens.
+	// Audition toolbar row styled with theme.Palette tokens.
 	auditionBar := core.View{
 		Style: core.Style{
 			Direction:    core.Row,
@@ -1343,7 +1344,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	}
 }
 
-func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecPalette, idx int, busName string, total int, selectedBus *core.Memo[string], disabled func() bool) core.Node {
+func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal theme.Palette, idx int, busName string, total int, selectedBus *core.Memo[string], disabled func() bool) core.Node {
 	accentEdge := ui.Alpha(pal.Accent.Fg, 0.45)
 	activeNav := ui.Alpha(pal.Accent.Fg, 0.16)
 	return core.View{
@@ -1475,7 +1476,7 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecP
 	}
 }
 
-func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecPalette, busName string, ei, total int, kind AudioEffectKind, disabled func() bool) core.Node {
+func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal theme.Palette, busName string, ei, total int, kind AudioEffectKind, disabled func() bool) core.Node {
 	readEffect := func() (project.Effect, bool) {
 		_ = rev.Get()
 		bi := ed.findAudioBusIndex(busName)

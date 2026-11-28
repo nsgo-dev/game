@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/editor/internal/qrcode"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/base"
@@ -66,7 +67,7 @@ func BuildReleaseScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = langMemo.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "build-release-screen",
 			Role:   core.RoleRegion,
@@ -98,7 +99,7 @@ func BuildReleaseScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	})
 }
 
-func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *core.Memo[uint64], versionDraft *core.Signal[string]) core.Node {
+func buildReleaseHeaderView(cx *core.Scope, p theme.Palette, ed *Editor, brRev *core.Memo[uint64], versionDraft *core.Signal[string]) core.Node {
 	projectNameMemo := core.NewMemo(cx, func() string {
 		_ = brRev.Get()
 		name := ed.BuildReleaseSnapshot().ProjectName
@@ -154,7 +155,7 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 						},
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						cur := ed.SpecPalette(cx)
+						cur := ed.Palette(cx)
 						return core.Text{
 							Content: projectNameMemo.Get(),
 							Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: cur.TextPrimary},
@@ -205,7 +206,7 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				snap := ed.BuildReleaseSnapshot()
 
 				includedCount := 0
@@ -363,7 +364,7 @@ func buildReleaseHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *co
 	}
 }
 
-func buildReleasePillButton(p SpecPalette, testID, label string, active, disabled bool, onPress func()) core.Node {
+func buildReleasePillButton(p theme.Palette, testID, label string, active, disabled bool, onPress func()) core.Node {
 	bg := p.Raised
 	border := p.LineRaised
 	fg := p.TextMuted
@@ -401,7 +402,7 @@ func buildReleasePillButton(p SpecPalette, testID, label string, active, disable
 	}
 }
 
-func buildReleaseLeftColumnView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *core.Memo[uint64], notesDraft *core.Signal[string]) core.Node {
+func buildReleaseLeftColumnView(cx *core.Scope, p theme.Palette, ed *Editor, brRev *core.Memo[uint64], notesDraft *core.Signal[string]) core.Node {
 	return core.View{
 		TestID: "build-release-left-column",
 		Style: core.Style{
@@ -416,13 +417,13 @@ func buildReleaseLeftColumnView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
-				cur := ed.SpecPalette(cx)
+				cur := ed.Palette(cx)
 				snap := ed.BuildReleaseSnapshot()
 				return buildReleasePreflightSection(cur, ed, snap.Preflight)
 			}),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
-				cur := ed.SpecPalette(cx)
+				cur := ed.Palette(cx)
 				snap := ed.BuildReleaseSnapshot()
 				return buildReleasePresetsSection(cur, ed, snap)
 			}),
@@ -432,7 +433,7 @@ func buildReleaseLeftColumnView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 	}
 }
 
-func buildReleasePreflightSection(p SpecPalette, ed *Editor, pf BuildPreflightSummary) core.Node {
+func buildReleasePreflightSection(p theme.Palette, ed *Editor, pf BuildPreflightSummary) core.Node {
 	checkIcon := lucide.Check()
 	checkColor := p.Added.Fg
 	checkDetail := ed.T("buildRelease.preflightNotRun")
@@ -533,7 +534,7 @@ func buildReleasePreflightSection(p SpecPalette, ed *Editor, pf BuildPreflightSu
 	}
 }
 
-func buildReleasePresetsSection(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot) core.Node {
+func buildReleasePresetsSection(p theme.Palette, ed *Editor, snap BuildReleaseSnapshot) core.Node {
 	rows := make([]core.Node, 0, len(snap.Presets))
 	for _, pr := range snap.Presets {
 		rows = append(rows, buildPresetRowView(p, ed, pr, pr.Platform == snap.SelectedPlatform, snap.Running))
@@ -577,12 +578,12 @@ func buildReleasePresetsSection(p SpecPalette, ed *Editor, snap BuildReleaseSnap
 	}
 }
 
-func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selected, running bool) core.Node {
+func buildPresetRowView(p theme.Palette, ed *Editor, entry BuildPresetEntry, selected, running bool) core.Node {
 	plat := entry.Platform
 	var rowBg core.Color
 	var leftBarColor core.Color
 	if selected {
-		rowBg = specAlpha(p.Accent.Fg, 0.14)
+		rowBg = ui.Alpha(p.Accent.Fg, 0.14)
 		leftBarColor = p.Accent.Fg
 	}
 	var opacity core.Opacity
@@ -742,7 +743,7 @@ func buildPresetRowView(p SpecPalette, ed *Editor, entry BuildPresetEntry, selec
 	}
 }
 
-func buildPresetTitleRow(p SpecPalette, ed *Editor, entry BuildPresetEntry) core.Node {
+func buildPresetTitleRow(p theme.Palette, ed *Editor, entry BuildPresetEntry) core.Node {
 	nameText := core.Text{
 		Content: entry.Name,
 		Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: p.TextPrimary},
@@ -777,7 +778,7 @@ func buildPresetTitleRow(p SpecPalette, ed *Editor, entry BuildPresetEntry) core
 	}
 }
 
-func presetStatusChipStyle(p SpecPalette, st BuildPresetStatus) (bg, border, fg core.Color, icon *core.SVG, iconColor core.Color) {
+func presetStatusChipStyle(p theme.Palette, st BuildPresetStatus) (bg, border, fg core.Color, icon *core.SVG, iconColor core.Color) {
 	switch st {
 	case BuildPresetBuilding, BuildPresetNotarizing:
 		return p.Agent.Fill, p.Agent.Edge, p.TextSecondary, nil, p.Agent.Fg
@@ -792,7 +793,7 @@ func presetStatusChipStyle(p SpecPalette, st BuildPresetStatus) (bg, border, fg 
 	}
 }
 
-func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64], notesDraft *core.Signal[string]) core.Node {
+func buildReleaseNotesSection(p theme.Palette, ed *Editor, brRev *core.Memo[uint64], notesDraft *core.Signal[string]) core.Node {
 	return core.View{
 		TestID: "build-release-notes-section",
 		Style: core.Style{
@@ -805,7 +806,7 @@ func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
-				cur := ed.SpecPalette(cx)
+				cur := ed.Palette(cx)
 				snap := ed.BuildReleaseSnapshot()
 				headerChildren := []core.Node{
 					core.Text{
@@ -887,7 +888,7 @@ func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				snap := ed.BuildReleaseSnapshot()
 				notesFile := snap.ReleaseNotesFile
 				if notesFile == "" {
@@ -939,7 +940,7 @@ func buildReleaseNotesSection(p SpecPalette, ed *Editor, brRev *core.Memo[uint64
 	}
 }
 
-func buildReleasePublishFooter(p SpecPalette, ed *Editor) core.Node {
+func buildReleasePublishFooter(p theme.Palette, ed *Editor) core.Node {
 	reviewBtnRef := &core.Ref{}
 	return core.View{
 		TestID: "build-release-publish-footer",
@@ -994,7 +995,7 @@ func buildReleasePublishFooter(p SpecPalette, ed *Editor) core.Node {
 	}
 }
 
-func buildReleaseDetailPaneView(cx *core.Scope, p SpecPalette, ed *Editor, brRev *core.Memo[uint64]) core.Node {
+func buildReleaseDetailPaneView(cx *core.Scope, p theme.Palette, ed *Editor, brRev *core.Memo[uint64]) core.Node {
 	return core.View{
 		TestID: "build-release-detail-pane",
 		Style: core.Style{
@@ -1007,7 +1008,7 @@ func buildReleaseDetailPaneView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = brRev.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				snap := ed.BuildReleaseSnapshot()
 				sel := snap.SelectedPreset()
 				if sel == nil {
@@ -1129,7 +1130,7 @@ func buildReleaseDetailPaneView(cx *core.Scope, p SpecPalette, ed *Editor, brRev
 	}
 }
 
-func buildInlinePresetEditor(p SpecPalette, ed *Editor, entry BuildPresetEntry, running bool) core.Node {
+func buildInlinePresetEditor(p theme.Palette, ed *Editor, entry BuildPresetEntry, running bool) core.Node {
 	plat := entry.Platform
 	validTargets := project.TargetsOf(plat)
 	var targetPills []core.Node
@@ -1176,7 +1177,7 @@ func buildInlinePresetEditor(p SpecPalette, ed *Editor, entry BuildPresetEntry, 
 	}
 }
 
-func buildDetailRunningView(p SpecPalette, ed *Editor, entry BuildPresetEntry, followLog bool) core.Node {
+func buildDetailRunningView(p theme.Palette, ed *Editor, entry BuildPresetEntry, followLog bool) core.Node {
 	stepRows := make([]core.Node, 0, len(entry.Steps))
 	for _, st := range entry.Steps {
 		stepRows = append(stepRows, buildStepRowView(p, ed, st))
@@ -1256,7 +1257,7 @@ func buildDetailRunningView(p SpecPalette, ed *Editor, entry BuildPresetEntry, f
 	}
 }
 
-func buildStepRowView(p SpecPalette, ed *Editor, st BuildStep) core.Node {
+func buildStepRowView(p theme.Palette, ed *Editor, st BuildStep) core.Node {
 	var badge core.Node
 	var rowBg core.Color
 	labelColor := p.TextPrimary
@@ -1339,7 +1340,7 @@ func buildStepRowView(p SpecPalette, ed *Editor, st BuildStep) core.Node {
 	}
 }
 
-func buildDetailFailedView(p SpecPalette, ed *Editor, entry BuildPresetEntry, showWholeLog bool) core.Node {
+func buildDetailFailedView(p theme.Palette, ed *Editor, entry BuildPresetEntry, showWholeLog bool) core.Node {
 	f := entry.Failure
 	if f == nil {
 		f = &BuildFailureInfo{
@@ -1478,7 +1479,7 @@ func buildDetailFailedView(p SpecPalette, ed *Editor, entry BuildPresetEntry, sh
 			TestID: "build-fix-card",
 			Style: core.Style{
 				CornerRadius: 12,
-				Background:   specAlpha(p.Agent.Fg, 0.06),
+				Background:   ui.Alpha(p.Agent.Fg, 0.06),
 				BorderWidth:  1,
 				BorderColor:  p.Agent.Edge,
 				Padding:      core.Symmetric(14, 16),
@@ -1584,7 +1585,7 @@ func buildDetailDoneView(cx *core.Scope, ed *Editor, snap BuildReleaseSnapshot, 
 	if res == nil {
 		return core.View{TestID: "build-detail-done"}
 	}
-	spec := ed.SpecPalette(cx)
+	spec := ed.Palette(cx)
 
 	totalBytes := res.Breakdown.CodeBytes + res.Breakdown.TexturesBytes + res.Breakdown.AudioBytes + res.Breakdown.OtherBytes
 	if totalBytes <= 0 {
@@ -1880,7 +1881,7 @@ func clampBudgetPct(v float64) float32 {
 	return float32(v)
 }
 
-func buildBudgetCard(p SpecPalette, ed *Editor, testID, title, metric string, met bool, pct float32) core.Node {
+func buildBudgetCard(p theme.Palette, ed *Editor, testID, title, metric string, met bool, pct float32) core.Node {
 	badgeText := ed.T("buildRelease.budgetMet")
 	badgeBg := p.Added.Fill
 	badgeBorder := p.Added.Edge
@@ -1950,7 +1951,7 @@ func joinNaturalList(items []string) string {
 	}
 }
 
-func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry) core.Node {
+func buildDetailReadinessView(p theme.Palette, ed *Editor, entry BuildPresetEntry) core.Node {
 	_, totalIssues := countReadinessIssues(entry.Readiness)
 	heading := ed.T("buildRelease.readinessToFix", l10n.Param("count", totalIssues), l10n.Param("name", entry.Name))
 	if totalIssues == 0 {
@@ -2073,7 +2074,7 @@ func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry)
 					Gap:          12,
 					Padding:      core.Symmetric(12, 14),
 					CornerRadius: 12,
-					Background:   specAlpha(p.Agent.Fg, 0.06),
+					Background:   ui.Alpha(p.Agent.Fg, 0.06),
 					BorderWidth:  1,
 					BorderColor:  p.Agent.Edge,
 				},
@@ -2114,7 +2115,7 @@ func buildDetailReadinessView(p SpecPalette, ed *Editor, entry BuildPresetEntry)
 	}
 }
 
-func buildDetailQueuedView(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot, entry BuildPresetEntry) core.Node {
+func buildDetailQueuedView(p theme.Palette, ed *Editor, snap BuildReleaseSnapshot, entry BuildPresetEntry) core.Node {
 	title := ed.T("buildRelease.queued")
 	if snap.ActivePlatform != "" && snap.ActivePlatform != entry.Platform {
 		title = ed.T("buildRelease.queuedAfter", l10n.Param("name", platformDisplayName(snap.ActivePlatform)))
@@ -2179,7 +2180,7 @@ func buildDetailQueuedView(p SpecPalette, ed *Editor, snap BuildReleaseSnapshot,
 	}
 }
 
-func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot, qrURL string) core.Node {
+func buildWebQRCardView(ed *Editor, spec theme.Palette, ws WebBuildServerSnapshot, qrURL string) core.Node {
 	statusLabel := ed.T("buildRelease.lanTestLink")
 	statusDot := spec.Added.Fg
 	statusFg := spec.TextSecondary
@@ -2225,7 +2226,7 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 					Width:        core.Pt(160),
 					Height:       core.Pt(160),
 					CornerRadius: 8,
-					Background:   lightSpecPalette.Raised,
+					Background:   theme.Light().Raised,
 					BorderWidth:  qrBorderW,
 					BorderColor:  qrBorderCol,
 					Overflow:     core.Hidden,
@@ -2357,7 +2358,7 @@ func drawQRCode(d *core.Drawing, sz core.Size, code *qrcode.Code) {
 	if d == nil || code == nil || code.Size <= 0 || math.IsNaN(w) || math.IsInf(w, 0) || math.IsNaN(h) || math.IsInf(h, 0) || w <= 0 || h <= 0 {
 		return
 	}
-	d.SetFillColor(lightSpecPalette.Raised).FillRect(0, 0, float32(w), float32(h))
+	d.SetFillColor(theme.Light().Raised).FillRect(0, 0, float32(w), float32(h))
 
 	qz := code.QuietZone()
 	totalModules := code.Size + 2*qz
@@ -2370,7 +2371,7 @@ func drawQRCode(d *core.Drawing, sz core.Size, code *qrcode.Code) {
 	ox := math.Floor((w - gridSide) / 2)
 	oy := math.Floor((h - gridSide) / 2)
 
-	d.SetFillColor(darkSpecPalette.Bg)
+	d.SetFillColor(theme.Dark().Bg)
 	cellF := float32(cell)
 	for y := range code.Size {
 		py := float32(oy + float64(qz+y)*cell)
@@ -2383,7 +2384,7 @@ func drawQRCode(d *core.Drawing, sz core.Size, code *qrcode.Code) {
 	}
 }
 
-func deviceStateDotColor(spec SpecPalette, st BuildDeviceState, available bool) core.Color {
+func deviceStateDotColor(spec theme.Palette, st BuildDeviceState, available bool) core.Color {
 	switch st {
 	case BuildDeviceReady, BuildDeviceServing, BuildDeviceRunning:
 		return spec.Added.Fg
@@ -2401,7 +2402,7 @@ func deviceStateDotColor(spec SpecPalette, st BuildDeviceState, available bool) 
 	}
 }
 
-func buildReleaseSecondaryButtonSpec(p SpecPalette, testID, label string, onPress func()) core.Node {
+func buildReleaseSecondaryButtonSpec(p theme.Palette, testID, label string, onPress func()) core.Node {
 	return core.View{
 		TestID: testID,
 		Role:   core.RoleButton,
@@ -2466,11 +2467,11 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 
 	onDialogClose := bindDialogFocusRestore(cx, ed, reviewOpen.Get)
 
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 
 	headerNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = brRev.Get()
-		cur := ed.SpecPalette(cx)
+		cur := ed.Palette(cx)
 		rev := ed.BuildReleaseSnapshot().UploadReview
 		return core.View{
 			Style: core.Style{
@@ -2526,7 +2527,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 
 	itemsAndSummaryNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = brRev.Get()
-		cur := ed.SpecPalette(cx)
+		cur := ed.Palette(cx)
 		rev := ed.BuildReleaseSnapshot().UploadReview
 
 		var rows []core.Node
@@ -2634,7 +2635,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 	keychainDrawerNode := core.Show{
 		When: keychainOpen.Get,
 		Then: func(cx *core.Scope) core.Node {
-			cur := ed.SpecPalette(cx)
+			cur := ed.Palette(cx)
 			destMemo := core.NewMemo(cx, func() PublishDestination {
 				_ = brRev.Get()
 				d := ed.BuildReleaseSnapshot().UploadReview.KeychainDest
@@ -2763,7 +2764,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 
 	footerNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = brRev.Get()
-		cur := ed.SpecPalette(cx)
+		cur := ed.Palette(cx)
 		rev := ed.BuildReleaseSnapshot().UploadReview
 		selectedCount := 0
 		for _, it := range rev.Items {
@@ -2847,7 +2848,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 		Role:   core.RoleDialog,
 		Label:  ed.T("buildRelease.reviewUploadsTitle"),
 		StyleFunc: func() core.Style {
-			cur := ed.SpecPalette(cx)
+			cur := ed.Palette(cx)
 			return core.Style{
 				Width:        core.Pt(800),
 				MaxHeight:    core.Pt(760),
@@ -2863,7 +2864,7 @@ func buildReleaseReviewUploadsOverlay(cx *core.Scope, ed *Editor, brRev *core.Me
 			ui.ScrollView{
 				Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MaxHeight: core.Pt(500), Padding: core.Symmetric(16, 24)},
 				ContentStyle: core.Style{Gap: 12},
-				EdgeColor:    func() core.Color { return ed.SpecPalette(cx).Raised },
+				EdgeColor:    func() core.Color { return ed.Palette(cx).Raised },
 				Children: []core.Node{
 					itemsAndSummaryNode,
 					keychainDrawerNode,
@@ -2922,7 +2923,7 @@ func keychainSecretPlaceholder(dest PublishDestination) string {
 	}
 }
 
-func buildReviewUploadItemRow(p SpecPalette, ed *Editor, it ReleaseUploadItem, running, isLast bool) core.Node {
+func buildReviewUploadItemRow(p theme.Palette, ed *Editor, it ReleaseUploadItem, running, isLast bool) core.Node {
 	plat := it.Platform
 	dest := it.Destination
 	manual := it.ManualOnly || !dest.Valid()

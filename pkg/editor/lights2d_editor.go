@@ -7,10 +7,12 @@ import (
 	"reflect"
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/lights2d"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const (
@@ -790,11 +792,11 @@ func (e *Editor) drawLightingOverlays2D(d *core.Drawing, scene *sceneformat.Buil
 	if d == nil || scene == nil || e.playing {
 		return
 	}
-	pal := e.activeSpecPalette()
-	lightOverlayColor := specAlpha(pal.Warning.Fg, 0.85)
-	lightOverlaySubtleColor := specAlpha(pal.Warning.Fg, 0.45)
-	occluderOverlayColor := specAlpha(pal.Agent.Fg, 0.9)
-	occluderOverlaySubtle := specAlpha(pal.Agent.Fg, 0.45)
+	pal := e.activePalette()
+	lightOverlayColor := ui.Alpha(pal.Warning.Fg, 0.85)
+	lightOverlaySubtleColor := ui.Alpha(pal.Warning.Fg, 0.45)
+	occluderOverlayColor := ui.Alpha(pal.Agent.Fg, 0.9)
+	occluderOverlaySubtle := ui.Alpha(pal.Agent.Fg, 0.45)
 	for _, layer := range scene.Layers {
 		if !layer.Visible || layer.Space != sceneformat.SpaceWorld {
 			continue
@@ -855,12 +857,12 @@ func (e *Editor) drawLightingOverlays2D(d *core.Drawing, scene *sceneformat.Buil
 
 // drawSelectedLightingHandles2D draws the interactive light radius/spot-angle handles and occluder rect/polygon shape handles for the currently selected object.
 func (e *Editor) drawSelectedLightingHandles2D(d *core.Drawing) {
-	pal := e.activeSpecPalette()
-	lightOverlayColor := specAlpha(pal.Warning.Fg, 0.85)
-	lightOverlaySubtleColor := specAlpha(pal.Warning.Fg, 0.45)
-	occluderOverlayColor := specAlpha(pal.Agent.Fg, 0.9)
-	occluderEdgeMidFillColor := CompositeOver(specAlpha(pal.TextPrimary, 0.65), pal.Agent.Fg)
-	gizmoColorRing := specAlpha(pal.Accent.Edge, 0.8)
+	pal := e.activePalette()
+	lightOverlayColor := ui.Alpha(pal.Warning.Fg, 0.85)
+	lightOverlaySubtleColor := ui.Alpha(pal.Warning.Fg, 0.45)
+	occluderOverlayColor := ui.Alpha(pal.Agent.Fg, 0.9)
+	occluderEdgeMidFillColor := theme.CompositeOver(ui.Alpha(pal.TextPrimary, 0.65), pal.Agent.Fg)
+	gizmoColorRing := ui.Alpha(pal.Accent.Edge, 0.8)
 	gizmoColorCenter := pal.TextPrimary
 	gizmoColorActive := pal.Warning.Fg
 

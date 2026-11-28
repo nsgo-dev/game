@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -932,10 +933,10 @@ func (e *Editor) DrawInputRegionCanvas(d *core.Drawing, size core.Size) {
 	sx := cw / dw
 	sy := ch / dh
 
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	// Background and display bounds border.
 	d.SetFillColor(spec.Viewport).FillRect(0, 0, cw, ch)
-	d.SetStrokeColor(specAlpha(spec.TextFaint, 0.25)).SetLineWidth(1)
+	d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.25)).SetLineWidth(1)
 	d.BeginPath()
 	d.MoveTo(cw/2, 0).LineTo(cw/2, ch)
 	d.MoveTo(0, ch/2).LineTo(cw, ch/2)
@@ -968,7 +969,7 @@ func (e *Editor) DrawInputRegionCanvas(d *core.Drawing, size core.Size) {
 	d.SetStrokeColor(spec.LineRaised).SetLineWidth(1).StrokeRect(0.5, 0.5, cw-1, ch-1)
 }
 
-func drawInputRegionBox(d *core.Drawing, spec SpecPalette, r project.Rect, sx, sy float32, kind string, selected bool) {
+func drawInputRegionBox(d *core.Drawing, spec theme.Palette, r project.Rect, sx, sy float32, kind string, selected bool) {
 	rx := r.X * sx
 	ry := r.Y * sy
 	rw := r.Width * sx
@@ -983,8 +984,8 @@ func drawInputRegionBox(d *core.Drawing, spec SpecPalette, r project.Rect, sx, s
 		fillAlpha = 0.34
 		strokeWidth = 2
 	}
-	d.SetFillColor(specAlpha(base, fillAlpha)).FillRect(rx, ry, rw, rh)
-	d.SetStrokeColor(specAlpha(base, 0.95)).SetLineWidth(strokeWidth).StrokeRect(rx, ry, rw, rh)
+	d.SetFillColor(ui.Alpha(base, fillAlpha)).FillRect(rx, ry, rw, rh)
+	d.SetStrokeColor(ui.Alpha(base, 0.95)).SetLineWidth(strokeWidth).StrokeRect(rx, ry, rw, rh)
 	if selected {
 		const hs float32 = 6
 		d.SetFillColor(base).FillRect(rx+rw-hs, ry+rh-hs, hs, hs)
@@ -1185,7 +1186,7 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		return b.String()
 	})
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	activeNav := ui.Alpha(pal.Accent.Fg, 0.16)
 	focusRing := pal.FocusRing(2)
 
@@ -1340,7 +1341,7 @@ func inputActionsTab(
 	bindingListKey *core.Memo[string],
 	disabled func() bool,
 ) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	accentEdge := ui.Alpha(pal.Accent.Fg, 0.45)
 	activeNav := ui.Alpha(pal.Accent.Fg, 0.16)
 	focusRing := pal.FocusRing(2)
@@ -1659,7 +1660,7 @@ func keyCaptureBanner(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		})
 	})
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	return core.View{
 		TestID:    "input-key-capture-target",
 		Label:     ed.T("inputMap.keyCaptureTargetLabel"),
@@ -1808,7 +1809,7 @@ func inputBindingRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], actNa
 		editorControls = append(editorControls, regionFields(ed, rev, actName, bi, readBinding, disabled)...)
 	}
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	activeNav := ui.Alpha(pal.Accent.Fg, 0.16)
 	accentEdge := ui.Alpha(pal.Accent.Fg, 0.45)
 
@@ -1966,7 +1967,7 @@ func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 		return px * dw / cw, py * dh / ch
 	}
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	return core.View{
 		TestID: "input-region-column",
 		Style: core.Style{
@@ -2175,7 +2176,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 		return b.String()
 	})
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	sectionHeader := func(title string) core.Node {
 		return core.Text{Content: title, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: pal.TextFaint}}
 	}

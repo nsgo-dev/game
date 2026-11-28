@@ -1,4 +1,5 @@
-package editor
+// Package theme holds the NSGo editor's design tokens from design/editor/Spec.dc.html: the embedded YAML theme, the dark and light palettes, type, spacing, shape and motion constants, and the WCAG 2.2 contrast table every palette is measured against.
+package theme
 
 import (
 	_ "embed"
@@ -7,109 +8,104 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/ui"
 )
 
-//go:embed spec_theme.yaml
-var specThemeYAML []byte
+//go:embed theme.yaml
+var themeYAML []byte
 
 // Typography tokens from design/editor/Spec.dc.html ("Type, space, shape").
 const (
-	SpecFontFamilySans = "Inter"
-	SpecFontFamilyMono = "JetBrains Mono"
+	FontFamilySans = "Inter"
+	FontFamilyMono = "JetBrains Mono"
 
-	SpecFontTitleSize     core.Points     = 14
-	SpecFontTitleWeight   core.FontWeight = core.FontWeightSemibold // 600
-	SpecFontBodySize      core.Points     = 12.5
-	SpecFontBodyWeight    core.FontWeight = core.FontWeightNormal // 400
-	SpecFontSectionSize   core.Points     = 11
-	SpecFontSectionWeight core.FontWeight = core.FontWeightSemibold // 600
-	SpecFontSectionTrack  core.Points     = 0.66                    // +6% tracking on 11 px
-	SpecFontCodeSize      core.Points     = 11.5
-	SpecFontCodeWeight    core.FontWeight = core.FontWeightNormal // 400
+	FontTitleSize     core.Points     = 14
+	FontTitleWeight   core.FontWeight = core.FontWeightSemibold // 600
+	FontBodySize      core.Points     = 12.5
+	FontBodyWeight    core.FontWeight = core.FontWeightNormal // 400
+	FontSectionSize   core.Points     = 11
+	FontSectionWeight core.FontWeight = core.FontWeightSemibold // 600
+	FontSectionTrack  core.Points     = 0.66                    // +6% tracking on 11 px
+	FontCodeSize      core.Points     = 11.5
+	FontCodeWeight    core.FontWeight = core.FontWeightNormal // 400
 )
 
 // Spacing scale tokens from design/editor/Spec.dc.html: 4, 8, 12, 16, 24 px only.
 const (
-	SpecSpace4  core.Points = 4
-	SpecSpace8  core.Points = 8
-	SpecSpace12 core.Points = 12
-	SpecSpace16 core.Points = 16
-	SpecSpace24 core.Points = 24
+	Space4  core.Points = 4
+	Space8  core.Points = 8
+	Space12 core.Points = 12
+	Space16 core.Points = 16
+	Space24 core.Points = 24
 )
 
 // Corner radius tokens from design/editor/Spec.dc.html.
 const (
-	SpecRadiusControl core.Points = 6  // Controls, inputs, tree rows, pills
-	SpecRadiusButton  core.Points = 8  // Buttons
-	SpecRadiusCard    core.Points = 12 // Cards, popovers, toasts
-	SpecRadiusDialog  core.Points = 18 // Dialogs
+	RadiusControl core.Points = 6  // Controls, inputs, tree rows, pills
+	RadiusButton  core.Points = 8  // Buttons
+	RadiusCard    core.Points = 12 // Cards, popovers, toasts
+	RadiusDialog  core.Points = 18 // Dialogs
 )
 
 // Height, border, and icon geometry tokens from design/editor/Spec.dc.html.
 const (
-	SpecRowHeight        core.Points = 28 // Rows and tool buttons
-	SpecMinHitSize       core.Points = 28 // Minimum interactive hit area (28 x 28)
-	SpecButtonHeight     core.Points = 30 // Standard button height (30-32 px)
-	SpecButtonTallHeight core.Points = 32 // Tall button height (30-32 px)
-	SpecHeaderHeight     core.Points = 44 // Header / toolbar height
-	SpecBorderWidth      core.Points = 1  // 1 px inner borders in Line or LineRaised
-	SpecIconSize         core.Points = 15 // Inline stroke icon size
-	SpecIconStrokeWidth  float32     = 1.8
+	RowHeight        core.Points = 28 // Rows and tool buttons
+	MinHitSize       core.Points = 28 // Minimum interactive hit area (28 x 28)
+	ButtonHeight     core.Points = 30 // Standard button height (30-32 px)
+	ButtonTallHeight core.Points = 32 // Tall button height (30-32 px)
+	HeaderHeight     core.Points = 44 // Header / toolbar height
+	BorderWidth      core.Points = 1  // 1 px inner borders in Line or LineRaised
+	IconSize         core.Points = 15 // Inline stroke icon size
+	IconStrokeWidth  float32     = 1.8
 )
 
-// Motion tokens from design/editor/Spec.dc.html ("Motion").
-// All durations drop to 0 under Env.ReduceMotion (see SpecMotionDuration).
+// Motion tokens from design/editor/Spec.dc.html ("Motion"). All durations drop to 0 under Env.ReduceMotion (see MotionDuration).
 const (
-	SpecMotionHover      = 120 * time.Millisecond  // Hover and press transitions
-	SpecMotionPanel      = 180 * time.Millisecond  // Panels, popovers, and toasts
-	SpecMotionOverlay    = 240 * time.Millisecond  // Agent change overlays fading in
-	SpecMotionAgentPulse = 1600 * time.Millisecond // Agent outline pulse (100% <-> 45% opacity)
+	MotionHover      = 120 * time.Millisecond  // Hover and press transitions
+	MotionPanel      = 180 * time.Millisecond  // Panels, popovers, and toasts
+	MotionOverlay    = 240 * time.Millisecond  // Agent change overlays fading in
+	MotionAgentPulse = 1600 * time.Millisecond // Agent outline pulse (100% <-> 45% opacity)
 
-	SpecAgentPulseMinOpacity float32 = 0.45
-	SpecAgentPulseMaxOpacity float32 = 1.0
+	AgentPulseMinOpacity float32 = 0.45
+	AgentPulseMaxOpacity float32 = 1.0
 )
 
-// SpecMotionDuration returns d when motion is enabled, or 0 when cx is non-nil and
-// cx.Env().ReduceMotion() is true.
-func SpecMotionDuration(cx *core.Scope, d time.Duration) time.Duration {
+// MotionDuration returns d when motion is enabled, or 0 when cx is non-nil and cx.Env().ReduceMotion() is true.
+func MotionDuration(cx *core.Scope, d time.Duration) time.Duration {
 	if cx != nil && cx.Env().ReduceMotion() {
 		return 0
 	}
 	return d
 }
 
-// SpecAgentPulseOpacity returns the Spec agent-working outline opacity in [0.45, 1.0]
-// for elapsed time since the pulse began. Under Env.ReduceMotion it stays solid at 1.0.
-func SpecAgentPulseOpacity(cx *core.Scope, elapsed time.Duration) float32 {
+// AgentPulseOpacity returns the Spec agent-working outline opacity in [0.45, 1.0] for elapsed time since the pulse began. Under Env.ReduceMotion it stays solid at 1.0.
+func AgentPulseOpacity(cx *core.Scope, elapsed time.Duration) float32 {
 	if cx != nil && cx.Env().ReduceMotion() {
-		return SpecAgentPulseMaxOpacity
+		return AgentPulseMaxOpacity
 	}
-	if SpecMotionAgentPulse <= 0 {
-		return SpecAgentPulseMaxOpacity
+	if MotionAgentPulse <= 0 {
+		return AgentPulseMaxOpacity
 	}
-	phase := float64(elapsed%SpecMotionAgentPulse) / float64(SpecMotionAgentPulse)
+	phase := float64(elapsed%MotionAgentPulse) / float64(MotionAgentPulse)
 	t := 0.5 * (1 + math.Cos(2*math.Pi*phase))
-	return SpecAgentPulseMinOpacity + float32(t)*(SpecAgentPulseMaxOpacity-SpecAgentPulseMinOpacity)
+	return AgentPulseMinOpacity + float32(t)*(AgentPulseMaxOpacity-AgentPulseMinOpacity)
 }
 
 var (
-	parsedSpecTheme, darkSpecPalette, lightSpecPalette = loadSpecTheme()
+	parsed, darkPalette, lightPalette = load()
 )
 
-func loadSpecTheme() (*core.Theme, SpecPalette, SpecPalette) {
-	th, err := core.ParseTheme(specThemeYAML)
+func load() (*core.Theme, Palette, Palette) {
+	th, err := core.ParseTheme(themeYAML)
 	if err != nil {
-		panic(fmt.Sprintf("editor: parse embedded spec_theme.yaml: %v", err))
+		panic(fmt.Sprintf("theme: parse embedded theme.yaml: %v", err))
 	}
-	dark := extractSpecPalette(&th.Dark, true)
-	light := extractSpecPalette(&th.Light, false)
+	dark := extractPalette(&th.Dark, true)
+	light := extractPalette(&th.Light, false)
 	return th, dark, light
 }
 
-// SpecRole holds the coordinated colors for a semantic Spec token role
-// (Accent, Agent, Added, Changed, Removed/Problem, or Warning).
-type SpecRole struct {
+// Role holds the coordinated colors for a semantic Spec token role (Accent, Agent, Added, Changed, Removed/Problem, or Warning).
+type Role struct {
 	// Fg is the foreground text, icon, glyph, or solid badge fill color.
 	Fg core.Color
 	// Fill is the tinted surface or pill fill color behind Fg or body text.
@@ -121,9 +117,8 @@ type SpecRole struct {
 	OnFill core.Color
 }
 
-// SpecPalette holds every color token defined by design/editor/Spec.dc.html
-// in either the Dark or Light appearance.
-type SpecPalette struct {
+// Palette holds every color token defined by design/editor/Spec.dc.html in either the Dark or Light appearance.
+type Palette struct {
 	// Dark reports whether this palette is the dark appearance.
 	Dark bool
 
@@ -148,12 +143,12 @@ type SpecPalette struct {
 	OnTextPrimary core.Color // Ink drawn on a solid TextPrimary primary button fill (Play, Send, Create).
 
 	// Semantic roles, each carrying Fg, Fill, Edge, and OnFill.
-	Accent  SpecRole // Selection, focus ring, Keep; solid.
-	Agent   SpecRole // Agent working; solid violet, never blue.
-	Added   SpecRole // New objects and lines; dashed.
-	Changed SpecRole // Edited objects and values; dashed.
-	Removed SpecRole // Deleted objects and problems/errors; solid.
-	Warning SpecRole // Permission asks, waiting, warning toasts (with dedicated Fill and Edge).
+	Accent  Role // Selection, focus ring, Keep; solid.
+	Agent   Role // Agent working; solid violet, never blue.
+	Added   Role // New objects and lines; dashed.
+	Changed Role // Edited objects and values; dashed.
+	Removed Role // Deleted objects and problems/errors; solid.
+	Warning Role // Permission asks, waiting, warning toasts (with dedicated Fill and Edge).
 
 	// Surface interaction overlays and 3D viewport / axis tokens (design/editor/Viewport3D.dc.html).
 	HoverOverlay     core.Color // Subtle hover wash over surfaces (`surfaceHover`).
@@ -169,10 +164,10 @@ type SpecPalette struct {
 }
 
 // Problem returns the semantic role shared by removed objects and problems/errors (Spec `removed · problem`).
-func (p SpecPalette) Problem() SpecRole { return p.Removed }
+func (p Palette) Problem() Role { return p.Removed }
 
 // FocusRing returns the Spec keyboard focus ring style (2 px Accent.Edge outline with the given offset).
-func (p SpecPalette) FocusRing(offset core.Points) *core.Style {
+func (p Palette) FocusRing(offset core.Points) *core.Style {
 	return &core.Style{
 		OutlineWidth:  2,
 		OutlineColor:  p.Accent.Edge,
@@ -180,82 +175,54 @@ func (p SpecPalette) FocusRing(offset core.Points) *core.Style {
 	}
 }
 
-// SpecThemeYAML returns a copy of the embedded YAML theme file parsed by core.ParseTheme.
-func SpecThemeYAML() []byte {
-	return append([]byte(nil), specThemeYAML...)
+// YAML returns a copy of the embedded YAML theme file parsed by core.ParseTheme.
+func YAML() []byte {
+	return append([]byte(nil), themeYAML...)
 }
 
-// SpecTheme returns a clone of the editor's Spec *core.Theme containing both dark and light palettes,
-// mapped onto every NSGo core.Palette and ui.Colors role as well as all Spec-specific tokens.
-func SpecTheme() *core.Theme {
-	return parsedSpecTheme.Clone()
+// Core returns a clone of the editor's Spec *core.Theme containing both dark and light palettes, mapped onto every NSGo core.Palette and ui.Colors role as well as all Spec-specific tokens.
+func Core() *core.Theme {
+	return parsed.Clone()
 }
 
-// DarkSpecPalette returns the dark Spec token palette from design/editor/Spec.dc.html.
-func DarkSpecPalette() SpecPalette {
-	return darkSpecPalette
+// Dark returns the dark Spec token palette from design/editor/Spec.dc.html.
+func Dark() Palette {
+	return darkPalette
 }
 
-// LightSpecPalette returns the light Spec token palette measured against the same WCAG 2.2 contrast table.
-func LightSpecPalette() SpecPalette {
-	return lightSpecPalette
+// Light returns the light Spec token palette measured against the same WCAG 2.2 contrast table.
+func Light() Palette {
+	return lightPalette
 }
 
-// SpecPaletteFor returns DarkSpecPalette when dark is true and LightSpecPalette otherwise.
-func SpecPaletteFor(dark bool) SpecPalette {
+// PaletteFor returns Dark when dark is true and Light otherwise.
+func PaletteFor(dark bool) Palette {
 	if dark {
-		return darkSpecPalette
+		return darkPalette
 	}
-	return lightSpecPalette
-}
-
-// SpecPalette returns the active SpecPalette for cx when non-nil (following cx.Dark(), which tracks
-// Scope.SetAppearance, Scope.SetSubtreeAppearance, and live system appearance changes), or e.Dark() otherwise.
-func (e *Editor) SpecPalette(cx *core.Scope) SpecPalette {
-	if cx != nil {
-		return SpecPaletteFor(cx.Dark())
-	}
-	return e.activeSpecPalette()
-}
-
-// activeSpecPalette returns the active SpecPalette for e, defaulting to dark when e is nil.
-func (e *Editor) activeSpecPalette() SpecPalette {
-	if e == nil {
-		return darkSpecPalette
-	}
-	return SpecPaletteFor(e.Dark())
-}
-
-// specAlpha returns c with opacity a clamped to [0, 1].
-func specAlpha(c core.Color, a float32) core.Color {
-	return ui.Alpha(c, a)
-}
-
-// colorFromRGBA8 packs dynamic raster pixel or computed data channels into a core.Color.
-func colorFromRGBA8(r, g, b, a uint8) core.Color {
-	return core.Color(uint32(r)<<24 | uint32(g)<<16 | uint32(b)<<8 | uint32(a))
+	return lightPalette
 }
 
 func mustPaletteColor(p *core.Palette, name string) core.Color {
 	c, ok := p.Color(name)
 	if !ok || c == 0 {
-		panic(fmt.Sprintf("editor: spec_theme.yaml missing color token %q", name))
+		panic(fmt.Sprintf("theme: theme.yaml missing color token %q", name))
 	}
 	return c
 }
 
-func extractSpecPalette(p *core.Palette, dark bool) SpecPalette {
-	role := func(prefix string) SpecRole {
-		return SpecRole{
+func extractPalette(p *core.Palette, dark bool) Palette {
+	role := func(prefix string) Role {
+		return Role{
 			Fg:     mustPaletteColor(p, prefix+"Fg"),
 			Fill:   mustPaletteColor(p, prefix+"Fill"),
 			Edge:   mustPaletteColor(p, prefix+"Edge"),
 			OnFill: mustPaletteColor(p, prefix+"OnFill"),
 		}
 	}
-	// Ensure ring focus token is declared directly in spec_theme.yaml.
+	// Ensure ring focus token is declared directly in theme.yaml.
 	_ = mustPaletteColor(p, "ring")
-	return SpecPalette{
+	return Palette{
 		Dark:             dark,
 		Bg:               mustPaletteColor(p, "specBg"),
 		Panel:            mustPaletteColor(p, "specPanel"),
@@ -324,8 +291,7 @@ func CompositeOver(fg, bg core.Color) core.Color {
 	return core.RGB(u(r)<<16 | u(g)<<8 | u(b))
 }
 
-// ContrastRatio returns the WCAG 2.1 / 2.2 contrast ratio between foreground a and background b,
-// in [1, 21]. If a is translucent (alpha < 1), it is composited over b first.
+// ContrastRatio returns the WCAG 2.1 / 2.2 contrast ratio between foreground a and background b, in [1, 21]. If a is translucent (alpha < 1), it is composited over b first.
 func ContrastRatio(a, b core.Color) float64 {
 	if _, _, _, alpha := a.Components(); alpha < 1 {
 		a = CompositeOver(a, b)
@@ -338,8 +304,8 @@ func ContrastRatio(a, b core.Color) float64 {
 	return (la + 0.05) / (lb + 0.05)
 }
 
-// SpecContrastPair is one foreground/background measurement row in the Spec's WCAG 2.2 contrast table.
-type SpecContrastPair struct {
+// ContrastPair is one foreground/background measurement row in the Spec's WCAG 2.2 contrast table.
+type ContrastPair struct {
 	Name       string
 	Foreground core.Color
 	Background core.Color
@@ -348,14 +314,13 @@ type SpecContrastPair struct {
 }
 
 // Ratio returns the measured WCAG 2.2 contrast ratio for this pair.
-func (p SpecContrastPair) Ratio() float64 {
+func (p ContrastPair) Ratio() float64 {
 	return ContrastRatio(p.Foreground, p.Background)
 }
 
-// SpecContrastTable returns every foreground/background and overlay contrast pair required by
-// design/editor/Spec.dc.html for palette p (Dark or Light), with its WCAG 2.2 minimum threshold.
-func SpecContrastTable(p SpecPalette) []SpecContrastPair {
-	return []SpecContrastPair{
+// ContrastTable returns every foreground/background and overlay contrast pair required by design/editor/Spec.dc.html for palette p (Dark or Light), with its WCAG 2.2 minimum threshold.
+func ContrastTable(p Palette) []ContrastPair {
+	return []ContrastPair{
 		// Core text levels on surfaces (Spec Contrast table).
 		{Name: "text strong on panel", Foreground: p.TextPrimary, Background: p.Panel, MinRatio: 4.5, Usage: "Titles, selected tree rows"},
 		{Name: "text strong on bg", Foreground: p.TextPrimary, Background: p.Bg, MinRatio: 4.5, Usage: "Window titles, status headings"},

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -92,7 +93,7 @@ func TestSpecLightAndDarkThemeMacOSScreenshots(t *testing.T) {
 			t.Fatal(err)
 		}
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-			cx.SetTheme(editor.SpecTheme())
+			cx.SetTheme(theme.Core())
 			rev := core.NewSignal(cx, ed.Revision())
 			return editor.SpecOverlayLegendView(cx, ed, rev)
 		}, nsgotest.Size(1120, 560), nsgotest.Environment(core.Environment{
@@ -115,9 +116,9 @@ func TestSpecLightAndDarkThemeMacOSScreenshots(t *testing.T) {
 
 	t.Run("toasts", func(t *testing.T) {
 		toastsGallery := func(cx *core.Scope) core.Node {
-			cx.SetTheme(editor.SpecTheme())
+			cx.SetTheme(theme.Core())
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := editor.SpecPaletteFor(cx.Dark())
+				p := theme.PaletteFor(cx.Dark())
 				title := "Toasts · Light"
 				if p.Dark {
 					title = "Toasts · Dark"

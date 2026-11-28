@@ -11,7 +11,7 @@ import (
 )
 
 // automationsSettingsPageView renders the Settings › Automations page matching
-// design/editor/Settings.dc.html (Automations) using strictly SpecPalette tokens
+// design/editor/Settings.dc.html (Automations) using strictly theme.Palette tokens
 // in both Spec Dark and Spec Light appearances.
 //
 // Inputs (automations-draft-input and automations-agent-ask) are kept outside dynamic
@@ -24,7 +24,7 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 	// never remount the page or steal focus from text inputs.
 	themeLangKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
-		return fmt.Sprintf("%v|%s", ed.SpecPalette(cx).Dark, ed.ResolvedLanguage())
+		return fmt.Sprintf("%v|%s", ed.Palette(cx).Dark, ed.ResolvedLanguage())
 	})
 
 	rowsKey := core.NewMemo(cx, func() string {
@@ -49,7 +49,7 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = themeLangKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		focusRing := p.FocusRing(2)
 
 		pauseLabelFunc := func() string {

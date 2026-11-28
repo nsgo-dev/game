@@ -111,7 +111,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Margin:       core.Edges{Left: core.Points(6 * strings.Count(p, "/"))},
 						CornerRadius: 4,
 						Background:   bg,
-						FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
+						FocusVisible: ed.Palette(cx).FocusRing(-2),
 					}
 				},
 				OnPress: func(ev core.PressEvent) {

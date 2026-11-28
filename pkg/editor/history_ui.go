@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -47,7 +48,7 @@ func (e *Editor) historyListDigest(dark bool, lang string) string {
 }
 
 // HistoryPanelView renders the unified History timeline right-side panel (AskInPlace.dc.html and
-// Checkpoints.dc.html) using exclusively SpecPalette tokens:
+// Checkpoints.dc.html) using exclusively theme.Palette tokens:
 //   - Header with All / You / Agent filter segmented control and close button
 //   - Active point-in-time preview bar ("Previewing … · editing is off") with Restore and Back (Esc)
 //   - Top "Now" row showing unsaved/saved status (clicking exits preview)
@@ -62,7 +63,7 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	themeMemo := core.NewMemo(cx, func() historyThemeKey {
 		_ = rev.Get()
 		return historyThemeKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
@@ -91,8 +92,8 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		return ed.historyListDigest(tk.dark, tk.lang)
 	})
 
-	pal := func() SpecPalette {
-		return SpecPaletteFor(themeMemo.Get().dark)
+	pal := func() theme.Palette {
+		return theme.PaletteFor(themeMemo.Get().dark)
 	}
 
 	filterBtn := func(testID string, target HistoryFilter, labelKey string) core.Node {
@@ -584,7 +585,7 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	}
 }
 
-func historyTimelineRail(p SpecPalette, dotColor core.Color, filled bool, drawLine bool) core.Node {
+func historyTimelineRail(p theme.Palette, dotColor core.Color, filled bool, drawLine bool) core.Node {
 	return core.Canvas{
 		Style: core.Style{
 			Width:      core.Pt(16),
@@ -609,7 +610,7 @@ func historyTimelineRail(p SpecPalette, dotColor core.Color, filled bool, drawLi
 	}
 }
 
-func historyEntryBadgeColors(p SpecPalette, entry HistoryEntry) (label string, dot, bg, fg core.Color) {
+func historyEntryBadgeColors(p theme.Palette, entry HistoryEntry) (label string, dot, bg, fg core.Color) {
 	if entry.Kind == HistoryEntrySaved {
 		return "Saved", p.Added.Fg, p.Added.Fill, p.Added.Fg
 	}
@@ -623,7 +624,7 @@ func historyEntryBadgeColors(p SpecPalette, entry HistoryEntry) (label string, d
 	}
 }
 
-func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, rowIdx int, selected bool, hasMore bool) core.Node {
+func historyEntryRowView(ed *Editor, p theme.Palette, entry HistoryEntry, rowIdx int, selected bool, hasMore bool) core.Node {
 	badgeLabel, dotColor, badgeBg, badgeFg := historyEntryBadgeColors(p, entry)
 	relTime := ed.FormatHistoryRelativeTime(entry.Timestamp)
 	headline := FormatHistoryEntryHeadline(entry)
@@ -829,7 +830,7 @@ func viewportHistoryPreviewBannerView(cx *core.Scope, ed *Editor, rev *core.Sign
 			})
 			bannerMemo := core.NewMemo(cx, func() historyPreviewBannerKey {
 				_ = rev.Get()
-				dark := ed.SpecPalette(cx).Dark
+				dark := ed.Palette(cx).Dark
 				lang := ed.ResolvedLanguage()
 				entry, ok := ed.HistoryPreviewEntry()
 				if !ok {
@@ -843,8 +844,8 @@ func viewportHistoryPreviewBannerView(cx *core.Scope, ed *Editor, rev *core.Sign
 					lang:         lang,
 				}
 			})
-			pal := func() SpecPalette {
-				return SpecPaletteFor(bannerMemo.Get().dark)
+			pal := func() theme.Palette {
+				return theme.PaletteFor(bannerMemo.Get().dark)
 			}
 			return core.View{
 				TestID:        "history-preview-banner-host",

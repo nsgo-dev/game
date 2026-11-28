@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-func agentAccentButton(testID, label string, p SpecPalette, onPress func()) core.Node {
+func agentAccentButton(testID, label string, p theme.Palette, onPress func()) core.Node {
 	return core.View{
 		TestID: testID,
 		Role:   core.RoleButton,
@@ -42,7 +43,7 @@ func agentAccentButton(testID, label string, p SpecPalette, onPress func()) core
 	}
 }
 
-func agentSecondaryButton(testID, label string, activeBorder bool, p SpecPalette, onPress func()) core.Node {
+func agentSecondaryButton(testID, label string, activeBorder bool, p theme.Palette, onPress func()) core.Node {
 	borderCol := p.LineRaised
 	borderW := core.Points(1)
 	if activeBorder {
@@ -82,7 +83,7 @@ func agentSecondaryButton(testID, label string, activeBorder bool, p SpecPalette
 	}
 }
 
-func agentQuietButton(testID, label string, p SpecPalette, onPress func()) core.Node {
+func agentQuietButton(testID, label string, p theme.Palette, onPress func()) core.Node {
 	return core.View{
 		TestID: testID,
 		Role:   core.RoleButton,
@@ -115,7 +116,7 @@ func agentQuietButton(testID, label string, p SpecPalette, onPress func()) core.
 
 // agentPartialSection renders the Partial outcome card, pointing prompt, kept confirmation,
 // and review strip matching design/editor/AgentStates.dc.html (Partial column).
-func agentPartialSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
+func agentPartialSection(ed *Editor, turnIdx int, turn AgentTurn, p theme.Palette) []core.Node {
 	ps := turn.Partial
 	if ps == nil {
 		return nil
@@ -293,7 +294,7 @@ func agentPartialSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 	return out
 }
 
-func agentReviewSummaryBar(ed *Editor, turnIdx int, turnID string, rev *AgentTurnReview, p SpecPalette) core.Node {
+func agentReviewSummaryBar(ed *Editor, turnIdx int, turnID string, rev *AgentTurnReview, p theme.Palette) core.Node {
 	n := rev.Count()
 	changesText := ed.T("agentStates.changesOneFileMany", l10n.Param("count", n))
 	if n == 1 {
@@ -378,7 +379,7 @@ func agentReviewSummaryBar(ed *Editor, turnIdx int, turnID string, rev *AgentTur
 
 // agentStuckSection renders the Stuck warning card with the 3 refused calls & errors,
 // Hint input, Continue with hint, and Stop here matching design/editor/AgentStates.dc.html.
-func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
+func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, p theme.Palette) []core.Node {
 	st := turn.Stuck
 	if st == nil {
 		return nil
@@ -548,7 +549,7 @@ func agentStuckSection(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn A
 
 // agentLostSection renders the Lost card (connection lost mid-request or model API error),
 // plus the post-reconnect "ask before picking up" confirmation card.
-func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
+func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p theme.Palette) []core.Node {
 	lost := turn.Lost
 	if lost == nil {
 		return nil
@@ -737,7 +738,7 @@ func agentLostSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []
 
 // agentStoppedSection renders the Stopped card with DONE and NOT DONE sections,
 // Resume (skips done steps), Review N changes, and caption matching design/editor/AgentStates.dc.html.
-func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
+func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p theme.Palette) []core.Node {
 	st := turn.StoppedState
 	if st == nil {
 		return nil
@@ -902,7 +903,7 @@ func agentStoppedSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette)
 
 // agentMismatchSection renders the Mismatch warning card with the WHAT / SUMMARY / REVIEW table,
 // known reason, Ask why, Open review, and trust-the-review caption matching design/editor/AgentStates.dc.html.
-func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) []core.Node {
+func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p theme.Palette) []core.Node {
 	mm := turn.Mismatch
 	if mm == nil {
 		return nil
@@ -1099,7 +1100,7 @@ func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette
 
 // agentOfflineAndQueueSection renders the "You're offline" notice card (while offline) and the
 // QUEUED · N list (while offline AND after returning online until each item is explicitly sent or removed).
-func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
+func agentOfflineAndQueueSection(ed *Editor, p theme.Palette) []core.Node {
 	offline := ed.AgentOffline()
 	allQueued := ed.AgentQueuedRequests()
 	var queue []AgentQueuedRequest
@@ -1294,7 +1295,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 }
 
 // agentTurnReviewDrawer renders the inline review card for a turn's actual scene diff with Keep and Discard.
-func agentTurnReviewDrawer(ed *Editor, review *AgentTurnReview, p SpecPalette) core.Node {
+func agentTurnReviewDrawer(ed *Editor, review *AgentTurnReview, p theme.Palette) core.Node {
 	if review == nil {
 		return nil
 	}
@@ -1437,7 +1438,7 @@ func agentTurnReviewDrawer(ed *Editor, review *AgentTurnReview, p SpecPalette) c
 func viewportAgentPointingOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return ed.Palette(cx).Dark
 	})
 	return core.Show{
 		When: func() bool {
@@ -1446,7 +1447,7 @@ func viewportAgentPointingOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[u
 		},
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				p := SpecPaletteFor(darkMemo.Get())
+				p := theme.PaletteFor(darkMemo.Get())
 				return core.View{
 					TestID:        "viewport-agent-pointing-pill",
 					PointerEvents: core.PointerEventsNone,

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/cutscene"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -35,7 +36,7 @@ func CutscenePanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 func cutscenePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		topBar := cutsceneTopBar(cx, p, ed, rev)
 		leftRail := cutsceneLeftRail(cx, p, ed, rev)
 		centerCol := cutsceneCenterColumn(cx, p, ed, rev)
@@ -104,7 +105,7 @@ func cutscenePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	})
 }
 
-func cutsceneTopBar(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneTopBar(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.View{
 		TestID: "cutscene-topbar",
 		Style: core.Style{
@@ -291,7 +292,7 @@ func cutsceneTopBar(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[
 	}
 }
 
-func cutsceneLeftRail(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneLeftRail(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type railEpoch struct {
 		projectPath string
 		filesRev    uint64
@@ -313,7 +314,7 @@ func cutsceneLeftRail(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signa
 		fmt.Fprintf(&b, "open:%s|before:%v", ed.CutscenePath(), ed.CutsceneReviewShowingBefore())
 		return b.String()
 	})
-	activeNodeBg := CompositeOver(specAlpha(p.Accent.Fg, 0.12), p.Raised)
+	activeNodeBg := theme.CompositeOver(ui.Alpha(p.Accent.Fg, 0.12), p.Raised)
 
 	return core.View{
 		TestID: "cutscene-left-rail",
@@ -471,7 +472,7 @@ func cutsceneLeftRail(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signa
 	}
 }
 
-func cutsceneCenterColumn(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneCenterColumn(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.View{
 		TestID: "cutscene-center",
 		Style: core.Style{
@@ -486,7 +487,7 @@ func cutsceneCenterColumn(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 	}
 }
 
-func cutscenePreviewStage(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutscenePreviewStage(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.View{
 		TestID: "cutscene-preview-stage",
 		Style: core.Style{
@@ -577,7 +578,7 @@ func cutscenePreviewStage(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 													CornerRadius:   13,
 													AlignItems:     core.AlignCenter,
 													JustifyContent: core.JustifyCenter,
-													Background:     specAlpha(p.Bg, 0.92),
+													Background:     ui.Alpha(p.Bg, 0.92),
 													BorderWidth:    1,
 													BorderColor:    p.LineRaised,
 												},
@@ -612,7 +613,7 @@ func cutscenePreviewStage(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 														Style: core.Style{
 															Padding:      core.Symmetric(8, 16),
 															CornerRadius: 8,
-															Background:   specAlpha(p.Bg, 0.88),
+															Background:   ui.Alpha(p.Bg, 0.88),
 														},
 														Children: []core.Node{
 															core.Text{
@@ -660,7 +661,7 @@ func cutscenePreviewStage(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.S
 	}
 }
 
-func cutsceneLegendRow(p SpecPalette, label string, col core.Color, dashed bool) core.Node {
+func cutsceneLegendRow(p theme.Palette, label string, col core.Color, dashed bool) core.Node {
 	return ui.HStack{
 		Gap: 8,
 		Children: []core.Node{
@@ -684,7 +685,7 @@ func cutsceneLegendRow(p SpecPalette, label string, col core.Color, dashed bool)
 	}
 }
 
-func cutsceneTimelineDrawer(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneTimelineDrawer(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	structEpoch := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
 		return ed.cutscene.structRev
@@ -1102,7 +1103,7 @@ func cutsceneTimelineDrawer(cx *core.Scope, p SpecPalette, ed *Editor, rev *core
 	}
 }
 
-func cutsceneRightRail(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneRightRail(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	reviewEpoch := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
 		return ed.cutscene.structRev
@@ -1118,11 +1119,11 @@ func cutsceneRightRail(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Sign
 		}
 		return b.String()
 	})
-	changedFill := specAlpha(p.Changed.Fg, 0.14)
-	addedFill := specAlpha(p.Added.Fg, 0.12)
-	removedFill := specAlpha(p.Removed.Fg, 0.14)
-	activeNodeBg := CompositeOver(specAlpha(p.Accent.Fg, 0.12), p.Raised)
-	accentText := CompositeOver(specAlpha(p.TextPrimary, 0.62), p.Accent.Fg)
+	changedFill := ui.Alpha(p.Changed.Fg, 0.14)
+	addedFill := ui.Alpha(p.Added.Fg, 0.12)
+	removedFill := ui.Alpha(p.Removed.Fg, 0.14)
+	activeNodeBg := theme.CompositeOver(ui.Alpha(p.Accent.Fg, 0.12), p.Raised)
+	accentText := theme.CompositeOver(ui.Alpha(p.TextPrimary, 0.62), p.Accent.Fg)
 
 	return core.View{
 		TestID: "cutscene-right-rail",
@@ -1315,7 +1316,7 @@ func cutsceneRightRail(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Sign
 	}
 }
 
-func cutsceneClipInspector(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func cutsceneClipInspector(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	easeOpts := []struct {
 		easing cutscene.Easing
 		label  string
@@ -1557,7 +1558,7 @@ func cutsceneClipInspector(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.
 	}
 }
 
-func cutsceneStepperRow(p SpecPalette, label, downID, valID, upID, downLabel, upLabel string, valFunc func() string, onDown, onUp func()) core.Node {
+func cutsceneStepperRow(p theme.Palette, label, downID, valID, upID, downLabel, upLabel string, valFunc func() string, onDown, onUp func()) core.Node {
 	btn := func(id, sym, aria string, onPress func()) core.Node {
 		return core.View{
 			TestID:  id,
@@ -1622,7 +1623,7 @@ func cutsceneStepperRow(p SpecPalette, label, downID, valID, upID, downLabel, up
 	}
 }
 
-func cutsceneSegButton(p SpecPalette, testID, label string, active func() bool, onPress func()) core.Node {
+func cutsceneSegButton(p theme.Palette, testID, label string, active func() bool, onPress func()) core.Node {
 	return core.View{
 		TestID:  testID,
 		Role:    core.RoleButton,
@@ -1659,7 +1660,7 @@ func cutsceneSegButton(p SpecPalette, testID, label string, active func() bool, 
 }
 
 // cutsceneActionButton uses Spec.dc.html AAA/AA contrast pairs: Accent.OnFill on Accent.Fg for primary Keep buttons, and TextSecondary on LineRaised for secondary buttons.
-func cutsceneActionButton(p SpecPalette, testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
+func cutsceneActionButton(p theme.Palette, testID string, textFunc func() string, primary bool, disabled func() bool, onPress func()) core.Node {
 	bg := p.LineRaised
 	fg := p.TextSecondary
 	weight := core.FontWeight(500)
@@ -1703,7 +1704,7 @@ func cutsceneActionButton(p SpecPalette, testID string, textFunc func() string, 
 	}
 }
 
-func drawDotGrid(d *core.Drawing, size core.Size, p SpecPalette) {
+func drawDotGrid(d *core.Drawing, size core.Size, p theme.Palette) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
@@ -1717,7 +1718,7 @@ func drawDotGrid(d *core.Drawing, size core.Size, p SpecPalette) {
 	}
 }
 
-func drawCutscenePreview(d *core.Drawing, size core.Size, p SpecPalette, ed *Editor) {
+func drawCutscenePreview(d *core.Drawing, size core.Size, p theme.Palette, ed *Editor) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
@@ -1768,7 +1769,7 @@ func drawCutscenePreview(d *core.Drawing, size core.Size, p SpecPalette, ed *Edi
 	d.Restore()
 }
 
-func drawCutsceneMarkerObject(d *core.Drawing, p SpecPalette, bo *sceneformat.BuiltObject) {
+func drawCutsceneMarkerObject(d *core.Drawing, p theme.Palette, bo *sceneformat.BuiltObject) {
 	if bo == nil || bo.Doc == nil {
 		return
 	}
@@ -1790,7 +1791,7 @@ func drawCutsceneMarkerObject(d *core.Drawing, p SpecPalette, bo *sceneformat.Bu
 	}
 }
 
-func drawCutsceneThumb(d *core.Drawing, size core.Size, p SpecPalette, sample *CutsceneThumbSample) {
+func drawCutsceneThumb(d *core.Drawing, size core.Size, p theme.Palette, sample *CutsceneThumbSample) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
@@ -1823,7 +1824,7 @@ func drawCutsceneThumb(d *core.Drawing, size core.Size, p SpecPalette, sample *C
 	}
 }
 
-func drawCutsceneClipBox(d *core.Drawing, size core.Size, p SpecPalette, kind cutscene.TrackKind, status CutsceneChangeKind, selected bool) {
+func drawCutsceneClipBox(d *core.Drawing, size core.Size, p theme.Palette, kind cutscene.TrackKind, status CutsceneChangeKind, selected bool) {
 	w, h := float32(size.Width), float32(size.Height)
 	if w <= 0 || h <= 0 {
 		return
@@ -1831,12 +1832,12 @@ func drawCutsceneClipBox(d *core.Drawing, size core.Size, p SpecPalette, kind cu
 	fill := p.Raised
 	switch kind {
 	case cutscene.TrackDialogue:
-		fill = specAlpha(p.Accent.Fg, 0.10)
+		fill = ui.Alpha(p.Accent.Fg, 0.10)
 	case cutscene.TrackSound, cutscene.TrackMusic:
-		fill = specAlpha(p.Added.Fg, 0.10)
+		fill = ui.Alpha(p.Added.Fg, 0.10)
 	}
 	if status == CutsceneChangeAdded {
-		fill = specAlpha(p.Added.Fg, 0.12)
+		fill = ui.Alpha(p.Added.Fg, 0.12)
 	}
 	d.Save()
 	d.SetFillColor(fill).BeginPath().RoundRect(0, 0, w, h, 6).Fill()

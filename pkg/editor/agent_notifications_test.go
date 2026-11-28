@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -610,7 +611,7 @@ func TestPlayModeHoldsNotificationsAndShowsMostUrgentDotOnHover(t *testing.T) {
 		t.Fatal("play-task-dot should not appear for running/queued tasks only")
 	}
 
-	dark := editor.DarkSpecPalette()
+	dark := theme.Dark()
 
 	// 1. Ready to review -> dot appears in Spec Accent color (#3B7BFF), label hidden until hover, NO notification yet.
 	_, _ = ed.SubmitTask(editor.TaskRequest{
@@ -753,7 +754,7 @@ func TestScriptedAgentFailureNotifiesInBackground(t *testing.T) {
 
 // TestNotificationClickClosesProblemPanelAndLightThemeDotTokens verifies clicking a notification
 // dismisses the Problem agent panel so the Agent/Tasks panel is visible, and Light Spec appearance
-// uses LightSpecPalette tokens for the Play dot.
+// uses theme.Light tokens for the Play dot.
 func TestNotificationClickClosesProblemPanelAndLightThemeDotTokens(t *testing.T) {
 	ed, _ := setupNotificationProject(t)
 	ed.SetAppearance(editor.AppearanceLight)
@@ -789,18 +790,18 @@ func TestNotificationClickClosesProblemPanelAndLightThemeDotTokens(t *testing.T)
 		t.Fatal("Agent panel not open after clicking task notification")
 	}
 
-	// Verify Play-mode dot in Light Spec theme uses LightSpecPalette().Warning.Fg.
+	// Verify Play-mode dot in Light Spec theme uses theme.Light().Warning.Fg.
 	if err := ed.Play(); err != nil {
 		t.Fatalf("Play: %v", err)
 	}
 	app.Settle()
-	light := editor.LightSpecPalette()
+	light := theme.Light()
 	dotCore := app.Find("id:play-task-dot-core")
 	if dotCore == nil {
 		t.Fatal("play-task-dot-core not visible in Light theme Play mode")
 	}
 	if dotCore.Style.Background != light.Warning.Fg {
-		t.Fatalf("light waiting dot color = %#x, want LightSpecPalette().Warning.Fg %#x", uint32(dotCore.Style.Background), uint32(light.Warning.Fg))
+		t.Fatalf("light waiting dot color = %#x, want theme.Light().Warning.Fg %#x", uint32(dotCore.Style.Background), uint32(light.Warning.Fg))
 	}
 	_ = ed.Stop()
 	app.Settle()

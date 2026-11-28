@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -625,8 +626,8 @@ func TestSettingsSpecLightThemeLiveRepaint(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	light := editor.LightSpecPalette()
-	dark := editor.DarkSpecPalette()
+	light := theme.Light()
+	dark := theme.Dark()
 
 	app.Post(func() { ed.OpenSettingsPage(editor.SettingsPageProject) })
 	app.Settle()

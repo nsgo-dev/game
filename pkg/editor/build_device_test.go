@@ -20,6 +20,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -874,15 +875,15 @@ func TestWebBuildServerSecurityConcurrencyAndSpecLight(t *testing.T) {
 			Locale: "en-US",
 		}))
 
-		light := editor.LightSpecPalette()
+		light := theme.Light()
 		qrCard := app.Find("id:build-result-qr").Style
 		if qrCard.Background != light.Raised || qrCard.BorderColor != light.LineRaised {
-			t.Fatalf("Spec Light build-result-qr bg=0x%08x border=0x%08x, want LightSpecPalette().Raised/LineRaised 0x%08x/0x%08x",
+			t.Fatalf("Spec Light build-result-qr bg=0x%08x border=0x%08x, want theme.Light().Raised/LineRaised 0x%08x/0x%08x",
 				uint32(qrCard.Background), uint32(qrCard.BorderColor), uint32(light.Raised), uint32(light.LineRaised))
 		}
 		qrStatus := app.Find("id:build-qr-status").Style
 		if qrStatus.Background != light.Added.Fill || qrStatus.BorderColor != light.Added.Edge {
-			t.Fatalf("Spec Light build-qr-status bg=0x%08x border=0x%08x, want LightSpecPalette().Added 0x%08x/0x%08x",
+			t.Fatalf("Spec Light build-qr-status bg=0x%08x border=0x%08x, want theme.Light().Added 0x%08x/0x%08x",
 				uint32(qrStatus.Background), uint32(qrStatus.BorderColor), uint32(light.Added.Fill), uint32(light.Added.Edge))
 		}
 	})

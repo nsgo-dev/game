@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/datatable"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
@@ -25,7 +26,7 @@ type dtReviewDropHint struct {
 }
 
 // DataTableReviewView renders the full-window row-by-row Data Table review screen matching
-// design/editor/ReviewData.dc.html using exclusively SpecPalette tokens (Dark & Light).
+// design/editor/ReviewData.dc.html using exclusively theme.Palette tokens (Dark & Light).
 func DataTableReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	reviewShortcutsActive := func() bool {
 		return ed.DataTableReviewOpen() &&
@@ -86,14 +87,14 @@ func DataTableReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	chromeMemo := core.NewMemo(cx, func() reviewChrome {
 		_ = rev.Get()
 		return reviewChrome{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
 	dropHint := core.NewSignal(cx, dtReviewDropHint{})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(chromeMemo.Get().dark)
+		p := theme.PaletteFor(chromeMemo.Get().dark)
 		return core.View{
 			TestID: "dt-review-screen",
 			Role:   core.RoleRegion,
@@ -124,7 +125,7 @@ func DataTableReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	})
 }
 
-func dtReviewHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Memo[uint64]) core.Node {
+func dtReviewHeaderView(cx *core.Scope, p theme.Palette, ed *Editor, reviewRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
 		kept, total := ed.DataTableReviewKeptCount()
@@ -262,7 +263,7 @@ func dtReviewHeaderView(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *co
 	})
 }
 
-func dtReviewLeftSidebar(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Memo[uint64]) core.Node {
+func dtReviewLeftSidebar(cx *core.Scope, p theme.Palette, ed *Editor, reviewRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
 		files := ed.DataTableReviewFiles()
@@ -368,7 +369,7 @@ func dtReviewLeftSidebar(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *c
 	})
 }
 
-func dtReviewChecksCard(p SpecPalette, ed *Editor, checks []DataTableReviewCheck, stale bool) core.Node {
+func dtReviewChecksCard(p theme.Palette, ed *Editor, checks []DataTableReviewCheck, stale bool) core.Node {
 	headChildren := []core.Node{
 		core.Text{
 			Content: ed.T("dtReview.agentCheck"),
@@ -504,7 +505,7 @@ func dtReviewChecksCard(p SpecPalette, ed *Editor, checks []DataTableReviewCheck
 	}
 }
 
-func dtReviewCenterPane(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Memo[uint64], dropHint *core.Signal[dtReviewDropHint]) core.Node {
+func dtReviewCenterPane(cx *core.Scope, p theme.Palette, ed *Editor, reviewRev *core.Memo[uint64], dropHint *core.Signal[dtReviewDropHint]) core.Node {
 	// Keep the search input mounted outside the table dynamic block so typing never drops focus.
 	searchBar := core.View{
 		TestID: "dt-review-filter-wrap",
@@ -607,7 +608,7 @@ func dtReviewCenterPane(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *co
 	}
 }
 
-func dtReviewToolbar(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Memo[uint64], searchBar core.Node) core.Node {
+func dtReviewToolbar(cx *core.Scope, p theme.Palette, ed *Editor, reviewRev *core.Memo[uint64], searchBar core.Node) core.Node {
 	chipsView := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
 		all, changed, unchanged, reverted, yours := ed.DataTableReviewChipCounts()
@@ -711,7 +712,7 @@ func dtReviewToolbar(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.
 	}
 }
 
-func dtReviewErrorBanner(p SpecPalette, ed *Editor, reviewRev *core.Memo[uint64]) core.Node {
+func dtReviewErrorBanner(p theme.Palette, ed *Editor, reviewRev *core.Memo[uint64]) core.Node {
 	return core.Show{
 		When: func() bool {
 			_ = reviewRev.Get()
@@ -757,7 +758,7 @@ func dtReviewColumnWidth(col DataTableReviewColumn, deltaCount int) core.Style {
 	return core.Style{Width: core.Pt(96), FlexShrink: 0}
 }
 
-func dtReviewTable(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Memo[uint64], dropHint *core.Signal[dtReviewDropHint]) core.Node {
+func dtReviewTable(cx *core.Scope, p theme.Palette, ed *Editor, reviewRev *core.Memo[uint64], dropHint *core.Signal[dtReviewDropHint]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
 		f := ed.activeDataTableReviewFile()
@@ -924,7 +925,7 @@ func dtReviewTable(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Me
 	})
 }
 
-func dtReviewKindDotColor(p SpecPalette, kind string) core.Color {
+func dtReviewKindDotColor(p theme.Palette, kind string) core.Color {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "weapon":
 		return p.Changed.Fg
@@ -943,7 +944,7 @@ func dtReviewKindDotColor(p SpecPalette, kind string) core.Color {
 
 func dtReviewDataRow(
 	cx *core.Scope,
-	p SpecPalette,
+	p theme.Palette,
 	ed *Editor,
 	rec DataTableReviewRecord,
 	cols []DataTableReviewColumn,
@@ -1270,7 +1271,7 @@ func dtReviewDataRow(
 	}
 }
 
-func dtReviewValueCell(p SpecPalette, ed *Editor, rec DataTableReviewRecord, col DataTableReviewColumn, diff DataTableReviewCellDiff) core.Node {
+func dtReviewValueCell(p theme.Palette, ed *Editor, rec DataTableReviewRecord, col DataTableReviewColumn, diff DataTableReviewCellDiff) core.Node {
 	recKey := rec.Key
 	colName := col.Name
 	showPill := !rec.Reverted && (diff.Changed || diff.UserEdited)
@@ -1390,7 +1391,7 @@ func dtReviewValueCell(p SpecPalette, ed *Editor, rec DataTableReviewRecord, col
 	}
 }
 
-func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey string, col DataTableReviewColumn, diff DataTableReviewCellDiff) core.Node {
+func dtReviewInlineCellEditor(cx *core.Scope, p theme.Palette, ed *Editor, recKey string, col DataTableReviewColumn, diff DataTableReviewCellDiff) core.Node {
 	initial := ed.DataTableReviewEditDraft()
 	if initial == "" && diff.HasCurrent {
 		initial = diff.Current.Display()
@@ -1539,7 +1540,7 @@ func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey 
 	}
 }
 
-func dtReviewRightYAML(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.Memo[uint64]) core.Node {
+func dtReviewRightYAML(cx *core.Scope, p theme.Palette, ed *Editor, reviewRev *core.Memo[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
 		focusTitle, lines := ed.DataTableReviewFocusedYAML()
@@ -1694,7 +1695,7 @@ func dtReviewRightYAML(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *cor
 
 // agentPendingDataTableReviewCard renders the pending Data Table review card inside AgentPanelView
 // so the person can resume a paused review from the Agent panel.
-func agentPendingDataTableReviewCard(ed *Editor, p SpecPalette) core.Node {
+func agentPendingDataTableReviewCard(ed *Editor, p theme.Palette) core.Node {
 	snap := ed.DataTableReviewSnapshot()
 	title := ed.T("dtReview.agentCardTitle",
 		l10n.Param("changes", snap.TotalChanged),

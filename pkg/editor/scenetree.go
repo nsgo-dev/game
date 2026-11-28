@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/base"
@@ -578,7 +579,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	return core.View{
 		TestID: "scene-tree-panel",
 		StyleFunc: func() core.Style {
-			cur := ed.SpecPalette(cx)
+			cur := ed.Palette(cx)
 			return core.Style{
 				FlexGrow:   1,
 				FlexBasis:  core.Pt(0),
@@ -653,10 +654,10 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				Then: func(cx *core.Scope) core.Node {
 					darkMemo := core.NewMemo(cx, func() bool {
 						_ = rev.Get()
-						return ed.SpecPalette(cx).Dark
+						return ed.Palette(cx).Dark
 					})
 					return core.Dynamic(func(cx *core.Scope) core.Node {
-						spec := SpecPaletteFor(darkMemo.Get())
+						spec := theme.PaletteFor(darkMemo.Get())
 						return core.Text{
 							TestID: "scene-tree-planned-count",
 							ContentFunc: func() string {
@@ -702,7 +703,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 												StyleFunc: func() core.Style {
 													return core.Style{
 														FontSize: 12,
-														Color:    ed.SpecPalette(cx).TextFaint,
+														Color:    ed.Palette(cx).TextFaint,
 													}
 												},
 											},
@@ -745,13 +746,13 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								Style: core.Style{
 									FlexGrow:     1,
 									FlexBasis:    core.Pt(0),
-									FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
+									FocusVisible: ed.Palette(cx).FocusRing(-2),
 								},
 								RowStyle: core.Style{
 									MinHeight:    core.Pt(specRowHeight),
 									Height:       core.Pt(specRowHeight),
 									CornerRadius: specRadiusControl,
-									FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
+									FocusVisible: ed.Palette(cx).FocusRing(-2),
 								},
 							}}},
 							sceneTreeSketchSectionView(cx, ed, rev),
@@ -836,7 +837,7 @@ func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeK
 							Width:        core.Pt(7),
 							Height:       core.Pt(7),
 							CornerRadius: 2,
-							Background:   ed.LayerKindColor(ed.SpecPalette(cx), k.layer),
+							Background:   ed.LayerKindColor(ed.Palette(cx), k.layer),
 							FlexShrink:   0,
 						}
 					},
@@ -847,7 +848,7 @@ func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeK
 					EllipsizeMode: core.EllipsizeTail,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						cur := ed.SpecPalette(cx)
+						cur := ed.Palette(cx)
 						col := cur.TextMuted
 						weight := core.FontWeightMedium
 						if ed.ActiveLayer == k.layer {
@@ -864,7 +865,7 @@ func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeK
 						return localizedLayerKind(ed, ed.LayerKindLabel(k.layer))
 					},
 					StyleFunc: func() core.Style {
-						return core.Style{FontSize: 11, Color: ed.SpecPalette(cx).TextFaint, FlexShrink: 0}
+						return core.Style{FontSize: 11, Color: ed.Palette(cx).TextFaint, FlexShrink: 0}
 					},
 				},
 				core.Show{
@@ -875,10 +876,10 @@ func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeK
 					Then: func(cx *core.Scope) core.Node {
 						darkMemo := core.NewMemo(cx, func() bool {
 							_ = rev.Get()
-							return ed.SpecPalette(cx).Dark
+							return ed.Palette(cx).Dark
 						})
 						return core.Dynamic(func(cx *core.Scope) core.Node {
-							spec := SpecPaletteFor(darkMemo.Get())
+							spec := theme.PaletteFor(darkMemo.Get())
 							return core.View{
 								TestID: "scene-tree-plan-badge-" + k.layer,
 								Style: core.Style{
@@ -1010,7 +1011,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 								Width:        core.Pt(7),
 								Height:       core.Pt(7),
 								CornerRadius: 2,
-								Background:   ed.ObjectKindColor(ed.SpecPalette(cx), id),
+								Background:   ed.ObjectKindColor(ed.Palette(cx), id),
 								FlexShrink:   0,
 							}
 						},
@@ -1047,7 +1048,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						Style:         core.Style{FontSize: 12.5, FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)},
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							if pathFlagged(ed.hidden, ed.resolvedObjectPath(id)) || ed.ObjectOrigin(id) != ObjectLocal {
 								return core.Style{Color: cur.TextFaint}
 							}
@@ -1073,7 +1074,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 									return core.Style{
 										FontSize:   10,
 										FontWeight: core.FontWeightSemibold,
-										Color:      ed.SpecPalette(cx).Added.Fg,
+										Color:      ed.Palette(cx).Added.Fg,
 										FlexShrink: 0,
 									}
 								},
@@ -1103,7 +1104,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 							return localizedObjectKind(ed, ed.SceneRailObjectKind(id))
 						},
 						StyleFunc: func() core.Style {
-							return core.Style{FontSize: 11, Color: ed.SpecPalette(cx).TextFaint, FlexShrink: 0}
+							return core.Style{FontSize: 11, Color: ed.Palette(cx).TextFaint, FlexShrink: 0}
 						},
 					},
 					core.Show{
@@ -1133,7 +1134,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 								},
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									spec := ed.SpecPalette(cx)
+									spec := ed.Palette(cx)
 									ov, ok := ed.ObjectTaskBadge(id)
 									if ok && !ov.Holding {
 										return core.Style{Color: spec.Agent.Fg}
@@ -1158,7 +1159,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 									FlexShrink:   0,
 								},
 								StyleFunc: func() core.Style {
-									return core.Style{Background: ed.SpecPalette(cx).Agent.Fg}
+									return core.Style{Background: ed.Palette(cx).Agent.Fg}
 								},
 							}
 						},
@@ -1178,7 +1179,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 								},
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									p := ed.SpecPalette(cx)
+									p := ed.Palette(cx)
 									if ch, ok := ed.AgentObjectChange(id); ok && ch.Kind == AgentChangeChanged {
 										return core.Style{Background: p.Changed.Fill}
 									}
@@ -1200,7 +1201,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 										},
 										StyleFunc: func() core.Style {
 											_ = rev.Get()
-											p := ed.SpecPalette(cx)
+											p := ed.Palette(cx)
 											if ch, ok := ed.AgentObjectChange(id); ok && ch.Kind == AgentChangeChanged {
 												return core.Style{Color: p.Changed.Fg}
 											}
@@ -1249,7 +1250,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			_ = rev.Get()
 			st := dropStyle(cx, hint, k)
 			if st.Background == 0 {
-				spec := ed.SpecPalette(cx)
+				spec := ed.Palette(cx)
 				if ed.ObjectProblemCount(id) > 0 {
 					st.Background = spec.Problem().Fill
 				} else if ov, ok := ed.ObjectTaskBadge(id); ok && !ov.Holding {
@@ -1278,14 +1279,14 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 							FlexShrink:   0,
 						},
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{
 								Background:  p.Problem().Fill,
 								BorderColor: p.Problem().Edge,
 							}
 						},
 						Children: []core.Node{
-							problemAlertIconFunc(func() core.Color { return ed.SpecPalette(cx).Problem().Fg }, 11),
+							problemAlertIconFunc(func() core.Color { return ed.Palette(cx).Problem().Fg }, 11),
 							core.Text{
 								ContentFunc: func() string {
 									_ = rev.Get()
@@ -1296,7 +1297,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 									FontWeight: 600,
 								},
 								StyleFunc: func() core.Style {
-									return core.Style{Color: ed.SpecPalette(cx).Problem().Fg}
+									return core.Style{Color: ed.Palette(cx).Problem().Fg}
 								},
 							},
 						},
@@ -1430,7 +1431,7 @@ func removedObjectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sc
 					MinWidth:       core.Pt(0),
 				},
 				StyleFunc: func() core.Style {
-					return core.Style{Color: ed.SpecPalette(cx).Removed.Fg}
+					return core.Style{Color: ed.Palette(cx).Removed.Fg}
 				},
 			},
 			core.View{
@@ -1440,7 +1441,7 @@ func removedObjectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sc
 					FlexShrink:   0,
 				},
 				StyleFunc: func() core.Style {
-					return core.Style{Background: ed.SpecPalette(cx).Removed.Fill}
+					return core.Style{Background: ed.Palette(cx).Removed.Fill}
 				},
 				Children: []core.Node{
 					core.Text{
@@ -1454,7 +1455,7 @@ func removedObjectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sc
 							FontWeight: 600,
 						},
 						StyleFunc: func() core.Style {
-							return core.Style{Color: ed.SpecPalette(cx).Removed.Fg}
+							return core.Style{Color: ed.Palette(cx).Removed.Fg}
 						},
 					},
 				},

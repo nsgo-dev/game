@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -2314,7 +2315,7 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 
 // background3D returns the scene's background color, or the Spec viewport surround token when none is set.
 func (e *Editor) background3D() core.Color {
-	bg := e.activeSpecPalette().Viewport
+	bg := e.activePalette().Viewport
 	if e.Doc != nil && e.Doc.BackgroundColor != "" {
 		if parsed, err := core.ParseColor(e.Doc.BackgroundColor); err == nil {
 			bg = parsed
@@ -2331,7 +2332,7 @@ func (e *Editor) drawWireframe3D(d *core.Drawing, s *scene3DState, w, h float32)
 	if s.built == nil {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	d.Save().SetStrokeColor(ui.Alpha(spec.TextSecondary, 0.55)).SetLineWidth(1).BeginPath()
 	drawn := 0
 	var world [][3]float32
@@ -2380,7 +2381,7 @@ func (e *Editor) drawGrid3D(d *core.Drawing, w, h float32) {
 	step, half := e.gridStep3D()
 	extent := step * float32(half)
 	vc := e.activeView3DCam(w, h)
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 
 	if !e.gpu3D {
 		corners := [4][3]float32{
@@ -2400,7 +2401,7 @@ func (e *Editor) drawGrid3D(d *core.Drawing, w, h float32) {
 			sx[i], sy[i] = px, py
 		}
 		if allVis {
-			d.Save().SetFillColor(specAlpha(spec.Viewport3DGround, 0.55)).BeginPath().
+			d.Save().SetFillColor(ui.Alpha(spec.Viewport3DGround, 0.55)).BeginPath().
 				MoveTo(sx[0], sy[0]).
 				LineTo(sx[1], sy[1]).
 				LineTo(sx[2], sy[2]).
@@ -2442,14 +2443,14 @@ func (e *Editor) drawOriginAxes3D(d *core.Drawing, w, h float32) {
 	origin := [3]float32{0, 0, 0}
 	vc := e.activeView3DCam(w, h)
 
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	axes := []struct {
 		end   [3]float32
 		color core.Color
 	}{
-		{[3]float32{axisLen, 0, 0}, specAlpha(spec.AxisX, 0.9)},
-		{[3]float32{0, axisLen, 0}, specAlpha(spec.AxisY, 0.9)},
-		{[3]float32{0, 0, axisLen}, specAlpha(spec.AxisZ, 0.9)},
+		{[3]float32{axisLen, 0, 0}, ui.Alpha(spec.AxisX, 0.9)},
+		{[3]float32{0, axisLen, 0}, ui.Alpha(spec.AxisY, 0.9)},
+		{[3]float32{0, 0, axisLen}, ui.Alpha(spec.AxisZ, 0.9)},
 	}
 	for _, ax := range axes {
 		x0, y0, x1, y1, vis := vc.projectSegment(origin, ax.end, w, h)
@@ -2543,7 +2544,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 		return cmp.Compare(b.depth, a.depth)
 	})
 
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	selVisible := !e.playing && !e.HistoryPreviewActive() && e.OverlayKindVisible(OverlayKindSelection)
 	canvas := core.Size{Width: core.Points(w), Height: core.Points(h)}
 
@@ -2628,7 +2629,7 @@ func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 	gizmoMat := math3d.TRS(origV, orient.toMath3D(), math3d.Vec3One())
 	activeAxis := e.ActiveGizmoAxis3D()
 	activeR3 := render3DGizmoAxis(activeAxis)
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	centerRingCol := ui.Alpha(spec.TextPrimary, 0.9)
 	activeCol := spec.Warning.Fg
 
@@ -2709,7 +2710,7 @@ func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 	}
 }
 
-func drawTranslatePlaneFills3D(d *core.Drawing, proj Projection3D, gizmoMat math3d.Mat4, gizmoLen float32, activeAxis GizmoAxis3D, spec SpecPalette) {
+func drawTranslatePlaneFills3D(d *core.Drawing, proj Projection3D, gizmoMat math3d.Mat4, gizmoLen float32, activeAxis GizmoAxis3D, spec theme.Palette) {
 	const loFrac, hiFrac float32 = 0.05, 0.32
 	lo, hi := loFrac*gizmoLen, hiFrac*gizmoLen
 	fillAlpha := float32(0.22)
@@ -2723,9 +2724,9 @@ func drawTranslatePlaneFills3D(d *core.Drawing, proj Projection3D, gizmoMat math
 		u, v  math3d.Vec3
 		color core.Color
 	}{
-		{Axis3DXY, math3d.Vec3UnitX(), math3d.Vec3UnitY(), specAlpha(spec.Warning.Fg, fillAlpha)},
-		{Axis3DXZ, math3d.Vec3UnitX(), math3d.Vec3UnitZ(), specAlpha(spec.Agent.Fg, fillAlpha)},
-		{Axis3DYZ, math3d.Vec3UnitY(), math3d.Vec3UnitZ(), specAlpha(spec.Accent.Fg, fillAlpha)},
+		{Axis3DXY, math3d.Vec3UnitX(), math3d.Vec3UnitY(), ui.Alpha(spec.Warning.Fg, fillAlpha)},
+		{Axis3DXZ, math3d.Vec3UnitX(), math3d.Vec3UnitZ(), ui.Alpha(spec.Agent.Fg, fillAlpha)},
+		{Axis3DYZ, math3d.Vec3UnitY(), math3d.Vec3UnitZ(), ui.Alpha(spec.Accent.Fg, fillAlpha)},
 	}
 	for _, pl := range planes {
 		corner := func(a, b float32) (float32, float32, bool) {

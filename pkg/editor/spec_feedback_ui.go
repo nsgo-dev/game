@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -50,14 +51,14 @@ func (e *Editor) SetOverlayLegendOpen(open bool) {
 
 // ToastView renders the editor's active toast at the bottom center of the viewport (8 px above
 // the viewport bar in edit mode, never over the scene tree, inspector, or agent panel) while
-// the viewport is on screen, using exclusively SpecPalette tokens (design/editor/Toasts.dc.html).
+// the viewport is on screen, using exclusively theme.Palette tokens (design/editor/Toasts.dc.html).
 func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return toastHostView(cx, ed, rev, true)
 }
 
 // WindowToastView renders the editor's active toast at the bottom center of the window, 24 px up,
 // whenever no viewport is on screen (Start screen, Settings, Export, and other full-window screens),
-// using exclusively SpecPalette tokens (design/editor/Toasts.dc.html).
+// using exclusively theme.Palette tokens (design/editor/Toasts.dc.html).
 func WindowToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return toastHostView(cx, ed, rev, false)
 }
@@ -261,7 +262,7 @@ func toastAnimatedBranch(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], i
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				sk := structKey.Get()
-				p := SpecPaletteFor(sk.dark)
+				p := theme.PaletteFor(sk.dark)
 				return specLiveToastCard(p, sk.kind, sk.actionLabel, sk.actionShortcut, sk.canDismiss, readToast, ed, actionRef, dismissRef)
 			}),
 		},
@@ -289,7 +290,7 @@ func toastProgressPercentText(t Toast) string {
 }
 
 func specLiveToastCard(
-	p SpecPalette,
+	p theme.Palette,
 	kind ToastKind,
 	actionLabel, actionShortcut string,
 	canDismiss bool,
@@ -487,7 +488,7 @@ func specLiveToastCard(
 	}
 }
 
-func specToastSurfaceTokens(p SpecPalette, kind ToastKind) (bg, border, actionBg, actionBorder core.Color, shadowAlpha float32) {
+func specToastSurfaceTokens(p theme.Palette, kind ToastKind) (bg, border, actionBg, actionBorder core.Color, shadowAlpha float32) {
 	bg = p.Raised
 	border = p.LineRaised
 	actionBg = p.LineRaised
@@ -505,7 +506,7 @@ func specToastSurfaceTokens(p SpecPalette, kind ToastKind) (bg, border, actionBg
 	return bg, border, actionBg, actionBorder, shadowAlpha
 }
 
-func specToastActionButton(p SpecPalette, label, shortcut string, bg, border core.Color, ref *core.Ref, onPress func()) core.Node {
+func specToastActionButton(p theme.Palette, label, shortcut string, bg, border core.Color, ref *core.Ref, onPress func()) core.Node {
 	actionChildren := []core.Node{
 		core.Text{
 			Content:  label,
@@ -562,7 +563,7 @@ func specToastActionButton(p SpecPalette, label, shortcut string, bg, border cor
 	}
 }
 
-func specToastDismissButton(ed *Editor, p SpecPalette, ref *core.Ref, onDismiss func()) core.Node {
+func specToastDismissButton(ed *Editor, p theme.Palette, ref *core.Ref, onDismiss func()) core.Node {
 	return core.View{
 		Ref:       ref,
 		TestID:    "editor-toast-dismiss",
@@ -598,11 +599,11 @@ func specToastDismissButton(ed *Editor, p SpecPalette, ref *core.Ref, onDismiss 
 // SpecToastCard renders a single Spec toast pill (40 pt tall, 12 pt radius, single line, semantic icon,
 // optional waiting count badge, optional action button with shortcut, optional dismiss button) using
 // exclusively tokens from p.
-func SpecToastCard(p SpecPalette, t Toast, waiting int, onDismiss func()) core.Node {
+func SpecToastCard(p theme.Palette, t Toast, waiting int, onDismiss func()) core.Node {
 	return specToastCardWithRefs(p, t, waiting, onDismiss, nil, nil)
 }
 
-func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func(), actionRef, dismissRef *core.Ref) core.Node {
+func specToastCardWithRefs(p theme.Palette, t Toast, waiting int, onDismiss func(), actionRef, dismissRef *core.Ref) core.Node {
 	bg, border, actionBg, actionBorder, shadowAlpha := specToastSurfaceTokens(p, t.Kind)
 
 	children := []core.Node{
@@ -733,7 +734,7 @@ func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func()
 	}
 }
 
-func specToastIcon(p SpecPalette, kind ToastKind) core.Node {
+func specToastIcon(p theme.Palette, kind ToastKind) core.Node {
 	return core.Canvas{
 		TestID: "editor-toast-icon-" + string(kind),
 		Style:  core.Style{Width: core.Pt(16), Height: core.Pt(16), FlexShrink: 0},
@@ -790,7 +791,7 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		}
 		return legendStateKey{
 			visible:  true,
-			dark:     ed.SpecPalette(cx).Dark,
+			dark:     ed.Palette(cx).Dark,
 			viewMode: ed.ViewMode,
 			lang:     ed.ResolvedLanguage(),
 		}
@@ -806,7 +807,7 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				if !k.visible {
 					return core.View{}
 				}
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				leftPt := core.Pt(10)
 				topPt := core.Pt(8)
 				if k.viewMode == ViewMode3D {
@@ -836,7 +837,7 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					}
 				}
 
-				legendRole := func(kind OverlayKind) SpecRole {
+				legendRole := func(kind OverlayKind) theme.Role {
 					switch kind {
 					case OverlayKindSelection:
 						return p.Accent
@@ -1005,11 +1006,11 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 // SpecOverlayLegendView renders the complete Spec.dc.html Overlay Legend board
 // (Selection, Agent working, Added, Changed, Removed, Problem, and Focused change in Review)
 // on the active theme's viewport surround, drawing every card through DrawObjectOverlay using
-// exclusively SpecPalette tokens so Dark and Light appearances can be inspected side by side.
+// exclusively theme.Palette tokens so Dark and Light appearances can be inspected side by side.
 func SpecOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		modeLabel := ed.T("specFeedback.lightTheme")
 		if p.Dark {
 			modeLabel = ed.T("specFeedback.darkTheme")

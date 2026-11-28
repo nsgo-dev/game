@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -140,7 +141,7 @@ func TestEnrichedAgentEnvPrependsBinaryAndCommonDirs(t *testing.T) {
 
 func TestGhostButtonHasNoBorderAndConnectDialogShowsDetectedAgents(t *testing.T) {
 	// 1. specBtnGhost must not set a 1px border (which caused bright white boxes in Dark mode).
-	p := DarkSpecPalette()
+	p := theme.Dark()
 	btnNode := specPanelButton(p, specPanelButtonSpec{
 		TestID:  "ghost-check",
 		Text:    "Later",

@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -12,25 +13,25 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived composite tints for Play mode header and panic card (all derived strictly from spec_theme.yaml tokens).
-func playRunBg(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.Added.Fg, 0.06), p.Bg)
+// Spec-derived composite tints for Play mode header and panic card (all derived strictly from theme.yaml tokens).
+func playRunBg(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.Added.Fg, 0.06), p.Bg)
 }
 
-func playRunBorder(p SpecPalette) core.Color {
-	return specAlpha(p.Added.Fg, 0.35)
+func playRunBorder(p theme.Palette) core.Color {
+	return ui.Alpha(p.Added.Fg, 0.35)
 }
 
-func playPauseBg(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.Warning.Fg, 0.05), p.Bg)
+func playPauseBg(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.Warning.Fg, 0.05), p.Bg)
 }
 
-func playPanicCardBg(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.Removed.Fg, 0.06), p.Raised)
+func playPanicCardBg(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.Removed.Fg, 0.06), p.Raised)
 }
 
-func playAgentBubbleBg(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.Accent.Fg, 0.08), p.Raised)
+func playAgentBubbleBg(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.Accent.Fg, 0.08), p.Raised)
 }
 
 // playModeBarView renders the Play Mode control bar below the main toolbar while local Play mode is active
@@ -42,7 +43,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			return ed.Playing() && !ed.RemoteConnected() && !ed.RemoteConnecting()
 		},
 		Then: func(cx *core.Scope) core.Node {
-			pal := ed.SpecPalette(cx)
+			pal := ed.Palette(cx)
 			scaleBtn := func(scale float64, label string) core.Node {
 				id := fmt.Sprintf("play-timescale-%g", scale)
 				return base.Button{
@@ -132,7 +133,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							}
 							return core.Style{
 								Background:  pal.Added.Fill,
-								BorderColor: specAlpha(pal.Added.Edge, 0.45),
+								BorderColor: ui.Alpha(pal.Added.Edge, 0.45),
 							}
 						},
 						Children: []core.Node{
@@ -349,7 +350,7 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			return ed.Playing() || ed.RemoteConnected()
 		},
 		Then: func(cx *core.Scope) core.Node {
-			pal := ed.SpecPalette(cx)
+			pal := ed.Palette(cx)
 			return core.View{
 				TestID: "play-replay-footer",
 				Style: core.Style{
@@ -394,7 +395,7 @@ func playReplayFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							return ed.PlayLastReplayPath() != ""
 						},
 						Then: func(cx *core.Scope) core.Node {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Text{
 								TestID: "play-replay-last-path",
 								ContentFunc: func() string {
@@ -441,7 +442,7 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							return ed.PlayAgentPill() != ""
 						},
 						Then: func(cx *core.Scope) core.Node {
-							pal := ed.SpecPalette(cx)
+							pal := ed.Palette(cx)
 							return core.View{
 								TestID:        "play-agent-pill",
 								PointerEvents: core.PointerEventsNone,
@@ -455,7 +456,7 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 									Gap:          6,
 									Padding:      core.Symmetric(0, 10),
 									CornerRadius: 12,
-									Background:   specAlpha(pal.PillBg, 0.92),
+									Background:   ui.Alpha(pal.PillBg, 0.92),
 									BorderWidth:  1,
 									BorderColor:  pal.Agent.Edge,
 								},
@@ -491,7 +492,7 @@ func playViewportOverlaysView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							return ed.Playing() && ed.PlayPaused()
 						},
 						Then: func(cx *core.Scope) core.Node {
-							pal := ed.SpecPalette(cx)
+							pal := ed.Palette(cx)
 							return core.View{
 								TestID:        "play-paused-hint",
 								PointerEvents: core.PointerEventsNone,
@@ -540,14 +541,14 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			return ed.AskFrozenFrameOpen()
 		},
 		Then: func(cx *core.Scope) core.Node {
-			pal := ed.SpecPalette(cx)
+			pal := ed.Palette(cx)
 			cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
 				if ed.AskFrozenFrameOpen() {
 					ed.CloseAskFrozenFrame()
 				}
 			})
 
-			chip := func(p SpecPalette, text string, dot core.Color) core.Node {
+			chip := func(p theme.Palette, text string, dot core.Color) core.Node {
 				return core.View{
 					Style: core.Style{
 						Direction:    core.Row,
@@ -651,7 +652,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								Draw: func(d *core.Drawing, size core.Size) {
 									_ = rev.Get()
 									d.Save()
-									d.SetFillColor(ed.activeSpecPalette().Bg).FillRect(0, 0, float32(size.Width), float32(size.Height))
+									d.SetFillColor(ed.activePalette().Bg).FillRect(0, 0, float32(size.Width), float32(size.Height))
 									// Preserve the main viewport's canvas size so drawing the thumbnail
 									// does not overwrite Editor.canvasW/canvasH.
 									prevW, prevH := ed.canvasW, ed.canvasH
@@ -682,7 +683,7 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							}
 						})
 						return core.Dynamic(func(cx *core.Scope) core.Node {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							k := chipsMemo.Get()
 							sec := float64(k.rollingFrames) / float64(k.rate)
 							replayLabel := ed.T("playMarks.chip.replayFrames", l10n.Param("frames", formatPlayFrameNumber(k.rollingFrames)))
@@ -807,7 +808,7 @@ func shouldShowPlayInspectorTabs(ed *Editor) bool {
 
 // playInspectorTabBarView renders the Play-mode Inspector | Agent tab strip + MCP status chip at the top of InspectorView.
 func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	tabBtn := func(testID, label string, target PlayInspectorTab) core.Node {
 		return base.Button{
 			TestID: testID,
@@ -950,7 +951,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	})
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = panelKey.Get()
-		pal := ed.SpecPalette(cx)
+		pal := ed.Palette(cx)
 		marks := ed.PlayMarks()
 		unsentCount := len(ed.UnsentPlayMarks())
 		steps := ed.PlayAgentSteps()
@@ -1151,7 +1152,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 	if p == nil {
 		return nil
 	}
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	gameFrames := p.GameFrames()
 	rtFrames := p.RuntimeFrames()
 
@@ -1296,7 +1297,7 @@ func outputPanicCardView(cx *core.Scope, ed *Editor, p *PanicReport, runtimeExpa
 			CornerRadius: 10,
 			Background:   playPanicCardBg(pal),
 			BorderWidth:  1,
-			BorderColor:  specAlpha(pal.Removed.Edge, 0.50),
+			BorderColor:  ui.Alpha(pal.Removed.Edge, 0.50),
 		},
 		Children: []core.Node{
 			// Title row

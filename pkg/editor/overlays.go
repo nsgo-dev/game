@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -126,7 +127,7 @@ func (e *Editor) initBuiltinOverlays() {
 	if len(e.builtinOverlays) > 0 {
 		return
 	}
-	p := e.activeSpecPalette()
+	p := e.activePalette()
 	e.builtinOverlays = []ViewportOverlay{
 		{
 			ID:        OverlayCollisionShapes,
@@ -213,7 +214,7 @@ func (e *Editor) initBuiltinOverlays() {
 	}
 }
 
-func builtinOverlayColor(id string, spec SpecPalette) core.Color {
+func builtinOverlayColor(id string, spec theme.Palette) core.Color {
 	switch id {
 	case OverlayTriggers:
 		return spec.Warning.Fg
@@ -274,10 +275,10 @@ func (e *Editor) ViewportOverlays() []ViewportOverlay {
 	if e == nil {
 		return nil
 	}
-	return e.viewportOverlaysFor(e.SpecPalette(nil))
+	return e.viewportOverlaysFor(e.Palette(nil))
 }
 
-func (e *Editor) viewportOverlaysFor(spec SpecPalette) []ViewportOverlay {
+func (e *Editor) viewportOverlaysFor(spec theme.Palette) []ViewportOverlay {
 	if e == nil {
 		return nil
 	}
@@ -750,13 +751,13 @@ func drawShapeEntriesOverlay(d *core.Drawing, entries []objectShapeEntry, stroke
 
 func drawCollisionShapesOverlay(e *Editor, d *core.Drawing, scene *sceneformat.BuiltScene) {
 	entries := e.collectAllComponentShapes(scene, false)
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	drawShapeEntriesOverlay(d, entries, ui.Alpha(spec.TextMuted, 0.85), ui.Alpha(spec.TextMuted, 0.08), false)
 }
 
 func drawTriggersOverlay(e *Editor, d *core.Drawing, scene *sceneformat.BuiltScene) {
 	entries := e.collectAllComponentShapes(scene, true)
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	drawShapeEntriesOverlay(d, entries, spec.Warning.Fg, ui.Alpha(spec.Warning.Fg, 0.10), true)
 }
 
@@ -808,7 +809,7 @@ func drawConnectionsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 	type pairKey struct{ a, b string }
 	pairSeen := make(map[pairKey]int, len(conns))
 
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	pillBg := ui.Alpha(spec.PillBg, 0.92)
 	font := core.Font{Family: core.FontMonospace, Size: 10.5}
 	for _, c := range conns {
@@ -1061,7 +1062,7 @@ func drawPatrolPathsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 	if len(paths) == 0 {
 		return
 	}
-	col := e.SpecPalette(nil).TextMuted
+	col := e.Palette(nil).TextMuted
 	for _, pp := range paths {
 		if len(pp.pts) < 2 {
 			continue
@@ -1139,7 +1140,7 @@ func drawCameraBoundsOverlay(e *Editor, d *core.Drawing, _ *sceneformat.BuiltSce
 	if e == nil || e.Doc == nil || e.Doc.Camera == nil || e.Doc.Camera.Bounds == nil {
 		return
 	}
-	col := e.SpecPalette(nil).TextFaint
+	col := e.Palette(nil).TextFaint
 	font := core.Font{Family: core.FontMonospace, Size: 10.5}
 	b := e.Doc.Camera.Bounds
 	pts := worldRectCanvasCorners(e, b.X, b.Y, b.Width, b.Height)
@@ -1184,7 +1185,7 @@ func drawLabelsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.BuiltScene
 	if e == nil || d == nil || scene == nil {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	pillBg := ui.Alpha(spec.PillBg, 0.92)
 	font := core.Font{Family: core.FontMonospace, Size: 10.5}
 	for _, layer := range scene.Layers {

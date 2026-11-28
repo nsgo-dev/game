@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -29,7 +30,7 @@ func PlayTaskDotView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		return dotKey{
 			playing: true,
 			dot:     ed.PlayTaskDot(),
-			dark:    ed.SpecPalette(cx).Dark,
+			dark:    ed.Palette(cx).Dark,
 		}
 	})
 
@@ -70,7 +71,7 @@ func PlayTaskDotView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								TestID:        "play-task-dot-label",
 								PointerEvents: core.PointerEventsNone,
 								StyleFunc: func() core.Style {
-									p := SpecPaletteFor(stateMemo.Get().dark)
+									p := theme.PaletteFor(stateMemo.Get().dark)
 									return core.Style{
 										Position:       core.Absolute,
 										Right:          core.Pt(28),
@@ -92,7 +93,7 @@ func PlayTaskDotView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 											return stateMemo.Get().dot.HoverLabel
 										},
 										StyleFunc: func() core.Style {
-											p := SpecPaletteFor(stateMemo.Get().dark)
+											p := theme.PaletteFor(stateMemo.Get().dark)
 											return core.Style{
 												FontSize: 11,
 												Color:    p.TextSecondary,
@@ -112,7 +113,7 @@ func PlayTaskDotView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						},
 						Focusable: func() bool { return true },
 						StyleFunc: func() core.Style {
-							p := SpecPaletteFor(stateMemo.Get().dark)
+							p := theme.PaletteFor(stateMemo.Get().dark)
 							return core.Style{
 								Position:       core.Absolute,
 								Top:            core.Pt(2),
@@ -142,7 +143,7 @@ func PlayTaskDotView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								TestID: "play-task-dot-halo",
 								StyleFunc: func() core.Style {
 									k := stateMemo.Get()
-									p := SpecPaletteFor(k.dark)
+									p := theme.PaletteFor(k.dark)
 									return core.Style{
 										Width:          core.Pt(14),
 										Height:         core.Pt(14),
@@ -157,7 +158,7 @@ func PlayTaskDotView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 										TestID: "play-task-dot-core",
 										StyleFunc: func() core.Style {
 											k := stateMemo.Get()
-											p := SpecPaletteFor(k.dark)
+											p := theme.PaletteFor(k.dark)
 											return core.Style{
 												Width:        core.Pt(8),
 												Height:       core.Pt(8),
@@ -179,7 +180,7 @@ func PlayTaskDotView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 // AgentTaskNotificationCard renders one Spec-styled preview card for an AgentTaskNotification
 // matching design/editor/Tasks.dc.html ("SYSTEM NOTIFICATIONS · ONLY THESE THREE") using
 // exclusively tokens from p.
-func AgentTaskNotificationCard(p SpecPalette, n AgentTaskNotification, when string) core.Node {
+func AgentTaskNotificationCard(p theme.Palette, n AgentTaskNotification, when string) core.Node {
 	titleColor := p.TextPrimary
 	switch n.State {
 	case TaskNeedsYou:

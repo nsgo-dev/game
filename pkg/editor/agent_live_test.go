@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -520,7 +521,7 @@ func TestAgentLiveHardeningLifecycleLocksThemeAndPulse(t *testing.T) {
 	}
 
 	// Live Dark -> Light theme switch updates overlay legend and banner styling without remounting.
-	wantLight := editor.SpecPaletteFor(false)
+	wantLight := theme.PaletteFor(false)
 	app.SetEnvironment(core.Environment{
 		OS:     core.OSMacOS,
 		Idiom:  core.IdiomDesktop,
@@ -534,7 +535,7 @@ func TestAgentLiveHardeningLifecycleLocksThemeAndPulse(t *testing.T) {
 	if got := app.Find("id:header-agent-pill").Style.Background; got != wantLight.Agent.Fill {
 		t.Fatalf("header agent pill background after live Dark->Light switch = %v, want %v", got, wantLight.Agent.Fill)
 	}
-	// Inspector inherits the root SpecTheme() and adapts live to Spec Light tokens too.
+	// Inspector inherits the root theme.Core() and adapts live to Spec Light tokens too.
 	if got := app.Find("id:inspector-agent-working-banner").Style.Background; got != wantLight.Agent.Fill {
 		t.Fatalf("inspector banner background after live Dark->Light switch = %v, want %v", got, wantLight.Agent.Fill)
 	}
