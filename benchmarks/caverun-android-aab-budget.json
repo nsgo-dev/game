@@ -1,0 +1,10 @@
+{
+  "max_total_bytes": 20971520,
+  "max_per_abi_bytes": 12582912,
+  "max_category_bytes": {
+    "native_libs": 12582912,
+    "dex": 2097152,
+    "manifest_meta": 524288
+  },
+  "note": "Cave Run Android AAB size budget (go tool nsgo build -target android -channel store). Baseline is approximately 15.3 MiB total; budget allows 20.00 MiB total and 12.00 MiB per ABI."
+}
