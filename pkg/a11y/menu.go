@@ -62,8 +62,7 @@ type MenuProps struct {
 	Text MenuText
 	// InitialIndex selects the starting focused item (clamped to the first enabled item).
 	InitialIndex int
-	// ScanEnabled enables one-switch scanning. The menu advances every
-	// ScanInterval and activates the focused item on ScanSelectKey.
+	// ScanEnabled enables one-switch scanning: the menu moves to the next enabled item every ScanInterval (1.2 s when zero) and activates the highlighted item on ScanSelectKey ("space" when empty). ScanLoops, when positive, stops scanning after that many wraps back to the first item.
 	ScanEnabled   bool
 	ScanInterval  time.Duration
 	ScanLoops     int

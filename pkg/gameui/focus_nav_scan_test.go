@@ -3,6 +3,8 @@ package gameui
 import (
 	"testing"
 	"time"
+
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 func TestSpatialNavigatorScanAdvancesOnIntervalAndSelects(t *testing.T) {
@@ -31,5 +33,29 @@ func TestSpatialNavigatorScanLoopsPause(t *testing.T) {
 	n.Step(3 * time.Millisecond)
 	if n.Scan.Enabled {
 		t.Fatal("scan remained enabled after configured loop")
+	}
+}
+
+func TestSpatialNavigatorScanFollowsFocusOrderInLaidOutRow(t *testing.T) {
+	a := &Button{Text: "A"}
+	b := &Button{Text: "B"}
+	c := &Button{Text: "C"}
+	root := NewRoot(&HBox{Children: []Widget{a, b, c}})
+	root.Layout(core.Bounds{Size: core.Size{Width: 300, Height: 40}})
+	n := NewSpatialNavigator(root)
+	var changes int
+	n.OnFocusChange = func(_, _ Widget) { changes++ }
+	n.SetScanOptions(ScanOptions{Enabled: true, Interval: time.Second})
+	want := []Widget{a, b, c, a}
+	for i, w := range want {
+		if !n.Step(time.Second) {
+			t.Fatalf("step %d did not move focus", i)
+		}
+		if got := n.Focused(); got != w {
+			t.Fatalf("step %d focused %v, want %v", i, got, w)
+		}
+	}
+	if changes != len(want) {
+		t.Fatalf("OnFocusChange calls = %d, want %d", changes, len(want))
 	}
 }
