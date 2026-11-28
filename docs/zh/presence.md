@@ -101,3 +101,6 @@ _ = mgr.Clear(ctx)
 - 通过 `DiscordConfig.Dial` 传入基于 `net.Pipe()` 的进程内模拟 IPC 服务端，验证原始小端帧、握手、`SET_ACTIVITY` 和 `Clear`。
 - 通过 `SteamConfig.Driver` 传入模拟 `SteamDriver`，断言每一次 `SetRichPresence(key, value)` 和 `ClearRichPresence()` 调用。
 - 通过 `ManagerConfig.Now` 注入可控时钟，无需等待即可测试 `MinInterval` 节流与合并。
+## 共享 Steamworks 生命周期
+
+游戏同时使用 Steam presence、Workshop 或其他 Steam 功能时，只打开一个 `steamworks.Client`，并把其生命周期提供给各个集成。不要让某个功能单独调用 `SteamAPI_Init` 或 `SteamAPI_Shutdown`。

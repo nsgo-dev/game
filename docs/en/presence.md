@@ -101,3 +101,6 @@ Both providers accept injectable backends so tests run deterministically without
 - Pass `DiscordConfig.Dial` with a `net.Pipe()` connected to an in-process mock IPC server to verify raw wire frames, handshake, `SET_ACTIVITY`, and `Clear`.
 - Pass `SteamConfig.Driver` with a mock `SteamDriver` to assert every `SetRichPresence(key, value)` and `ClearRichPresence()` call.
 - Pass `ManagerConfig.Now` with a controllable clock to test `MinInterval` coalescing without sleeps.
+## Shared Steamworks lifecycle
+
+When a game uses Steam presence with Workshop or another Steam feature, open one `steamworks.Client` and pass its lifecycle to each integration. Do not let a feature call `SteamAPI_Init` or `SteamAPI_Shutdown` independently.

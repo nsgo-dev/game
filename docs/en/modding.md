@@ -285,3 +285,6 @@ if _, err := ws.SyncSubscribed(ctx); err != nil {
 - `Publish` validates `mod.yaml`, entry script, preview path, and `workshop.yaml` before creating or updating any Steam Workshop item. When Steamworks reports that the author must accept the Steam Workshop Subscriber Agreement, `Publish` still saves `publishedFileId` to `workshop.yaml` and returns `PublishResult{NeedsLegalAgreement: true, LegalAgreementURL: WorkshopLegalAgreementURL}` alongside `ErrWorkshopLegalAgreementRequired`.
 - `SyncSubscribed` unloads and uninstalls items that were unsubscribed, downloads missing or outdated items, checks path confinement (`WorkshopOptions.AllowedRoots` and escaping symlinks via `ErrWorkshopUnsafePath`), and installs valid mods in topological dependency order while isolating failures in broken sibling items. `InstallSubscribed` installs a single subscribed item on demand.
 - For bundling the Steamworks shared library with `nsgo-natives.yaml`, passing `SteamWorkshopOptions.LibraryPath` on macOS, and configuring Workshop in the Steamworks Partner Portal, see [Shipping on Steam](steam.md#steam-workshop).
+## Shared Steamworks lifecycle
+
+`SteamWorkshop` should use the shared `steamworks.Client` when a game also has presence or overlay features. Closing Workshop must not shut down Steamworks while another feature remains active.
