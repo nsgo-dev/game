@@ -2,9 +2,21 @@ package gameui
 
 import (
 	"math"
+	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 )
+
+// ScanOptions configures one-switch focus scanning. Interval is the time
+// between focus changes. Loops limits completed passes when positive, while a
+// zero value scans continuously. Select is the action used by callers to
+// activate the highlighted widget.
+type ScanOptions struct {
+	Enabled  bool
+	Interval time.Duration
+	Loops    int
+	Select   NavAction
+}
 
 // NavAction identifies a logical UI navigation action from keyboard, gamepad, or virtual controls.
 type NavAction uint8
@@ -190,8 +202,13 @@ type SpatialNavigator struct {
 	OnFocusChange func(prev, next Widget)
 	// FocusRing customizes the focus ring drawn by DrawFocusRing (or attached to Root).
 	FocusRing *FocusRingStyle
+	// Scan configures optional one-switch scanning. Use SetScanOptions to reset
+	// the scan clock after changing it.
+	Scan ScanOptions
 
-	overrides map[Widget]NavOverrides
+	overrides   map[Widget]NavOverrides
+	scanElapsed time.Duration
+	scanLoops   int
 }
 
 // FocusManager is an alias for SpatialNavigator.
@@ -204,6 +221,64 @@ func NewSpatialNavigator(root *Root) *SpatialNavigator {
 		WrapAround:  true,
 		SliderSteps: true,
 	}
+}
+
+// SetScanOptions enables or disables one-switch scanning and resets its clock.
+func (n *SpatialNavigator) SetScanOptions(opts ScanOptions) {
+	if n == nil {
+		return
+	}
+	if opts.Interval <= 0 {
+		opts.Interval = 1200 * time.Millisecond
+	}
+	if opts.Select == NavNone {
+		opts.Select = NavConfirm
+	}
+	if opts.Loops < 0 {
+		opts.Loops = 0
+	}
+	n.Scan = opts
+	n.scanElapsed = 0
+	n.scanLoops = 0
+}
+
+// ScanSelect activates the currently highlighted widget when scanning is
+// enabled. It is suitable for a single switch or eye-tracker action.
+func (n *SpatialNavigator) ScanSelect() bool {
+	if n == nil || !n.Scan.Enabled {
+		return false
+	}
+	return n.Confirm()
+}
+
+// Step advances the scanner by fixed simulation time. It returns true when
+// focus changed or a scan pass completed.
+func (n *SpatialNavigator) Step(dt time.Duration) bool {
+	if n == nil || !n.Scan.Enabled || dt <= 0 || n.Root == nil {
+		return false
+	}
+	n.Root.syncFocusables()
+	if len(n.Root.focusables) == 0 {
+		return false
+	}
+	n.scanElapsed += dt
+	changed := false
+	for n.scanElapsed >= n.Scan.Interval {
+		n.scanElapsed -= n.Scan.Interval
+		if !n.Move(NavDown) {
+			break
+		}
+		changed = true
+		n.Root.syncFocusables()
+		if n.Root.focusIdx == len(n.Root.focusables)-1 {
+			n.scanLoops++
+			if n.Scan.Loops > 0 && n.scanLoops >= n.Scan.Loops {
+				n.Scan.Enabled = false
+				break
+			}
+		}
+	}
+	return changed
 }
 
 // SetOverrides registers explicit directional neighbor overrides for w on this navigator.
@@ -438,6 +513,11 @@ func (n *SpatialNavigator) StepActions(pressed func(NavAction) bool) bool {
 			if n.HandleAction(act) {
 				handled = true
 			}
+		}
+	}
+	if n.Scan.Enabled && n.Scan.Select != NavNone && n.Scan.Select != NavConfirm && pressed(n.Scan.Select) {
+		if n.ScanSelect() {
+			handled = true
 		}
 	}
 	return handled
