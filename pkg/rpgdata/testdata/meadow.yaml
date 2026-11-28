@@ -1,0 +1,50 @@
+version: 1
+classes:
+  - id: hero
+    name: Hero
+    maxLevel: 10
+    levelXP: 100
+    stats:
+      attack:
+        - 5
+        - 7
+        - 9
+      hp:
+        - 20
+        - 26
+        - 32
+    skills:
+      - id: slash
+        level: 1
+      - id: cleave
+        level: 3
+actors:
+  - id: ren
+    name: Ren
+    class: hero
+    level: 1
+skills:
+  - id: slash
+    name: Slash
+    scope: one_enemy
+    formula: a.attack * 2 - b.defense
+  - id: cleave
+    name: Cleave
+    scope: all_enemies
+    formula: a.attack + 4
+    cost: 4
+enemies:
+  - id: slime
+    name: Slime
+    hp: 12
+    experience: 3
+    gold: 2
+troops:
+  - id: meadow
+    members:
+      - enemy: slime
+        x: 0
+        "y": 0
+      - enemy: slime
+        x: 48
+        "y": 0

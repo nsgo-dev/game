@@ -177,6 +177,7 @@
 | `game/pkg/resource` | 实验性 | [resources](resources.md) |
 | `game/pkg/rhythm` | 实验性 | [rhythm](rhythm.md) |
 | `game/pkg/rooms` | 实验性 | [rooms](rooms.md) |
+| `game/pkg/rpgdata` | 实验性 | [rpgdata](rpgdata.md) |
 | `game/pkg/rts` | 实验性 | [rts](rts.md) |
 | `game/pkg/save` | 稳定 | [save](save.md) |
 | `game/pkg/save/savetest` | 实验性 | [save](save.md) |

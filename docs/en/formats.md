@@ -1501,6 +1501,66 @@ tables:
         weight: 6.5
 ```
 
+<!-- format: rpgdata -->
+### RPG database
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Any `.yaml` file the game loads, such as `rpg.yaml` | `version: 1` | `rpgdata.Parse`, `rpgdata.Encode` | [rpgdata](rpgdata.md) |
+
+```yaml
+version: 1
+classes:
+  - id: hero
+    name: Hero
+    maxLevel: 10
+    levelXP: 100
+    stats:
+      attack:
+        - 5
+        - 7
+        - 9
+      hp:
+        - 20
+        - 26
+        - 32
+    skills:
+      - id: slash
+        level: 1
+      - id: cleave
+        level: 3
+actors:
+  - id: ren
+    name: Ren
+    class: hero
+    level: 1
+skills:
+  - id: slash
+    name: Slash
+    scope: one_enemy
+    formula: a.attack * 2 - b.defense
+  - id: cleave
+    name: Cleave
+    scope: all_enemies
+    formula: a.attack + 4
+    cost: 4
+enemies:
+  - id: slime
+    name: Slime
+    hp: 12
+    experience: 3
+    gold: 2
+troops:
+  - id: meadow
+    members:
+      - enemy: slime
+        x: 0
+        "y": 0
+      - enemy: slime
+        x: 48
+        "y": 0
+```
+
 <!-- format: online/achievements -->
 ### Achievements
 
@@ -3174,7 +3234,3 @@ Media that is binary by nature stays binary: images (PNG), sound (WAV, AAC, MP3)
 ## Keeping this page current
 
 Each entry starts with a line `<!-- format: <package>[#<name>] -->`. Each YAML format's conformance test (`internal/formattest`) names its entry so and checks that every YAML example in it, on this page and its translation, loads and saves to the same bytes. `TestFormatsPage` in `internal/repocheck` checks the rest: that the two languages list the same entries in the same order; that every other entry is listed in the test with the declaration that reads its format, which the package must still have, and that its JSON and Yarn examples load with the format's reader; that every package that decodes JSON has an entry unless the test says why it needs none; and that every exported integer constant whose name ends in `Version` is the version of a format listed here. A format none of these finds, such as an unversioned text format in a package that already has an entry, can still be missed, so a new format adds its entry here in the same change.
-
-## RPG database
-
-`pkg/rpgdata` reads a versioned YAML database for classes, actors, skills, enemies and troops. Cross-references are checked on load and `Progression` provides deterministic experience and level-up events.
