@@ -22,4 +22,4 @@ The envelope gains an optional `header` key: `{"version": N, "header": {...}, "d
 
 - **Benefits**: load screens list summaries without unmarshaling saves, and a header can never describe a different save than the data beside it, including after an interrupted write.
 - **Costs**: `Headers` still reads and scans each slot's whole envelope, so it is not constant-time on large saves. A build older than this change reads a header envelope as `ErrCorrupt` and falls back to the backup, so a game that may be downgraded must not start writing headers within one schema version; the docs say so.
-- **Not delivered from #1733**: thumbnails, `SaveAsync`/`LoadAsync`/`Flush` and their benchmark remain open.
+- **Asynchronous file stores**: `SaveAsync` and `LoadAsync` queue filesystem-backed operations in order, keep the destination assignment and callbacks on `cx`'s engine goroutine, and skip queued work when its context is cancelled. `Flush` waits for queued worker operations, while `core.Storage` deliberately returns `ErrAsyncUnavailable` because its reactive backend must remain on the engine goroutine. Thumbnails and the benchmark remain outside this slice.

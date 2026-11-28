@@ -107,6 +107,10 @@ The header must encode to a JSON object. Because the header and the data are one
 
 A build older than headers reads an envelope with a header as `ErrCorrupt` and falls back to the backup, so a game that may be downgraded should not start writing headers in the same schema version.
 
+## Asynchronous file saves
+
+For larger saves, `SaveAsync(cx, ctx, slot, value, done)` captures the JSON on the calling goroutine and moves file I/O off the engine goroutine; `LoadAsync(cx, ctx, slot, &value, done)` reads and decodes on a worker. Each callback is posted back through `cx`, calls on one `Store` are serialized in order, and `Flush(ctx)` waits for queued operations to finish before an app is backgrounded or closed. A cancelled context skips a queued operation. These methods require a `NewFileStore`; `core.Storage` must stay on its engine goroutine and returns `ErrAsyncUnavailable` from the asynchronous methods.
+
 ## Atomic writes and backup recovery
 
 `Save` marshals the payload completely before touching the backend, so marshaling errors leave existing saves untouched. Before replacing a slot's primary copy, both built-in backends preserve the previous valid primary as a backup:
