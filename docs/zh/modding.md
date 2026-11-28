@@ -251,6 +251,8 @@ preview: preview.png
 
 在 macOS、Linux 和 Windows 上使用 `NewSteamWorkshop` 通过 `purego` 动态绑定 `libsteam_api.dylib`、`libsteam_api.so` 或 `steam_api64.dll`（无需 CGo）。当 Steamworks 动态库缺失、Steam 客户端未运行，或在 Web、iOS、Android 等不支持平台上调用时，`NewSteamWorkshop` 会返回 `ErrWorkshopUnavailable`。在测试和离线工具中可使用 `NewMemoryWorkshop`，它在本地目录模拟多用户发布、查询、订阅、下载和更新流程。
 
+将 [`steamworks.Open`](steamworks.md) 返回的共享客户端传入 `SteamWorkshopOptions.Client`：创意工坊会从该客户端的动态库绑定 `ISteamUGC`，通过客户端每帧的回调泵等待 `SteamAPICall_t` 结果和 `ItemInstalled_t`，并且从不调用 `SteamAPI_Init`、`SteamAPI_RunCallbacks` 或 `SteamAPI_Shutdown`；此时 `Close` 也不会关闭 Steamworks。未设置 `Client` 时，`NewSteamWorkshop` 仍像以前一样自行加载并初始化 Steamworks（`LibraryPath`、`SkipInit`），这与已打开的 `steamworks.Client` 冲突。
+
 ```go
 backend, err := modding.NewSteamWorkshop(modding.SteamWorkshopOptions{})
 if err != nil {

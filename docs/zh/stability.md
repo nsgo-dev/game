@@ -139,6 +139,7 @@
 | `game/pkg/online/netplay/wire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | 实验性 | [presence](presence.md) |
 | `game/pkg/online/steam` | 实验性 | [steam](steam-stats.md) |
+| `game/pkg/online/steamworks` | 实验性 | [steamworks](steamworks.md) |
 | `game/pkg/online/storeverify/wechatpay` | 实验性 | [liveops](liveops.md) |
 | `game/pkg/online/wsclient` | 实验性 | [wsclient](wsclient.md) |
 | `game/pkg/particles` | 实验性 | [particles](particles.md) |

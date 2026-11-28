@@ -68,7 +68,7 @@ libraries:
   - **Windows**：与 `<Name>.exe` 同目录的 `steam_api64.dll`
   - **Linux**：与 `<Name>` 同目录的 `libsteam_api.so`
 - Steamworks 可再分发库属于专有二进制文件，请不要提交到公开仓库，也不要放在公开 URL 上，而是在私有仓库或 CI 私有制品存储中获取。
-- 目前，[`pkg/online/presence`](presence.md#steam-丰富状态) 会自动在 macOS 上探测 `<exeDir>/../Frameworks/libsteam_api.dylib`，在 Windows 和 Linux 上探测 `<exeDir>`；[`pkg/modding`](modding.md#steam-创意工坊workshop) 默认按库名或 `SteamWorkshopOptions.LibraryPath` 加载。用于统一管理 `SteamAPI_Init`、回调轮询、Steam 界面暂停事件和加入事件的共享 Steamworks 客户端包计划在 [#1763](https://github.com/nsgo-dev/game/issues/1763) 中实现。
+- 目前，[`pkg/online/presence`](presence.md#steam-丰富状态) 会自动在 macOS 上探测 `<exeDir>/../Frameworks/libsteam_api.dylib`，在 Windows 和 Linux 上探测 `<exeDir>`；[`pkg/modding`](modding.md#steam-创意工坊workshop) 默认按库名或 `SteamWorkshopOptions.LibraryPath` 加载。[`pkg/online/steamworks`](steamworks.md) 探测相同的位置，是统一管理 `SteamAPI_Init`、回调泵、Overlay 暂停事件和加入事件的共享客户端；将它传给 `presence.SteamConfig.Client` 和 `modding.SteamWorkshopOptions.Client`。
 
 ## 构建 Depot
 
@@ -289,7 +289,7 @@ if err != nil {
 [`pkg/modding`](modding.md#steam-创意工坊workshop) 通过 `purego` 绑定 `ISteamUGC`（`modding.NewSteamWorkshop` 与 `modding.NewWorkshop`），支持以确定性的 `workshop.yaml` 发布模组，并自动将已订阅条目同步到 `modding.Manager`。
 
 - 在 Steamworks 的 **应用程序 → 创意工坊 → 常规（Workshop → General）** 中启用创意工坊，设置可见性状态，并配置与 `workshop.yaml` / `PublishOptions.Tags` 一致的允许标签。
-- 在 macOS 上通过 `nsgo-natives.yaml` 打包 `libsteam_api.dylib` 时，NSGo 会将其放入 `<Name>.app/Contents/Frameworks/libsteam_api.dylib`。在共享 Steamworks 客户端（[#1763](https://github.com/nsgo-dev/game/issues/1763)）统一库查找路径之前，请在 `modding.SteamWorkshopOptions.LibraryPath` 中传入该路径（基于 `os.Executable()` 推导）。
+- 在 macOS 上通过 `nsgo-natives.yaml` 打包 `libsteam_api.dylib` 时，NSGo 会将其放入 `<Name>.app/Contents/Frameworks/libsteam_api.dylib`。共享的 [`steamworks.Client`](steamworks.md) 会在该位置找到它；将客户端传入 `modding.SteamWorkshopOptions.Client`，或在不使用客户端时，在 `modding.SteamWorkshopOptions.LibraryPath` 中传入该路径（基于 `os.Executable()` 推导）。
 
 ### 成就、统计与排行榜（规划中）
 

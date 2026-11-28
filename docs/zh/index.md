@@ -95,6 +95,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `eos` | `github.com/nsgo-dev/game/pkg/online/eos` | [eos](epic.md) | Epic Online Services 边界：通过注入的异步 driver 实现 exchange code 登录、成就、排行榜和富状态，结果在引擎 goroutine 上送达 |
 | `presence` | `github.com/nsgo-dev/game/pkg/online/presence` | [presence](presence.md) | 通过与平台无关的 `Activity` 与 `Manager` 在 Steam（经 purego 调用 `ISteamFriends`）和 Discord（纯 Go 本地 IPC v1）好友列表显示丰富状态 |
 | `steam` | `github.com/nsgo-dev/game/pkg/online/steam` | [steam](steam-stats.md) | Steam 成就、统计、排行榜分数与富状态的可注入 Steamworks 边界；原生 `Driver` 由游戏提供 |
+| `steamworks` | `github.com/nsgo-dev/game/pkg/online/steamworks` | [steamworks](steamworks.md) | 进程级唯一的 Steamworks 客户端（purego）：初始化、每帧手动分发回调、Overlay、加入与大厅事件、`+connect` 启动加入、Web API 身份票据和 Steam Deck 文本输入，供 `presence` 与 `modding` 共用 |
 | `liveops` | `github.com/nsgo-dev/game/pkg/online/liveops` | [线上运营](liveops.md) | 与服务商无关的崩溃报告、经同意才收集的分析、`CloudSync` 接口，以及计入存档的应用内购买 |
 | `inventory` | `github.com/nsgo-dev/game/pkg/inventory` | [inventory](inventory.md) | YAML 道具定义、可堆叠的格子容器、带类型的装备槽与存档快照 |
 | `ability` | `github.com/nsgo-dev/game/pkg/ability` | [ability](ability.md) | YAML 技能集与逐步推进的 `Caster`：由输入动作触发的消耗、冷却、充能、施法与引导时间以及条件 |

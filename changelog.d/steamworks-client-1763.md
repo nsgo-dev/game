@@ -1,1 +1,4 @@
-新增跨平台 Steamworks 客户端边界，包含回调泵、Overlay、启动加入、富状态、身份票据和 Steam Deck 文本输入。
+### Added
+
+- `steamworks.Open` opens the one process-wide Steamworks client in `game/pkg/online/steamworks` (purego on macOS, Linux and Windows, `steamworks.ErrUnavailable` elsewhere): it calls `SteamAPI_RestartAppIfNecessary` when asked, initializes through `SteamAPI_InitFlat` (`steamworks.InitError` keeps Steam's reason), pumps manual-dispatch callbacks once per display frame on the engine goroutine, and shuts Steamworks down when the last scope that opened it is disposed. `Client` delivers overlay, rich presence join, lobby join, Steam shutdown and gamepad text input events, `+connect` and `+connect_lobby` launch joins, `PauseOnOverlay` for a `game.Loop`, Web API auth tickets (`AuthTicketForWebAPI`), Steam Deck detection and the signed-in user, and `steamworks.NewFakeDriver` tests it without Steam (#1763).
+- `presence.SteamConfig.Client` and `modding.SteamWorkshopOptions.Client` attach rich presence and the Workshop to a shared `steamworks.Client`, which then owns Steamworks' init, callbacks and shutdown (#1763).

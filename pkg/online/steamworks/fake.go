@@ -73,6 +73,7 @@ func NewFakeDriver() *FakeDriver {
 	}
 }
 
+// RestartAppIfNecessary implements [Driver].
 func (f *FakeDriver) RestartAppIfNecessary(appID uint32) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -80,6 +81,7 @@ func (f *FakeDriver) RestartAppIfNecessary(appID uint32) bool {
 	return f.RestartRequired
 }
 
+// Init implements [Driver].
 func (f *FakeDriver) Init() (InitResult, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -87,6 +89,7 @@ func (f *FakeDriver) Init() (InitResult, string, error) {
 	return f.InitResult, f.InitMessage, f.InitErr
 }
 
+// Shutdown implements [Driver].
 func (f *FakeDriver) Shutdown() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -94,12 +97,14 @@ func (f *FakeDriver) Shutdown() error {
 	return nil
 }
 
+// RunFrame implements [Driver].
 func (f *FakeDriver) RunFrame() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.runFrameCalls++
 }
 
+// NextCallback implements [Driver].
 func (f *FakeDriver) NextCallback() (RawCallback, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -112,6 +117,7 @@ func (f *FakeDriver) NextCallback() (RawCallback, bool) {
 	return cb, true
 }
 
+// FreeLastCallback implements [Driver].
 func (f *FakeDriver) FreeLastCallback() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -121,6 +127,7 @@ func (f *FakeDriver) FreeLastCallback() {
 	}
 }
 
+// GetAPICallResult implements [Driver].
 func (f *FakeDriver) GetAPICallResult(call uint64, expectedCallback int32, size int32) ([]byte, bool, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -140,36 +147,42 @@ func (f *FakeDriver) GetAPICallResult(call uint64, expectedCallback int32, size 
 	return cp, false, true
 }
 
+// AppID implements [Driver].
 func (f *FakeDriver) AppID() uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.AppIDValue
 }
 
+// SteamID implements [Driver].
 func (f *FakeDriver) SteamID() uint64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.SteamIDValue
 }
 
+// PersonaName implements [Driver].
 func (f *FakeDriver) PersonaName() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.Persona
 }
 
+// RunningOnSteamDeck implements [Driver].
 func (f *FakeDriver) RunningOnSteamDeck() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.SteamDeck
 }
 
+// OverlayEnabled implements [Driver].
 func (f *FakeDriver) OverlayEnabled() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.OverlayOK
 }
 
+// ActivateGameOverlay implements [Driver].
 func (f *FakeDriver) ActivateGameOverlay(dialog string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -180,6 +193,7 @@ func (f *FakeDriver) ActivateGameOverlay(dialog string) bool {
 	return true
 }
 
+// ActivateGameOverlayToWebPage implements [Driver].
 func (f *FakeDriver) ActivateGameOverlayToWebPage(url string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -190,6 +204,7 @@ func (f *FakeDriver) ActivateGameOverlayToWebPage(url string) bool {
 	return true
 }
 
+// SetRichPresence implements [Driver].
 func (f *FakeDriver) SetRichPresence(key, value string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -204,6 +219,7 @@ func (f *FakeDriver) SetRichPresence(key, value string) bool {
 	return true
 }
 
+// ClearRichPresence implements [Driver].
 func (f *FakeDriver) ClearRichPresence() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -211,6 +227,7 @@ func (f *FakeDriver) ClearRichPresence() {
 	clear(f.richPresence)
 }
 
+// GetAuthTicketForWebAPI implements [Driver].
 func (f *FakeDriver) GetAuthTicketForWebAPI(identity string) uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -219,12 +236,14 @@ func (f *FakeDriver) GetAuthTicketForWebAPI(identity string) uint32 {
 	return f.nextAuthHandle
 }
 
+// CancelAuthTicket implements [Driver].
 func (f *FakeDriver) CancelAuthTicket(handle uint32) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.canceledTickets = append(f.canceledTickets, handle)
 }
 
+// ShowGamepadTextInput implements [Driver].
 func (f *FakeDriver) ShowGamepadTextInput(desc, existing string, maxChars uint32, multiLine, password bool) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -232,12 +251,14 @@ func (f *FakeDriver) ShowGamepadTextInput(desc, existing string, maxChars uint32
 	return true
 }
 
+// GetEnteredGamepadTextInput implements [Driver].
 func (f *FakeDriver) GetEnteredGamepadTextInput() (string, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.enteredText, f.enteredTextOK
 }
 
+// ResolveSymbol implements [Driver].
 func (f *FakeDriver) ResolveSymbol(names ...string) (uintptr, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -249,6 +270,7 @@ func (f *FakeDriver) ResolveSymbol(names ...string) (uintptr, error) {
 	return 0, fmt.Errorf("%w: symbol %v not found in FakeDriver", ErrUnavailable, names)
 }
 
+// CallbackPack implements [Driver].
 func (f *FakeDriver) CallbackPack() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -358,54 +380,63 @@ func (f *FakeDriver) CompleteAPICall(call uint64, callbackID int32, data []byte,
 
 // --- Test inspection helpers ---
 
+// RestartCount returns how many times RestartAppIfNecessary was called.
 func (f *FakeDriver) RestartCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.restartCalls
 }
 
+// InitCount returns how many times Init was called.
 func (f *FakeDriver) InitCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.initCalls
 }
 
+// ShutdownCount returns how many times Shutdown was called.
 func (f *FakeDriver) ShutdownCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.shutdownCalls
 }
 
+// RunFrameCount returns how many manual-dispatch frames ran.
 func (f *FakeDriver) RunFrameCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.runFrameCalls
 }
 
+// FreedCallbackCount returns how many dequeued callbacks were freed.
 func (f *FakeDriver) FreedCallbackCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.freedCallbacks
 }
 
+// InFlightCallbackCount returns how many dequeued callbacks have not been freed yet.
 func (f *FakeDriver) InFlightCallbackCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.inFlightCBs
 }
 
+// RichPresence returns a copy of the rich presence keys currently set.
 func (f *FakeDriver) RichPresence() map[string]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return maps.Clone(f.richPresence)
 }
 
+// RichPresenceClearCount returns how many times ClearRichPresence was called.
 func (f *FakeDriver) RichPresenceClearCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.richClears
 }
 
+// OverlayDialogs returns the dialogs passed to ActivateGameOverlay, in order.
 func (f *FakeDriver) OverlayDialogs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -414,6 +445,7 @@ func (f *FakeDriver) OverlayDialogs() []string {
 	return out
 }
 
+// OverlayURLs returns the URLs passed to ActivateGameOverlayToWebPage, in order.
 func (f *FakeDriver) OverlayURLs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -422,6 +454,7 @@ func (f *FakeDriver) OverlayURLs() []string {
 	return out
 }
 
+// AuthRequests returns the identities passed to GetAuthTicketForWebAPI, in order.
 func (f *FakeDriver) AuthRequests() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -430,6 +463,7 @@ func (f *FakeDriver) AuthRequests() []string {
 	return out
 }
 
+// CanceledTickets returns the auth ticket handles passed to CancelAuthTicket, in order.
 func (f *FakeDriver) CanceledTickets() []uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
