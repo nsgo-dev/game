@@ -183,3 +183,6 @@ if err := entities.LoadWorld(store, "slot1", fresh); err != nil {
 	return err
 }
 ```
+# 宽查询
+
+`Each4` 使用四个组件存储中最小的一个作为驱动，按确定性顺序、零分配遍历交集，与 `Each1`–`Each3` 保持一致。
