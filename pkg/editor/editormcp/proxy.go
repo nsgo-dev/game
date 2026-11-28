@@ -22,6 +22,7 @@ type Proxy struct {
 	mu         sync.Mutex
 	session    *mcp.ClientSession
 	clientInfo *mcp.Implementation
+	clientCaps *mcp.ClientCapabilities
 	runCtx     context.Context
 	// wg tracks background dial/refresh goroutines started while Run is active.
 	wg sync.WaitGroup
@@ -73,6 +74,20 @@ func NewProxy(root string) *Proxy {
 	})
 	p.sdk.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "resources/list" && !proxyRequestSupportsMCPApps(req) {
+				res, err := next(ctx, method, req)
+				if listed, ok := res.(*mcp.ListResourcesResult); ok {
+					listed.Resources = slices.DeleteFunc(listed.Resources, func(r *mcp.Resource) bool {
+						return r != nil && (r.URI == PlaytestWidgetURI || r.URI == ViewportWidgetURI)
+					})
+				}
+				return res, err
+			}
+			if method == "resources/read" && !proxyRequestSupportsMCPApps(req) {
+				if read, ok := req.(*mcp.ReadResourceRequest); ok && read.Params != nil && strings.HasPrefix(read.Params.URI, "ui://nsgo-game/") {
+					return nil, fmt.Errorf("MCP Apps widgets require the %s extension", mcpAppsExtension)
+				}
+			}
 			if method == "tools/call" {
 				if callReq, ok := req.(*mcp.CallToolRequest); ok && callReq != nil && callReq.Params != nil {
 					name := callReq.Params.Name
@@ -96,6 +111,13 @@ func NewProxy(root string) *Proxy {
 			res, err := next(ctx, method, req)
 			if err == nil && (method == "server/discover" || method == "initialize" || method == "notifications/initialized") {
 				if ss, ok := req.GetSession().(*mcp.ServerSession); ok && ss != nil {
+					if params := ss.InitializeParams(); params != nil {
+						p.mu.Lock()
+						if params.Capabilities != nil {
+							p.clientCaps = params.Capabilities
+						}
+						p.mu.Unlock()
+					}
 					if params := ss.InitializeParams(); params != nil && params.ClientInfo != nil && params.ClientInfo.Name != "" {
 						ci := *params.ClientInfo
 						p.mu.Lock()
@@ -122,6 +144,11 @@ func NewProxy(root string) *Proxy {
 		p.sdk.AddResource(r, p.readResource)
 	}
 	return p
+}
+
+func proxyRequestSupportsMCPApps(req mcp.Request) bool {
+	ss, _ := req.GetSession().(*mcp.ServerSession)
+	return sessionSupportsMCPApps(ss)
 }
 
 // spawnBackground runs fn in a goroutine bound to the active Run context and tracked by p.wg
@@ -199,7 +226,9 @@ func (p *Proxy) editor(ctx context.Context) (*mcp.ClientSession, error) {
 	if err != nil {
 		return nil, err
 	}
+	clientCaps := p.clientCaps
 	client := mcp.NewClient(p.forwardImpl(), &mcp.ClientOptions{
+		Capabilities: clientCaps,
 		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
 			// The handler runs on the session's reading goroutine, which the list request needs free.
 			go p.refresh(context.Background(), p.current())

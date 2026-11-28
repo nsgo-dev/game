@@ -60,6 +60,34 @@ func TestServerListsToolsAndResources(t *testing.T) {
 	}
 }
 
+func TestMCPAppsWidgetsAreNegotiatedAndGated(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	ops := &mcp.ClientOptions{Capabilities: &mcp.ClientCapabilities{Extensions: map[string]any{
+		"io.modelcontextprotocol/ui": map[string]any{"mimeTypes": []any{"text/html;profile=mcp-app"}},
+	}}}
+	cs := connect(t, s, ops)
+	var uris []string
+	for r, err := range cs.Resources(context.Background(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		uris = append(uris, r.URI)
+	}
+	if !slices.Contains(uris, editormcp.PlaytestWidgetURI) || !slices.Contains(uris, editormcp.ViewportWidgetURI) {
+		t.Fatalf("MCP Apps resources = %v", uris)
+	}
+	read, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: editormcp.PlaytestWidgetURI})
+	if err != nil || len(read.Contents) != 1 || !strings.Contains(read.Contents[0].Text, "Content-Security-Policy") || strings.Contains(read.Contents[0].Text, "https://") {
+		t.Fatalf("widget resource = %+v, err=%v", read, err)
+	}
+	res := call(t, cs, editormcp.ToolViewportImage, map[string]any{})
+	if res.Meta == nil || res.Meta["ui"] == nil {
+		t.Fatalf("viewport result meta = %+v", res.Meta)
+	}
+}
+
 // scene_read returns the open scene with line numbers as the editor holds it, other files from disk, game.yaml as the editor holds it, and refuses paths outside the project.
 func TestSceneRead(t *testing.T) {
 	f := openFixture(t)
