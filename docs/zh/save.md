@@ -63,7 +63,7 @@ store := save.NewFileStore(cx.DataDir(),
 
 `Load` 读取到旧版本存档时，会按 `1 -> 2 -> 3 ...` 逐步迁移 JSON，再反序列化到 `dst`。`Load` 不会把迁移结果写回，因此在该槽位再次保存之前，每次 `Load` 都会重新运行迁移：每个迁移函数都必须是只依赖输入的纯函数，每次运行结果相同。
 
-信封中出现 `version` 与 `data` 以外的字段，或任一字段重复出现，均视为 `ErrCorrupt`。`save.EnvelopeVersion(payload)` 可以在不解码正文的情况下读取存档信封的模式版本（包括较新构建写入、带有额外未知字段的信封）。
+信封中出现 `version`、`data` 与可选的 `header` 对象（见[槽位摘要](#槽位摘要)）以外的字段，或任一字段重复出现，均视为 `ErrCorrupt`。`save.EnvelopeVersion(payload)` 可以在不解码正文的情况下读取存档信封的模式版本（包括较新构建写入、带有额外未知字段的信封）。
 
 搭配 `liveops.CloudSyncer` 跨设备同步槽位时，请将存储的 `Version` 传入 `CloudSyncOptions.SaveVersion`。在把云端副本写入本地之前，同步器会检查 `save.EnvelopeVersion`；若云端副本版本更新，它会保持本地槽位不变，并报告 `liveops.OutcomeNeedsUpdate`（附带 `LocalVersion` 和 `CloudVersion`），让游戏提示玩家更新，而不是把会导致 `Load` 返回 `ErrFutureVersion` 的未来版本信封写入本地、进而冒险让新存档覆盖云端副本。详见 [cloudsave](cloudsave.md#混合客户端版本)。
 
@@ -76,6 +76,36 @@ store := save.NewFileStore(cx.DataDir(),
 | `ErrFutureVersion` | 存档版本号高于当前 `Store.Version`。 |
 | `ErrMissingMigration` | 缺少升级到 `Store.Version` 所需的迁移步骤。 |
 | `ErrCorrupt` | 存储内容不是合法的存档信封。 |
+
+## 槽位摘要
+
+读档界面要为每个槽位显示章节、地点或游戏时长。`SaveWithHeader(slot, header, value)` 把游戏自定义的小型摘要与数据写在同一个信封里，即 `{"version": N, "header": {...}, "data": ...}`；`Headers()` 以槽位名为键返回每个槽位的摘要原始 JSON，不会把任何槽位的数据反序列化为 Go 值：
+
+```go
+type SlotSummary struct {
+	Chapter string `json:"chapter"`
+	PlayMin int    `json:"playMin"`
+}
+
+if err := store.SaveWithHeader("slot1", SlotSummary{Chapter: "Harbor", PlayMin: 42}, progress); err != nil {
+	return err
+}
+
+headers, err := store.Headers()
+if err != nil {
+	return err
+}
+for slot, raw := range headers {
+	var sum SlotSummary
+	if json.Unmarshal(raw, &sum) == nil {
+		fmt.Println(slot, sum.Chapter, sum.PlayMin)
+	}
+}
+```
+
+摘要必须编码为 JSON 对象。摘要与数据是同一次写入，二者不会不一致；备份副本保留上一次的摘要和上一次的数据：主副本损坏时，`Headers` 从 `Load` 会回退到的那份副本读取摘要。`Load` 忽略摘要。用 `Save` 写入的槽位、或早于摘要功能的构建写入的槽位没有摘要，不会出现在结果中（`Slots` 仍会列出它），没有任何有效副本的槽位也不会出现。`Headers` 会读取每个槽位的整个信封，所以摘要要保持小巧，缩略图等图像数据请放在摘要之外。
+
+早于摘要功能的构建会把带摘要的信封读作 `ErrCorrupt` 并回退到备份，因此可能降级的游戏不要在同一个模式版本中开始写入摘要。
 
 ## 原子写入与备份恢复
 

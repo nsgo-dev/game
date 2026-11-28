@@ -1,1 +1,3 @@
-新增 SaveWithHeader 与 Headers，用于无需加载大型存档正文列出槽位摘要。
+### Added
+
+- `pkg/save`: `Store.SaveWithHeader` writes an optional JSON object header in the slot envelope alongside the data, and `Store.Headers` lists every slot's header without unmarshaling the save data, for load screens (#1733).
