@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
 version: 1
+uid: w2hp63r7xa3ta
 name: Lantern Hills
 virtualWidth: 320
 virtualHeight: 180
