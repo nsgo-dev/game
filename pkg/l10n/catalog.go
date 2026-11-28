@@ -164,7 +164,7 @@ func (c *Catalog) LoadJSON(locale string, data []byte) error {
 // If key is not found in any locale in the chain, key itself is returned.
 func (c *Catalog) T(locale, key string, args ...Arg) string {
 	c.mu.RLock()
-	e, _, ok := c.lookupLocked(locale, key)
+	e, matchedLoc, ok := c.lookupLocked(locale, key)
 	c.mu.RUnlock()
 	if !ok {
 		return key
@@ -176,7 +176,7 @@ func (c *Catalog) T(locale, key string, args ...Arg) string {
 			tmpl = e.plural.One
 		}
 	}
-	return interpolate(tmpl, args)
+	return c.formatMessage(matchedLoc, key, tmpl, args)
 }
 
 // Plural resolves key for locale, selects the plural form matching integer count
@@ -219,7 +219,7 @@ func (c *Catalog) Plural(locale, key string, count int, args ...Arg) string {
 		withCount = append(withCount, args...)
 		args = withCount
 	}
-	return interpolate(tmpl, args)
+	return c.formatMessage(matchedLoc, key, tmpl, args)
 }
 
 func (c *Catalog) tableLocked(loc string) map[string]entry {
@@ -548,12 +548,26 @@ func selectPluralForm(locale string, count int, forms PluralForms) string {
 	}
 }
 
-func interpolate(tmpl string, args []Arg) string {
+const maxMessageReferences = 128
+
+func (c *Catalog) formatMessage(locale, key, tmpl string, args []Arg) string {
 	if !strings.ContainsAny(tmpl, "{}") {
 		return tmpl
 	}
 	var b strings.Builder
 	b.Grow(len(tmpl))
+	remaining := maxMessageReferences
+	root := messageKey{locale: locale, key: key}
+	c.interpolate(&b, tmpl, args, &root, &remaining)
+	return b.String()
+}
+
+type messageKey struct {
+	locale, key string
+	parent      *messageKey
+}
+
+func (c *Catalog) interpolate(b *strings.Builder, tmpl string, args []Arg, from *messageKey, remaining *int) {
 	for i := 0; i < len(tmpl); {
 		switch tmpl[i] {
 		case '{':
@@ -565,12 +579,12 @@ func interpolate(tmpl string, args []Arg) string {
 			end := strings.IndexByte(tmpl[i+1:], '}')
 			if end < 0 {
 				b.WriteString(tmpl[i:])
-				return b.String()
+				return
 			}
 			name := tmpl[i+1 : i+1+end]
 			if val, ok := findArg(args, name); ok {
 				b.WriteString(formatArgValue(val))
-			} else {
+			} else if key, isReference := strings.CutPrefix(name, "@"); !isReference || !c.formatReference(b, key, args, from, remaining) {
 				b.WriteString(tmpl[i : i+2+end])
 			}
 			i += end + 2
@@ -587,7 +601,36 @@ func interpolate(tmpl string, args []Arg) string {
 			i++
 		}
 	}
-	return b.String()
+}
+
+// A reference starts in the locale supplying its enclosing template. The
+// expansion budget also bounds repeated references in branching templates.
+func (c *Catalog) formatReference(b *strings.Builder, key string, args []Arg, from *messageKey, remaining *int) bool {
+	if key == "" || *remaining == 0 {
+		return false
+	}
+	c.mu.RLock()
+	e, loc, ok := c.lookupLocked(from.locale, key)
+	c.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	for in := from; in != nil; in = in.parent {
+		if in.locale == loc && in.key == key {
+			return false
+		}
+	}
+	*remaining = *remaining - 1
+	tmpl := e.text
+	if e.isPlural {
+		tmpl = e.plural.Other
+		if tmpl == "" {
+			tmpl = e.plural.One
+		}
+	}
+	next := messageKey{locale: loc, key: key, parent: from}
+	c.interpolate(b, tmpl, args, &next, remaining)
+	return true
 }
 
 func findArg(args []Arg, name string) (any, bool) {
