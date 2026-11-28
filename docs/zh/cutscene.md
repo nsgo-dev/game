@@ -277,3 +277,6 @@ core.Show{When: player.CanSkip, Then: func(*core.Scope) core.Node {
 app.Play("id:cutscene", core.VideoInfo{Duration: 3 * time.Second})
 app.Progress("id:cutscene", 3*time.Second, 3*time.Second) // done 收到 Finished
 ```
+## 对白字幕
+
+在时间线播放器的 `OnDialogue` 回调中调用 `a11y.CaptionBridge.SyncDialogue`。回调报告空台词或播放器结束时传入 `active=false`。桥接器只保留当前台词的一条字幕，并在播放结束时移除它。

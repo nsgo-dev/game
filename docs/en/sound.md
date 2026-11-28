@@ -348,3 +348,6 @@ func TestMixerCrossfadeAndMute(t *testing.T) {
 	}
 }
 ```
+## Accessibility captions
+
+Use `a11y.CaptionBridge.ShowSFXAt` immediately after a positional sound succeeds. Pass the same pan calculated for the listener and a `minInterval` for repeated effects such as footsteps. This keeps directional captions aligned with playback while preventing a burst from filling the track.
