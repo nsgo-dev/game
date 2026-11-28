@@ -306,13 +306,13 @@ import "github.com/nsgo-dev/game/pkg/editor/editormcp"
 go tool game mcp install
 ```
 
-`go tool game mcp install` 是幂等的：重复运行会保留两个文件中其他不相关的 MCP 服务器或 Codex 配置，生成逐字节相同的文件，并打印每个文件是新写入还是未变更。在项目目录之外也可以传入 `-project <dir>`，或手动注册 `go tool game mcp`：
+`go tool game mcp install` 会写入或更新 `nsgo-game-editor` 项，以及当前用户在**设置 › 工具**中启用的每个 MCP 服务器，并删除与那里已禁用服务器同名的项目项。它把每个已启用服务器的命令和参数从当前用户的编辑器设置复制到这些项目文件中，因此提交前请检查文件内容。无关的 MCP 服务器和其他 Codex 配置会保留，现有文件权限也保持不变。安装是幂等的：内容相同的文件逐字节保持不变，命令会打印每个文件是新写入还是未变更。在项目目录之外也可以传入 `-project <dir>`，或手动注册 `go tool game mcp`：
 
 ```sh
 claude mcp add game-editor -- go tool game mcp
 ```
 
-`go tool game mcp` 是一个基于标准输入输出的 MCP 服务器，它找到打开了该项目的编辑器，把每次工具调用、资源读取和订阅都转发给它，并将客户端名称与传输方式（例如 `Claude Code over stdio`）上报给编辑器的连接对话框与状态胶囊。它列出编辑器的工具，包括编辑器其他部分添加的工具；编辑器关闭后再次打开时，它会重新连接，因此智能体的会话比编辑器活得更久。没有编辑器打开该项目时，每次调用都返回一个错误，说明这一点以及如何打开项目：`no editor has the project open at /path/to/game: open it with go tool game editor /path/to/game and try again`。
+`go tool game mcp` 是一个基于标准输入输出的 MCP 服务器，它找到打开了该项目的编辑器，把每次工具调用、资源读取和订阅都转发给它，并将客户端名称与传输方式（例如 `Claude Code over stdio`）上报给编辑器的连接对话框与状态胶囊。它列出编辑器的工具，包括编辑器其他部分添加的工具；编辑器关闭后再次打开时，它会重新连接，因此智能体的会话比编辑器活得更久。没有编辑器打开该项目时，每次调用都返回一个错误，说明这一点以及如何打开项目：``editormcp: no editor has the project open at <root>: open it with `go tool game editor <root>` and try again``。
 
 ### 工具
 
@@ -329,12 +329,18 @@ claude mcp add game-editor -- go tool game mcp
 | `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`，并包含编辑器中打开且未保存的文档），返回其中的可见问题，每条带文件、从 1 开始的行号、列号（可定位时）和消息。 |
 | `problem_propose_fix` | read | `problem`（必填）、`explanation`（必填）、`edit`（必填） | 在克隆场景上校验针对实时问题的修复建议，计算精确的 `-`/`+` YAML 差异，并在编辑器的 Agent 面板展示审查卡片（含应用修复、定位查看、忽略与提问）。绝不自动应用修复或修改任何文件——没有任何 MCP 工具会直接应用修复。 |
 | `history_list` | read | `author`（`all`、`you`、`agent`）、`limit`（1–500，默认 50）（均可选） | 读取编辑器统一的 History 时间线（按最新优先排列），包含手动编辑、智能体回合、外部 Git 重载与保存点的作者、摘要、详情、涉及文件、时间戳、变更/保留计数、未保存状态以及当前预览条目 ID。 |
+| `checkpoint_list` | read | `filter`（`all`、`you`、`agent`；默认 `all`）、`limit`（1–200，默认 50）（均可选） | 按最新优先列出最近的项目历史与保存在 `.nsgo/checkpoints` 中的持久回合检查点，包括每项的操作者、类型、标题、详情、涉及文件，以及是否持久保存和可以还原。 |
+| `checkpoint_restore` | edit | `id`（必填） | 把持久检查点记录的每个文件还原到回合前的字节内容，作为一个可撤销步骤；撤销会把该回合放回来。 |
 | `review_status` | read | 无 | 返回当前或最近一次逐项智能体回合审核的状态：是否打开或挂起、用户请求文本、轮次状态、按文件统计摘要、每项改动的已读与撤回标记、与开发者手动编辑重叠的冲突及合并选择（`mine`、`agent`、`both`）、审核中就地手改并标注为 `"you"` 的 YAML 字段与代码行（保留后仍供第二轮读取）、当前阻塞项（包含 YAML 解析错误）以及最近一次保留/撤回结果。绝不暴露未发送草稿批注，强制遵守 `SceneAndData` 与 `GoSource` 隐私策略，且保留或撤回始终由开发者决定。 |
 | `review_notes_get` | read | 无 | 读取当前智能体回合审核的轮次状态、改动列表以及作者通过 **Send N notes** 或 **Revert and redo with this note** 显式发送的批注（含 `change_id`、`file`、`object`、`field`、`kind`、`note`、`revert_first`）。未发送草稿与发送前移除的批注绝不返回。 |
 | `review_redo` | edit | `changes`（必填非空数组，每项含 `change_id` 及可选 `detail`、`x`、`y`、`component`、`fields`、`file_content`、`old_value`、`new_value`、`delta`、`yaml_lines`） | 仅重做当前审核中作者留有批注的改动，在同一回合内推进至 Round 2+ 并以只读方式保留先前轮次。未加批注的改动（以及 `file_content` 中夹带的未批注项）会被原子拒绝；重做项重新标为未读且 Why 更新为 `"Redone from your note: …"`，**Keep** 仍将最新一轮作为单个撤销步骤应用。 |
 | `game_playtest` | run | `file`、`run`、`count`、`seeds`、`out`、`recordings`（均可选） | 校验 `playtest.yaml`，无头运行配置好的机器人试玩并按种子录制 `.replay.yaml` 回放，写出 YAML 报告并返回每项指标的值、目标状态（`met` 或 `missed`）以及热力图坐标数据。 |
 | `playtest_define` | edit | `metric`（必填）、`file`、`rationale`、`replace`（可选） | 校验提议的试玩指标，生成规范的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews` / `ApplyPlaytestReview` / `DismissPlaytestReview`），在审查确认前不改写磁盘上的 `playtest.yaml`。 |
 | `playtest_report` | edit | `file`、`open`、`read`、`suggestions`、`watchRun`（均可选） | 打开或查看编辑器的试玩报告界面，加载 `playtest.report.yaml` 报告文件，更新 Agent 解读与可执行建议，或在播放模式中打开指定轮次（从 1 开始）已保存的 `.replay.yaml` 回放录制。 |
+| `merge_status` | read | `open`、`file`（均可选） | 查看当前逐对象场景冲突会话，或检测打开项目的 Git 仓库中尚未合并的场景文件；传入 `open: true` 时，如果尚未打开会话，则打开 `file` 或检测到的第一个冲突场景。 |
+| `merge_resolve` | edit | `id`、`choice`（`agent`、`mine`、`theirs`、`custom`、`unresolved`）、`yaml`、`allAgent`、`focus`、`suggest`（`meta`、`yaml`、`reason`、`deleted`）（均可选） | 聚焦冲突对象、更新智能体的建议、选择解决方式或自定义 YAML，或通过 `allAgent: true` 对所有冲突采用智能体建议。 |
+| `merge_finish` | run | 无 | 全部冲突解决后，写入解决后的场景，运行 `game check` 和一次短试玩，并暂存及完成当前 Git 操作（合并时提交，变基/拣选/还原时使用 `--continue`，应用储藏时仅暂存）。 |
+| `merge_abort` | run | 无 | 中止当前 Git 合并、变基、拣选、还原或储藏冲突，恢复分支与工作树，并关闭冲突解决器。 |
 | `play_frozen_context` | read | `includeImage`（可选，默认 `true`） | 读取冻结的运行模式上下文：截取的视口帧 PNG（`includeImage` 为 `true` 时附上）、作者的问题、已保存或最近 60 秒滚动输入回放（版本 2 YAML）及 `windowStartFrame`、实时实体状态与改动、运行标记（含 `LastMarksThread`）、输出面板检测到的 panic 报告以及当前智能体步进日志。 |
 | `play_replay_step` | run | `from_frame`、`to_frame`、`steps`（1–3600，与 `to_frame` 互斥）、`replay_file`（可选项目内 `.replay.yaml` 相对路径）、`note`、`includeImage`（均可选） | 使用已保存或滚动输入回放在 `from_frame..to_frame` 区间内步进运行模式（每次最多 3,600 帧）并始终保持暂停，更新视口智能体徽章（`"agent stepping frames A–B"`）和 Agent 标签页步进日志（`"Stepped frames A–B with game_loop_step…"`），并可选返回结果暂停帧的 PNG。 |
 | `code_review_propose` | code | `files`（必填数组，元素为 `{path, content, delete?, note?}`）、`prompt`、`round`、`summary`、`failure_explanation`、`suspect_file`、`suspect_line`、`play_impact`、`open`（默认 `true`）、`run_checks`（默认 `true`） | 在不触碰磁盘的情况下，将待审 Go 文件（及可选的伴随 YAML/预制体文件）暂存到编辑器的逐文件 Go 代码审查中；若审查已打开则在同一回合内原位推进为 Round 2，并在 UI goroutine 之外针对 Go 构建覆盖层运行 `nsgo check` 与 `nsgo test`。 |
@@ -358,6 +364,7 @@ claude mcp add game-editor -- go tool game mcp
 | `tile_review_keep` | edit | 无 | 将当前瓦片审查中所有保留区域合并提交为 `History` 中的单个可撤销步骤，并关闭审查。 |
 | `tile_review_revert_all` | edit | 无 | 丢弃当前瓦片审查中的所有待确认改动，还原到审查前的瓦片地图并关闭审查。 |
 | `object_set_field` | edit | `field`、`value`（必填），`id`、`component`、`property`、`label`、`why`（可选） | 通过检查器自身的 `Editor` 方法设置对象 `id` 的单个检查器字段、组件字段（`component`）或自定义属性（`property: true`），在回合之外作为单个撤销步骤。省略 `id` 时见[编辑目标](#编辑目标)。 |
+| `object_locate_yaml` | read | `id`、`open`（均可选） | 返回对象在打开场景中从 1 开始的行号及 YAML 片段，默认使用当前选中对象；`open: true` 还会通过 `Editor.OnOpenFileAtLine` 在对应行打开场景。 |
 | `object_copy_yaml` | read | `id`（可选） | 将当前场景中的对象（本地或解析后的继承/实例对象）序列化为规范 `sceneformat` YAML，复制到编辑器剪贴板并显示复制提示。 |
 | `object_paste_yaml` | edit | `yaml`、`layer`（可选） | 解析规范 `sceneformat` 对象 YAML（省略 `yaml` 时读取编辑器当前剪贴板，最大 4 MiB），分配全新的唯一 ID 并作为一个撤销步骤放置到 `layer`，结果以 `layer` 报告所放置的图层。省略 `layer` 时见[编辑目标](#编辑目标)。 |
 | `object_duplicate` | edit | `id`（可选） | 在同一图层中克隆对象 `id`（及其子项）并分配全新的唯一 ID，作为单个撤销步骤，并以 `sourceId` 报告源对象。省略 `id` 时见[编辑目标](#编辑目标)。 |
@@ -368,6 +375,7 @@ claude mcp add game-editor -- go tool game mcp
 | `object_find_usages` | read | `id`（可选） | 在打开的项目中查找对象的实例化场景、预制体或 ID 的引用与搜索匹配（对场景/预制体路径打开查找用法界面，对普通 ID 打开搜索面板）。 |
 | `release_notes_draft` | edit | `markdown`、`kept_reviews`（均可选） | 根据自上一发布标签（无标签时自初始提交）以来的 git 提交、已保留的审查摘要及 `changelog.d` 片段起草面向玩家的 Markdown 发布说明（或直接保存经校验的 `markdown`，上限 256 KiB），并仅原子写入 `game release -release-notes` 读取的同一文件。 |
 | `release_review_uploads` | run | 无 | 打开构建与发布界面的 **Review uploads** 确认对话框，列出每个产物的名称、体积、目标商店（`itch.io`、`Google Play · internal testing`、`TestFlight`）与版本号。绝不启动上传：无论权限配置如何，商店上传始终需要开发者本人显式确认。 |
+| `agent_report_step` | read | `text`（必填）、`objects`、`status`（`running` 或 `done`，默认 `done`）（可选） | 在智能体面板报告实时进度步骤，可指出步骤涉及的场景对象 ID，并返回用户在运行中的请求上补充的后续指示。 |
 | `agent_turn_get` | read | `turnId`、`includeScene`、`includeImage`（可选） | 读取从 `⌘L` 就地提问框或智能体面板提交的最新（或指定）请求，返回提示词、`skipPlan` 标记、选中对象 ID 与名称、打开场景的路径与 YAML，以及捕获的视口 PNG 图像。 |
 | `agent_turn_reply` | edit | `turnId`、`reply`、`status`（可选） | 更新智能体面板对话线程中指定回合的状态（`pending`、`running`、`done`、`stopped`）和/或写入智能体回复文本。 |
 | `tasks_list` | read | `include_dismissed`（可选，默认 `false`） | 列出需要确认、运行中、待审查、排队中与失败五个分组中的后台智能体任务（`include_dismissed` 为 `true` 时同时包含已忽略/已完成任务），并返回当前对象持有锁与 `TaskSummary` 徽章计数（`dockBadge = needsYou + readyToReview + failed`）。 |
@@ -376,7 +384,6 @@ claude mcp add game-editor -- go tool game mcp
 | `project_context` | read | 无 | 返回智能体每次请求前读取的共享项目上下文：`brief.yaml`（规范 YAML、解析字段、缺失栏目缺口与结构化试玩目标）与 `AGENTS.md`（纯 Markdown 项目规则与条数），以及待审阅文档变更。 |
 | `brief_edit` | edit | `yaml` 或结构化字段（`pitch`、`genre`、`tags`、`platforms`、`artDirection`、`toneAndAudio`、`feel`）、`summary`、`rationale` | 严格校验提议的 `brief.yaml` 修改（未知字段带行号拒绝），并排队为可审查的 `DocReview` 差异卡片，在用户保留前不改动磁盘。 |
 | `rules_edit` | edit | `markdown` 或 `appendRule`、`summary`、`rationale` | 为 `AGENTS.md` 提议整段修改或追加单条规则，作为可审查的 `DocReview` 差异卡片排队，在用户保留前不改动磁盘。 |
-| `history_list` | read | `author`（`"all"`、`"you"`、`"agent"`）、`limit`（可选） | 按时间倒序列出编辑器统一的历史时间线，包含手动编辑、智能体回合与已保存检查点。 |
 | `permissions_draft` | read | `request`（可选）、`rules`（必填） | 提交仅限用户审阅的权限草案卡片，默认不勾选任何规则；绝不直接修改 `permissions.yaml`。 |
 | `game_delete_file` | delete | `file`（必填）、`reason`（可选） | 在**设置 › 工具**中默认关闭（启用前不会向已连接客户端公布）。启用后在“审查更改”面板中提议删除项目文件并展示行数与场景引用，在用户确认前绝不改动磁盘（拒绝仅限用户文件、符号链接、`.git/**`、`game.yaml`、已打开场景标签页及超过 1 MiB 的文件）。 |
 | `datatable_review_propose` | edit | `files`（必填）、`prompt`、`checks`（可选） | 使用 `datatable.ParseDocument`（及已注册的 Go 行类型）校验一个或多个版本 1 YAML 数据表文件，并打开带旧值 → 新值、`Δ%`、单行 Revert/Restore 与可选智能体核验指标的逐行数据表审查界面，在用户点击 Keep 前不修改磁盘。 |
@@ -398,7 +405,7 @@ claude mcp add game-editor -- go tool game mcp
 | `add` | `object`（写法同场景文件）、`layer`、`parent` | `PlaceObject`，有 `parent` 时再 `ReparentObject` |
 | `remove` | `id` | `DeleteObject` |
 | `move` | `id`、`x`、`y` | `MoveObject` |
-| `set` | `id`、`fields` | 对象的各个设置方法：`id`、`name`、`x`、`y`、`z`、`rotation`、`scaleX`、`scaleY`、`alpha`、`originX`、`originY`、`flipX`、`flipY`、`sprite`、`material`、`posZ`、`rotX`、`rotY`、`rotZ`、`scaleZ`、`depth`、`mesh` |
+| `set` | `id`、`fields` | 对象的各个设置方法：`id`、`name`、`x`、`y`、`z`、`rotation`、`scaleX`、`scaleY`、`alpha`、`originX`、`originY`、`flipX`、`flipY`、`sprite`、`material`、`particles`、`posZ`、`rotX`、`rotY`、`rotZ`、`scaleZ`、`depth`、`mesh`、`model`、`gridMap`、`occluder`、`light`、`camera` |
 | `set` | `id`、`component`、`fields` | 对每个字段调用 `SetComponentField` |
 | `add_component` | `id`、`component`、`fields` | `AddComponent`，然后 `SetComponentField` |
 | `remove_component` | `id`、`component` | `RemoveComponent` |
