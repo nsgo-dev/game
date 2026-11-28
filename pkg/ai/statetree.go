@@ -21,7 +21,8 @@ type State struct {
 	Children     []State          `yaml:"children,omitempty"`
 }
 type StateCondition struct {
-	Key, Op string
+	Key string `yaml:"key"`
+	Op string `yaml:"op"`
 	Value   any `yaml:"value,omitempty"`
 }
 type Task struct {
@@ -29,7 +30,8 @@ type Task struct {
 	Params map[string]any `yaml:"params,omitempty"`
 }
 type Transition struct {
-	On, To   string
+	On string `yaml:"on"`
+	To string `yaml:"to"`
 	Priority int  `yaml:"priority,omitempty"`
 	Delay    int  `yaml:"delay,omitempty"`
 	Restart  bool `yaml:"restart,omitempty"`
