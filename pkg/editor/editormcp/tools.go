@@ -146,7 +146,7 @@ func builtinTools() []Tool {
 			Target:      tilesetEditTarget,
 			Handler:     tilesetEdit,
 		},
-	}, append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...), phoneTools()...), problemTools()...), playFrozenTools()...), agentTools()...), taskTools()...), contextTools()...), historyTools()...), youOnlyTools()...), reviewTools()...), dataTableReviewTools()...), sketchTools()...), checkpointTools()...), turnTools()...), codeReviewTools()...), planTools()...)...)
+	}, append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(append(playtestTools(), templateTools()...), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...), phoneTools()...), problemTools()...), playFrozenTools()...), agentTools()...), taskTools()...), contextTools()...), historyTools()...), youOnlyTools()...), reviewTools()...), dataTableReviewTools()...), sketchTools()...), checkpointTools()...), turnTools()...), codeReviewTools()...), planTools()...)...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.

@@ -148,8 +148,11 @@ func editorTemplatesFromRegistry() []editor.ProjectTemplate {
 	out := make([]editor.ProjectTemplate, len(projectTemplates))
 	for i, t := range projectTemplates {
 		out[i] = editor.ProjectTemplate{
-			Name:    t.name,
-			Summary: t.summary,
+			Name:      t.name,
+			Title:     t.manifest.TitleFor("en"),
+			Summary:   t.manifest.SummaryFor("en"),
+			Dimension: t.manifest.Dimension,
+			Genre:     t.manifest.Genre, Orientation: t.manifest.Orientation, Inputs: slices.Clone(t.manifest.Inputs), PlayersMin: t.manifest.Players.Min, PlayersMax: t.manifest.Players.Max,
 			Default: i == 0,
 		}
 	}
