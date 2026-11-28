@@ -1,0 +1,21 @@
+version: 1
+pages:
+  - when:
+      self:
+        opened: false
+    trigger: action
+    commands:
+      - say:
+          text: chest.found_potion
+      - wait:
+          seconds: 0.5
+      - set:
+          name: potions
+          value: 1
+      - self:
+          name: opened
+          value: true
+  - when:
+      self:
+        opened: true
+    trigger: action

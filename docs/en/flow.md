@@ -259,3 +259,37 @@ opened := vars.Self("chest_01").Bool("opened")
 - **Save and restore**: `snap := vars.Snapshot()` returns a plain `flow.VarsSnapshot` (`Version`, `Vars`, `Self`) that marshals cleanly to JSON or YAML for `save.Store`. `vars.Restore(snap)` validates versions, names, kinds, and bounds atomically without invoking `OnChange` listeners, leaving the store unchanged on error (`flow.ErrInvalidSnapshot`). Variables added to `vars.yaml` after an older save keep their declared defaults on restore, and a zero `VarsSnapshot` resets to defaults and clears self variables.
 - **Static validation**: `go tool game check` validates every `vars.yaml` / `*.vars.yaml` file and checks every `$name` and `{name}` variable reference in `.yarn` dialogue scripts against the project's declarations, reporting undeclared names with their exact file and line.
 - **Live remote inspection**: pass `Vars: vars` (or `VarsFunc`) to `mcp.Config` to expose `game_vars_list`, `game_var_get`, and `game_var_set`; the editor's Remote Inspector lists declared variables with live editable controls alongside active per-object self variables.
+
+## Map events (`ParseMapEvent`, `EventRunner`)
+
+A map event is a chest, sign, door or one-time trigger written as YAML instead of Go: an ordered list of pages, each with conditions, a trigger and a list of commands.
+
+```yaml
+version: 1
+pages:
+  - when:
+      self:
+        opened: false
+    trigger: action
+    commands:
+      - say:
+          text: chest.found_potion
+      - wait:
+          seconds: 0.5
+      - self:
+          name: opened
+          value: true
+  - when:
+      self:
+        opened: true
+    trigger: action
+```
+
+- **Format**: `flow.ParseMapEvent` reads version 1 (`flow.MapEventVersion`) and `flow.EncodeMapEvent` writes its canonical form. Unknown fields and commands, a list entry with no command or more than one, an unknown trigger, a negative, infinite or NaN wait, and a `set` or `self` without a name are refused at load with a `loaderr.Error` that names the field and line. A page without `trigger` reads as `action`.
+- **Pages**: `doc.ActivePage(self, switches, variables)` returns the last page whose `when` conditions all hold, as in RPG Maker, or -1 when none does: every `self` and `switches` entry equals its value, and every `variables` entry is at least its value. A missing name reads as false or 0.
+- **Triggers**: a page's trigger is `action`, `touch`, `autorun` or `parallel` (`flow.TriggerAction` and so on). The runner does not watch input or movement; the game starts the page when its trigger fires, for example `action` when the player faces the event and presses the button.
+- **Commands**: `say` passes its text, usually a localization key, to `EventRunner.Say`; `wait` pauses for game seconds; `set` writes an integer to `EventRunner.Variables`; `self` writes a self switch to `EventRunner.Self`.
+- **Running**: `flow.NewEventRunner(doc)` is idle until `Start(page)`. `Update(dt)` on each fixed step runs commands until one waits or the page ends, never blocking the loop, and returns true once the runner is idle; time left over when a wait ends carries into the commands after it.
+- **Saving mid-event**: `Snapshot` returns a `flow.EventSnapshot` (the page, -1 when idle, the next command, the time left on a wait, and the self switches and variables) that marshals to YAML or JSON. `Restore` refuses a snapshot that does not fit the runner's document with `flow.ErrInvalidEventSnapshot` and leaves the runner unchanged.
+
+The commands are a first set. Choices, conditional branches, item and transfer commands, game-registered commands and integration with `Vars` are not part of the format yet.

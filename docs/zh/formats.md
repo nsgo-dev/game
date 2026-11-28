@@ -3254,6 +3254,32 @@ vars:
     doc: Player gold coins.
 ```
 
+<!-- format: flow#mapevent -->
+### 地图事件
+
+| 文件 | 版本 | 读写函数 | 指南 |
+| --- | --- | --- | --- |
+| 地图事件的页面，每页包含对独立开关、开关和变量的 `when` 条件，触发方式（`action`、`touch`、`autorun`、`parallel`），以及 `say`、`wait`、`set` 和 `self` 命令 | `1`（`flow.MapEventVersion`） | `flow.ParseMapEvent`、`flow.EncodeMapEvent` | [flow](flow.md#地图事件parsemapeventeventrunner) |
+
+```yaml
+version: 1
+pages:
+  - when:
+      self:
+        opened: false
+    trigger: action
+    commands:
+      - say:
+          text: chest.found_potion
+      - self:
+          name: opened
+          value: true
+  - when:
+      self:
+        opened: true
+    trigger: action
+```
+
 <!-- format: dialogue -->
 ### Yarn 对话脚本
 
