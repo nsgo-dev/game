@@ -1,0 +1,8 @@
+version: 1
+model:
+  animations: true
+credit:
+  author: KayKit / Anthony Evans
+  license: CC0-1.0
+  source: https://kaylousberg.itch.io/kaykit-adventurers
+  notice: KayKit Adventurers character kit, trimmed for NSGo's CC0 starter pack.

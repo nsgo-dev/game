@@ -150,4 +150,6 @@ autoload:
 
 ## 在 Go 中使用
 
+共享索引还包含供 3D 模板选择安装的 `cc0-adventurers` CC0-1.0 角色包。运行 `go tool game library install cc0-adventurers` 即可安装。包内两个绑定骨骼的 glTF 模型共享十二个动画片段，`library/packs/cc0-adventurers/README.md` 记录由 `go run ./tools/clipinventory` 生成的网格、皮肤、骨骼和片段时长信息。
+
 `library.Open(ctx, location)` 读取索引，`Library.Fetch(ctx, name)` 获取并校验包；`Index.Search(kind, query)` 查找包。`library.Install(projectDir, pack, dir)` 和 `library.Remove(projectDir, name)` 修改项目目录。`PlanInstall` 和 `PlanRemove` 根据 `fs.FS` 和 `project.File` 计算同样的改动而不写入，`Change.Apply` 负责写入。
