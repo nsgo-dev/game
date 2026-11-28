@@ -34,13 +34,34 @@ const objectLocateYAMLSchema = `{"type":"object","additionalProperties":false,"p
 
 // ObjectFieldResult is returned by object_set_field.
 type ObjectFieldResult struct {
-	File      string `json:"file"`
-	Object    string `json:"object"`
-	Component string `json:"component,omitempty"`
-	Property  bool   `json:"property,omitempty"`
-	Field     string `json:"field"`
-	Undo      string `json:"undo,omitempty"`
-	Revision  uint64 `json:"revision"`
+	File      string      `json:"file"`
+	Object    string      `json:"object"`
+	Component string      `json:"component,omitempty"`
+	Property  bool        `json:"property,omitempty"`
+	Field     string      `json:"field"`
+	Undo      string      `json:"undo,omitempty"`
+	Revision  uint64      `json:"revision"`
+	Change    FieldChange `json:"change"`
+}
+
+// FieldChange describes the value transition made by an edit tool.
+type FieldChange struct {
+	Object    string            `json:"object"`
+	Component string            `json:"component,omitempty"`
+	Property  bool              `json:"property,omitempty"`
+	Field     string            `json:"field"`
+	Before    any               `json:"before"`
+	After     any               `json:"after"`
+	Changed   bool              `json:"changed"`
+	Override  *OverrideLocation `json:"override,omitempty"`
+}
+
+// OverrideLocation identifies where an inherited or instanced edit is stored.
+type OverrideLocation struct {
+	Origin   string `json:"origin"`
+	Scene    string `json:"scene,omitempty"`
+	Instance string `json:"instance,omitempty"`
+	Key      string `json:"key,omitempty"`
 }
 
 // ObjectYAMLLocation is returned by object_locate_yaml.
@@ -137,6 +158,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		res.Component = args.Component
 		res.Property = args.Property
 		res.Field = args.Field
+		before := editorFieldValue(ed, targetID, args.Component, args.Property, args.Field)
 
 		label := args.Label
 		if label == "" {
@@ -211,6 +233,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		if ed.SketchApproved() {
 			ed.RecordSketchReviewEdits(label, nil, []string{targetID}, nil)
 		}
+		res.Change = makeFieldChange(ed, targetID, args.Component, args.Property, args.Field, before)
 		return nil
 	})
 	if err != nil {
@@ -308,4 +331,106 @@ func objectLocateYAML(ctx context.Context, c *Call) (*Result, error) {
 		b.WriteString(loc.YAML)
 	}
 	return &Result{Text: b.String(), Structured: loc}, nil
+}
+
+func editorFieldValue(ed *editor.Editor, objectID, component string, property bool, field string) any {
+	obj, _, _ := ed.FindObject(objectID)
+	if obj == nil {
+		return nil
+	}
+	if property {
+		return obj.Properties[field]
+	}
+	if component != "" {
+		if raw, ok := obj.Components[component]; ok {
+			if fields, ok := raw.(map[string]any); ok {
+				return fields[field]
+			}
+		}
+		return nil
+	}
+	switch field {
+	case "id":
+		return obj.ID
+	case "name":
+		return obj.Name
+	case "x":
+		return obj.X
+	case "y":
+		return obj.Y
+	case "z":
+		return obj.Z
+	case "rotation":
+		return obj.Rotation
+	case "scaleX":
+		if obj.ScaleX != nil {
+			return *obj.ScaleX
+		}
+		return nil
+	case "scaleY":
+		if obj.ScaleY != nil {
+			return *obj.ScaleY
+		}
+		return nil
+	case "scaleZ":
+		if obj.ScaleZ != nil {
+			return *obj.ScaleZ
+		}
+		return nil
+	case "alpha":
+		if obj.Alpha != nil {
+			return *obj.Alpha
+		}
+		return nil
+	case "originX":
+		return obj.OriginX
+	case "originY":
+		return obj.OriginY
+	case "flipX":
+		return obj.FlipX
+	case "flipY":
+		return obj.FlipY
+	case "posZ":
+		return obj.PosZ
+	case "rotX":
+		return obj.RotX
+	case "rotY":
+		return obj.RotY
+	case "rotZ":
+		return obj.RotZ
+	case "depth":
+		return obj.Depth
+	case "sprite":
+		return obj.Sprite
+	case "material":
+		return obj.Material
+	case "model":
+		return obj.Model
+	case "gridMap":
+		return obj.GridMap
+	case "occluder":
+		return obj.Occluder
+	case "light":
+		return obj.Light
+	case "camera":
+		return obj.Camera
+	default:
+		return nil
+	}
+}
+
+func makeFieldChange(ed *editor.Editor, objectID, component string, property bool, field string, before any) FieldChange {
+	after := editorFieldValue(ed, objectID, component, property, field)
+	change := FieldChange{Object: objectID, Component: component, Property: property, Field: field, Before: before, After: after, Changed: !sameJSON(before, after)}
+	info := ed.ObjectOverrideInfo(objectID)
+	if info.Origin != editor.ObjectLocal {
+		change.Override = &OverrideLocation{Origin: info.Origin.String(), Scene: info.SourceScene, Instance: info.InstanceID, Key: info.Key}
+	}
+	return change
+}
+
+func sameJSON(a, b any) bool {
+	left, _ := json.Marshal(a)
+	right, _ := json.Marshal(b)
+	return string(left) == string(right)
 }
