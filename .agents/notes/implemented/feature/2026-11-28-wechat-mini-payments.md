@@ -16,6 +16,8 @@ WeChat mini game virtual payments (#1740) do not fit `liveops.Purchases`: the cl
 
 The tests pin `signData`, `paySig`, `signature` and `PayEventSig` to values computed independently with `openssl dgst -sha256 -hmac`, and cover a tampered payload, a wrong signature, a foreign event, both environment mismatches, ten sequential retries, sixteen concurrent retries and a failed delivery.
 
+The English and Chinese liveops guides also carry the same integration checklist. It keeps the AppKey and session key on the server, treats the raw signed delivery push as the purchase authority, requires environment isolation, and makes durable `OutTradeNo` idempotency explicit for deployments that span restarts or processes. The checklist requires success only after both the grant and delivery record have succeeded, preserving platform retries after a failed grant.
+
 ## Alternatives considered
 
 ### Signing a re-marshaled `Delivery` struct
