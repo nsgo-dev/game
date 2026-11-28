@@ -456,7 +456,7 @@ visibility: public
 preview: preview.png
 ```
 
-<!-- format: plugin/manifest -->
+<!-- format: gameplugin/manifest -->
 ### 插件清单
 
 | 文件 | 版本 | 读写函数 | 字段 |

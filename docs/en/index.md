@@ -100,8 +100,8 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `loot` | `github.com/nsgo-dev/game/pkg/loot` | [loot](loot.md) | Nested weighted drop tables in YAML with guaranteed drops and hard/soft pity counters on seeded streams |
 | `vn` | `github.com/nsgo-dev/game/pkg/vn` | [vn](vn.md) | Visual novel presenter: YAML cast of portraits and expressions, name plates, typewriter text box, choices, backlog, auto/skip modes and voice lines |
 | `modding` | `github.com/nsgo-dev/game/pkg/modding` | [modding](modding.md) | Capability-sandboxed TSX `"game"` modding API and `mod.yaml` dependency/lifecycle manager |
-| `plugin` | `github.com/nsgo-dev/game/pkg/plugin` | [Plugins](plugins.md) | Runtime plugin contract and deterministic installer: API version check, conflict detection, and ordered registration of components, systems, effects, data tables and console commands |
-| `plugin/manifest` | `github.com/nsgo-dev/game/pkg/plugin/manifest` | [Plugins](plugins.md) | Strict parser, validator and deterministic YAML encoder for Go plugin `plugin.yaml` manifests |
+| `gameplugin` | `github.com/nsgo-dev/game/pkg/gameplugin` | [Plugins](plugins.md) | Runtime plugin contract and deterministic installer: API version check, conflict detection, and ordered registration of components, systems, effects, data tables and console commands |
+| `gameplugin/manifest` | `github.com/nsgo-dev/game/pkg/gameplugin/manifest` | [Plugins](plugins.md) | Strict parser, validator and deterministic YAML encoder for Go plugin `plugin.yaml` manifests |
 | `math3d` | `github.com/nsgo-dev/game/pkg/math3d` | [math3d](math3d.md) | 3D vectors, matrices, quaternions, transforms, bounds, rays, frustums and conventions |
 | `scene3d` | `github.com/nsgo-dev/game/pkg/scene3d` | [scene3d](scene3d.md) | 3D node tree, sockets/attachments, dynamic fat-AABB/SAH BVH, Orbit/FPS/ThirdPerson cameras and picking |
 | `anim3d` | `github.com/nsgo-dev/game/pkg/anim3d` | [anim3d](anim3d.md) | 3D pose state machines, 1D/2D blend spaces, bone-masked/additive layers, clip events, IK and root motion |

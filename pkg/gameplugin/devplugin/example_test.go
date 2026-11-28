@@ -1,28 +1,28 @@
-package devtools_test
+package devplugin_test
 
 import (
 	"fmt"
 
 	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
+	"github.com/nsgo-dev/game/pkg/gameplugin/devplugin"
 	"github.com/nsgo-dev/game/pkg/mcp"
-	"github.com/nsgo-dev/game/pkg/plugin"
-	"github.com/nsgo-dev/game/pkg/plugin/devtools"
 )
 
 func ExampleInstall() {
 	bridge := mcp.New(mcp.Config{})
-	host := &devtools.Host{Bridge: bridge}
+	host := &devplugin.Host{Bridge: bridge}
 
-	kit := devtools.Plugin{
+	kit := devplugin.Plugin{
 		Name:   "healthkit",
 		Module: "example.com/healthkit",
-		API:    plugin.APIVersion,
-		Prefabs: []devtools.PrefabSpec{
+		API:    gameplugin.APIVersion,
+		Prefabs: []devplugin.PrefabSpec{
 			{Prefab: entities.NewPrefab("patient")},
 		},
 	}
 
-	if err := devtools.Install(host, kit); err != nil {
+	if err := devplugin.Install(host, kit); err != nil {
 		panic(err)
 	}
 	fmt.Println("installed:", host.Has("healthkit"))

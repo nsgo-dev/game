@@ -40,7 +40,7 @@ const (
 type Schema struct {
 	// Version is the schema format version; it must equal CurrentVersion (1).
 	Version int `yaml:"version" schema:"required"`
-	// Package is the Go package name emitted by cmd/gamewire when -pkg is not specified.
+	// Package is the Go package name emitted by game wire when -pkg is not specified.
 	Package string `yaml:"package" schema:"required,minLength=1"`
 	// Order is the default byte order for multi-byte fields in this file ("be" or "le"; defaults to "be" when omitted).
 	Order ByteOrder `yaml:"order,omitempty" schema:"enum=be|le"`

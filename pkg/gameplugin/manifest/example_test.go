@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing/fstest"
 
-	"github.com/nsgo-dev/game/pkg/plugin/manifest"
+	"github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 )
 
 // Parse reads and validates a plugin.yaml manifest.

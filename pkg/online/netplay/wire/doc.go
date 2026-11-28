@@ -2,11 +2,11 @@
 //
 // Schema files declare fixed-width integers (with explicit big- or little-endian byte order), varints, zigzag signed varints, booleans, raw float32 values, integer-quantized qfloat and fixed-point numbers, length-prefixed or trailing bytes and strings, fixed and variable arrays, enums, MSB-first bit-packed fields, presence-bitmask groups with optional delta diff/apply generation, and tag- or nibble-discriminated unions.
 //
-// Run cmd/gamewire (directly or through go generate) to produce deterministic Go codecs (AppendX / DecodeX) and dependency-free TypeScript codecs (encodeX / decodeX, plus diffX / applyX for delta masks) that fill caller-owned storage without per-packet heap allocations.
+// Run game wire (directly or through go generate) to produce deterministic Go codecs (AppendX / DecodeX) and dependency-free TypeScript codecs (encodeX / decodeX, plus diffX / applyX for delta masks) that fill caller-owned storage without per-packet heap allocations.
 package wire
 
-//go:generate go run ../../../../cmd/gamewire -in . -out . -self
-//go:generate go run ../../../../cmd/gamewire -lang ts -in . -out ts
+//go:generate go run ../../../../cmd/game wire -in . -out . -self
+//go:generate go run ../../../../cmd/game wire -lang ts -in . -out ts
 
 import (
 	"embed"

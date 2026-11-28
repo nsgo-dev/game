@@ -73,7 +73,7 @@ entities.Each2[Position, Velocity](world, func(e entities.Entity, p *Position, v
 - `Build()` validates constraints and resolves execution order with Kahn's algorithm, breaking ties by registration order. Unknown targets return `ErrUnknownSystem` and cycles return `ErrSystemCycle`.
 - `Order()` returns the resolved names and `String()` formats them as `"a -> b -> c"` for debug overlays.
 - `Step(w, dt)` resolves if needed and runs each system in order with zero steady-state allocations.
-- For reusable plugins, `game/pkg/plugin` adds four standard stage anchor pairs (`StageInput` -> `StageUpdate` -> `StagePhysics` -> `StageLate`) once per scheduler so plugin systems can attach to a stage without knowing the game's system names; see [Plugins](plugins.md#standard-scheduler-stages).
+- For reusable plugins, `game/pkg/gameplugin` adds four standard stage anchor pairs (`StageInput` -> `StageUpdate` -> `StagePhysics` -> `StageLate`) once per scheduler so plugin systems can attach to a stage without knowing the game's system names; see [Plugins](plugins.md#standard-scheduler-stages).
 
 ```go
 sched := entities.NewScheduler()

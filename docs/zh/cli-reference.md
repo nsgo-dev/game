@@ -399,6 +399,23 @@ go tool game net [flags] decode [flags] <capture.jsonl | -> | stats [flags] <cap
 | `-resolve-deltas` |  | track per-peer replication baselines so SnapshotDelta frames also print full resulting entity states (decode only) |
 | `-schema string` |  | directory or \*.wire.yaml file of game-defined wire schemas (for example, custom EntityState.Props) |
 
+## game wire
+
+Generate Go and TypeScript codecs from \*.wire.yaml schemas, or check that the committed ones are current.
+
+```sh
+go tool game wire [flags] [schema.wire.yaml ...]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-check` |  | verify that generated files in -out are up to date without writing |
+| `-in file` | `.` | input \*.wire.yaml file or directory containing \*.wire.yaml files |
+| `-lang language` | `go` | target language for code generation: go or ts |
+| `-out directory` |  | output directory (or .go/.ts file for a single input); defaults to the input directory |
+| `-pkg name` |  | override the Go package name (defaults to each schema's package field) |
+| `-self` |  | omit the pkg/online/netplay/wire runtime import (used when generating Go inside pkg/online/netplay/wire) |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.

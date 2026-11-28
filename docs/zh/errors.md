@@ -59,7 +59,7 @@ if err != nil {
 | `l10n` | `Catalog.LoadJSON`、`ParseAssetManifest`、`AssetCatalog.LoadAssetManifestYAML` | 键、资源变体和资源组，按字段 |
 | `input` | `Actions.Load`、`Haptics.Load` | 存储的绑定，按字段，以存储键为文件名 |
 | `modding` | `ParseManifest`、`ModManifest.Validate`、`Manager.Discover`、`Manager.DiscoverFS`、`Manager.Reload` | 清单的每个字段、模组不支持的游戏版本和重复的 id，给出 `<mod>/mod.yaml` |
-| `plugin/manifest` | `Parse` | 插件清单字段和能力声明，按字段 |
+| `gameplugin/manifest` | `Parse` | 插件清单字段和能力声明，按字段 |
 | `gameui` | `ParseScreen` | 界面布局树、设备类别和控件，按字段 |
 | `replay` | `Decode`、`LoadFile` | 头部和各步，按字段，例如 `steps[3].press[0]` |
 | `statedump` | `Parse`、`ReadFile` | 头部、场景状态、值、实体和与 JSON 不兼容的 YAML 节点，按字段或节点所在行 |

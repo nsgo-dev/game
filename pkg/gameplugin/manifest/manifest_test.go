@@ -10,8 +10,8 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 	"github.com/nsgo-dev/game/pkg/loaderr"
-	"github.com/nsgo-dev/game/pkg/plugin/manifest"
 )
 
 func validFullManifest() manifest.Manifest {

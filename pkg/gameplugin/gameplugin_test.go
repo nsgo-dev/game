@@ -1,4 +1,4 @@
-package plugin
+package gameplugin
 
 import (
 	"errors"
@@ -727,7 +727,7 @@ func TestStagesMetadata(t *testing.T) {
 	}
 }
 
-// TestNoForbiddenImports verifies that pkg/plugin does not directly or transitively import pkg/editor, pkg/mcp, or pkg/tooling/playtest.
+// TestNoForbiddenImports verifies that pkg/gameplugin does not directly or transitively import pkg/editor, pkg/mcp, or pkg/tooling/playtest.
 func TestNoForbiddenImports(t *testing.T) {
 	root := filepath.Clean(filepath.Join("..", ".."))
 	const modPrefix = "github.com/nsgo-dev/game/"
@@ -738,7 +738,7 @@ func TestNoForbiddenImports(t *testing.T) {
 	}
 
 	visited := map[string]bool{}
-	queue := []string{modPrefix + "pkg/plugin"}
+	queue := []string{modPrefix + "pkg/gameplugin"}
 	fset := token.NewFileSet()
 
 	for len(queue) > 0 {
@@ -751,7 +751,7 @@ func TestNoForbiddenImports(t *testing.T) {
 
 		for _, bad := range forbidden {
 			if pkg == bad || strings.HasPrefix(pkg, bad+"/") {
-				t.Fatalf("pkg/plugin transitively imports forbidden package %s", pkg)
+				t.Fatalf("pkg/gameplugin transitively imports forbidden package %s", pkg)
 			}
 		}
 

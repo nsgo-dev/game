@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	pluginmanifest "github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 	"github.com/nsgo-dev/game/pkg/jsonschema"
-	pluginmanifest "github.com/nsgo-dev/game/pkg/plugin/manifest"
 )
 
 func TestPluginManifestSchemaAcceptsWhatEncodeWrites(t *testing.T) {

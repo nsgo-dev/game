@@ -4,26 +4,26 @@ Go 插件是用于扩展游戏运行时、场景编辑器或 `game` 命令行工
 
 ```go
 import (
-	"github.com/nsgo-dev/game/pkg/plugin"
-	"github.com/nsgo-dev/game/pkg/plugin/manifest"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
+	"github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 )
 ```
 
-## 运行时插件（`pkg/plugin`）
+## 运行时插件（`pkg/gameplugin`）
 
-插件的运行时 Go 包导出一个返回 `plugin.Plugin` 的构造函数（约定为 `func Plugin() plugin.Plugin`），游戏通过 `plugin.Install` 将所有启用的插件安装到 `plugin.Host` 上。`pkg/plugin` 不导入 `pkg/editor`、`pkg/mcp` 或 `pkg/tooling/playtest`，确保发布的二进制只链接实际用到的运行时包。
+插件的运行时 Go 包导出一个返回 `gameplugin.Plugin` 的构造函数（约定为 `func Plugin() gameplugin.Plugin`），游戏通过 `gameplugin.Install` 将所有启用的插件安装到 `gameplugin.Host` 上。`pkg/gameplugin` 不导入 `pkg/editor`、`pkg/mcp` 或 `pkg/tooling/playtest`，确保发布的二进制只链接实际用到的运行时包。
 
 ```go
-func Plugin() plugin.Plugin {
-	return plugin.Plugin{
+func Plugin() gameplugin.Plugin {
+	return gameplugin.Plugin{
 		Name:   "health",
 		Module: "example.com/healthkit",
-		API:    plugin.APIVersion,
+		API:    gameplugin.APIVersion,
 		Components: []sceneformat.ComponentType{
 			Type(), // 包含 Fields、Events、Handlers 及可选的 Spawn
 		},
-		Systems: []plugin.System{
-			{Name: "health.regen", Stage: plugin.StageUpdate, Fn: regenSystem},
+		Systems: []gameplugin.System{
+			{Name: "health.regen", Stage: gameplugin.StageUpdate, Fn: regenSystem},
 		},
 		Codecs: func(w *entities.World) error {
 			return entities.RegisterCodec[Stats](w, "health")
@@ -34,7 +34,7 @@ func Plugin() plugin.Plugin {
 
 ### 安装到 `Host`
 
-`plugin.Host` 聚合游戏希望插件填充的注册表；任意为 `nil` 的字段都会跳过对应类别的贡献：
+`gameplugin.Host` 聚合游戏希望插件填充的注册表；任意为 `nil` 的字段都会跳过对应类别的贡献：
 
 - `Host.Components`（`*sceneformat.ComponentRegistry`）：按插件参数顺序与切片顺序合并每个插件的 `Components`（保留 `ComponentType.Spawn`）。
 - `Host.Scheduler`（`*entities.Scheduler`）：为每个调度器一次性添加四组标准阶段锚点，随后按插件与切片顺序注册各插件的 `Systems`。
@@ -44,13 +44,13 @@ func Plugin() plugin.Plugin {
 - `Host.Plugins()` 返回已安装插件的元数据（`Name`、`Module` 以及通过 `runtime/debug.ReadBuildInfo` 读取的 `Version`；本地构建或无版本号的 `replace` 指令返回 `"(devel)"`）。`Host.Has(name)` 报告插件是否已安装。
 
 ```go
-host := &plugin.Host{
+host := &gameplugin.Host{
 	Components: sceneformat.NewComponentRegistry(),
 	Scheduler:  entities.NewScheduler(),
 	DataTables: datatable.NewRegistry(),
 	Console:    gamedebug.NewConsole(),
 }
-if err := plugin.Install(host, health.Plugin()); err != nil {
+if err := gameplugin.Install(host, health.Plugin()); err != nil {
 	return err
 }
 
@@ -62,35 +62,35 @@ if err := host.OnWorld(world); err != nil {
 
 ### 校验、确定性与进程全局注册表
 
-- **注册前校验**：`Install` 会先检查 `Plugin.API == plugin.APIVersion`、校验插件名与模块路径、拒绝重复插件名，并确认所有组件、系统、像素特效、数据表模式与控制台命令名均未被占用，之后才会写入任何注册表。出现任何冲突或校验错误时，不会产生半成品注册。
+- **注册前校验**：`Install` 会先检查 `Plugin.API == gameplugin.APIVersion`、校验插件名与模块路径、拒绝重复插件名，并确认所有组件、系统、像素特效、数据表模式与控制台命令名均未被占用，之后才会写入任何注册表。出现任何冲突或校验错误时，不会产生半成品注册。
 - **确定性顺序**：按参数顺序处理插件、按声明顺序处理切片字段（`Components`、`Systems`、`Console`）、按排序后的键顺序处理映射（`PixelFX`、`RowTypes`）。`Plugin.Install` 逃生舱（`func(*Host) error`）在所有声明式贡献提交之后最后执行。
 - **进程全局幂等（`PixelFX`）**：`pixelfx` 特效保存在进程全局注册表中。`Install` 会记录每个插件注册特效的归属 `(Name, Module)`，因此在第二个测试或编辑器重载后重复安装同一插件时会自动跳过而不会 panic；若其他插件或内置特效已占用该 ID，则在写入任何状态前明确报错。
-- **不设 `Version` 字段**：与 `plugin.yaml` 一致，`plugin.Plugin` 不包含 `Version` 字段，版本号统一通过 `plugin.ModuleVersion(modulePath)` 从 `go.mod` 构建信息读取。`plugin.APIVersion` 仅在插件契约发生破坏性变更时递增。
+- **不设 `Version` 字段**：与 `plugin.yaml` 一致，`gameplugin.Plugin` 不包含 `Version` 字段，版本号统一通过 `gameplugin.ModuleVersion(modulePath)` 从 `go.mod` 构建信息读取。`gameplugin.APIVersion` 仅在插件契约发生破坏性变更时递增。
 
 ### 标准调度阶段
 
-第三方系统通常希望在不了解宿主游戏内部系统名称的前提下插入到确定阶段。`plugin.Install`（或 `plugin.EnsureStages(sched)`）会为每个 `*entities.Scheduler` 一次性添加四组固定顺序的阶段锚点：
+第三方系统通常希望在不了解宿主游戏内部系统名称的前提下插入到确定阶段。`gameplugin.Install`（或 `gameplugin.EnsureStages(sched)`）会为每个 `*entities.Scheduler` 一次性添加四组固定顺序的阶段锚点：
 
-1. `plugin.StageInput`（`"input"`）——读取输入并转换玩家意图。
-2. `plugin.StageUpdate`（`"update"`）——常规玩法逻辑系统。
-3. `plugin.StagePhysics`（`"physics"`）——物理、移动与碰撞解算。
-4. `plugin.StageLate`（`"late"`）——相机跟随、变换同步与收尾清理。
+1. `gameplugin.StageInput`（`"input"`）——读取输入并转换玩家意图。
+2. `gameplugin.StageUpdate`（`"update"`）——常规玩法逻辑系统。
+3. `gameplugin.StagePhysics`（`"physics"`）——物理、移动与碰撞解算。
+4. `gameplugin.StageLate`（`"late"`）——相机跟随、变换同步与收尾清理。
 
 设置 `System.Stage` 会自动为系统添加 `entities.After(stage.Start())` 与 `entities.Before(stage.End())` 约束。同一阶段内的系统默认按注册顺序执行，也可通过 `Before` 和 `After` 进一步约束。游戏自身的 `Scheduler.AddSystem` 调用同样可以引用 `stage.Start()` 与 `stage.End()`。
 
-### 开发期贡献（`pkg/plugin/devtools`）
+### 开发期贡献（`pkg/gameplugin/devplugin`）
 
-MCP 桥接预制体（`pkg/mcp`）与自动试玩机器人（`pkg/tooling/playtest`）依赖较重的检查与回放包，发布版游戏二进制不应链接这些代码（见[包体积预算](package-size-budgets.md)）。这些贡献拆分在独立的 `github.com/nsgo-dev/game/pkg/plugin/devtools` 包中：
+MCP 桥接预制体（`pkg/mcp`）与自动试玩机器人（`pkg/tooling/playtest`）依赖较重的检查与回放包，发布版游戏二进制不应链接这些代码（见[包体积预算](package-size-budgets.md)）。这些贡献拆分在独立的 `github.com/nsgo-dev/game/pkg/gameplugin/devplugin` 包中：
 
 ```go
-import "github.com/nsgo-dev/game/pkg/plugin/devtools"
+import "github.com/nsgo-dev/game/pkg/gameplugin/devplugin"
 
-devHost := &devtools.Host{Bridge: bridge}
-if err := devtools.Install(devHost, devtools.Plugin{
+devHost := &devplugin.Host{Bridge: bridge}
+if err := devplugin.Install(devHost, devplugin.Plugin{
 	Name:   "healthkit",
 	Module: "example.com/healthkit",
-	API:    plugin.APIVersion,
-	Prefabs: []devtools.PrefabSpec{
+	API:    gameplugin.APIVersion,
+	Prefabs: []devplugin.PrefabSpec{
 		{Prefab: patientPrefab},
 	},
 	Bots: map[string]playtest.BotFactory{
@@ -101,7 +101,7 @@ if err := devtools.Install(devHost, devtools.Plugin{
 }
 ```
 
-`devtools.Install` 遵循同样的 API 版本校验、原子化注册前冲突检查、确定性顺序，以及 `playtest` 机器人注册表的进程全局归属规则（阻止覆盖内置或其他插件的机器人，同时允许同一插件幂等重装），且不导入 `pkg/editor`。
+`devplugin.Install` 遵循同样的 API 版本校验、原子化注册前冲突检查、确定性顺序，以及 `playtest` 机器人注册表的进程全局归属规则（阻止覆盖内置或其他插件的机器人，同时允许同一插件幂等重装），且不导入 `pkg/editor`。
 
 ## `plugin.yaml` 清单
 
@@ -154,10 +154,10 @@ contributes:
 | `authors` | 否 | 非空单行作者名称列表，不允许重复。 |
 | `repository` | 否 | 插件源码仓库的 `http://` 或 `https://` URL。 |
 | `engine` | 是 | 对 `github.com/nsgo-dev/game` 的语义化版本约束，例如 `>=0.4.0 <0.5.0` 或 `^0.4.0`。 |
-| `api` | 是 | 插件所针对的正整数 `plugin.APIVersion`（例如 `1`）。 |
+| `api` | 是 | 插件所针对的正整数 `gameplugin.APIVersion`（例如 `1`）。 |
 | `platforms` | 否 | 单独的 `[all]`，或 `macos`、`windows`、`linux`、`ios`、`android`、`web` 的子集。省略时表示支持全部平台。 |
 | `entries` | 是 | 位于 `module` 内部的 Go 包导入路径。`entries.runtime`、`entries.editor` 与 `entries.cli` 至少须设置一项。 |
-| `entries.runtime` | 否 | 提供运行时入口（`func Plugin() plugin.Plugin`）的 Go 包，必须等于 `module` 或位于 `module/` 之下。 |
+| `entries.runtime` | 否 | 提供运行时入口（`func Plugin() gameplugin.Plugin`）的 Go 包，必须等于 `module` 或位于 `module/` 之下。 |
 | `entries.editor` | 否 | 提供编辑器入口（`func Plugin() editor.Plugin`）的 Go 包，必须等于 `module` 或位于 `module/` 之下。 |
 | `entries.cli` | 否 | 通过 `go.mod` `tool` 指令扩展 `game` 命令行工具的 `{name, package}` 条目列表。每个 `name` 遵循插件名称规则且不可重复；每个 `package` 必须等于 `module` 或位于 `module/` 之下。 |
 | `requires` | 否 | 所依赖插件的 Go 模块路径到语义化版本约束（如 `^0.3.0`）的映射。键必须是合法 Go 模块路径，不能填写自身 `module`，且与 `conflicts` 互不相交。 |
@@ -166,7 +166,7 @@ contributes:
 
 ## 严格解析与规范编码
 
-`pkg/plugin/manifest` 不依赖 `pkg/editor`，可供命令行工具、运行时代码和索引器直接导入：
+`pkg/gameplugin/manifest` 不依赖 `pkg/editor`，可供命令行工具、运行时代码和索引器直接导入：
 
 - `manifest.Parse(data)` 严格解码单个 YAML 文档，拒绝未知字段、重复键和尾随文档，要求 `manifestVersion` 与 `api` 为纯十进制整数，并校验所有字段。返回的错误可通过 `errors.Is` 匹配 `manifest.ErrInvalid`，同时为 `*loaderr.Error`，包含文件、行号、字段路径与修复建议。
 - `manifest.ParseFS(fsys, dir)` 从 `fsys` 的 `dir` 目录读取并解析 `plugin.yaml`，并将文件路径附加到任何 `*loaderr.Error` 上。

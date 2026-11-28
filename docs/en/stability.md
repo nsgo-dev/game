@@ -66,7 +66,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/cmd/cloudsaved` | Experimental | [cloudsave](cloudsave.md) |
 | `game/cmd/editor` | Experimental | [Scene Editor](editor.md) |
 | `game/cmd/game` | Experimental | [Command Line](cli.md) |
-| `game/cmd/gamewire` | Experimental | [netplay/wire](netplay-wire.md) |
 | `game/cmd/leaderboardd` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | Experimental | [Command Line](cli.md) |
 | `game/pkg/a11y` | Experimental | [a11y](a11y.md) |
@@ -93,6 +92,9 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/flow` | Stable | [flow](flow.md) |
 | `game/pkg/fog` | Experimental | [fog](fog.md) |
 | `game/pkg/framedata` | Experimental | [framedata](framedata.md) |
+| `game/pkg/gameplugin` | Experimental | [Plugins](plugins.md) |
+| `game/pkg/gameplugin/devplugin` | Experimental | [Plugins](plugins.md) |
+| `game/pkg/gameplugin/manifest` | Experimental | [Plugins](plugins.md) |
 | `game/pkg/gametest` | Experimental | [gametest](gametest.md) |
 | `game/pkg/gameui` | Experimental | [gameui](gameui.md) |
 | `game/pkg/gltf` | Experimental | [3D Models from Blender](3d-models-blender.md) |
@@ -164,9 +166,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/pixelfx/weather` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pkg/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
 | `game/pkg/platformer` | Experimental | [platformer](platformer.md) |
-| `game/pkg/plugin` | Experimental | [Plugins](plugins.md) |
-| `game/pkg/plugin/devtools` | Experimental | [Plugins](plugins.md) |
-| `game/pkg/plugin/manifest` | Experimental | [Plugins](plugins.md) |
 | `game/pkg/postfx` | Experimental | [postfx](postfx.md) |
 | `game/pkg/procgen` | Experimental | [procgen](procgen.md) |
 | `game/pkg/project` | Experimental | [Project File](project.md) |

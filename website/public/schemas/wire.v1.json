@@ -11,7 +11,7 @@
       "const": 1
     },
     "package": {
-      "description": "Package is the Go package name emitted by cmd/gamewire when -pkg is not specified.",
+      "description": "Package is the Go package name emitted by game wire when -pkg is not specified.",
       "type": "string",
       "minLength": 1
     },

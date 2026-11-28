@@ -1,4 +1,4 @@
-package devtools
+package devplugin
 
 import (
 	"fmt"
@@ -8,14 +8,14 @@ import (
 	"sync"
 
 	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
+	"github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 	"github.com/nsgo-dev/game/pkg/mcp"
-	"github.com/nsgo-dev/game/pkg/plugin"
-	"github.com/nsgo-dev/game/pkg/plugin/manifest"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
-// PrefabSpec describes one prefab that a devtools [Plugin] registers on [Host.Bridge].
+// PrefabSpec describes one prefab that a devplugin [Plugin] registers on [Host.Bridge].
 // Exactly one of Prefab, Scene, or Spawn must be non-nil.
 type PrefabSpec struct {
 	// Name is the prefab name registered on the Bridge. When Prefab is set and Name is empty, Prefab.Name() is used.
@@ -34,7 +34,7 @@ type Plugin struct {
 	Name string
 	// Module is the plugin's Go module path, matching go.mod and plugin.yaml when set.
 	Module string
-	// API must equal [plugin.APIVersion].
+	// API must equal [gameplugin.APIVersion].
 	API int
 	// Prefabs lists prefabs registered on Host.Bridge in slice order.
 	Prefabs []PrefabSpec
@@ -49,19 +49,19 @@ type Host struct {
 	// Bridge receives plugin Prefabs when non-nil.
 	Bridge *mcp.Bridge
 
-	installed    []plugin.Installed
+	installed    []gameplugin.Installed
 	installedSet map[string]struct{}
 }
 
-// Plugins returns the devtools plugins installed on h in installation order.
-func (h *Host) Plugins() []plugin.Installed {
+// Plugins returns the devplugin plugins installed on h in installation order.
+func (h *Host) Plugins() []gameplugin.Installed {
 	if h == nil || len(h.installed) == 0 {
 		return nil
 	}
 	return slices.Clone(h.installed)
 }
 
-// Has reports whether a devtools plugin named name has been installed on h.
+// Has reports whether a devplugin plugin named name has been installed on h.
 func (h *Host) Has(name string) bool {
 	if h == nil || name == "" {
 		return false
@@ -99,7 +99,7 @@ type prefabPlanItem struct {
 // Install validates every plugin in ps against h and the process-global playtest registry before registering anything, then installs their bots, prefabs, and Install hooks in deterministic order (plugins in argument order, Prefabs in slice order, Bots in sorted key order).
 func Install(h *Host, ps ...Plugin) error {
 	if h == nil {
-		return plugin.ErrNilHost
+		return gameplugin.ErrNilHost
 	}
 	if len(ps) == 0 {
 		return nil
@@ -114,21 +114,21 @@ func Install(h *Host, ps ...Plugin) error {
 	// Phase 1: pre-flight validation of all plugins and contributions.
 	for _, p := range ps {
 		if err := manifest.ValidateName(p.Name); err != nil {
-			return fmt.Errorf("%w: %v", plugin.ErrInvalidPlugin, err)
+			return fmt.Errorf("%w: %v", gameplugin.ErrInvalidPlugin, err)
 		}
 		if p.Module != "" {
 			if err := manifest.ValidateModulePath(p.Module); err != nil {
-				return fmt.Errorf("plugin %q: %w: %v", p.Name, plugin.ErrInvalidPlugin, err)
+				return fmt.Errorf("plugin %q: %w: %v", p.Name, gameplugin.ErrInvalidPlugin, err)
 			}
 		}
-		if p.API != plugin.APIVersion {
-			return fmt.Errorf("plugin %q: %w: got %d, want %d", p.Name, plugin.ErrAPIMismatch, p.API, plugin.APIVersion)
+		if p.API != gameplugin.APIVersion {
+			return fmt.Errorf("plugin %q: %w: got %d, want %d", p.Name, gameplugin.ErrAPIMismatch, p.API, gameplugin.APIVersion)
 		}
 		if h.Has(p.Name) {
-			return fmt.Errorf("plugin %q: %w: already installed on devtools host", p.Name, plugin.ErrDuplicatePlugin)
+			return fmt.Errorf("plugin %q: %w: already installed on devplugin host", p.Name, gameplugin.ErrDuplicatePlugin)
 		}
 		if _, dup := batchPlugins[p.Name]; dup {
-			return fmt.Errorf("plugin %q: %w: listed twice in Install", p.Name, plugin.ErrDuplicatePlugin)
+			return fmt.Errorf("plugin %q: %w: listed twice in Install", p.Name, gameplugin.ErrDuplicatePlugin)
 		}
 		batchPlugins[p.Name] = struct{}{}
 
@@ -139,10 +139,10 @@ func Install(h *Host, ps ...Plugin) error {
 				return err
 			}
 			if prev, dup := batchPrefabs[item.name]; dup {
-				return fmt.Errorf("plugin %q: %w: prefab %q already declared by plugin %q", p.Name, plugin.ErrConflict, item.name, prev)
+				return fmt.Errorf("plugin %q: %w: prefab %q already declared by plugin %q", p.Name, gameplugin.ErrConflict, item.name, prev)
 			}
 			if h.Bridge != nil && h.Bridge.HasPrefab(item.name) {
-				return fmt.Errorf("plugin %q: %w: prefab %q is already registered on bridge", p.Name, plugin.ErrConflict, item.name)
+				return fmt.Errorf("plugin %q: %w: prefab %q is already registered on bridge", p.Name, gameplugin.ErrConflict, item.name)
 			}
 			batchPrefabs[item.name] = p.Name
 			prefabPlan = append(prefabPlan, item)
@@ -153,13 +153,13 @@ func Install(h *Host, ps ...Plugin) error {
 		for _, botName := range slices.Sorted(maps.Keys(p.Bots)) {
 			factory := p.Bots[botName]
 			if strings.TrimSpace(botName) == "" || strings.TrimSpace(botName) != botName {
-				return fmt.Errorf("plugin %q: %w: bot profile name %q must be non-empty without surrounding whitespace", p.Name, plugin.ErrInvalidPlugin, botName)
+				return fmt.Errorf("plugin %q: %w: bot profile name %q must be non-empty without surrounding whitespace", p.Name, gameplugin.ErrInvalidPlugin, botName)
 			}
 			if factory == nil {
-				return fmt.Errorf("plugin %q: %w: bot profile %q has a nil factory", p.Name, plugin.ErrInvalidPlugin, botName)
+				return fmt.Errorf("plugin %q: %w: bot profile %q has a nil factory", p.Name, gameplugin.ErrInvalidPlugin, botName)
 			}
 			if prev, dup := batchBots[botName]; dup {
-				return fmt.Errorf("plugin %q: %w: bot profile %q already declared by plugin %q", p.Name, plugin.ErrConflict, botName, prev)
+				return fmt.Errorf("plugin %q: %w: bot profile %q already declared by plugin %q", p.Name, gameplugin.ErrConflict, botName, prev)
 			}
 			batchBots[botName] = p.Name
 			botPlan = append(botPlan, botItem{
@@ -203,10 +203,10 @@ func Install(h *Host, ps ...Plugin) error {
 	}
 	for _, p := range ps {
 		h.installedSet[p.Name] = struct{}{}
-		h.installed = append(h.installed, plugin.Installed{
+		h.installed = append(h.installed, gameplugin.Installed{
 			Name:    p.Name,
 			Module:  p.Module,
-			Version: plugin.ModuleVersion(p.Module),
+			Version: gameplugin.ModuleVersion(p.Module),
 		})
 	}
 
@@ -214,7 +214,7 @@ func Install(h *Host, ps ...Plugin) error {
 	for _, p := range ps {
 		if p.Install != nil {
 			if err := p.Install(h); err != nil {
-				return fmt.Errorf("plugin %q: devtools install hook: %w", p.Name, err)
+				return fmt.Errorf("plugin %q: devplugin install hook: %w", p.Name, err)
 			}
 		}
 	}
@@ -233,7 +233,7 @@ func validatePrefabSpec(pluginName string, index int, spec PrefabSpec) (prefabPl
 		kinds++
 	}
 	if kinds != 1 {
-		return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: prefab %d must set exactly one of Prefab, Scene, or Spawn", pluginName, plugin.ErrInvalidPlugin, index)
+		return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: prefab %d must set exactly one of Prefab, Scene, or Spawn", pluginName, gameplugin.ErrInvalidPlugin, index)
 	}
 
 	switch {
@@ -243,37 +243,37 @@ func validatePrefabSpec(pluginName string, index int, spec PrefabSpec) (prefabPl
 		if name == "" {
 			name = p.Name()
 		} else if p.Name() != "" && p.Name() != name {
-			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: prefab %d Name %q does not match Prefab.Name() %q", pluginName, plugin.ErrInvalidPlugin, index, name, p.Name())
+			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: prefab %d Name %q does not match Prefab.Name() %q", pluginName, gameplugin.ErrInvalidPlugin, index, name, p.Name())
 		} else if p.Name() == "" {
 			p = p.Clone(name)
 		}
 		if name == "" {
-			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: prefab %d has an empty name", pluginName, plugin.ErrInvalidPlugin, index)
+			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: prefab %d has an empty name", pluginName, gameplugin.ErrInvalidPlugin, index)
 		}
 		return prefabPlanItem{pluginName: pluginName, name: name, prefab: p}, nil
 
 	case spec.Scene != nil:
 		if spec.Name == "" {
-			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: scene prefab %d has an empty name", pluginName, plugin.ErrInvalidPlugin, index)
+			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: scene prefab %d has an empty name", pluginName, gameplugin.ErrInvalidPlugin, index)
 		}
 		if err := sceneformat.Validate(spec.Scene); err != nil {
-			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: scene prefab %q: %v", pluginName, plugin.ErrInvalidPlugin, spec.Name, err)
+			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: scene prefab %q: %v", pluginName, gameplugin.ErrInvalidPlugin, spec.Name, err)
 		}
 		if spec.Scene.RefersToScenes() {
-			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: scene prefab %q refers to external scenes", pluginName, plugin.ErrInvalidPlugin, spec.Name)
+			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: scene prefab %q refers to external scenes", pluginName, gameplugin.ErrInvalidPlugin, spec.Name)
 		}
 		top := 0
 		for li := range spec.Scene.Layers {
 			top += len(spec.Scene.Layers[li].Objects)
 		}
 		if top != 1 {
-			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: scene prefab %q has %d top-level objects, want exactly 1", pluginName, plugin.ErrInvalidPlugin, spec.Name, top)
+			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: scene prefab %q has %d top-level objects, want exactly 1", pluginName, gameplugin.ErrInvalidPlugin, spec.Name, top)
 		}
 		return prefabPlanItem{pluginName: pluginName, name: spec.Name, scene: spec.Scene}, nil
 
 	default:
 		if spec.Name == "" {
-			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: custom prefab %d has an empty name", pluginName, plugin.ErrInvalidPlugin, index)
+			return prefabPlanItem{}, fmt.Errorf("plugin %q: %w: custom prefab %d has an empty name", pluginName, gameplugin.ErrInvalidPlugin, index)
 		}
 		return prefabPlanItem{pluginName: pluginName, name: spec.Name, spawn: spec.Spawn}, nil
 	}
@@ -288,13 +288,13 @@ func commitBots(plan []botItem) error {
 		item := &plan[i]
 		if existingOwner, owned := botOwners[item.name]; owned {
 			if existingOwner != item.owner {
-				return fmt.Errorf("plugin %q: %w: bot profile %q is already registered by plugin %q", item.pluginName, plugin.ErrConflict, item.name, existingOwner.name)
+				return fmt.Errorf("plugin %q: %w: bot profile %q is already registered by plugin %q", item.pluginName, gameplugin.ErrConflict, item.name, existingOwner.name)
 			}
 			item.skip = true
 			continue
 		}
 		if slices.Contains(existingProfiles, item.name) {
-			return fmt.Errorf("plugin %q: %w: bot profile %q is already registered", item.pluginName, plugin.ErrConflict, item.name)
+			return fmt.Errorf("plugin %q: %w: bot profile %q is already registered", item.pluginName, gameplugin.ErrConflict, item.name)
 		}
 	}
 

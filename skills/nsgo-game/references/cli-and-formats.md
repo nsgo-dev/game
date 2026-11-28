@@ -46,6 +46,7 @@ go get -tool github.com/nsgo-dev/game/cmd/game@latest
 | `game replay` | `game replay [-run Replay] [dir ...]` | Validate YAML input recordings and run their headless replay tests |
 | `game playtest` | `game playtest [-config -out -recordings -run -count -seeds -check] [dir ...]` | Validate `playtest.yaml`, run headless bot playtests with replays, write a YAML report and fail on missed goals |
 | `game bench` | `game bench [-baseline -bench -benchtime -count -in -update] [dir ...]` | Run headless benchmarks and fail on regressions against a YAML baseline |
+| `game wire` | `game wire [-in dir\|file -out dir\|file -pkg -lang go\|ts -self -check] [schema.wire.yaml ...]` | Generate deterministic Go or TypeScript codecs from `*.wire.yaml` schemas, or with `-check` fail when the committed ones are stale |
 | `game size` | `game size [-kind aab\|apk\|ipa\|wasm -budget -budget-mb -abi-budget-mb -wasm -file -json -markdown] [package]` | Check a WebAssembly, AAB, APK or IPA package against its size budget, with a category and largest-file breakdown |
 | `game release` | `game release [-target -channel -output -jobs -release-notes -dry-run] [dir]` | Build release packages for `game.yaml` export presets via `nsgo build` with credits |
 | `game completion` | `game completion zsh\|bash\|fish` | Output shell completion scripts |
