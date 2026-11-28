@@ -49,6 +49,12 @@ Run some tasks or change the passing score:
 go run ./tools/agenteval -task platformer-level,add-menu -min-score 80
 ```
 
+Run every task several times, each in a fresh workspace, and report per-task `trials`, `pass_rate`, `mean_score` and `stddev` ([Agent Evaluation](../../docs/en/agent-eval.md)); a task passes only when every trial passes:
+
+```sh
+go run ./tools/agenteval -trials 3
+```
+
 ### Agent mode (built-in coding agent)
 
 Runs a built-in multi-turn tool-calling agent (`-mode=agent`) against each task's starter workspace, staged docs, Agent Skill (`skills/nsgo-game/`), and MCP config (`mcp.json`), then grades what the agent leaves with the same rubric:
