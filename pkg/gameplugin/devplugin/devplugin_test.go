@@ -1,4 +1,4 @@
-package devtools
+package devplugin
 
 import (
 	"errors"
@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
 	"github.com/nsgo-dev/game/pkg/mcp"
-	"github.com/nsgo-dev/game/pkg/plugin"
 	"github.com/nsgo-dev/game/pkg/random"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/playtest"
@@ -52,7 +52,7 @@ func TestInstallPrefabsAndBots(t *testing.T) {
 	p := Plugin{
 		Name:   "kit",
 		Module: "example.com/kit",
-		API:    plugin.APIVersion,
+		API:    gameplugin.APIVersion,
 		Prefabs: []PrefabSpec{
 			{Prefab: entities.NewPrefab("crate")},
 			{Name: "barrel", Scene: validSingleRootScene()},
@@ -112,7 +112,7 @@ func TestInstallConflictsLeaveNothingRegistered(t *testing.T) {
 	ownerPlugin := Plugin{
 		Name:   "owner-bot-plugin",
 		Module: "example.com/owner",
-		API:    plugin.APIVersion,
+		API:    gameplugin.APIVersion,
 		Bots: map[string]playtest.BotFactory{
 			"owner-unique-bot": stubBotFactory("owner"),
 		},
@@ -130,39 +130,39 @@ func TestInstallConflictsLeaveNothingRegistered(t *testing.T) {
 	}{
 		{
 			name:    "api mismatch",
-			wantErr: plugin.ErrAPIMismatch,
+			wantErr: gameplugin.ErrAPIMismatch,
 			botName: "never-bot-1",
 			plugins: []Plugin{{
 				Name:    "badapi",
-				API:     plugin.APIVersion + 1,
+				API:     gameplugin.APIVersion + 1,
 				Prefabs: []PrefabSpec{{Prefab: entities.NewPrefab("never-prefab")}},
 				Bots:    map[string]playtest.BotFactory{"never-bot-1": stubBotFactory("x")},
 			}},
 		},
 		{
 			name:    "duplicate plugin in batch",
-			wantErr: plugin.ErrDuplicatePlugin,
+			wantErr: gameplugin.ErrDuplicatePlugin,
 			botName: "never-bot-2",
 			plugins: []Plugin{
 				{
 					Name:    "dup",
-					API:     plugin.APIVersion,
+					API:     gameplugin.APIVersion,
 					Prefabs: []PrefabSpec{{Prefab: entities.NewPrefab("never-prefab")}},
 					Bots:    map[string]playtest.BotFactory{"never-bot-2": stubBotFactory("x")},
 				},
-				{Name: "dup", API: plugin.APIVersion},
+				{Name: "dup", API: gameplugin.APIVersion},
 			},
 		},
 		{
 			name:    "prefab collides with bridge",
-			wantErr: plugin.ErrConflict,
+			wantErr: gameplugin.ErrConflict,
 			botName: "never-bot-3",
 			prepare: func(h *Host) {
 				_ = h.Bridge.RegisterEntityPrefab(entities.NewPrefab("taken"))
 			},
 			plugins: []Plugin{{
 				Name: "col",
-				API:  plugin.APIVersion,
+				API:  gameplugin.APIVersion,
 				Prefabs: []PrefabSpec{
 					{Prefab: entities.NewPrefab("never-prefab")},
 					{Prefab: entities.NewPrefab("taken")},
@@ -172,12 +172,12 @@ func TestInstallConflictsLeaveNothingRegistered(t *testing.T) {
 		},
 		{
 			name:    "bot collides with another plugin",
-			wantErr: plugin.ErrConflict,
+			wantErr: gameplugin.ErrConflict,
 			botName: "never-bot-4",
 			plugins: []Plugin{{
 				Name:    "rival",
 				Module:  "example.com/rival",
-				API:     plugin.APIVersion,
+				API:     gameplugin.APIVersion,
 				Prefabs: []PrefabSpec{{Prefab: entities.NewPrefab("never-prefab")}},
 				Bots: map[string]playtest.BotFactory{
 					"never-bot-4":      stubBotFactory("rival"),
@@ -187,11 +187,11 @@ func TestInstallConflictsLeaveNothingRegistered(t *testing.T) {
 		},
 		{
 			name:    "bot collides with builtin playtest profile",
-			wantErr: plugin.ErrConflict,
+			wantErr: gameplugin.ErrConflict,
 			botName: "never-bot-5",
 			plugins: []Plugin{{
 				Name:    "builtin-col",
-				API:     plugin.APIVersion,
+				API:     gameplugin.APIVersion,
 				Prefabs: []PrefabSpec{{Prefab: entities.NewPrefab("never-prefab")}},
 				Bots: map[string]playtest.BotFactory{
 					"never-bot-5":       stubBotFactory("x"),
@@ -234,7 +234,7 @@ func TestInstallConflictsLeaveNothingRegistered(t *testing.T) {
 }
 
 func TestInstallValidationErrors(t *testing.T) {
-	if err := Install(nil, Plugin{Name: "a", API: plugin.APIVersion}); !errors.Is(err, plugin.ErrNilHost) {
+	if err := Install(nil, Plugin{Name: "a", API: gameplugin.APIVersion}); !errors.Is(err, gameplugin.ErrNilHost) {
 		t.Fatalf("Install(nil) = %v, want ErrNilHost", err)
 	}
 	if err := Install(&Host{}); err != nil {
@@ -245,25 +245,25 @@ func TestInstallValidationErrors(t *testing.T) {
 		name string
 		p    Plugin
 	}{
-		{"invalid name", Plugin{Name: "Bad", API: plugin.APIVersion}},
-		{"invalid module", Plugin{Name: "ok", Module: "/bad", API: plugin.APIVersion}},
-		{"empty prefab spec", Plugin{Name: "ok", API: plugin.APIVersion, Prefabs: []PrefabSpec{{Name: "a"}}}},
-		{"multiple prefab kinds", Plugin{Name: "ok", API: plugin.APIVersion, Prefabs: []PrefabSpec{{
+		{"invalid name", Plugin{Name: "Bad", API: gameplugin.APIVersion}},
+		{"invalid module", Plugin{Name: "ok", Module: "/bad", API: gameplugin.APIVersion}},
+		{"empty prefab spec", Plugin{Name: "ok", API: gameplugin.APIVersion, Prefabs: []PrefabSpec{{Name: "a"}}}},
+		{"multiple prefab kinds", Plugin{Name: "ok", API: gameplugin.APIVersion, Prefabs: []PrefabSpec{{
 			Name:   "a",
 			Prefab: entities.NewPrefab("a"),
 			Scene:  validSingleRootScene(),
 		}}}},
-		{"mismatched entity prefab name", Plugin{Name: "ok", API: plugin.APIVersion, Prefabs: []PrefabSpec{{
+		{"mismatched entity prefab name", Plugin{Name: "ok", API: gameplugin.APIVersion, Prefabs: []PrefabSpec{{
 			Name:   "a",
 			Prefab: entities.NewPrefab("b"),
 		}}}},
-		{"empty entity prefab name", Plugin{Name: "ok", API: plugin.APIVersion, Prefabs: []PrefabSpec{{
+		{"empty entity prefab name", Plugin{Name: "ok", API: gameplugin.APIVersion, Prefabs: []PrefabSpec{{
 			Prefab: entities.NewPrefab(""),
 		}}}},
-		{"scene prefab empty name", Plugin{Name: "ok", API: plugin.APIVersion, Prefabs: []PrefabSpec{{
+		{"scene prefab empty name", Plugin{Name: "ok", API: gameplugin.APIVersion, Prefabs: []PrefabSpec{{
 			Scene: validSingleRootScene(),
 		}}}},
-		{"scene prefab two roots", Plugin{Name: "ok", API: plugin.APIVersion, Prefabs: []PrefabSpec{{
+		{"scene prefab two roots", Plugin{Name: "ok", API: gameplugin.APIVersion, Prefabs: []PrefabSpec{{
 			Name: "two",
 			Scene: &sceneformat.SceneDoc{
 				Version: sceneformat.CurrentVersion,
@@ -274,34 +274,34 @@ func TestInstallValidationErrors(t *testing.T) {
 				}},
 			},
 		}}}},
-		{"custom prefab empty name", Plugin{Name: "ok", API: plugin.APIVersion, Prefabs: []PrefabSpec{{
+		{"custom prefab empty name", Plugin{Name: "ok", API: gameplugin.APIVersion, Prefabs: []PrefabSpec{{
 			Spawn: func(w *entities.World, _ map[string]any) (entities.Entity, error) { return w.Spawn(), nil },
 		}}}},
-		{"empty bot name", Plugin{Name: "ok", API: plugin.APIVersion, Bots: map[string]playtest.BotFactory{"": stubBotFactory("a")}}},
-		{"nil bot factory", Plugin{Name: "ok", API: plugin.APIVersion, Bots: map[string]playtest.BotFactory{"bot-nil": nil}}},
+		{"empty bot name", Plugin{Name: "ok", API: gameplugin.APIVersion, Bots: map[string]playtest.BotFactory{"": stubBotFactory("a")}}},
+		{"nil bot factory", Plugin{Name: "ok", API: gameplugin.APIVersion, Bots: map[string]playtest.BotFactory{"bot-nil": nil}}},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := &Host{Bridge: mcp.New(mcp.Config{})}
-			if err := Install(h, tc.p); !errors.Is(err, plugin.ErrInvalidPlugin) {
+			if err := Install(h, tc.p); !errors.Is(err, gameplugin.ErrInvalidPlugin) {
 				t.Fatalf("Install = %v, want ErrInvalidPlugin", err)
 			}
-			if !reflect.DeepEqual(h.Plugins(), []plugin.Installed(nil)) {
+			if !reflect.DeepEqual(h.Plugins(), []gameplugin.Installed(nil)) {
 				t.Fatalf("Plugins() = %+v, want nil", h.Plugins())
 			}
 		})
 	}
 }
 
-// TestNoEditorImport verifies that pkg/plugin/devtools does not directly or transitively import pkg/editor.
+// TestNoEditorImport verifies that pkg/gameplugin/devplugin does not directly or transitively import pkg/editor.
 func TestNoEditorImport(t *testing.T) {
 	root := filepath.Clean(filepath.Join("..", "..", ".."))
 	const modPrefix = "github.com/nsgo-dev/game/"
 	const forbidden = modPrefix + "pkg/editor"
 
 	visited := map[string]bool{}
-	queue := []string{modPrefix + "pkg/plugin/devtools"}
+	queue := []string{modPrefix + "pkg/gameplugin/devplugin"}
 	fset := token.NewFileSet()
 
 	for len(queue) > 0 {
@@ -312,7 +312,7 @@ func TestNoEditorImport(t *testing.T) {
 		}
 		visited[pkg] = true
 		if pkg == forbidden || strings.HasPrefix(pkg, forbidden+"/") {
-			t.Fatalf("pkg/plugin/devtools transitively imports forbidden package %s", pkg)
+			t.Fatalf("pkg/gameplugin/devplugin transitively imports forbidden package %s", pkg)
 		}
 		dir := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(pkg, modPrefix)))
 		entries, err := os.ReadDir(dir)

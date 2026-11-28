@@ -593,6 +593,17 @@ Inspects `pkg/online/netplay` packet capture logs (`*.capture.jsonl`) written by
 
 - `decode` prints each frame layer by layer as YAML (default) or JSON (`-format json`): transport header (`channel`, `seq`), optional relay frame and control body, and the inner replication, lockstep/rollback, membership, handshake, or custom game message selected by the wire discriminators. Pass `-schema <dir-or-file>` to decode game-defined `*.wire.yaml` messages (including `EntityState.Props`), and `-resolve-deltas` to track per-peer replication baselines so `SnapshotDelta` frames also display the full resulting entity state. Pass `-` to read a JSONL capture or a single hex or base64 frame from standard input.
 - `stats` reads a JSONL capture (file or `-`) and prints total packets, bytes, duration, mean `SnapshotDelta` size, and breakdowns per message type and per peer in aligned text (default), YAML, or JSON (`-format text|yaml|json`).
+
+### wire
+
+```sh
+go tool game wire -in ./netmsg -out ./netmsg
+go tool game wire -lang ts -in ./netmsg -out ./netmsg/ts
+go tool game wire -in ./netmsg -out ./netmsg -check
+```
+
+Generates deterministic, zero-allocation Go codecs, or with `-lang ts` dependency-free TypeScript codecs, from `*.wire.yaml` schemas ([netplay/wire](netplay-wire.md)): every schema in the `-in` directory, or the schema files named as arguments, together with the schemas they import. `-out` is a directory, or one `.go` or `.ts` file for a single schema, and defaults to the input directory; `-pkg` overrides the Go package name. `-check` writes nothing and fails when a generated file is missing or differs from what its schema produces, which is how CI keeps the committed codecs of `pkg/online/netplay/wire` current.
+
 ### completion
 
 ```sh

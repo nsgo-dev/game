@@ -1,4 +1,4 @@
-package plugin
+package gameplugin
 
 import (
 	"errors"
@@ -13,8 +13,8 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/datatable"
 	"github.com/nsgo-dev/game/pkg/entities"
+	"github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 	"github.com/nsgo-dev/game/pkg/pixelfx"
-	"github.com/nsgo-dev/game/pkg/plugin/manifest"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 )
@@ -25,17 +25,17 @@ const APIVersion = 1
 
 var (
 	// ErrNilHost reports a nil *Host passed to Install or a Host method.
-	ErrNilHost = errors.New("plugin: nil host")
+	ErrNilHost = errors.New("gameplugin: nil host")
 	// ErrNilWorld reports a nil *entities.World passed to Host.OnWorld.
-	ErrNilWorld = errors.New("plugin: nil world")
+	ErrNilWorld = errors.New("gameplugin: nil world")
 	// ErrInvalidPlugin reports a Plugin with an invalid name, module path, or malformed contribution.
-	ErrInvalidPlugin = errors.New("plugin: invalid plugin")
+	ErrInvalidPlugin = errors.New("gameplugin: invalid plugin")
 	// ErrAPIMismatch reports a Plugin whose API does not equal APIVersion.
-	ErrAPIMismatch = errors.New("plugin: unsupported API version")
+	ErrAPIMismatch = errors.New("gameplugin: unsupported API version")
 	// ErrDuplicatePlugin reports installing a plugin whose Name is already installed on the Host or repeated in the same Install call.
-	ErrDuplicatePlugin = errors.New("plugin: duplicate plugin")
+	ErrDuplicatePlugin = errors.New("gameplugin: duplicate plugin")
 	// ErrConflict reports a contribution whose name, pattern, or effect ID collides with an existing entry or another plugin in the same Install call.
-	ErrConflict = errors.New("plugin: contribution conflict")
+	ErrConflict = errors.New("gameplugin: contribution conflict")
 )
 
 // Stage identifies one of the four standard scheduler stages that a plugin system can attach to without knowing the game's own system names.
@@ -106,7 +106,7 @@ func noopSystem(*entities.World, time.Duration) {}
 // EnsureStages registers the standard stage anchor systems ([StageInput], [StageUpdate], [StagePhysics], [StageLate]) on s if they are not already present. It is safe to call repeatedly on the same scheduler.
 func EnsureStages(s *entities.Scheduler) error {
 	if s == nil {
-		return errors.New("plugin: nil scheduler")
+		return errors.New("gameplugin: nil scheduler")
 	}
 	var prevEnd string
 	for _, st := range standardStages {
@@ -118,12 +118,12 @@ func EnsureStages(s *entities.Scheduler) error {
 				opts = append(opts, entities.After(prevEnd))
 			}
 			if err := s.AddSystem(start, noopSystem, opts...); err != nil {
-				return fmt.Errorf("plugin: register stage anchor %q: %w", start, err)
+				return fmt.Errorf("gameplugin: register stage anchor %q: %w", start, err)
 			}
 		}
 		if !s.HasSystem(end) {
 			if err := s.AddSystem(end, noopSystem, entities.After(start)); err != nil {
-				return fmt.Errorf("plugin: register stage anchor %q: %w", end, err)
+				return fmt.Errorf("gameplugin: register stage anchor %q: %w", end, err)
 			}
 		}
 		prevEnd = end
@@ -482,7 +482,7 @@ func Install(h *Host, ps ...Plugin) error {
 	// Phase 3: commit Host registries in deterministic order.
 	if h.Components != nil && len(tempComps.Names()) > 0 {
 		if err := h.Components.Merge(tempComps); err != nil {
-			return fmt.Errorf("plugin: merge components: %w", err)
+			return fmt.Errorf("gameplugin: merge components: %w", err)
 		}
 	}
 	if h.Scheduler != nil {

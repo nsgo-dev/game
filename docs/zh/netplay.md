@@ -233,14 +233,14 @@ _ = renderEntities
 
 第 1 版来自加入 epoch 之前的版本，没有消息头：其消息直接以类型 1 到 5 开头，按第 1 版解读。不同版本的对端之间无法复制，且双方都不会误读对方的消息。客户端拒绝其他版本的快照并通过 `client.Err()` 报告，服务端拒绝其他版本的确认与重新同步请求并通过 `server.PeerErr(peer)` 报告；两种错误都包装了 `ErrReplicationVersion` 并写明双方版本，游戏可以据此提示玩家更新，而不是一直等待永远不会到来的世界。
 
-`pkg/online/netplay` 的每一种线路格式——传输帧、UDP 认证封包、连接握手、中继帧与控制体、复制协议 v2、锁步/回滚输入以及对局中途成员变更——都在 `pkg/online/netplay/wire/` 下以带版本的 YAML Schema（`*.wire.yaml`）描述，并由 `cmd/gamewire` 生成零分配 Go 编解码器（`AppendX` / `DecodeX`，以及增量掩码的 `DiffX` / `ApplyX`）和零依赖 TypeScript 编解码器（`encodeX` / `decodeX`，以及 `diffX` / `applyX`）。游戏也可以用同一套 Schema 工具配合位打包和纯整数 `qfloat`/`fixed` 量化为 `EntityState.Props` 或自定义消息生成编解码器，详见 [netplay/wire](netplay-wire.md)。
+`pkg/online/netplay` 的每一种线路格式——传输帧、UDP 认证封包、连接握手、中继帧与控制体、复制协议 v2、锁步/回滚输入以及对局中途成员变更——都在 `pkg/online/netplay/wire/` 下以带版本的 YAML Schema（`*.wire.yaml`）描述，并由 `game wire` 生成零分配 Go 编解码器（`AppendX` / `DecodeX`，以及增量掩码的 `DiffX` / `ApplyX`）和零依赖 TypeScript 编解码器（`encodeX` / `decodeX`，以及 `diffX` / `applyX`）。游戏也可以用同一套 Schema 工具配合位打包和纯整数 `qfloat`/`fixed` 量化为 `EntityState.Props` 或自定义消息生成编解码器，详见 [netplay/wire](netplay-wire.md)。
 
 ## 跨语言客户端
 
-Web 仪表盘、观战端、机器人脚本或其他引擎的客户端无需手写二进制解析器，即可在 TypeScript 中直接收发全部 `pkg/online/netplay` 协议。`cmd/gamewire -lang ts` 生成确定性、零运行时依赖的 TypeScript 模块，底层基于调用方持有的 `Uint8Array` 与 `DataView`，可在浏览器、Node 与 Bun 中一致运行：
+Web 仪表盘、观战端、机器人脚本或其他引擎的客户端无需手写二进制解析器，即可在 TypeScript 中直接收发全部 `pkg/online/netplay` 协议。`game wire -lang ts` 生成确定性、零运行时依赖的 TypeScript 模块，底层基于调用方持有的 `Uint8Array` 与 `DataView`，可在浏览器、Node 与 Bun 中一致运行：
 
 ```sh
-go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts
+go run ./cmd/game wire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts
 ```
 
 七种内置协议生成的 TypeScript 编解码器提交在 `pkg/online/netplay/wire/ts/`，并在 CI 中由 `-check` 校验。每条消息 `X` 都会生成 `createX()`、`encodeX(m: X, w: Writer): void` 与 `decodeX(r: Reader, m: X): void`（直接填充可复用对象，避免 60 Hz 客户端逐包分配），开启 `delta: true` 的 `mask` 组会生成 `diffX(base, cur)` 与 `applyX(base, delta)`：

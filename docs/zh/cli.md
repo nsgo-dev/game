@@ -593,6 +593,17 @@ go tool game net stats session.capture.jsonl
 
 - `decode` 将每一帧按 YAML（默认）或 JSON（`-format json`）逐层打印：传输帧头（`channel`、`seq`）、可选的中继帧与控制体，以及由线协议判别字段选出的复制、锁步/回滚、成员变更、握手或游戏自定义消息。传入 `-schema <目录或文件>` 可解码游戏自定义的 `*.wire.yaml` 消息（包括 `EntityState.Props`）；传入 `-resolve-deltas` 会跟踪每个对等端的复制基线，让 `SnapshotDelta` 同时打印合并后的完整实体状态；传入 `-` 可从标准输入读取 JSONL 抓包流或单帧十六进制/Base64 数据。
 - `stats` 读取 JSONL 抓包（文件或 `-`），按对齐文本（默认）、YAML 或 JSON（`-format text|yaml|json`）打印总包数、总字节数、时长、平均 `SnapshotDelta` 大小，以及按消息类型和按对等端的明细统计。
+
+### wire
+
+```sh
+go tool game wire -in ./netmsg -out ./netmsg
+go tool game wire -lang ts -in ./netmsg -out ./netmsg/ts
+go tool game wire -in ./netmsg -out ./netmsg -check
+```
+
+从 `*.wire.yaml` Schema 生成确定性、零分配的 Go 编解码器，或在 `-lang ts` 下生成无依赖的 TypeScript 编解码器（见 [netplay/wire](netplay-wire.md)）：处理 `-in` 目录中的每个 Schema，或作为参数给出的 Schema 文件，以及它们导入的 Schema。`-out` 是一个目录，或在只有一个 Schema 时是一个 `.go` 或 `.ts` 文件，默认是输入目录；`-pkg` 覆盖 Go 包名。`-check` 不写任何文件，在生成的文件缺失或与其 Schema 的生成结果不同时失败，CI 就是这样保证 `pkg/online/netplay/wire` 中提交的编解码器保持最新。
+
 ### completion
 
 ```sh

@@ -45,7 +45,7 @@
       "minLength": 1
     },
     "api": {
-      "description": "API is the plugin API version (plugin.APIVersion) the plugin targets; it must be a positive integer.",
+      "description": "API is the plugin API version (gameplugin.APIVersion) the plugin targets; it must be a positive integer.",
       "type": "integer",
       "minimum": 1,
       "maximum": 9223372036854776000
@@ -190,7 +190,7 @@
       "type": "object",
       "properties": {
         "runtime": {
-          "description": "Runtime is the import path of the Go package that provides the plugin's runtime entry (func Plugin() plugin.Plugin).",
+          "description": "Runtime is the import path of the Go package that provides the plugin's runtime entry (func Plugin() gameplugin.Plugin).",
           "type": "string"
         },
         "editor": {

@@ -1,11 +1,11 @@
-package plugin_test
+package gameplugin_test
 
 import (
 	"fmt"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/entities"
-	"github.com/nsgo-dev/game/pkg/plugin"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
@@ -15,10 +15,10 @@ type exampleHealth struct {
 
 func ExampleInstall() {
 	var ran []string
-	healthPlugin := plugin.Plugin{
+	healthPlugin := gameplugin.Plugin{
 		Name:   "health",
 		Module: "example.com/healthkit",
-		API:    plugin.APIVersion,
+		API:    gameplugin.APIVersion,
 		Components: []sceneformat.ComponentType{{
 			Name: "health",
 			Fields: []sceneformat.Field{
@@ -29,10 +29,10 @@ func ExampleInstall() {
 				return nil
 			},
 		}},
-		Systems: []plugin.System{
+		Systems: []gameplugin.System{
 			{
 				Name:  "health.regen",
-				Stage: plugin.StageUpdate,
+				Stage: gameplugin.StageUpdate,
 				Fn: func(*entities.World, time.Duration) {
 					ran = append(ran, "health.regen")
 				},
@@ -43,13 +43,13 @@ func ExampleInstall() {
 		},
 	}
 
-	inputPlugin := plugin.Plugin{
+	inputPlugin := gameplugin.Plugin{
 		Name: "controls",
-		API:  plugin.APIVersion,
-		Systems: []plugin.System{
+		API:  gameplugin.APIVersion,
+		Systems: []gameplugin.System{
 			{
 				Name:  "controls.poll",
-				Stage: plugin.StageInput,
+				Stage: gameplugin.StageInput,
 				Fn: func(*entities.World, time.Duration) {
 					ran = append(ran, "controls.poll")
 				},
@@ -57,11 +57,11 @@ func ExampleInstall() {
 		},
 	}
 
-	host := &plugin.Host{
+	host := &gameplugin.Host{
 		Components: sceneformat.NewComponentRegistry(),
 		Scheduler:  entities.NewScheduler(),
 	}
-	if err := plugin.Install(host, healthPlugin, inputPlugin); err != nil {
+	if err := gameplugin.Install(host, healthPlugin, inputPlugin); err != nil {
 		panic(err)
 	}
 

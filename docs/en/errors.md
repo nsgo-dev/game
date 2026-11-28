@@ -59,7 +59,7 @@ Values kept in `core.Storage`, such as input bindings, debug tunables and save s
 | `l10n` | `Catalog.LoadJSON`, `ParseAssetManifest`, `AssetCatalog.LoadAssetManifestYAML` | Keys, asset variants and groups, by field |
 | `input` | `Actions.Load`, `Haptics.Load` | Stored bindings, by field, under the storage key |
 | `modding` | `ParseManifest`, `ModManifest.Validate`, `Manager.Discover`, `Manager.DiscoverFS`, `Manager.Reload` | Each manifest field, a game version the mod does not support and a duplicate id, naming `<mod>/mod.yaml` |
-| `plugin/manifest` | `Parse` | Plugin manifest fields and capabilities, by field |
+| `gameplugin/manifest` | `Parse` | Plugin manifest fields and capabilities, by field |
 | `gameui` | `ParseScreen` | Screen layout tree, device classes and widgets, by field |
 | `replay` | `Decode`, `LoadFile` | Header and steps, by field, such as `steps[3].press[0]` |
 | `statedump` | `Parse`, `ReadFile` | Header, scene state, values, entities and JSON-incompatible YAML nodes, by field or node line |

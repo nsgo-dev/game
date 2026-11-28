@@ -1,6 +1,6 @@
 # netplay/wire
 
-`game/pkg/online/netplay/wire` 定义了供 `pkg/online/netplay` 与游戏自定义二进制负载（如带类型的 `EntityState.Props`）使用的 YAML 线路消息 Schema 格式、纯整数浮点量化辅助函数、MSB 优先位打包，以及由 `cmd/gamewire` 驱动的确定性零分配 Go 编解码代码生成器。
+`game/pkg/online/netplay/wire` 定义了供 `pkg/online/netplay` 与游戏自定义二进制负载（如带类型的 `EntityState.Props`）使用的 YAML 线路消息 Schema 格式、纯整数浮点量化辅助函数、MSB 优先位打包，以及由 `game wire` 驱动的确定性零分配 Go 编解码代码生成器。
 
 ```go
 import "github.com/nsgo-dev/game/pkg/online/netplay/wire"
@@ -79,7 +79,7 @@ messages:
 | 键 | 必填 | 说明 |
 | --- | --- | --- |
 | `version` | 是 | Schema 格式版本号（`1`，对应 `wire.CurrentVersion`） |
-| `package` | 是 | 未指定 `-pkg` 时 `cmd/gamewire` 输出的默认 Go 包名 |
+| `package` | 是 | 未指定 `-pkg` 时 `game wire` 输出的默认 Go 包名 |
 | `order` | 否 | 多字节字段的默认字节序：`be`（默认）或 `le`，消息与单个字段均可覆盖 |
 | `imports` | 否 | 同包下相邻 `*.wire.yaml` 文件的相对路径，用于引用其中声明的枚举与消息 |
 | `enums` | 否 | 解码时会校验取值的命名整数枚举 |
@@ -118,7 +118,7 @@ messages:
 
 `mask` 字段声明一个存在位掩码（`u8`、`u16`、`u32` 或 `u64`，默认 `u8`），后面按位序跟随其受控字段（索引 `i` 对应 `1 << i`）。解码时，未置位字段会被清为零值（同时保留切片容量），确保复用结构体不会泄露上一帧的残留值；若掩码中存在超出已声明字段范围的高位，则返回 `ErrInvalidMask`。
 
-当 `delta: true` 开启时，`cmd/gamewire` 还会额外生成：
+当 `delta: true` 开启时，`game wire` 还会额外生成：
 
 - `Diff<Message>(base, cur *<Message>) <maskType>`：浮点数按位模式（`math.Float32bits` / `math.Float64bits`）比较，字节切片用 `bytes.Equal` 比较，标量直接比较，与 `pkg/net` 的复制增量比较完全一致。
 - `Apply<Message>(dst, delta *<Message>)`：将 `delta` 中掩码置位的字段复制到 `dst`，并复用 `dst` 的切片容量以保持零分配。
@@ -140,7 +140,7 @@ messages:
 
 ## 生成的 Go API 与零分配契约
 
-针对每条消息和联合体 `X`，`cmd/gamewire` 生成：
+针对每条消息和联合体 `X`，`game wire` 生成：
 
 ```go
 func AppendX(dst []byte, m *X) []byte
@@ -152,20 +152,20 @@ func DecodeX(src []byte, m *X) (int, error)
 - `DecodeX` 在扩展变长 `array` 切片前会按剩余输入字节数校验下界，防止畸形数据包触发超大分配。
 - Go 的 `string` 不可变；当字符串为空或与 `m` 中旧值相同时，`DecodeX` 不会重新分配。对于每帧内容都会变化的热路径文本字段，请优先使用 `bytes`。
 
-## 使用 `cmd/gamewire`
+## 使用 `game wire`
 
 从目录或单个 Schema 文件生成 Go 或 TypeScript 编解码器：
 
 ```sh
-go run ./cmd/gamewire -in ./netmsg -out ./netmsg
-go run ./cmd/gamewire -lang ts -in ./netmsg -out ./netmsg/ts
+go tool game wire -in ./netmsg -out ./netmsg
+go tool game wire -lang ts -in ./netmsg -out ./netmsg/ts
 ```
 
 或接入 `go generate`：
 
 ```go
-//go:generate go run github.com/nsgo-dev/game/cmd/gamewire -in . -out .
-//go:generate go run github.com/nsgo-dev/game/cmd/gamewire -lang ts -in . -out ts
+//go:generate go tool game wire -in . -out .
+//go:generate go tool game wire -lang ts -in . -out ts
 ```
 
 命令行参数：
@@ -179,11 +179,11 @@ go run ./cmd/gamewire -lang ts -in ./netmsg -out ./netmsg/ts
 | `-self` | `false` | 省略 `pkg/online/netplay/wire` 导入，供 `pkg/online/netplay/wire` 自身生成 Go 代码时使用 |
 | `-check` | `false` | 校验已提交的生成文件是否与 Schema 一致且不改写磁盘；缺失或过期时返回非零退出码 |
 
-CI 会运行 `go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check`、`go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts -check` 与 `go -C tools run ./gameschema -check`。
+CI 会运行 `go run ./cmd/game wire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check`、`go run ./cmd/game wire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts -check` 与 `go -C tools run ./gameschema -check`。
 
 ## 生成的 TypeScript API 与跨语言黄金测试向量
 
-使用 `-lang ts` 时，`cmd/gamewire` 会输出共享的零依赖 `runtime.ts`（包含 `Writer`、`Reader`、`WireError` 与纯 `BigInt` 量化函数）、每个 Schema 对应的 `<stem>_wire.ts` 以及汇总导出的 `index.ts`（若 `-out` 以 `.ts` 结尾，则内联运行时输出单个自包含文件）：
+使用 `-lang ts` 时，`game wire` 会输出共享的零依赖 `runtime.ts`（包含 `Writer`、`Reader`、`WireError` 与纯 `BigInt` 量化函数）、每个 Schema 对应的 `<stem>_wire.ts` 以及汇总导出的 `index.ts`（若 `-out` 以 `.ts` 结尾，则内联运行时输出单个自包含文件）：
 
 | 线路类型 | TypeScript 类型 | 说明 |
 | --- | --- | --- |

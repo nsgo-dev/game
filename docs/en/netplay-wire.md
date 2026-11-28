@@ -1,6 +1,6 @@
 # netplay/wire
 
-`game/pkg/online/netplay/wire` defines the YAML wire message schema format used by `pkg/online/netplay` and game-specific binary payloads (such as typed `EntityState.Props`), pure-integer float quantization helpers, MSB-first bit packing, and a deterministic zero-allocation Go codec generator driven by `cmd/gamewire`.
+`game/pkg/online/netplay/wire` defines the YAML wire message schema format used by `pkg/online/netplay` and game-specific binary payloads (such as typed `EntityState.Props`), pure-integer float quantization helpers, MSB-first bit packing, and a deterministic zero-allocation Go codec generator driven by `game wire`.
 
 ```go
 import "github.com/nsgo-dev/game/pkg/online/netplay/wire"
@@ -79,7 +79,7 @@ Top-level keys:
 | Key | Required | Description |
 | --- | --- | --- |
 | `version` | yes | Schema format version (`1`, matching `wire.CurrentVersion`). |
-| `package` | yes | Default Go package name emitted by `cmd/gamewire` when `-pkg` is omitted. |
+| `package` | yes | Default Go package name emitted by `game wire` when `-pkg` is omitted. |
 | `order` | no | Default byte order for multi-byte fields: `be` (default) or `le`. Messages and individual fields may override it. |
 | `imports` | no | Relative paths to sibling `*.wire.yaml` files in the same package whose enums and messages this schema references. |
 | `enums` | no | Named integer enumerations validated on decode. |
@@ -118,7 +118,7 @@ Consecutive `bits` fields and big-endian/arbitrary-width `qfloat` fields pack ti
 
 A `mask` field declares a presence bitmask (`u8`, `u16`, `u32`, or `u64`, defaulting to `u8`) followed by its gated fields in bit order (index `i` maps to `1 << i`). On decode, fields whose bit is clear are reset to their zero values (preserving slice capacity) so reusing a struct across packets never leaks stale data, and any unknown high bit beyond the declared fields returns `ErrInvalidMask`.
 
-When `delta: true` is set, `cmd/gamewire` also generates:
+When `delta: true` is set, `game wire` also generates:
 
 - `Diff<Message>(base, cur *<Message>) <maskType>`: compares float fields by bit pattern (`math.Float32bits` / `math.Float64bits`), byte slices with `bytes.Equal`, and scalars directly—matching `pkg/net`'s replication delta comparison.
 - `Apply<Message>(dst, delta *<Message>)`: copies every field whose mask bit is set in `delta` into `dst`, reusing `dst`'s slice capacities for zero allocations.
@@ -140,7 +140,7 @@ With `discriminator.type: nibble`, byte 0 splits into `highBits` MSB bits (defau
 
 ## Generated Go API and zero-allocation contract
 
-For every message and union `X`, `cmd/gamewire` generates:
+For every message and union `X`, `game wire` generates:
 
 ```go
 func AppendX(dst []byte, m *X) []byte
@@ -152,20 +152,20 @@ func DecodeX(src []byte, m *X) (int, error)
 - `DecodeX` bounds variable-length `array` allocations against remaining input bytes before growing a slice, preventing malformed packets from triggering large allocations.
 - Go `string` values are immutable; `DecodeX` avoids allocating when a string is empty or matches the previous value in `m`. For hot-path fields whose text changes every frame, prefer `bytes`.
 
-## Using `cmd/gamewire`
+## Using `game wire`
 
 Generate Go or TypeScript codecs from a directory or individual schema file:
 
 ```sh
-go run ./cmd/gamewire -in ./netmsg -out ./netmsg
-go run ./cmd/gamewire -lang ts -in ./netmsg -out ./netmsg/ts
+go tool game wire -in ./netmsg -out ./netmsg
+go tool game wire -lang ts -in ./netmsg -out ./netmsg/ts
 ```
 
 Or wire it into `go generate`:
 
 ```go
-//go:generate go run github.com/nsgo-dev/game/cmd/gamewire -in . -out .
-//go:generate go run github.com/nsgo-dev/game/cmd/gamewire -lang ts -in . -out ts
+//go:generate go tool game wire -in . -out .
+//go:generate go tool game wire -lang ts -in . -out ts
 ```
 
 CLI flags:
@@ -179,11 +179,11 @@ CLI flags:
 | `-self` | `false` | Omit the `pkg/online/netplay/wire` import for Go files generated inside `pkg/online/netplay/wire` itself. |
 | `-check` | `false` | Verify committed generated files match their schemas without writing; exits non-zero if missing or stale. |
 
-CI runs `go run ./cmd/gamewire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check`, `go run ./cmd/gamewire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts -check`, and `go -C tools run ./gameschema -check`.
+CI runs `go run ./cmd/game wire -in pkg/online/netplay/wire -out pkg/online/netplay/wire -self -check`, `go run ./cmd/game wire -lang ts -in pkg/online/netplay/wire -out pkg/online/netplay/wire/ts -check`, and `go -C tools run ./gameschema -check`.
 
 ## Generated TypeScript API and cross-language golden vectors
 
-With `-lang ts`, `cmd/gamewire` writes a shared zero-dependency `runtime.ts` (containing `Writer`, `Reader`, `WireError`, and pure-`BigInt` quantization helpers), one `<stem>_wire.ts` module per schema, and a barrel `index.ts` (or a single self-contained `.ts` file with the runtime embedded when `-out` ends in `.ts`):
+With `-lang ts`, `game wire` writes a shared zero-dependency `runtime.ts` (containing `Writer`, `Reader`, `WireError`, and pure-`BigInt` quantization helpers), one `<stem>_wire.ts` module per schema, and a barrel `index.ts` (or a single self-contained `.ts` file with the runtime embedded when `-out` ends in `.ts`):
 
 | Wire type | TypeScript type | Notes |
 | --- | --- | --- |

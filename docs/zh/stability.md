@@ -66,7 +66,6 @@
 | `game/cmd/cloudsaved` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/cmd/editor` | 实验性 | [场景编辑器](editor.md) |
 | `game/cmd/game` | 实验性 | [命令行](cli.md) |
-| `game/cmd/gamewire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/cmd/leaderboardd` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/cmd/nsgo-game` | 实验性 | [命令行](cli.md) |
 | `game/pkg/a11y` | 实验性 | [a11y](a11y.md) |
@@ -93,6 +92,9 @@
 | `game/pkg/flow` | 稳定 | [flow](flow.md) |
 | `game/pkg/fog` | 实验性 | [fog](fog.md) |
 | `game/pkg/framedata` | 实验性 | [framedata](framedata.md) |
+| `game/pkg/gameplugin` | 实验性 | [插件](plugins.md) |
+| `game/pkg/gameplugin/devplugin` | 实验性 | [插件](plugins.md) |
+| `game/pkg/gameplugin/manifest` | 实验性 | [插件](plugins.md) |
 | `game/pkg/gametest` | 实验性 | [gametest](gametest.md) |
 | `game/pkg/gameui` | 实验性 | [gameui](gameui.md) |
 | `game/pkg/gltf` | 实验性 | [从 Blender 导入 3D 模型](3d-models-blender.md) |
@@ -164,9 +166,6 @@
 | `game/pkg/pixelfx/weather` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pkg/placeholder` | 实验性 | [占位素材](placeholder.md) |
 | `game/pkg/platformer` | 实验性 | [platformer](platformer.md) |
-| `game/pkg/plugin` | 实验性 | [插件](plugins.md) |
-| `game/pkg/plugin/devtools` | 实验性 | [插件](plugins.md) |
-| `game/pkg/plugin/manifest` | 实验性 | [插件](plugins.md) |
 | `game/pkg/postfx` | 实验性 | [postfx](postfx.md) |
 | `game/pkg/procgen` | 实验性 | [procgen](procgen.md) |
 | `game/pkg/project` | 实验性 | [项目文件](project.md) |

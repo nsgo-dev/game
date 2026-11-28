@@ -6,7 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
 	"github.com/nsgo-dev/game/pkg/entities"
-	"github.com/nsgo-dev/game/pkg/plugin"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -52,12 +52,12 @@ type Ward struct {
 	start []Patient
 }
 
-// LoadWard installs health.Plugin into a plugin.Host, parses a scene file, applies plugin codecs to an entities.World, spawns its objects so each health component populates its typed health.Stats store, and returns the ward its top-level patients make. file names the scene in errors. A scene without patients is refused.
+// LoadWard installs health.Plugin into a gameplugin.Host, parses a scene file, applies plugin codecs to an entities.World, spawns its objects so each health component populates its typed health.Stats store, and returns the ward its top-level patients make. file names the scene in errors. A scene without patients is refused.
 func LoadWard(data []byte, file string) (*Ward, error) {
-	host := &plugin.Host{
+	host := &gameplugin.Host{
 		Components: sceneformat.NewComponentRegistry(),
 	}
-	if err := plugin.Install(host, health.Plugin()); err != nil {
+	if err := gameplugin.Install(host, health.Plugin()); err != nil {
 		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: file, Components: host.Components})

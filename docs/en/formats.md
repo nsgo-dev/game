@@ -456,7 +456,7 @@ visibility: public
 preview: preview.png
 ```
 
-<!-- format: plugin/manifest -->
+<!-- format: gameplugin/manifest -->
 ### Plugin manifest
 
 | Files | Version | Read and written by | Fields |

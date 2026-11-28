@@ -74,7 +74,7 @@ type Manifest struct {
 	Repository string `yaml:"repository,omitempty" json:"repository,omitempty"`
 	// Engine is a semantic version constraint on github.com/nsgo-dev/game, such as ">=0.4.0 <0.5.0".
 	Engine string `yaml:"engine" json:"engine" schema:"required,minLength=1"`
-	// API is the plugin API version (plugin.APIVersion) the plugin targets; it must be a positive integer.
+	// API is the plugin API version (gameplugin.APIVersion) the plugin targets; it must be a positive integer.
 	API int `yaml:"api" json:"api" schema:"required,minimum=1"`
 	// Platforms lists the target platforms the plugin supports: either ["all"] or a subset of macos, windows, linux, ios, android and web. When omitted, all platforms are supported.
 	Platforms []string `yaml:"platforms,omitempty,flow" json:"platforms,omitempty"`
@@ -90,7 +90,7 @@ type Manifest struct {
 
 // Entries names the Go packages inside a plugin's module that integrate with the game runtime, the scene editor and the game CLI. At least one of Runtime, Editor or CLI must be set.
 type Entries struct {
-	// Runtime is the import path of the Go package that provides the plugin's runtime entry (func Plugin() plugin.Plugin).
+	// Runtime is the import path of the Go package that provides the plugin's runtime entry (func Plugin() gameplugin.Plugin).
 	Runtime string `yaml:"runtime,omitempty" json:"runtime,omitempty"`
 	// Editor is the import path of the Go package that provides the plugin's editor entry (func Plugin() editor.Plugin).
 	Editor string `yaml:"editor,omitempty" json:"editor,omitempty"`

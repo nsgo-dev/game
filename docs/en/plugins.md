@@ -4,26 +4,26 @@ A Go plugin is a Go module that extends a game's runtime, the scene editor, or t
 
 ```go
 import (
-	"github.com/nsgo-dev/game/pkg/plugin"
-	"github.com/nsgo-dev/game/pkg/plugin/manifest"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
+	"github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 )
 ```
 
-## Runtime plugins (`pkg/plugin`)
+## Runtime plugins (`pkg/gameplugin`)
 
-A plugin's runtime Go package exports a constructor returning a `plugin.Plugin` (conventionally `func Plugin() plugin.Plugin`), and the game installs every active plugin onto a `plugin.Host` with `plugin.Install`. `pkg/plugin` never imports `pkg/editor`, `pkg/mcp`, or `pkg/tooling/playtest`, so shipped binaries link only the runtime packages they use.
+A plugin's runtime Go package exports a constructor returning a `gameplugin.Plugin` (conventionally `func Plugin() gameplugin.Plugin`), and the game installs every active plugin onto a `gameplugin.Host` with `gameplugin.Install`. `pkg/gameplugin` never imports `pkg/editor`, `pkg/mcp`, or `pkg/tooling/playtest`, so shipped binaries link only the runtime packages they use.
 
 ```go
-func Plugin() plugin.Plugin {
-	return plugin.Plugin{
+func Plugin() gameplugin.Plugin {
+	return gameplugin.Plugin{
 		Name:   "health",
 		Module: "example.com/healthkit",
-		API:    plugin.APIVersion,
+		API:    gameplugin.APIVersion,
 		Components: []sceneformat.ComponentType{
 			Type(), // carries Fields, Events, Handlers and optional Spawn
 		},
-		Systems: []plugin.System{
-			{Name: "health.regen", Stage: plugin.StageUpdate, Fn: regenSystem},
+		Systems: []gameplugin.System{
+			{Name: "health.regen", Stage: gameplugin.StageUpdate, Fn: regenSystem},
 		},
 		Codecs: func(w *entities.World) error {
 			return entities.RegisterCodec[Stats](w, "health")
@@ -34,7 +34,7 @@ func Plugin() plugin.Plugin {
 
 ### Installing onto a `Host`
 
-A `plugin.Host` groups the registries a game wants plugins to populate; any `nil` field skips that kind of contribution:
+A `gameplugin.Host` groups the registries a game wants plugins to populate; any `nil` field skips that kind of contribution:
 
 - `Host.Components` (`*sceneformat.ComponentRegistry`): merges each plugin's `Components` (preserving `ComponentType.Spawn`) in plugin and slice order.
 - `Host.Scheduler` (`*entities.Scheduler`): ensures the four standard stage anchor pairs exist once per scheduler, then registers each plugin's `Systems` in plugin and slice order.
@@ -44,13 +44,13 @@ A `plugin.Host` groups the registries a game wants plugins to populate; any `nil
 - `Host.Plugins()` returns installed plugin metadata (`Name`, `Module`, and `Version` resolved from `runtime/debug.ReadBuildInfo`, returning `"(devel)"` for local builds or replace directives without a version). `Host.Has(name)` reports whether a plugin is installed.
 
 ```go
-host := &plugin.Host{
+host := &gameplugin.Host{
 	Components: sceneformat.NewComponentRegistry(),
 	Scheduler:  entities.NewScheduler(),
 	DataTables: datatable.NewRegistry(),
 	Console:    gamedebug.NewConsole(),
 }
-if err := plugin.Install(host, health.Plugin()); err != nil {
+if err := gameplugin.Install(host, health.Plugin()); err != nil {
 	return err
 }
 
@@ -62,35 +62,35 @@ if err := host.OnWorld(world); err != nil {
 
 ### Validation, determinism and process-global registries
 
-- **Pre-flight checks**: `Install` checks `Plugin.API == plugin.APIVersion`, validates plugin names and module paths, refuses duplicate plugin names, and verifies that every component, system, pixel effect, data table pattern, and console command name is free before mutating any registry. On any conflict or validation error, nothing is registered.
+- **Pre-flight checks**: `Install` checks `Plugin.API == gameplugin.APIVersion`, validates plugin names and module paths, refuses duplicate plugin names, and verifies that every component, system, pixel effect, data table pattern, and console command name is free before mutating any registry. On any conflict or validation error, nothing is registered.
 - **Deterministic order**: plugins are processed in argument order, slice fields (`Components`, `Systems`, `Console`) in declaration order, and maps (`PixelFX`, `RowTypes`) in sorted key order. `Plugin.Install` (the escape hatch `func(*Host) error`) runs last after all declarative contributions are committed.
 - **Process-global idempotency (`PixelFX`)**: `pixelfx` effects live in a process-global registry. `Install` tracks the owning `(Name, Module)` of every plugin-registered effect so re-installing the same plugin in a second test or after an editor reload is a no-op rather than a panic, while a different plugin or collision with a built-in effect fails cleanly before registering anything.
-- **No `Version` field**: just like `plugin.yaml`, `plugin.Plugin` has no `Version` field. Versions come from `go.mod` via `plugin.ModuleVersion(modulePath)`. `plugin.APIVersion` is bumped only on breaking changes to the plugin contract.
+- **No `Version` field**: just like `plugin.yaml`, `gameplugin.Plugin` has no `Version` field. Versions come from `go.mod` via `gameplugin.ModuleVersion(modulePath)`. `gameplugin.APIVersion` is bumped only on breaking changes to the plugin contract.
 
 ### Standard scheduler stages
 
-Third-party systems often need to run in a predictable phase without knowing the host game's own system names. `plugin.Install` (or `plugin.EnsureStages(sched)`) adds four anchor pairs once per `*entities.Scheduler` in fixed order:
+Third-party systems often need to run in a predictable phase without knowing the host game's own system names. `gameplugin.Install` (or `gameplugin.EnsureStages(sched)`) adds four anchor pairs once per `*entities.Scheduler` in fixed order:
 
-1. `plugin.StageInput` (`"input"`) — reading input and translating player intent.
-2. `plugin.StageUpdate` (`"update"`) — general gameplay systems.
-3. `plugin.StagePhysics` (`"physics"`) — physics, movement, and collision resolution.
-4. `plugin.StageLate` (`"late"`) — camera follow, transform synchronization, and cleanup.
+1. `gameplugin.StageInput` (`"input"`) — reading input and translating player intent.
+2. `gameplugin.StageUpdate` (`"update"`) — general gameplay systems.
+3. `gameplugin.StagePhysics` (`"physics"`) — physics, movement, and collision resolution.
+4. `gameplugin.StageLate` (`"late"`) — camera follow, transform synchronization, and cleanup.
 
 Setting `System.Stage` constrains the system with `entities.After(stage.Start())` and `entities.Before(stage.End())`. Within the same stage, systems run in registration order unless further ordered with `Before` and `After`. Games can also reference `stage.Start()` and `stage.End()` from their own `Scheduler.AddSystem` calls.
 
-### Development-time contributions (`pkg/plugin/devtools`)
+### Development-time contributions (`pkg/gameplugin/devplugin`)
 
-MCP bridge prefabs (`pkg/mcp`) and playtest bots (`pkg/tooling/playtest`) depend on heavier inspection and replay packages that shipped game binaries should not link (see [Package Size Budgets](package-size-budgets.md)). Those contributions live in the separate `github.com/nsgo-dev/game/pkg/plugin/devtools` package:
+MCP bridge prefabs (`pkg/mcp`) and playtest bots (`pkg/tooling/playtest`) depend on heavier inspection and replay packages that shipped game binaries should not link (see [Package Size Budgets](package-size-budgets.md)). Those contributions live in the separate `github.com/nsgo-dev/game/pkg/gameplugin/devplugin` package:
 
 ```go
-import "github.com/nsgo-dev/game/pkg/plugin/devtools"
+import "github.com/nsgo-dev/game/pkg/gameplugin/devplugin"
 
-devHost := &devtools.Host{Bridge: bridge}
-if err := devtools.Install(devHost, devtools.Plugin{
+devHost := &devplugin.Host{Bridge: bridge}
+if err := devplugin.Install(devHost, devplugin.Plugin{
 	Name:   "healthkit",
 	Module: "example.com/healthkit",
-	API:    plugin.APIVersion,
-	Prefabs: []devtools.PrefabSpec{
+	API:    gameplugin.APIVersion,
+	Prefabs: []devplugin.PrefabSpec{
 		{Prefab: patientPrefab},
 	},
 	Bots: map[string]playtest.BotFactory{
@@ -101,7 +101,7 @@ if err := devtools.Install(devHost, devtools.Plugin{
 }
 ```
 
-`devtools.Install` enforces the same API version check, atomic pre-flight conflict detection, deterministic ordering, and process-global ownership rules for `playtest` bot profiles (preventing collisions with built-in profiles or another plugin while allowing idempotent re-installs of the same plugin), without importing `pkg/editor`.
+`devplugin.Install` enforces the same API version check, atomic pre-flight conflict detection, deterministic ordering, and process-global ownership rules for `playtest` bot profiles (preventing collisions with built-in profiles or another plugin while allowing idempotent re-installs of the same plugin), without importing `pkg/editor`.
 
 ## The `plugin.yaml` manifest
 
@@ -154,10 +154,10 @@ Similarly, `requires` and `conflicts` are keyed by Go module path (such as `exam
 | `authors` | No | List of non-empty, single-line author names without duplicates. |
 | `repository` | No | `http://` or `https://` URL of the plugin's source repository. |
 | `engine` | Yes | Semantic version constraint on `github.com/nsgo-dev/game`, such as `>=0.4.0 <0.5.0` or `^0.4.0`. |
-| `api` | Yes | Positive integer `plugin.APIVersion` the plugin targets (for example, `1`). |
+| `api` | Yes | Positive integer `gameplugin.APIVersion` the plugin targets (for example, `1`). |
 | `platforms` | No | Either `[all]` alone, or a subset of `macos`, `windows`, `linux`, `ios`, `android` and `web`. When omitted, every platform is supported. |
 | `entries` | Yes | Go package import paths inside `module`. At least one of `entries.runtime`, `entries.editor`, or `entries.cli` must be set. |
-| `entries.runtime` | No | Go package providing the plugin's runtime entry (`func Plugin() plugin.Plugin`). Must equal `module` or be a subpackage under `module/`. |
+| `entries.runtime` | No | Go package providing the plugin's runtime entry (`func Plugin() gameplugin.Plugin`). Must equal `module` or be a subpackage under `module/`. |
 | `entries.editor` | No | Go package providing the plugin's editor entry (`func Plugin() editor.Plugin`). Must equal `module` or be a subpackage under `module/`. |
 | `entries.cli` | No | List of `{name, package}` entries extending the `game` CLI via `go.mod` `tool` directives. Each `name` follows the plugin name rule and must be unique; each `package` must equal `module` or be under `module/`. |
 | `requires` | No | Map of required plugin Go module paths to semantic version constraints (such as `^0.3.0`). Keys must be valid Go module paths, cannot name `module` itself, and must be disjoint from `conflicts`. |
@@ -166,7 +166,7 @@ Similarly, `requires` and `conflicts` are keyed by Go module path (such as `exam
 
 ## Strict parsing and canonical encoding
 
-`pkg/plugin/manifest` has no dependency on `pkg/editor` and can be imported by tooling, runtime code, and indexers alike:
+`pkg/gameplugin/manifest` has no dependency on `pkg/editor` and can be imported by tooling, runtime code, and indexers alike:
 
 - `manifest.Parse(data)` decodes one YAML document with unknown fields and duplicate keys refused, requires `manifestVersion` and `api` to be plain decimal integers, and validates every field. Errors match `manifest.ErrInvalid` with `errors.Is` and are `*loaderr.Error` values giving the file, line, field, and fix.
 - `manifest.ParseFS(fsys, dir)` reads `plugin.yaml` from `dir` in `fsys`, parses it, and attaches the file path to any `*loaderr.Error`.

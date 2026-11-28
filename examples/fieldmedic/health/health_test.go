@@ -7,7 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game/examples/fieldmedic/health"
 	"github.com/nsgo-dev/game/pkg/entities"
-	"github.com/nsgo-dev/game/pkg/plugin"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
@@ -108,11 +108,11 @@ layers:
 }
 
 func TestPluginInstallsComponentAndCodec(t *testing.T) {
-	host := &plugin.Host{
+	host := &gameplugin.Host{
 		Components: sceneformat.NewComponentRegistry(),
 	}
-	if err := plugin.Install(host, health.Plugin()); err != nil {
-		t.Fatalf("plugin.Install: %v", err)
+	if err := gameplugin.Install(host, health.Plugin()); err != nil {
+		t.Fatalf("gameplugin.Install: %v", err)
 	}
 	if !host.Has(health.Name) {
 		t.Fatal("host missing health plugin")

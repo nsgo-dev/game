@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/formattest"
-	"github.com/nsgo-dev/game/pkg/plugin/manifest"
+	"github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 )
 
 func TestFormatConformance(t *testing.T) {
@@ -13,6 +13,6 @@ func TestFormatConformance(t *testing.T) {
 		Encode:       manifest.Encode,
 		Files:        []string{"testdata/*.yaml"},
 		VersionField: "manifestVersion",
-		Doc:          "plugin/manifest",
+		Doc:          "gameplugin/manifest",
 	})
 }

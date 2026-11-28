@@ -172,12 +172,11 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | --- | --- | --- |
 | `game/pkg/project` | Experimental | `game.yaml` parser, canonical encoder and `nsgo.yaml` consistency checker |
 | `game/pkg/tooling/refs` | Experimental | Stable file UIDs, project index and reference-rewriting file moves |
-| `game/pkg/plugin` | Experimental | Runtime Go `Plugin`, `Host`, atomic deterministic `Install`, standard scheduler stages and `OnWorld` codecs |
-| `game/pkg/plugin/devtools` | Experimental | Development-time plugin wiring (`PrefabSpec` for `mcp.Bridge` and `playtest` bot factories) split out to keep game binaries lean |
-| `game/pkg/plugin/manifest` | Experimental | Strict `plugin.yaml` parser, validator and deterministic byte-ordered encoder for Go plugins |
+| `game/pkg/gameplugin` | Experimental | Runtime Go `Plugin`, `Host`, atomic deterministic `Install`, standard scheduler stages and `OnWorld` codecs |
+| `game/pkg/gameplugin/devplugin` | Experimental | Development-time plugin wiring (`PrefabSpec` for `mcp.Bridge` and `playtest` bot factories) split out to keep game binaries lean |
+| `game/pkg/gameplugin/manifest` | Experimental | Strict `plugin.yaml` parser, validator and deterministic byte-ordered encoder for Go plugins |
 | `game/cmd/editor` | Experimental | Standalone desktop application entrypoint for the NSGo Game Editor |
 | `game/cmd/game` | Experimental | The `game` CLI (`go tool game` / `go run github.com/nsgo-dev/game/cmd/game@latest`) |
-| `game/cmd/gamewire` | Experimental | Generates and checks deterministic zero-allocation Go codecs from `*.wire.yaml` wire message schemas |
 | `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for NSGo's generic extension mechanism (requires an NSGo release newer than v0.3.4) |
 | `game/pkg/datatable` | Experimental | Typed YAML/CSV/JSON data tables with cell-level errors and hot reload |
 | `game/pkg/datatable/datatablewatch` | Experimental | Hot reload of `datatable.Table` through a `tooling/hotreload` watcher |

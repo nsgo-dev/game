@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/internal/loaderrtest"
-	"github.com/nsgo-dev/game/pkg/plugin/manifest"
+	"github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 )
 
 func TestParseLoadErrors(t *testing.T) {

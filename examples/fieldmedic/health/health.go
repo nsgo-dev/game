@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/nsgo-dev/game/pkg/entities"
-	"github.com/nsgo-dev/game/pkg/plugin"
+	"github.com/nsgo-dev/game/pkg/gameplugin"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
 
@@ -54,12 +54,12 @@ func spawn(w *entities.World, e entities.Entity, fields map[string]any) error {
 	return nil
 }
 
-// Plugin returns the runtime plugin for the health component and its world snapshot codec, for plugin.Install.
-func Plugin() plugin.Plugin {
-	return plugin.Plugin{
+// Plugin returns the runtime plugin for the health component and its world snapshot codec, for gameplugin.Install.
+func Plugin() gameplugin.Plugin {
+	return gameplugin.Plugin{
 		Name:       Name,
 		Module:     Module,
-		API:        plugin.APIVersion,
+		API:        gameplugin.APIVersion,
 		Components: []sceneformat.ComponentType{Type()},
 		Codecs: func(w *entities.World) error {
 			return entities.RegisterCodec[Stats](w, Name)

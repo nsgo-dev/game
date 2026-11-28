@@ -21,6 +21,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/animclip"
 	"github.com/nsgo-dev/game/pkg/cutscene"
 	"github.com/nsgo-dev/game/pkg/editor"
+	pluginmanifest "github.com/nsgo-dev/game/pkg/gameplugin/manifest"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/input"
@@ -31,7 +32,6 @@ import (
 	"github.com/nsgo-dev/game/pkg/online/netplay/wire"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/pathfind3d/navbake3d"
-	pluginmanifest "github.com/nsgo-dev/game/pkg/plugin/manifest"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -374,7 +374,7 @@ var formats = []format{
 		url:          pluginmanifest.SchemaURL,
 		title:        "NSGo game plugin manifest (version 1)",
 		typ:          reflect.TypeFor[pluginmanifest.Manifest](),
-		pkg:          "plugin/manifest",
+		pkg:          "gameplugin/manifest",
 		version:      pluginmanifest.ManifestVersion,
 		versionField: "manifestVersion",
 	},

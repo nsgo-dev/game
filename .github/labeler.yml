@@ -98,6 +98,11 @@ pkg/framedata:
       - any-glob-to-any-file:
           - pkg/framedata/**
 
+pkg/gameplugin:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/gameplugin/**
+
 pkg/gametest:
   - changed-files:
       - any-glob-to-any-file:
@@ -241,11 +246,6 @@ pkg/platformer:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/platformer/**
-
-pkg/plugin:
-  - changed-files:
-      - any-glob-to-any-file:
-          - pkg/plugin/**
 
 pkg/postfx:
   - changed-files:
