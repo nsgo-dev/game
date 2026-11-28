@@ -2,6 +2,8 @@
 
 创建一个 NSGo 游戏项目，在桌面端、Web、iOS 和 Android 上运行它，在固定步长循环中绘制带动画的精灵、处理触控和鼠标输入，并用混音器播放音效与音乐。
 
+如果你来自其他 2D 工具，可以先阅读 [GameMaker](from-gamemaker.md)、[Construct](from-construct.md) 或 [RPG Maker](from-rpgmaker.md) 迁移指南，将熟悉的概念对应到模板、编辑器、包和当前的功能缺口。
+
 ## 环境要求
 
 - **Go 1.27** 或更高版本。
