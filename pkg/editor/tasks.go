@@ -41,6 +41,9 @@ const (
 	defaultTaskRunnerTimeout = 10 * time.Minute
 )
 
+// ErrTaskDecisionYouOnly is returned when an agent tries to keep a task's review, dismiss a task that is Ready to review, or answer a task's permission prompt: those decisions are the person's.
+var ErrTaskDecisionYouOnly = errors.New("editor: keeping a task's review or answering its permission prompt is You only and cannot be done by an agent")
+
 // TaskState identifies where a background agent task sits in its lifecycle.
 type TaskState string
 
@@ -2392,11 +2395,13 @@ func (e *Editor) RequestTaskPermission(id, prompt, detail string) error {
 	return nil
 }
 
-// ResolveTaskPermission resolves a TaskNeedsYou permission ask, resuming the task when allowed
-// or recording the refusal and resuming/notifying the optional callback.
+// ResolveTaskPermission resolves a TaskNeedsYou permission ask, resuming the task when allowed or recording the refusal and resuming/notifying the optional callback. Answering the ask is the person's decision: an agent actor gets ErrTaskDecisionYouOnly, for allow and deny alike.
 func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.AgentActorActive() {
+		return ErrTaskDecisionYouOnly
 	}
 	e.tasks.mu.Lock()
 	idx := e.findTaskIndexLocked(id)
@@ -2668,8 +2673,7 @@ func (e *Editor) RetryTask(id string) error {
 	return nil
 }
 
-// KeepTask accepts a TaskReadyToReview turn, marks its review kept, transitions it to TaskDone,
-// and starts the next queued task waiting for it.
+// KeepTask accepts a TaskReadyToReview turn, marks its review kept, transitions it to TaskDone, and starts the next queued task waiting for it. Keeping is the person's decision: an agent actor gets ErrAutomationYouOnly for an automation task and ErrTaskDecisionYouOnly for any other.
 func (e *Editor) KeepTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
@@ -2681,9 +2685,12 @@ func (e *Editor) KeepTask(id string) error {
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
-	if t.Source == TaskSourceAutomation && e.AgentActorActive() {
+	if e.AgentActorActive() {
 		e.tasks.mu.Unlock()
-		return ErrAutomationYouOnly
+		if t.Source == TaskSourceAutomation {
+			return ErrAutomationYouOnly
+		}
+		return ErrTaskDecisionYouOnly
 	}
 	if t.State != TaskReadyToReview {
 		st := t.State
@@ -3068,8 +3075,7 @@ func (e *Editor) applyTaskReviewRevert(t *AgentTask, keptObjects map[string]bool
 	return nil
 }
 
-// DismissTasks dismisses one or more Ready to review or Failed tasks from the list.
-// Dismissing NEVER reverts anything that was kept (nor mutates kept scene edits or undo history).
+// DismissTasks dismisses one or more Ready to review or Failed tasks from the list. Dismissing NEVER reverts anything that was kept (nor mutates kept scene edits or undo history). An agent actor may dismiss only Failed tasks; its Ready to review ids are skipped.
 func (e *Editor) DismissTasks(ids []string) int {
 	if e == nil || len(ids) == 0 {
 		return 0
@@ -3088,6 +3094,10 @@ func (e *Editor) DismissTasks(ids []string) int {
 			continue
 		}
 		if t.State != TaskReadyToReview && t.State != TaskFailed {
+			continue
+		}
+		// Dismissing a Ready to review task hides its unkept changes from review, so only the person may do it.
+		if t.State == TaskReadyToReview && e.AgentActorActive() {
 			continue
 		}
 		t.Dismissed = true

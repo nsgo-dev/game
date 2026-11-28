@@ -14,7 +14,7 @@ const (
 	ToolTasksList = "tasks_list"
 	// ToolTasksSubmit queues or runs a background agent request in parallel.
 	ToolTasksSubmit = "tasks_submit"
-	// ToolTasksControl controls background tasks (keep, revert, dismiss, stop, retry, open, focus, allow, deny).
+	// ToolTasksControl controls background tasks (revert of the session's own task, dismiss of failed tasks, stop, retry, open, focus). Its keep, allow and deny actions are always refused: keeping a review and answering a permission prompt are the person's decisions.
 	ToolTasksControl = "tasks_control"
 )
 
@@ -30,7 +30,7 @@ const tasksSubmitSchema = `{"type":"object","additionalProperties":false,"requir
 	`}}`
 
 const tasksControlSchema = `{"type":"object","additionalProperties":false,"required":["action"],"properties":{` +
-	`"action":{"type":"string","enum":["keep","revert","dismiss","stop","retry","open","focus","allow","deny"],"description":"Action to perform on task_id or task_ids"},` +
+	`"action":{"type":"string","enum":["keep","revert","dismiss","stop","retry","open","focus","allow","deny"],"description":"Action to perform on task_id or task_ids; keep, allow and deny are the person's decisions and are always refused, revert applies only to this session's own task, and dismiss applies only to failed tasks"},` +
 	`"task_id":{"type":"string","description":"Target task ID"},` +
 	`"task_ids":{"type":"array","items":{"type":"string"},"description":"Target task IDs (for bulk dismiss)"}` +
 	`}}`
@@ -63,7 +63,7 @@ func taskTools() []Tool {
 		{
 			Name:        ToolTasksControl,
 			Title:       "Control background tasks",
-			Description: "Keep, revert, bulk-dismiss, stop, retry, focus, open, or resolve permission on background agent tasks.",
+			Description: "Stop, retry, focus, or open background agent tasks, revert this session's own task, or dismiss failed tasks. Keeping a task, dismissing one that is Ready to review, and answering a permission prompt (keep, allow, deny) are the person's decisions and are refused.",
 			InputSchema: []byte(tasksControlSchema),
 			Action:      ActionEdit,
 			Handler:     tasksControlTool,
@@ -146,12 +146,14 @@ func tasksControlTool(ctx context.Context, c *Call) (*Result, error) {
 	var msg string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		switch args.Action {
-		case "keep":
-			if err := ed.KeepTask(args.TaskID); err != nil {
-				return err
-			}
-			msg = fmt.Sprintf("Kept task %s", args.TaskID)
+		case "keep", "allow", "deny":
+			// Keeping a review and answering a permission prompt are the person's: refuse before reaching the editor, which refuses agents as well.
+			return fmt.Errorf("%s of task %s is the person's decision: %w", args.Action, args.TaskID, editor.ErrTaskDecisionYouOnly)
 		case "revert":
+			// Reverting another task's pending work is the person's decision; a session may revert only the task it is bound to.
+			if c.taskID == "" || args.TaskID != c.taskID {
+				return fmt.Errorf("revert of task %s is the person's decision: this session may revert only its own task", args.TaskID)
+			}
 			if err := ed.RevertTask(args.TaskID); err != nil {
 				return err
 			}
@@ -160,6 +162,11 @@ func tasksControlTool(ctx context.Context, c *Call) (*Result, error) {
 			ids := args.TaskIDs
 			if len(ids) == 0 && args.TaskID != "" {
 				ids = []string{args.TaskID}
+			}
+			for _, id := range ids {
+				if task, ok := ed.Task(id); ok && task.State == editor.TaskReadyToReview && !task.Dismissed {
+					return fmt.Errorf("dismissing task %s, which is Ready to review, is the person's decision: %w", id, editor.ErrTaskDecisionYouOnly)
+				}
 			}
 			n := ed.DismissTasks(ids)
 			msg = fmt.Sprintf("Dismissed %d tasks (%s)", n, strings.Join(ids, ", "))
@@ -181,16 +188,6 @@ func tasksControlTool(ctx context.Context, c *Call) (*Result, error) {
 		case "focus":
 			ed.FocusTask(args.TaskID)
 			msg = fmt.Sprintf("Focused task %s", args.TaskID)
-		case "allow":
-			if err := ed.ResolveTaskPermission(args.TaskID, true); err != nil {
-				return err
-			}
-			msg = fmt.Sprintf("Allowed permission for task %s", args.TaskID)
-		case "deny":
-			if err := ed.ResolveTaskPermission(args.TaskID, false); err != nil {
-				return err
-			}
-			msg = fmt.Sprintf("Denied permission for task %s", args.TaskID)
 		default:
 			return fmt.Errorf("unknown action %q", args.Action)
 		}
