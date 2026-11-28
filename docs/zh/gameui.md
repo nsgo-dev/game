@@ -265,3 +265,7 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 `ScreenCheckOptions.TextScale` 表示游戏支持的最大缩放比例。`CheckScreen` 会在该比例和主题自身的比例下各布局一次，只在较大比例下出现的 `text_overflow` 会在消息里注明比例（`at text scale 200%`）。
 
 设置菜单的 Text Scale 行目前还不会驱动 `Root.TextScale`，也没有读取 `core.Env().FontScale()`；需要由游戏自己把玩家的设置接进来（#1772）。
+
+### 绑定冲突
+
+`ResolveBindingConflict` 只在动作所属的冲突组内应用捕获的绑定。`ConflictSwap` 将绑定从另一个动作移走，`ConflictClear` 删除它，`ConflictRefuse` 保持两个动作不变。不同组的动作可以有意共享绑定。
