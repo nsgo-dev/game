@@ -13,6 +13,7 @@ func TestMain(m *testing.M) { nsgotest.Main(m) }
 
 func TestGameAdvancesAndDrawsSprite(t *testing.T) {
 	app := nsgotest.Start(t, Root)
+	app.Press("id:first-launch-continue")
 	app.Find("text:Score: 0")
 
 	first, ok := spriteDrawOp(app.Find("game-canvas").Ops)
@@ -33,6 +34,7 @@ func TestGameAdvancesAndDrawsSprite(t *testing.T) {
 
 func TestTapScoresAndResetClearsScore(t *testing.T) {
 	app := nsgotest.Start(t, Root)
+	app.Press("id:first-launch-continue")
 	app.Find("text:Score: 0")
 
 	app.Press("game-canvas")
