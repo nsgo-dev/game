@@ -347,3 +347,5 @@ On Apple Silicon (10,000 active particles with gravity, exponential drag, spin, 
 - `BenchmarkEmitter3D10kStepSortAndPack`: ~0.44 ms/frame, `0 B/op`, `0 allocs/op` (alpha-blended path with back-to-front radix sort).
 
 Both leave over 97% of a 16.6 ms (60 fps) desktop frame budget available, and all 10,000 instances upload as a single 400 KB buffer write and render in one `DrawIndexedInstanced` call.
+
+3D emitter definitions may include `simulation: cpu` or `simulation: gpu`. The field is preserved by the versioned format and is validated even on CPU-only targets. GPU simulation is visual-only and requires a compute-capable renderer. CPU remains the default while the compute simulator is introduced behind the same definition.

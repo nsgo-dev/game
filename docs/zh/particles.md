@@ -347,3 +347,5 @@ go tool nsgo test ./pkg/particles -- -run '^$' -bench BenchmarkEmitter3D10k
 - `BenchmarkEmitter3D10kStepSortAndPack`：约 `0.44 ms/帧`，`0 B/op`，`0 allocs/op`（透明混合 + 从远到近基数排序路径）。
 
 两种路径均仅占用 16.6 ms（60 fps）桌面帧预算的不到 3%，全部 10,000 个实例合并为一次 400 KB 缓冲写入和单次 `DrawIndexedInstanced` 调用。
+
+3D 发射器定义可以包含 `simulation: cpu` 或 `simulation: gpu`。版本化格式会保留并验证该字段，即使目标不支持 CPU 以外的路径。GPU 模拟仅用于视觉效果，需要支持 compute 的渲染器。引入 compute 模拟器期间，CPU 仍是默认值。

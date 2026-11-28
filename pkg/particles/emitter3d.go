@@ -145,6 +145,8 @@ type Particle3D struct {
 
 // Emitter3DConfig is a serializable, reloadable snapshot of an [Emitter3D]'s configuration.
 type Emitter3DConfig struct {
+	// Simulation selects the simulator. "cpu" is the default; "gpu" is reserved for compute-capable renderers.
+	Simulation         string
 	Position           math3d.Vec3
 	Direction          math3d.Vec3
 	Up                 math3d.Vec3
