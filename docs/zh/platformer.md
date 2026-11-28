@@ -79,3 +79,5 @@ wall_jump_lock: 150ms
 ```
 
 `ground_accel` 和 `air_accel` 让水平速度趋向 `move * run_speed`，`ground_decel` 在地面上没有输入时减速；设为 0 会立即达到目标速度。`max_fall_speed: 0` 表示下落速度不设上限。
+
+场景对象可以使用共享的 `platform` 行为模式声明左、右与跳跃动作名称。该模式由 `sceneformat` 验证，运行时步进由平台行为集成提供。
