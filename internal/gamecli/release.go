@@ -106,9 +106,10 @@ type gameFileHead struct {
 
 // exportSection is game.yaml's export section, decoded once knownFields has refused unknown fields.
 type exportSection struct {
-	Output  string           `yaml:"output"`
-	Budgets *project.Budgets `yaml:"budgets"`
-	Presets []exportPreset   `yaml:"presets"`
+	Output         string           `yaml:"output"`
+	Budgets        *project.Budgets `yaml:"budgets"`
+	AllowResources []string         `yaml:"allowResources"`
+	Presets        []exportPreset   `yaml:"presets"`
 }
 
 // exportPreset is one export preset: a platform and the NSGo targets of it to build.
@@ -182,7 +183,7 @@ func parseExportSettings(data []byte) (releaseSettings, bool, error) {
 		return releaseSettings{}, hasAssets, nil
 	}
 	// Node.Decode cannot refuse unknown fields, so the section's keys are checked first, keeping the file's line numbers in the errors.
-	if err := knownFields(&head.Export, "export", "output", "budgets", "presets"); err != nil {
+	if err := knownFields(&head.Export, "export", "output", "budgets", "allowResources", "presets"); err != nil {
 		return releaseSettings{}, false, err
 	}
 	if budgets := field(&head.Export, "budgets"); budgets != nil && budgets.Tag != "!!null" {
@@ -223,7 +224,12 @@ func parseExportSettings(data []byte) (releaseSettings, bool, error) {
 			return releaseSettings{}, false, fmt.Errorf("export budgets frameTimeP95Ms %v must be finite and >= 0", b.FrameTimeP95Ms)
 		}
 	}
-	settings := releaseSettings{Output: export.Output}
+	for i, p := range export.AllowResources {
+		if p == "" || filepath.IsAbs(p) || filepath.ToSlash(filepath.Clean(p)) != filepath.ToSlash(p) || p == "resources" || !strings.HasPrefix(filepath.ToSlash(p), "resources/") {
+			return releaseSettings{}, false, fmt.Errorf("export allowResources[%d] path %q must be a clean path under resources/", i, p)
+		}
+	}
+	settings := releaseSettings{Output: export.Output, AllowResources: slices.Clone(export.AllowResources)}
 	seenPlatforms := make(map[string]bool, len(export.Presets))
 	for _, p := range export.Presets {
 		if !slices.Contains(exportPlatforms, p.Platform) {
@@ -369,6 +375,14 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 		settings, err := readReleaseSettings(dir)
 		if err != nil {
 			return err
+		}
+		resourceProject := &project.File{Export: &project.Export{AllowResources: slices.Clone(settings.AllowResources)}}
+		for _, item := range releaseplan.CheckResources(dir, resourceProject) {
+			if item.Status == releaseplan.ReadinessWarn {
+				fmt.Fprintf(a.stderr, "warning: %s: %s\n", item.Label, item.Detail)
+			} else if item.Status == releaseplan.ReadinessFail {
+				return fmt.Errorf("release resources: %s: %s", item.Label, item.Detail)
+			}
 		}
 		opts.Host = releaseHost()
 		plan, err := releaseplan.Build(dir, opts, settings)

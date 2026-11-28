@@ -47,6 +47,54 @@ func itemByID(t *testing.T, items []ReadinessItem, id string) ReadinessItem {
 	return ReadinessItem{}
 }
 
+func TestCheckResourcesRefusesCredentialsDotfilesPEMAndSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "resources", "keys"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		".env":             "TOKEN=secret",
+		"keys/release.p12": "bytes",
+		"keys/private.txt": "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, "resources", name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outside := filepath.Join(dir, "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "resources", "linked.txt")); err != nil {
+		t.Fatal(err)
+	}
+	items := CheckResources(dir, &project.File{})
+	if len(items) != 4 {
+		t.Fatalf("items = %+v", items)
+	}
+	for _, item := range items {
+		if item.Status != ReadinessFail {
+			t.Errorf("%s status = %s, want fail", item.ID, item.Status)
+		}
+	}
+}
+
+func TestCheckResourcesAllowsDotfileAsWarning(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "resources", ".well-known"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "resources", ".well-known", "asset"), []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proj := &project.File{Export: &project.Export{AllowResources: []string{"resources/.well-known", "resources/.well-known/asset"}}}
+	items := CheckResources(dir, proj)
+	if len(items) != 1 || items[0].Status != ReadinessWarn {
+		t.Fatalf("items = %+v, want one warning for the allowed directory", items)
+	}
+}
+
 func TestEvaluateReadinessIOSConfiguredThroughNSGoYAMLPassesEveryItem(t *testing.T) {
 	dir := t.TempDir()
 

@@ -838,6 +838,13 @@
             }
           ]
         },
+        "allowResources": {
+          "description": "AllowResources lists project-relative dotfiles or dot-directories in resources/ that are intentionally shipped. They remain warnings in release readiness.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "presets": {
           "description": "Presets are the platforms the game exports to, in build order.",
           "type": "array",
