@@ -138,6 +138,12 @@ By default an `Actions` reads every connected controller: a button is pressed wh
 
 Controllers are polled once per step, so a press and release that both happen between two steps are not seen. Tests and replays can skip the live controllers and feed `[]gamepad.Pad` snapshots with `OnGamepads`, which latches presses between steps like touches; `Gamepads()` returns the state last read.
 
+## Deterministic aim assist
+
+`AimAssist` applies the same target selection and correction on every fixed simulation step for mouse, stick, and touch aim. Supply an ordered snapshot of `AimTarget2D` or `AimTarget3D` values, each with a world position, radius, and priority. `Evaluate2D` and `Evaluate3D` select the highest-priority visible target inside `OuterRadius`, reduce look input inside `InnerRadius`, and pull the direction toward the target by `Magnetism`. Set `Snap` to snap inside `SnapAngle`; `Strength` in `[0, 1]` scales all effects and zero leaves the direction unchanged.
+
+Run the evaluation from the fixed-step update and use the same target order in replays. The line-of-sight callback stays in the game because only the game knows its collision world.
+
 ## On-screen touch controls
 
 On a phone the player needs controls under their thumbs. `TouchControls` draws a layer of them from a `TouchLayout`, a YAML document, and drives the same named actions and axes the keyboard and game controllers do, so the game reads `Pressed("jump")` and `Axis("move")` whatever the player holds:

@@ -6,6 +6,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/particles"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/quality"
@@ -234,6 +236,7 @@ type Arena struct {
 	keyNova  bool
 
 	worldBounds core.Bounds
+	aimAssist   input.AimAssist
 }
 
 // NewArena creates a deterministic Starburst arena with a procedural pixel-art atlas
@@ -241,9 +244,10 @@ type Arena struct {
 func NewArena(seed uint64) *Arena {
 	atlas := NewProceduralAtlas()
 	a := &Arena{
-		Atlas:    atlas,
-		Quality:  quality.DefaultPreset(quality.High),
-		Viewport: gameViewport,
+		Atlas:     atlas,
+		Quality:   quality.DefaultPreset(quality.High),
+		aimAssist: input.AimAssist{Strength: 0.7},
+		Viewport:  gameViewport,
 		worldBounds: core.Bounds{
 			Origin: core.Point{X: 0, Y: 0},
 			Size:   core.Size{Width: ArenaWidth, Height: ArenaHeight},
@@ -735,15 +739,18 @@ func (a *Arena) stepPlayer(dtSec float32) {
 	stickSq := a.Control.AimStickX*a.Control.AimStickX + a.Control.AimStickY*a.Control.AimStickY
 	if stickSq > 1e-4 {
 		p.AimAngle = float32(math.Atan2(float64(a.Control.AimStickY), float64(a.Control.AimStickX)))
+		a.applyAimAssist()
 	} else if a.Control.HasWorldAim {
 		dx := a.Control.AimWorldX - p.X
 		dy := a.Control.AimWorldY - p.Y
 		if dx*dx+dy*dy > 4 {
 			p.AimAngle = float32(math.Atan2(float64(dy), float64(dx)))
+			a.applyAimAssist()
 		}
 	} else if idx := a.nearestEnemyIndex(); idx >= 0 {
 		e := &a.enemies[idx]
 		p.AimAngle = float32(math.Atan2(float64(e.Y-p.Y), float64(e.X-p.X)))
+		a.applyAimAssist()
 		autoTarget = true
 	}
 
@@ -782,6 +789,25 @@ func (a *Arena) stepPlayer(dtSec float32) {
 	a.keyNova = false
 	if wantNova && p.NovaCooldown <= 0 {
 		a.executeNova()
+	}
+}
+
+// applyAimAssist adjusts a player-provided direction toward a visible enemy on
+// the fixed simulation step. The target list is built in slice order, so a
+// replay receives the same tie-breaking decisions as live input.
+func (a *Arena) applyAimAssist() {
+	if a.aimAssist.Strength <= 0 || len(a.enemies) == 0 {
+		return
+	}
+	p := &a.Player
+	sin, cos := math.Sincos(float64(p.AimAngle))
+	targets := make([]input.AimTarget2D, 0, len(a.enemies))
+	for i, e := range a.enemies {
+		targets = append(targets, input.AimTarget2D{ID: string(rune(i)), Position: math2d.Vec2{X: e.X, Y: e.Y}, Radius: e.Radius, Priority: 1})
+	}
+	result := a.aimAssist.Evaluate2D(math2d.Vec2{X: p.X, Y: p.Y}, math2d.Vec2{X: float32(cos), Y: float32(sin)}, targets, nil)
+	if result.Found {
+		p.AimAngle = result.Direction.Angle()
 	}
 }
 

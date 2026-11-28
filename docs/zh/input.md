@@ -138,6 +138,12 @@ actions.WatchGamepads(cx)
 
 手柄每个步长轮询一次，因此在两个步长之间完成的按下和松开不会被察觉。测试和回放可以不读取实际手柄，改用 `OnGamepads` 传入 `[]gamepad.Pad` 快照，它会像触摸一样锁存步长之间的按下；`Gamepads()` 返回最近一次读取的状态。
 
+## 确定性瞄准辅助
+
+`AimAssist` 在每个固定模拟步为鼠标、摇杆和触摸瞄准执行相同的目标选择和修正。传入按稳定顺序排列的 `AimTarget2D` 或 `AimTarget3D`，每个目标包含世界坐标、半径和优先级。`Evaluate2D` 与 `Evaluate3D` 会从 `OuterRadius` 内的可见目标选择最高优先级目标，在 `InnerRadius` 内降低瞄准输入，并按 `Magnetism` 将方向拉向目标。设置 `Snap` 后，误差小于 `SnapAngle` 会直接吸附；`Strength` 在 `[0, 1]` 范围缩放所有效果，设为 0 时方向保持不变。
+
+在固定步更新中执行辅助，并在回放中使用相同的目标顺序。可见性回调由游戏提供，因为只有游戏知道自己的碰撞世界。
+
 ## 屏幕触控控件
 
 在手机上，玩家需要拇指底下的控件。`TouchControls` 按 YAML 文档 `TouchLayout` 绘制一层控件，驱动的命名动作和轴与键盘、手柄相同，所以无论玩家拿的是什么，游戏都读 `Pressed("jump")` 和 `Axis("move")`：

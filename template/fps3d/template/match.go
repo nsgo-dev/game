@@ -4,6 +4,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/input"
+	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 )
@@ -64,7 +66,8 @@ type match struct {
 	timer   float32 // seconds left in the countdown or intermission
 	clock   float32 // seconds since the match began
 
-	hitFlash float32 // seconds the crosshair shows a hit
+	hitFlash  float32 // seconds the crosshair shows a hit
+	aimAssist input.AimAssist
 }
 
 // player is the player's body, view, health and weapons.
@@ -131,12 +134,13 @@ const (
 // newMatch builds the arena's physics world, navigation grid, player, pickups and spawns and starts the countdown.
 func newMatch(a *Arena) *match {
 	m := &match{
-		arena: a,
-		world: physics3d.NewWorld(),
-		nav:   pathfind.NewBoolGrid(len(a.Layout[0]), len(a.Layout)),
-		astar: pathfind.NewAStar(),
-		phase: phaseCountdown,
-		timer: a.Countdown,
+		arena:     a,
+		world:     physics3d.NewWorld(),
+		nav:       pathfind.NewBoolGrid(len(a.Layout[0]), len(a.Layout)),
+		astar:     pathfind.NewAStar(),
+		phase:     phaseCountdown,
+		timer:     a.Countdown,
+		aimAssist: input.AimAssist{Strength: 0.7},
 	}
 	m.astar.Diagonal = true
 	route := map[byte]physics3d.Vec3{}
@@ -336,7 +340,19 @@ func (m *match) chest() physics3d.Vec3 {
 
 // aim returns the unit direction the player looks along.
 func (m *match) aim() physics3d.Vec3 {
-	return lookDir(m.player.yaw, m.player.pitch)
+	direction := lookDir(m.player.yaw, m.player.pitch)
+	if m.aimAssist.Strength <= 0 || len(m.enemies) == 0 {
+		return direction
+	}
+	from := m.eye()
+	targets := make([]input.AimTarget3D, 0, len(m.enemies))
+	for _, e := range m.enemies {
+		targets = append(targets, input.AimTarget3D{Position: toMath(e.center()), Radius: e.kind.Radius, Priority: 1})
+	}
+	result := m.aimAssist.Evaluate3D(toMath(from), toMath(direction), targets, func(from, to math3d.Vec3) bool {
+		return m.clearLine(toPhysics(from), toPhysics(to), 0)
+	})
+	return toPhysics(result.Direction)
 }
 
 // fire shoots w from the player's eye: a hitscan shot hits at once, a projectile round starts flying. Either one alerts every enemy that hears it.
