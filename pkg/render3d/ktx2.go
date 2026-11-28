@@ -41,9 +41,12 @@ func LoadKTX2(cx *core.Scope, dev *gpu.Device, data []byte, opts KTX2Upload) (*G
 		return nil, SamplerOptions{}, gpu.Error{Code: gpu.ErrDeviceLost, Message: "render3d: nil device"}
 	}
 	target, format := ktx2Target(dev, t, opts.ForceRGBA8)
-	levels, err := t.Transcode(target)
-	if err != nil {
-		return nil, SamplerOptions{}, fmt.Errorf("%w: %w", ErrInvalidTexture, err)
+	// A level uploaded in its own format is written straight from t, which nothing else holds, rather than from the copy Transcode would make of it.
+	levels := t.Levels
+	if target != t.Format {
+		if levels, err = t.Transcode(target); err != nil {
+			return nil, SamplerOptions{}, fmt.Errorf("%w: %w", ErrInvalidTexture, err)
+		}
 	}
 	w, ht := uint32(t.Width), uint32(t.Height)
 	label := opts.Label

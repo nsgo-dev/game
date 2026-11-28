@@ -370,7 +370,7 @@ mesh.Draw(pass)
 ```
 
 - **Mipmap 链**：开启 `TextureUpload.Mipmaps` 会在 CPU 上生成面积加权盒式滤波的 mipmap 链（`SRGB` 为 true 时在线性光下求平均，避免暗边）并通过 `Device.WriteTextureMip` 逐级上传。这不依赖后端的 GPU mipmap 生成能力，在所有 NSGo 后端行为一致，且在 `Retained` 开启时设备丢失后会自动重放所有层级；可用 `TextureUpload.MaxMipLevels` 限制层数。
-- **KTX2 纹理**：`LoadKTX2` 上传 `game assets` 和 `game tex` 写出的那种 2D KTX2 文件，包括它含有的每一级 mip，保持其 sRGB 或线性格式，并返回绘制它所用的采样器：即 `KTX2Upload.Sampler`，其过滤方式按文件的 `game.filter` 键（`KTX2FilterKey`）设置，这个键由图片[导入设置附属文件](cli.md#资源旁的导入设置)的 `filter` 写入，因此 `nearest` 让像素画清晰锐利，`linear` 则做混合。BasisLZ、Zstandard 和 ZLIB 超压缩的层级会先解压。BC1、BC3、BC7、ETC2 RGB8 与 RGBA8 以及 ASTC 4x4 层级（包括 `astcenc` 写出的多分区、双平面与 BISE 编码块）在 `Device.SupportsCompressedFormat` 允许时以压缩格式上传，否则在 CPU 上解码为 RGBA8，因此在所有后端都能加载，只是大于 8192x8192 的层级（其 RGBA 图像会超过 256 MiB）不会在 CPU 上解码，只能在支持其块格式的设备上加载；`KTX2Sampler` 无需设备即可把过滤方式应用到采样器选项上。不是这类纹理的文件或未知的过滤方式会返回包装 `ErrInvalidTexture` 的错误：
+- **KTX2 纹理**：`LoadKTX2` 上传 `game assets` 和 `game tex` 写出的那种 2D KTX2 文件，包括它含有的每一级 mip，保持其 sRGB 或线性格式，并返回绘制它所用的采样器：即 `KTX2Upload.Sampler`，其过滤方式按文件的 `game.filter` 键（`KTX2FilterKey`）设置，这个键由图片[导入设置附属文件](cli.md#资源旁的导入设置)的 `filter` 写入，因此 `nearest` 让像素画清晰锐利，`linear` 则做混合。BasisLZ、Zstandard 和 ZLIB 超压缩的层级会先解压。BC1、BC3、BC7、ETC2 RGB8 与 RGBA8 以及 ASTC 4x4 层级（包括 `astcenc` 写出的多分区、双平面与 BISE 编码块）在 `Device.SupportsCompressedFormat` 允许时以压缩格式上传，否则在 CPU 上解码为 RGBA8，因此在所有后端都能加载，但有三条限制，防止小文件耗尽内存：各层级解压后合计超过 256 MiB 的 Zstandard 或 ZLIB 文件（例如完整 mip 链的 16384x16384 BC7）不会加载；CPU 不会解码大于 8192x8192 的层级（其 RGBA 图像会超过 256 MiB），也不会把纹理转码成合计超过 256 MiB 的层级（例如完整 mip 链的 8192x8192 RGBA8）；因此超过这些尺寸的纹理只能在支持其自身块格式的设备上加载，而总要转码的 UASTC 或 BasisLZ/ETC1S 纹理则不会加载；`KTX2Sampler` 无需设备即可把过滤方式应用到采样器选项上。不是这类纹理的文件或未知的过滤方式会返回包装 `ErrInvalidTexture` 的错误：
 
   ```go
   data, err := fs.ReadFile(assets, "albedo.ktx2")
