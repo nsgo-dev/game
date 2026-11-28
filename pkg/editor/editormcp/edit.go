@@ -116,7 +116,8 @@ type EditResult struct {
 	// Objects are the IDs of the objects the edits added, in order.
 	Objects []string `json:"added,omitempty"`
 	// Revision is the editor's revision after the edits.
-	Revision uint64 `json:"revision"`
+	Revision uint64        `json:"revision"`
+	Changes  []FieldChange `json:"changes,omitempty"`
 }
 
 // objectFields are the object fields set changes, in the order replies list them.
@@ -180,6 +181,7 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			reasons := buildEditReasons(args.Why, args.Edits)
 			return ed.RunAgentSceneEdit(targetFile, reasons, func(target *editor.Editor) error {
 				for i, e := range args.Edits {
+					before := captureEditChanges(target, e)
 					id, err := applyEdit(target, e)
 					if err != nil {
 						return editError(name, i+1, e, err)
@@ -190,6 +192,7 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 							reasons["obj:"+id] = w
 						}
 					}
+					res.Changes = append(res.Changes, finishEditChanges(target, before)...)
 				}
 				return nil
 			})
@@ -225,6 +228,7 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			KeptCount:   len(args.Edits),
 		}, func() error {
 			for i, e := range args.Edits {
+				before := captureEditChanges(ed, e)
 				id, err := applyEdit(ed, e)
 				if err != nil {
 					return editError(name, i+1, e, err)
@@ -239,6 +243,7 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 					editedIDs = append(editedIDs, e.ID)
 					changedIDs = append(changedIDs, e.ID)
 				}
+				res.Changes = append(res.Changes, finishEditChanges(ed, before)...)
 			}
 			return nil
 		})

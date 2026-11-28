@@ -52,6 +52,9 @@ func TestObjectSetFieldAndLocateYAML(t *testing.T) {
 	if out.Object != "hero" || out.Field != "x" {
 		t.Fatalf("object_set_field x = %+v", out)
 	}
+	if out.Change.Before != float64(64) || out.Change.After != float64(128) || !out.Change.Changed {
+		t.Fatalf("object_set_field change = %+v", out.Change)
+	}
 	hero, _, _ := f.ed.FindObject("hero")
 	if hero.X != 128 {
 		t.Fatalf("hero.X = %v, want 128", hero.X)
