@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -261,6 +263,14 @@ func TestScreenshotCompareToleranceDimensionMismatchAndProjectFile(t *testing.T)
 		t.Fatalf("diff image bounds = %v, want 50x25", diffImg.Bounds())
 	}
 
+	// A PNG whose header declares a frame larger than any screenshot is refused before it is decoded.
+	if err := os.WriteFile(filepath.Join(projectDir, "huge.png"), pngWithDeclaredSize(t, 20000, 20000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(map[string]any{"compare_to": "huge.png"}); err == nil || !strings.Contains(err.Error(), "exceed maximum") {
+		t.Fatalf("compare_to huge.png: err = %v, want a dimensions error", err)
+	}
+
 	// Path traversal and validation errors are rejected cleanly.
 	for _, bad := range []map[string]any{
 		{"compare_to": "../escape.png"},
@@ -275,6 +285,22 @@ func TestScreenshotCompareToleranceDimensionMismatchAndProjectFile(t *testing.T)
 			t.Errorf("expected error for %v, got nil", bad)
 		}
 	}
+}
+
+// pngWithDeclaredSize encodes a 1x1 PNG and rewrites its IHDR width and height (and the chunk's CRC), so the header declares w x h while the file stays a few bytes long.
+func pngWithDeclaredSize(t *testing.T, w, h uint32) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
+	// 8-byte signature, then IHDR: 4-byte length, 4-byte type, 13-byte data, 4-byte CRC.
+	const ihdrType, ihdrData = 12, 16
+	binary.BigEndian.PutUint32(data[ihdrData:], w)
+	binary.BigEndian.PutUint32(data[ihdrData+4:], h)
+	binary.BigEndian.PutUint32(data[ihdrData+13:], crc32.ChecksumIEEE(data[ihdrType:ihdrData+13]))
+	return data
 }
 
 func TestScreenshotBaselineEviction(t *testing.T) {

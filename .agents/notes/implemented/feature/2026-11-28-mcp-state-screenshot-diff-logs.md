@@ -4,7 +4,7 @@ Status: implemented
 
 ## Problem
 
-Coding agents driving a running game through `game/pkg/mcp` previously had to inspect entities one at a time, visually eyeball separate PNG screenshots, and could not read game logs or recovered panics over MCP. Confirming whether an edit changed only what was intended required many tool calls and tokens and missed subtle state or pixel regressions (#1744).
+Coding agents driving a running game through `game/mcp` previously had to inspect entities one at a time, visually eyeball separate PNG screenshots, and could not read game logs or recovered panics over MCP. Confirming whether an edit changed only what was intended required many tool calls and tokens and missed subtle state or pixel regressions (#1744).
 
 ## Decision
 
@@ -21,13 +21,14 @@ Coding agents driving a running game through `game/pkg/mcp` previously had to in
 
 3. **Bounded `slog.Handler` ring buffer and panic recording (`game_log_read`, `pkg/tooling/gamedebug`)**:
    - `pkg/tooling/gamedebug` provides concurrency-safe `PanicRecord`, `RecordPanic`, `Recover`, `RecoverFunc`, `LastPanic`, and `ClearPanic` in default builds (`panic.go`) and zero-cost stubs in `-tags release` builds (`panic_release.go`).
-   - `pkg/mcp` provides `LogBuffer` (a concurrency-safe bounded ring buffer implementing `slog.Handler` with `WithAttrs`, `WithGroup`, and `Tee`) and `Config.Log` (`*LogConfig`). When `Config.Log` is set without `NoDefault` or a pre-created `Buffer`, `Bridge.Attach` wraps `slog.Default()` with a tee handler and `Bridge.Detach` / scope disposal restores the previous default logger if still active.
+   - `pkg/mcp` provides `LogBuffer` (a concurrency-safe bounded ring buffer implementing `slog.Handler` with `WithAttrs`, `WithGroup`, and `Tee`) and `Config.Log` (`*LogConfig`). When `Config.Log` is set without `NoDefault` or a pre-created `Buffer`, `Bridge.Attach` wraps `slog.Default()` with a tee handler and `Bridge.Detach` / scope disposal restores the previous default logger if still active. `slog.SetDefault` redirects the standard `log` package's output into the new handler; when the previous default is slog's built-in handler, which itself writes through the `log` package, that loop takes the `log` output lock twice and deadlocks the first `slog` call. `attachDefaultLogger` therefore puts the `log` package's writer and flags back right after `slog.SetDefault`, so `log.Print` output keeps its previous destination and is not captured, and the tee never re-enters it (`TestLogAttachWrapsBuiltinDefaultLogger`).
    - `game_log_read` supports forward cursor pagination (`since > 0` returns the earliest `limit` matching entries and sets `has_more` without skipping unseen records, while reporting `missed` when old lines rolled off), tail reads (`since == 0` returns the most recent `limit` matching entries and sets `truncated`), minimum `level` filtering, case-insensitive `contains` filtering, and always surfaces `last_panic` when recorded.
 
 ## Alternatives considered
 
 - **Importing `pkg/gametest` directly from `pkg/mcp`**: Rejected because `pkg/gametest` imports `"testing"` and registers a global `-update-golden` flag on `flag.CommandLine`. Importing it in a non-test library package would pull `testing`'s `-test.*` flags into every game binary that attaches `mcp.Bridge`. Instead, `pkg/mcp/screenshot_diff.go` implements the exact same pixel and diff-image rules with zero test-package dependency, and `pkg/mcp/screenshot_diff_test.go` cross-checks exact pixel equality against `gametest.DiffImage`.
 - **Always returning diff PNG base64 on `compare_to`**: Rejected because inline base64 PNG strings bloat agent context windows when an agent only needs `changed_pixels` and `changed_regions` boxes. Diff image generation is opt-in via `diff_path` or `include_diff_image: true`.
+- **Capturing `log.Print` output too by leaving the `log` package pointed at the tee**: Rejected because it deadlocks whenever the wrapped default is slog's built-in handler, which is the default for every game that never called `slog.SetDefault`. Games that want `log` output in the buffer can route it through their own `slog` handler.
 - **Requiring `Config.Log` to read `gamedebug.LastPanic()`**: Rejected because returning `{configured: false, entries: [], last_panic: ...}` still gives agents crash diagnostics even in games that only wired `gamedebug.Recover` without `Config.Log`.
 
 ## Consequences

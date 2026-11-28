@@ -1,4 +1,4 @@
-# `game/pkg/mcp` Tool Reference
+# `game/mcp` Tool Reference
 
 `github.com/nsgo-dev/game/pkg/mcp` registers game-specific MCP tools on NSGo's reactive graph through `github.com/nsgo-dev/nsgo/automation`. When the game runs under `go tool nsgo dev -automation` (or `go tool nsgo test`), `go tool nsgo mcp` serves these tools alongside NSGo's built-in view tools. In ordinary and release builds, `automation.Register` is a no-op.
 

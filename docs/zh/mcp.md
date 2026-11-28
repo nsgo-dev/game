@@ -1,6 +1,6 @@
 # mcp
 
-`game/pkg/mcp` 通过 NSGo 的 `github.com/nsgo-dev/nsgo/automation` 包，把运行中游戏的场景、图层、实体、组件、固定步长主循环控制、游戏坐标输入注入、可调参数、调试控制台、已加载资源组以及热重载能力暴露给 MCP 智能体。
+`game/mcp` 通过 NSGo 的 `github.com/nsgo-dev/nsgo/automation` 包，把运行中游戏的场景、图层、实体、组件、固定步长主循环控制、游戏坐标输入注入、可调参数、调试控制台、已加载资源组以及热重载能力暴露给 MCP 智能体。
 
 NSGo 内置的 `nsgo mcp` 服务器只能看到原生视图，而游戏通常绘制在单个 `Canvas` 或 GPU 视图中。把 `mcp.Bridge` 挂载到 `core.Scope` 上后，它会通过 `automation.Register` 在引擎响应式图上注册游戏专用工具；当应用在 `go tool nsgo dev -automation` 或 `go tool nsgo test` 下运行时，`nsgo mcp` 会自动将这些工具与内置工具一并提供。在普通构建与发布构建中，`automation.Register` 为空操作，不会引入运行时协议开销。
 
@@ -49,8 +49,8 @@ if err != nil {
 - 如果游戏在重开关卡时会替换 `*scene.Scene`、`*entities.World`、`*game.Loop`、`*gamedebug.Console` 或 `*physics.World`，可以提供 `SceneFunc` / `WorldFunc` / `LoopFunc` / `ConsoleFunc` / `PhysicsFunc`（或调用 `bridge.SetScene` / `bridge.SetWorld` / `bridge.SetLoop` / `bridge.SetConsole` / `bridge.SetPhysics`）。
 - 若要启用 `game_loop_seed`，可配置 `Random`（`*random.Stream`）、`RandomStreams`（`*random.Streams`）和/或自定义 `SetSeed` 回调；若都未配置，调用 `game_loop_seed` 会返回明确的可操作错误。
 - 如果 `scene.Manager` 的控制器通过自定义 `Controller.Draw` 绘制而没有设置 `Controller.Scene`，`SceneFunc` / `Scene` 会自动作为当前场景的图层来源。
-- 未提供 `EntityName` 或 `EntityLayer`（或其返回 `""`）时，若实体带有 [`sceneformat.ObjectRef`](editor.md)，`game/pkg/mcp` 会自动回退到其中的 `ID` 和 `Layer`。
-- 对于 `game_screenshot`，可以提供 `CaptureFrame`（将诊断叠加层合成到已渲染的 `*image.RGBA` 上）、`DrawFrame`（录制自定义的 `core.Drawing` 绘制指令），或直接由 `game/pkg/mcp` 在 `Viewport` / `ViewportFunc`（及可选的 `ScreenshotBackground`）下渲染当前活跃的 `Scenes`/`Scene`。设置 `ScreenshotDir` 后，智能体可以传入相对的 `.png` 路径 `path` 并读取该文件；否则响应会内联返回 `png_base64`，而 MCP 客户端收到的是 JSON 文本，不是图片。
+- 未提供 `EntityName` 或 `EntityLayer`（或其返回 `""`）时，若实体带有 [`sceneformat.ObjectRef`](editor.md)，`game/mcp` 会自动回退到其中的 `ID` 和 `Layer`。
+- 对于 `game_screenshot`，可以提供 `CaptureFrame`（将诊断叠加层合成到已渲染的 `*image.RGBA` 上）、`DrawFrame`（录制自定义的 `core.Drawing` 绘制指令），或直接由 `game/mcp` 在 `Viewport` / `ViewportFunc`（及可选的 `ScreenshotBackground`）下渲染当前活跃的 `Scenes`/`Scene`。设置 `ScreenshotDir` 后，智能体可以传入相对的 `.png` 路径 `path` 并读取该文件；否则响应会内联返回 `png_base64`，而 MCP 客户端收到的是 JSON 文本，不是图片。
 
 ## 检查与编辑组件
 
@@ -59,7 +59,7 @@ if err != nil {
 - 内置的 `entities.Transform2D`、`entities.WorldTransform2D` 和 `sceneformat.ObjectRef` 组件在未被同类型或同名注册覆盖时，会自动以 `"transform2d"`、`"world_transform2d"` 和 `"object_ref"` 的名称暴露。其中 `"transform2d"` 和 `"object_ref"` 可直接编辑（编辑 `"transform2d"` 会自动传播 `Hierarchy2D` 脏标记）；`"world_transform2d"` 由层级派生，为只读组件。
 - 未写入存档的瞬态运行时组件可以通过 `mcp.RegisterComponent[T](bridge, name)` 或 `mcp.RegisterComponentFunc(bridge, name, read)` 只读暴露，也可以通过 `mcp.RegisterMutableComponent[T](bridge, name)` 或 `mcp.RegisterComponentEditor[T](bridge, name, apply)` 同时支持读取与编辑。`RegisterComponentEditor` 可以为此前同类型的 `RegisterComponent[T]` 注册补上编辑能力，但不能用于 `RegisterComponentFunc` 读取器，因为后者返回的值不一定以 `T` 存储。
 - `game_component_set` 使用 `DisallowUnknownFields` 严格解码，拒绝非有限浮点数（`NaN`、`±Inf`）及非法 `null`，默认以补丁模式更新现有字段（保留未传入字段，传入 `"replace": true` 时从零值整块替换），且解码失败时不会留下半修改状态。补丁不会改动它没有修改的字段，包括未导出字段、带 `json:"-"` 标签的字段（如回调和句柄），以及指针、map 和切片的同一性；被修改的字段会得到新分配的值，因此解码出错或编辑器拒绝该值时，存活组件保持原样。对于 codec 组件，解码结果若无法重新编码（例如自定义 `UnmarshalJSON` 产生的 `NaN`），会在写入前被拒绝。
-- 组件值默认用 `encoding/json` 序列化；若运行时值包含非有限浮点数（`NaN`、`+Inf`、`-Inf`）、回调函数字段、channel 或循环指针，`game/pkg/mcp` 会回退到安全的清洗编码（`"NaN"`、`"+Inf"`、`"-Inf"`、`"<func>"`、`"<chan>"`、`"<cycle>"`），使智能体在状态异常时仍能诊断问题。
+- 组件值默认用 `encoding/json` 序列化；若运行时值包含非有限浮点数（`NaN`、`+Inf`、`-Inf`）、回调函数字段、channel 或循环指针，`game/mcp` 会回退到安全的清洗编码（`"NaN"`、`"+Inf"`、`"-Inf"`、`"<func>"`、`"<chan>"`、`"<cycle>"`），使智能体在状态异常时仍能诊断问题。
 
 ```go
 if err := mcp.RegisterMutableComponent[AIState](bridge, "ai"); err != nil {
@@ -139,7 +139,7 @@ if err := bridge.RegisterScenePrefab("turret", turretDoc); err != nil {
 | `game_assets_list` | `group`（可选）、`state`（`loaded`/`loading`/`unloaded`/`failed`）、`kind`（可选） | 按确定顺序排列的资源组列表（涵盖 `assets.Manager`、`resource.Library`、`hotreload.ShaderReloader`、`hotreload.MaterialReloader` 与自定义注册资源），包含加载状态、资源键/类型/URI、图集帧数、各组估算内存字节数及 `total_bytes`。 |
 | `game_asset_reload` | `key`（资源名、URI 或相对路径）、`group`（可选）、`all`（布尔值，可选） | 就地重载匹配的单个资源（或在 `all: true` 时重载全部已加载资源），返回 `{reloaded, key, group, kind, bytes, duration_ms, revision, items, error}`；未报错但保持不变的条目会带有 `skipped`。解析或编译错误会以结构化结果返回，同时保留原先正常的资源不变。`all: true` 需要配置资源管理器、重载器或已注册资源；`Config.ReloadAsset` 只用于重载单个 key。 |
 | `game_assets_reload_group` | `group`（必填） | 就地重载指定资源组内的所有已加载资源，返回逐项结果、重载数 `count`、失败数 `failed`、跳过数 `skipped`、内存字节数、耗时及错误详情，不会导致运行中的游戏崩溃。 |
-| `game_screenshot` | `scene`、`width`、`height`、`format`（`"png"`）、`path`、`baseline`、`compare_to`、`tolerance`（`0..255`）、`max_mismatched_pixels`、`max_mismatched_percent`、`diff_path`、`include_diff_image`、`bounds`、`collision_shapes`、`physics`、`grid`、`grid_step`、`camera`、`labels`、`overlays`（`{bounds, collision_shapes, physics, grid, grid_step, camera, labels}`） | 将游戏画面截取为 PNG（返回 `width`、`height`、`format`、`bytes`、`png_base64` 或相对路径 `path`、`overlays_drawn` 及 `skipped_ops` / `skipped_images`），可选保存内存基线 `baseline` 并/或与命名基线或项目相对 PNG 对比返回 `comparison`（`changed_pixels`、`exact_changed_pixels`、`changed_percent`、`gametest_match`、`within_tolerance`、`changed_bounds`、分区域 `changed_regions` 及可选 `diff_path` / `diff_png_base64`）。 |
+| `game_screenshot` | `scene`、`width`、`height`、`format`（`"png"`）、`path`、`baseline`、`compare_to`、`tolerance`（`0..255`）、`max_mismatched_pixels`、`max_mismatched_percent`、`diff_path`、`include_diff_image`、`bounds`、`collision_shapes`、`physics`、`grid`、`grid_step`、`camera`、`labels`、`overlays`（`{bounds, collision_shapes, physics, grid, grid_step, camera, labels}`） | 将游戏画面截取为 PNG（返回 `width`、`height`、`format`、`bytes`、`png_base64` 或相对路径 `path`、`overlays_drawn` 汇总，以及软件光栅化器有遗漏时的 `skipped_ops` / `skipped_images`），可选在同一相机与视口变换下叠加像素级对齐的精灵包围盒、2D 物理碰撞形状、参考网格、相机边框和标签，保存内存基线 `baseline` 并/或与命名基线或项目相对 PNG 对比返回 `comparison`（`changed_pixels`、`exact_changed_pixels`、`changed_percent`、`gametest_match`、`within_tolerance`、`changed_bounds`、分区域 `changed_regions` 及可选 `diff_path` / `diff_png_base64`）。 |
 | `game_log_read` | `since`（可选游标）、`level`（可选最低级别）、`contains`（可选子串）、`limit`（可选 `1..1000`，默认 `100`） | 从桥接器有界 `slog.Handler` 环形缓冲区读取最近结构化日志，返回 `next_cursor`、`dropped`、`missed`、`has_more`/`truncated`，以及 `pkg/tooling/gamedebug` 记录的最近一次 `last_panic`。 |
 
 所有工具都会拒绝未知的参数字段。
@@ -216,7 +216,7 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 通过 `Config.Overlay` 传入 [`gamedebug.Overlay`](gamedebug.md)，即可把调试 HUD 显示的帧耗时、绘制统计（`gamedebug.Options.DrawStats` 或 `Overlay.SetDrawStats`）、GC 与每帧分配计数（`gamedebug.GCMonitor`）、资源内存（`gamedebug.MemoryTracker`）以及命名计时区间（`gamedebug.Profiler`）以完全一致的数值暴露给智能体。
 
 - `Config.Profiler`、`Config.GC`、`Config.Memory` 与 `Config.DrawStatsFunc` 既可覆盖 `Config.Overlay` 上的对应组件，也可在不启用浮层时单独使用。
-- `Config.RenderStatsFunc` 会在 `render3d` 字段下附加来自 [`render3d.RenderStats`](render3d.md) 的 3D 裁剪、合批、状态切换与 GPU 内存明细；在未配置 2D 绘制统计来源时，还会自动填充顶层的 `draw_calls`、`batches`、`triangles` 与 `vertices`。`mcp.PerfRender3DStats` 与 `render3d.RenderStats` 字段相同，可直接用 `mcp.PerfRender3DStats(stats)` 转换；`game/pkg/mcp` 不导入 `game/render3d`，因此挂接桥接器的 2D 游戏不会链接 3D 渲染器。
+- `Config.RenderStatsFunc` 会在 `render3d` 字段下附加来自 [`render3d.RenderStats`](render3d.md) 的 3D 裁剪、合批、状态切换与 GPU 内存明细；在未配置 2D 绘制统计来源时，还会自动填充顶层的 `draw_calls`、`batches`、`triangles` 与 `vertices`。`mcp.PerfRender3DStats` 与 `render3d.RenderStats` 字段相同，可直接用 `mcp.PerfRender3DStats(stats)` 转换；`game/mcp` 不导入 `game/render3d`，因此挂接桥接器的 2D 游戏不会链接 3D 渲染器。
 - `game_perf_readout` 始终返回 `sources` 对象，标明哪些遥测来源已启用（`overlay`、`profiler`、`gc`、`memory`、`draw_stats`、`render3d`）。当游戏通过 `Overlay.NoteFrameCause` 标注某帧尖峰的原因时，`history` 条目会附带可选的 `cause` 字符串。
 
 ## 资源检查与热重载
