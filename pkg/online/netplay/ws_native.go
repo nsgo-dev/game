@@ -24,8 +24,10 @@ import (
 const (
 	maxWSHandshakeSize = 1 << 20 // 1 MiB cap on the HTTP upgrade request's headers
 	wsWriteTimeout     = 10 * time.Second
-	wsDialTimeout      = 10 * time.Second
-	wsHandshakeTimeout = 10 * time.Second
+	// wsCloseFlushTimeout bounds how long WebSocketServer.Kick and Close let a client's writer flush the frames already queued for it, and the close frame after them, before they cut the connection.
+	wsCloseFlushTimeout = time.Second
+	wsDialTimeout       = 10 * time.Second
+	wsHandshakeTimeout  = 10 * time.Second
 
 	// wsMaxHelloFrame bounds the first frame a server reads from a client, which is the hello: its header and a token of at most MaxTokenSize bytes.
 	wsMaxHelloFrame = hsHelloHeader + MaxTokenSize
@@ -61,12 +63,12 @@ var (
 
 // writeWSFrameDeadline writes one frame with wsWriteTimeout as its deadline, unless closing is set. Close sets closing before it breaks pending writes with a deadline of now, and this checks closing after setting its own deadline, so a writer that takes the lock after Close began either sees closing or set its deadline before Close's: it can never push the deadline past Close's and hold Close up for wsWriteTimeout.
 func writeWSFrameDeadline(conn stdnet.Conn, closing *atomic.Bool, opcode byte, masked bool, payload []byte) error {
-	return writeWSFrameTimeout(conn, closing, wsWriteTimeout, opcode, masked, payload)
+	return writeWSFrameBy(conn, closing, time.Now().Add(wsWriteTimeout), opcode, masked, payload)
 }
 
-// writeWSFrameTimeout is writeWSFrameDeadline with timeout as the deadline.
-func writeWSFrameTimeout(conn stdnet.Conn, closing *atomic.Bool, timeout time.Duration, opcode byte, masked bool, payload []byte) error {
-	_ = conn.SetWriteDeadline(time.Now().Add(timeout))
+// writeWSFrameBy is writeWSFrameDeadline with deadline as the write deadline.
+func writeWSFrameBy(conn stdnet.Conn, closing *atomic.Bool, deadline time.Time, opcode byte, masked bool, payload []byte) error {
+	_ = conn.SetWriteDeadline(deadline)
 	if closing.Load() {
 		_ = conn.SetWriteDeadline(time.Now())
 		return ErrClosed
@@ -540,10 +542,34 @@ type wsClientConn struct {
 	conn    stdnet.Conn
 	br      *bufio.Reader
 	writeMu sync.Mutex
-	closing atomic.Bool // set by WebSocketServer.Close, Kick and an outbox overflow, see writeWSFrameDeadline
+	closing atomic.Bool // set before the close frame, when a Kick's or Close's flush runs out of time, and by an outbox overflow; see writeWSFrameDeadline
 	out     *outbox     // the frames Send queued and writeClientLoop has not written yet
+	// writerDone is closed when writeClientLoop returns.
+	writerDone chan struct{}
 	// writeTimeout bounds each write of a queued frame; admit copies it from the server.
 	writeTimeout time.Duration
+}
+
+// shutdown ends the connection without waiting for it: the writer flushes the frames already queued and then writes a close frame carrying closePayload, and closes the connection. Whatever is not written by flushBy, because the client reads too slowly or not at all, is cut off then: the pending write breaks and the connection closes. shutdown never touches the connection on the caller's goroutine, since even closing a TLS connection writes an alert to a client that may not be reading.
+func (c *wsClientConn) shutdown(closePayload []byte, flushBy time.Time) {
+	if !c.out.finish(closePayload, flushBy) {
+		// The writer has already stopped because the connection ended: only closing it is left.
+		c.closing.Store(true)
+		_ = c.conn.SetWriteDeadline(time.Now())
+		go func() { _ = c.conn.Close() }()
+		return
+	}
+	time.AfterFunc(time.Until(flushBy), func() {
+		select {
+		case <-c.writerDone:
+			return
+		default:
+		}
+		// Break the queued frame, close frame, ping or welcome still being written, then close.
+		c.closing.Store(true)
+		_ = c.conn.SetWriteDeadline(time.Now())
+		_ = c.conn.Close()
+	})
 }
 
 // WebSocketServer accepts RFC 6455 WebSocket clients and exposes them through the standard Transport interface.
@@ -751,7 +777,7 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 		return
 	}
 
-	client := &wsClientConn{conn: conn, br: br, out: newOutbox(&s.outCounters)}
+	client := &wsClientConn{conn: conn, br: br, out: newOutbox(&s.outCounters), writerDone: make(chan struct{})}
 	defer client.out.close()
 	// Hold the client's write lock until the welcome is out, so no close frame from Kick or Close overtakes it once the session is visible. Send only queues frames, and the writer that writes them starts after the welcome.
 	client.writeMu.Lock()
@@ -780,25 +806,37 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 	s.readClientLoop(client)
 }
 
-// writeClientLoop writes the frames Send queued for a client until its outbox closes, which happens when the connection ends. A write that fails or times out may have left part of a frame on the wire, so it closes the connection instead of writing the next frame after it: the read loop then reports the drop, and no later frame reaches the client misframed.
+// writeClientLoop writes the frames Send queued for a client until its outbox closes, which happens when the connection ends. A write that fails or times out may have left part of a frame on the wire, so it closes the connection instead of writing the next frame after it: the read loop then reports the drop, and no later frame reaches the client misframed. After Kick or Close (see shutdown) it writes the frames still queued, then the close frame, and closes the connection.
 func (s *WebSocketServer) writeClientLoop(c *wsClientConn) {
+	defer close(c.writerDone)
 	for {
-		frame, ok := c.out.next()
+		item, ok := c.out.next()
 		if !ok {
 			return
 		}
+		if item.final {
+			c.writeMu.Lock()
+			// Setting closing stops the ping loop, so no frame follows the close frame; it is already set when the flush ran out of time.
+			if !c.closing.Swap(true) {
+				_ = c.conn.SetWriteDeadline(item.flushBy)
+				_ = writeWSFrame(c.conn, wsOpClose, false, item.data)
+			}
+			c.writeMu.Unlock()
+			_ = c.conn.Close()
+			return
+		}
+		deadline := time.Now().Add(c.writeTimeout)
+		if !item.flushBy.IsZero() && item.flushBy.Before(deadline) {
+			deadline = item.flushBy
+		}
 		c.writeMu.Lock()
-		err := writeWSFrameTimeout(c.conn, &c.closing, c.writeTimeout, wsOpBinary, false, frame)
+		err := writeWSFrameBy(c.conn, &c.closing, deadline, wsOpBinary, false, item.data)
 		c.writeMu.Unlock()
-		if err == nil {
-			continue
+		if err != nil {
+			c.out.close()
+			_ = c.conn.Close()
+			return
 		}
-		c.out.close()
-		if c.closing.Load() {
-			return // Close, Kick or an outbox overflow owns the connection and closes it
-		}
-		_ = c.conn.Close()
-		return
 	}
 }
 
@@ -980,7 +1018,7 @@ func (s *WebSocketServer) notify() {
 	}
 }
 
-// Send queues payload for a connected client (or all clients when to == PeerBroadcast) and returns without waiting for the connection: each client's own goroutine writes its frames in order (see OutboxLimits). It returns ErrDisconnected for a client inside its grace period or whose session a full outbox has just ended, ErrUnknownPeer for an ID with no session, and ErrPayloadTooLarge for a payload that does not fit a WebSocket message.
+// Send queues payload for a connected client (or all clients when to == PeerBroadcast) and returns without waiting for the connection: each client's own goroutine writes its frames in order (see OutboxLimits). It returns ErrDisconnected for a client inside its grace period or whose session a full outbox has just ended, ErrUnknownPeer for an ID with no session, and ErrPayloadTooLarge for a payload that does not fit a WebSocket message. A write that later fails or times out is not returned by any Send: NextEvent reports it as PeerDropped.
 func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch != ChannelReliableOrdered && ch != ChannelUnreliable {
 		return ErrInvalidPacket
@@ -1040,7 +1078,7 @@ func (s *WebSocketServer) endOverflowed(c *wsClientConn) {
 	s.notify()
 }
 
-// Kick ends peer's session now: a connected client receives a close frame with the wsCloseKicked code and the reason, and the session's resume secret is gone, so the client's Reconnect cannot resume it and joins as a new peer only if Auth.Verify accepts its token again. NextEvent reports PeerLeft with the reason. It returns ErrUnknownPeer for an ID with no session (including a handshake still in Verify) and ErrClosed once the server is closed.
+// Kick ends peer's session now: a connected client receives the frames already sent to it, then a close frame with the wsCloseKicked code and the reason, and the session's resume secret is gone, so the client's Reconnect cannot resume it and joins as a new peer only if Auth.Verify accepts its token again. NextEvent reports PeerLeft with the reason. It returns ErrUnknownPeer for an ID with no session (including a handshake still in Verify) and ErrClosed once the server is closed. Kick does not wait for the connection: the client's own goroutine writes the queued frames and the close frame, and whatever a client that reads too slowly has not taken within a second is cut off with the connection.
 func (s *WebSocketServer) Kick(peer PeerID, reason string) error {
 	reason = truncateReason(reason, hsMaxReason)
 	s.mu.Lock()
@@ -1061,14 +1099,7 @@ func (s *WebSocketServer) Kick(peer PeerID, reason string) error {
 		// The peer was inside its grace period: nothing to notify it on; it learns the kick as a new handshake when it reconnects.
 		return nil
 	}
-	// Break a Send or ping already blocked on a client that does not read before taking the write lock, then send the close frame with its own short deadline.
-	link.closing.Store(true)
-	_ = link.conn.SetWriteDeadline(time.Now())
-	link.writeMu.Lock()
-	_ = link.conn.SetWriteDeadline(time.Now().Add(time.Second))
-	_ = writeWSFrame(link.conn, wsOpClose, false, wsClosePayload(wsCloseKicked, reason))
-	link.writeMu.Unlock()
-	_ = link.conn.Close()
+	link.shutdown(wsClosePayload(wsCloseKicked, reason), time.Now().Add(wsCloseFlushTimeout))
 	return nil
 }
 
@@ -1138,7 +1169,7 @@ func (s *WebSocketServer) Peers() []PeerID {
 	return s.table.connectedIDs()
 }
 
-// Close stops accepting new clients and closes all active client connections. It sends each client a close frame, waiting at most a second for clients that do not read, all at once rather than one after another.
+// Close stops accepting new clients and closes all active client connections. Each client receives the frames already sent to it and then a close frame, all clients at once; Close waits at most a second for them and cuts off the connections of clients that read too slowly to take theirs by then.
 func (s *WebSocketServer) Close() error {
 	s.mu.Lock()
 	if s.closed {
@@ -1154,22 +1185,21 @@ func (s *WebSocketServer) Close() error {
 	}
 	s.mu.Unlock()
 
-	// Break every Send or ping already blocked on a client that does not read before waiting for any write lock.
+	// Every client's writer flushes what Send queued and then the close frame, all at once; Close waits for them for at most wsCloseFlushTimeout, when shutdown cuts off the clients that have not taken theirs.
+	flushBy := time.Now().Add(wsCloseFlushTimeout)
 	for _, c := range clients {
-		c.closing.Store(true)
-		_ = c.conn.SetWriteDeadline(time.Now())
+		c.shutdown(nil, flushBy)
 	}
-	var wg sync.WaitGroup
+	timer := time.NewTimer(time.Until(flushBy))
+	defer timer.Stop()
+wait:
 	for _, c := range clients {
-		wg.Go(func() {
-			c.writeMu.Lock()
-			_ = c.conn.SetWriteDeadline(time.Now().Add(time.Second))
-			_ = writeWSFrame(c.conn, wsOpClose, false, nil)
-			c.writeMu.Unlock()
-			_ = c.conn.Close()
-		})
+		select {
+		case <-c.writerDone:
+		case <-timer.C:
+			break wait
+		}
 	}
-	wg.Wait()
 	return s.ln.Close()
 }
 

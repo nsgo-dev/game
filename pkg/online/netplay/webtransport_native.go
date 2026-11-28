@@ -22,6 +22,7 @@ import (
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
+	"github.com/quic-go/quic-go/quicvarint"
 	"github.com/quic-go/webtransport-go"
 )
 
@@ -537,20 +538,50 @@ func (wt *WebTransportTransport) Close() error {
 }
 
 type wtClientConn struct {
-	id       PeerID
-	sess     *webtransport.Session
-	stream   *webtransport.Stream
-	writeMu  sync.Mutex
-	closing  atomic.Bool // set by WebTransportServer.Close and an outbox overflow
-	out      *outbox     // the reliable frames Send queued and writeClientLoop has not written yet
-	unrelSeq atomic.Uint32
+	id      PeerID
+	sess    *webtransport.Session
+	stream  *webtransport.Stream
+	writeMu sync.Mutex
+	closing atomic.Bool // set by WebTransportServer.Close and an outbox overflow
+	out     *outbox     // the reliable frames Send queued and writeClientLoop has not written yet
+	dgrams  *outbox     // the unreliable frames Send queued and writeDatagramLoop has not handed to QUIC yet
+	// dgramPrefix is the length of the session ID that HTTP/3 puts before each datagram, and dgramMax the largest frame Send last learned QUIC would take as one datagram, zero until it first checks.
+	dgramPrefix int
+	dgramMax    atomic.Int64
+}
+
+// wtDatagramProbe is larger than any UDP packet, so QUIC refuses it as a datagram with its current size limit and never queues it.
+var wtDatagramProbe = make([]byte, 1<<16)
+
+// checkDatagram reports ErrPayloadTooLarge for a frame of n bytes that QUIC would refuse as one datagram right now. It asks QUIC for its current limit only when n is past the last one it learned, because the limit grows as QUIC discovers the path's MTU and shrinks when the path changes; asking never queues anything, unlike SendDatagram with a frame that fits, which can wait for room in QUIC's queue.
+func (c *wtClientConn) checkDatagram(n int) error {
+	if int64(n) <= c.dgramMax.Load() {
+		return nil
+	}
+	err := c.sess.SendDatagram(wtDatagramProbe)
+	tooLarge, ok := errors.AsType[*quic.DatagramTooLargeError](err)
+	if !ok {
+		return err // the session has ended
+	}
+	limit := c.learnDatagramLimit(tooLarge)
+	if int64(n) > limit {
+		return wrapDatagramErr(tooLarge)
+	}
+	return nil
+}
+
+// learnDatagramLimit records the largest frame QUIC takes as one datagram, given its refusal of a larger one, and returns it.
+func (c *wtClientConn) learnDatagramLimit(tooLarge *quic.DatagramTooLargeError) int64 {
+	limit := tooLarge.MaxDatagramPayloadSize - int64(c.dgramPrefix)
+	c.dgramMax.Store(limit)
+	return limit
 }
 
 // WebTransportServer accepts WebTransport clients over HTTP/3 and QUIC and exposes them through the standard Transport and RelayServer interfaces.
 //
 // ChannelReliableOrdered packets travel over each client's bidirectional QUIC stream, and ChannelUnreliable packets travel as independent QUIC datagrams. Every client runs the connection handshake on the bidirectional stream before its packets reach Recv: Auth.Verify checks its token, the server assigns its ID and tells the client, and NextEvent reports joins, drops, resumes and leaves.
 //
-// Send queues each client's reliable frames in an outbox that a goroutine of the client's own writes to its stream, so a client that stops reading the stream never blocks Send or delays the other clients (see OutboxLimits). Unreliable datagrams are handed to QUIC directly and never wait in the outbox.
+// Send queues each client's reliable frames in an outbox that a goroutine of the client's own writes to its stream, and its unreliable datagrams in a second outbox that another goroutine hands to QUIC, so a client that stops reading the stream, or whose acknowledgements stop coming, never blocks Send or delays the other clients (see OutboxLimits).
 type WebTransportServer struct {
 	pc        stdnet.PacketConn
 	wtSrv     *webtransport.Server
@@ -648,7 +679,9 @@ func listenWebTransportConn(pc stdnet.PacketConn, serverID PeerID, auth Auth, cf
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		go s.handleSession(sess)
+		// HTTP/3 puts the session's ID, its CONNECT stream's ID divided by 4, before each datagram (RFC 9297); Upgrade has already taken the stream over.
+		prefix := quicvarint.Len(uint64(w.(http3.HTTPStreamer).HTTPStream().StreamID() / 4))
+		go s.handleSession(sess, prefix)
 	})
 	s.wtSrv = wtSrv
 
@@ -664,7 +697,7 @@ func (s *WebTransportServer) Addr() stdnet.Addr {
 	return s.pc.LocalAddr()
 }
 
-func (s *WebTransportServer) handleSession(sess *webtransport.Session) {
+func (s *WebTransportServer) handleSession(sess *webtransport.Session, dgramPrefix int) {
 	hsCtx, cancel := context.WithTimeout(sess.Context(), wtHandshakeTimeout)
 	stream, err := sess.AcceptStream(hsCtx)
 	cancel()
@@ -692,9 +725,10 @@ func (s *WebTransportServer) handleSession(sess *webtransport.Session) {
 		return
 	}
 
-	client := &wtClientConn{sess: sess, stream: stream, out: newOutbox(&s.outCounters)}
+	client := &wtClientConn{sess: sess, stream: stream, out: newOutbox(&s.outCounters), dgrams: newOutbox(&s.outCounters), dgramPrefix: dgramPrefix}
 	defer client.out.close()
-	// Hold the client's write lock until the welcome is out. Send only queues reliable frames, and the writer that writes them starts after the welcome, so no game packet overtakes it once the session is visible to Send.
+	defer client.dgrams.close()
+	// Hold the client's write lock until the welcome is out. Send only queues frames, and the writers that write them start after the welcome, so no game packet overtakes it once the session is visible to Send.
 	client.writeMu.Lock()
 	reply, ok := s.admit(h, client)
 	if reply != nil {
@@ -724,6 +758,7 @@ func (s *WebTransportServer) handleSession(sess *webtransport.Session) {
 		s.readDatagramLoop(client)
 	}()
 	go s.writeClientLoop(client)
+	go s.writeDatagramLoop(client)
 	s.readReliableLoop(client)
 	<-dgramDone
 }
@@ -731,12 +766,12 @@ func (s *WebTransportServer) handleSession(sess *webtransport.Session) {
 // writeClientLoop writes the reliable frames Send queued for a client until its outbox closes, which happens when the session ends. A write that fails or times out may have left part of a frame on the stream, so it closes the session instead of writing the next frame after it: the read loop then reports the drop, and no later frame reaches the client misframed.
 func (s *WebTransportServer) writeClientLoop(c *wtClientConn) {
 	for {
-		frame, ok := c.out.next()
+		item, ok := c.out.next()
 		if !ok {
 			return
 		}
 		c.writeMu.Lock()
-		err := writeWTStreamFrame(c.stream, &c.closing, frame)
+		err := writeWTStreamFrame(c.stream, &c.closing, item.data)
 		c.writeMu.Unlock()
 		if err == nil {
 			continue
@@ -746,6 +781,28 @@ func (s *WebTransportServer) writeClientLoop(c *wtClientConn) {
 			return // Close or an outbox overflow owns the session and closes it
 		}
 		_ = c.sess.CloseWithError(0, "write failed")
+		return
+	}
+}
+
+// writeDatagramLoop hands the unreliable frames Send queued for a client to QUIC until its datagram outbox closes. SendDatagram waits while QUIC's own queue of datagrams for the connection is full, which a client whose acknowledgements stop coming keeps it, so it runs here rather than on Send's goroutine.
+func (s *WebTransportServer) writeDatagramLoop(c *wtClientConn) {
+	for {
+		item, ok := c.dgrams.next()
+		if !ok {
+			return
+		}
+		err := c.sess.SendDatagram(item.data)
+		if err == nil {
+			continue
+		}
+		if tooLarge, ok := errors.AsType[*quic.DatagramTooLargeError](err); ok {
+			// The path's datagram size shrank after Send checked the frame: drop it, and Send refuses the next one that is too large itself.
+			c.learnDatagramLimit(tooLarge)
+			s.outCounters.dropped.Add(1)
+			continue
+		}
+		c.dgrams.close() // the session has ended, and its read loops report it
 		return
 	}
 }
@@ -890,7 +947,7 @@ func (s *WebTransportServer) notify() {
 	}
 }
 
-// Send transmits payload to a connected client (or all clients when to == PeerBroadcast). ChannelReliableOrdered frames travel on each client's bidirectional stream; ChannelUnreliable frames travel as independent QUIC datagrams (returning ErrPayloadTooLarge if payload exceeds the QUIC datagram MTU). It returns ErrDisconnected for a client inside its grace period and ErrUnknownPeer for an ID with no session.
+// Send queues payload for a connected client (or all clients when to == PeerBroadcast) and returns without waiting for the connection: each client's own goroutines write its frames in order (see OutboxLimits). ChannelReliableOrdered frames travel on each client's bidirectional stream; ChannelUnreliable frames travel as independent QUIC datagrams (returning ErrPayloadTooLarge if payload exceeds the QUIC datagram MTU). It returns ErrDisconnected for a client inside its grace period or whose session a full outbox has just ended, and ErrUnknownPeer for an ID with no session. A write that later fails or times out is not returned by any Send: NextEvent reports it as PeerDropped.
 func (s *WebTransportServer) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch != ChannelReliableOrdered && ch != ChannelUnreliable {
 		return ErrInvalidPacket
@@ -929,10 +986,10 @@ func (s *WebTransportServer) Send(to PeerID, ch Channel, payload []byte) error {
 			case pushClosed:
 				err = ErrDisconnected
 			}
-		} else {
-			seq := c.unrelSeq.Add(1)
-			frame := encodeWireFrame(ch, seq, payload)
-			err = wrapDatagramErr(c.sess.SendDatagram(frame))
+		} else if err = c.checkDatagram(wireHeaderSize + len(payload)); err == nil {
+			if c.dgrams.push(ch, payload, limits, encodeWireFrame) == pushClosed {
+				err = ErrDisconnected
+			}
 		}
 		if err != nil && firstErr == nil {
 			firstErr = err
@@ -950,13 +1007,14 @@ func (s *WebTransportServer) endOverflowed(c *wtClientConn) {
 	}
 	s.mu.Unlock()
 	c.out.close()
+	c.dgrams.close()
 	c.closing.Store(true)
 	_ = c.stream.SetWriteDeadline(time.Now())
 	go func() { _ = c.sess.CloseWithError(0, reasonOutboxFull) }()
 	s.notify()
 }
 
-// SetOutboxLimits bounds the reliable frames the server holds for each client before they are written (see OutboxLimits).
+// SetOutboxLimits bounds the frames the server holds for each client before they are written (see OutboxLimits). Each client's reliable frames and its unreliable datagrams have an outbox of their own, each with these limits.
 func (s *WebTransportServer) SetOutboxLimits(l OutboxLimits) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -969,9 +1027,11 @@ func (s *WebTransportServer) OutboxStats() OutboxStats {
 	var st OutboxStats
 	for _, sess := range s.table.sessions {
 		if c, ok := sess.link.(*wtClientConn); ok {
-			frames, bytes := c.out.stats()
-			st.Frames += frames
-			st.Bytes += bytes
+			for _, o := range []*outbox{c.out, c.dgrams} {
+				frames, bytes := o.stats()
+				st.Frames += frames
+				st.Bytes += bytes
+			}
 		}
 	}
 	s.mu.Unlock()

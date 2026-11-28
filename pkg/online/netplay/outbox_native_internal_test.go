@@ -6,8 +6,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	stdnet "net"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -271,11 +273,11 @@ func TestOutboxDropsOldestUnreliableAndRefusesReliable(t *testing.T) {
 	}
 	var tags []byte
 	for range 3 {
-		frame, ok := o.next()
-		if !ok {
-			t.Fatal("next reported closed with frames queued")
+		item, ok := o.next()
+		if !ok || item.final {
+			t.Fatalf("next = %+v, %v with frames queued", item, ok)
 		}
-		tags = append(tags, frame[wireHeaderSize])
+		tags = append(tags, item.data[wireHeaderSize])
 	}
 	if string(tags) != "BEF" {
 		t.Fatalf("written frames = %q, want the reliable frames in order", tags)
@@ -305,5 +307,261 @@ func TestOutboxDropsOldestUnreliableAndRefusesReliable(t *testing.T) {
 	}
 	if got := push(ChannelReliableOrdered, 'Q'); got != pushClosed {
 		t.Fatalf("push after close = %d, want closed", got)
+	}
+}
+
+func TestOutboxFinishDrainsTheQueueThenTheFinalFrame(t *testing.T) {
+	var counters outboxCounters
+	o := newOutbox(&counters)
+	limits := OutboxLimits{}
+	for _, tag := range []byte("ab") {
+		if got := o.push(ChannelReliableOrdered, []byte{tag}, limits, encodeWireFrame); got != pushQueued {
+			t.Fatalf("push %c = %d, want queued", tag, got)
+		}
+	}
+	by := time.Now().Add(time.Minute)
+	if !o.finish([]byte("bye"), by) {
+		t.Fatal("finish on an open outbox reported false")
+	}
+	if !o.finish([]byte("other"), by.Add(time.Hour)) {
+		t.Fatal("a second finish reported false before the writer took the final frame")
+	}
+	if got := o.push(ChannelReliableOrdered, []byte{'c'}, limits, encodeWireFrame); got != pushClosed {
+		t.Fatalf("push after finish = %d, want closed", got)
+	}
+	var tags []byte
+	for {
+		item, ok := o.next()
+		if !ok {
+			t.Fatal("next reported closed before the final frame")
+		}
+		if !item.flushBy.Equal(by) {
+			t.Fatalf("flushBy = %v, want the first finish's %v", item.flushBy, by)
+		}
+		if item.final {
+			if string(item.data) != "bye" {
+				t.Fatalf("final frame = %q, want the first finish's", item.data)
+			}
+			break
+		}
+		tags = append(tags, item.data[wireHeaderSize])
+	}
+	if string(tags) != "ab" {
+		t.Fatalf("frames before the final one = %q, want ab", tags)
+	}
+	if _, ok := o.next(); ok {
+		t.Fatal("next returned an item after the final frame")
+	}
+	if o.finish(nil, by) {
+		t.Fatal("finish on a closed outbox reported true")
+	}
+}
+
+// wsClientReader reads a raw client's connection to the end, answering pings, and counts the binary frames before the close frame.
+type wsClientReader struct {
+	done      chan struct{}
+	frames    int    // binary frames read in order, set before done closes
+	closeCode uint16 // the close frame's code, 0 when none came
+	err       string // the first problem with the stream
+}
+
+func readWSClientToClose(conn stdnet.Conn, br *bufio.Reader) *wsClientReader {
+	r := &wsClientReader{done: make(chan struct{})}
+	go func() {
+		defer close(r.done)
+		for {
+			_, op, payload, _, err := readWSFrame(br)
+			if err != nil {
+				return
+			}
+			switch op {
+			case wsOpPing:
+				_ = writeWSFrame(conn, wsOpPong, true, payload)
+			case wsOpBinary:
+				if _, seq, _, err := decodeWireFrame(payload); err != nil || seq != uint32(r.frames+1) {
+					r.err = "binary frames out of order"
+					return
+				}
+				r.frames++
+			case wsOpClose:
+				r.closeCode = wsCloseCode(payload)
+				return
+			}
+		}
+	}()
+	return r
+}
+
+// Send only queues a frame, so Kick and Close, which used to come after the frames Send wrote, cut the connection while the frames sent just before were still queued: a match's result or a ban notice sent before Kick never arrived.
+func TestWebSocketServerKickAndCloseDeliverTheFramesSentBefore(t *testing.T) {
+	const sent = 50
+	for _, end := range []string{"Kick", "Close"} {
+		t.Run(end, func(t *testing.T) {
+			srv := listenWSKeepAlive(t, Auth{}, wsKeepAlive{ping: time.Second, idle: time.Minute})
+			h, _ := newHello([]byte("token"), resumeState{})
+			conn, br, w, err := rawWSHello(t, srv, h)
+			if err != nil {
+				t.Fatalf("handshake: %v", err)
+			}
+			_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+			r := readWSClientToClose(conn, br)
+			for range sent {
+				if err := srv.Send(w.peer, ChannelReliableOrdered, make([]byte, 1024)); err != nil {
+					t.Fatalf("Send: %v", err)
+				}
+			}
+			wantCode := uint16(0)
+			if end == "Kick" {
+				if err := srv.Kick(w.peer, "bye"); err != nil {
+					t.Fatalf("Kick: %v", err)
+				}
+				wantCode = wsCloseKicked
+			} else if err := srv.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			<-r.done
+			if r.err != "" || r.frames != sent || r.closeCode != wantCode {
+				t.Fatalf("client read %d frames (%s) and close code %d, want %d frames and close code %d", r.frames, r.err, r.closeCode, sent, wantCode)
+			}
+		})
+	}
+}
+
+// Kick wrote the close frame and closed the connection on the caller's goroutine, so kicking a client that had stopped reading held the match's tick for the close frame's second, and for the TLS close alert's five more seconds on a TLS listener.
+func TestWebSocketServerKickDoesNotWaitOnAClientThatStopsReading(t *testing.T) {
+	srv := listenWSKeepAlive(t, Auth{}, wsKeepAlive{ping: time.Second, idle: time.Minute})
+	srv.SetOutboxLimits(OutboxLimits{Frames: -1, Bytes: -1})
+	h, _ := newHello([]byte("token"), resumeState{})
+	_, _, w, err := rawWSHello(t, srv, h)
+	if err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	// Queue far more than the socket buffers hold, so the writer is stuck in a write when Kick comes.
+	for range 256 {
+		_ = srv.Send(w.peer, ChannelReliableOrdered, make([]byte, 64<<10))
+	}
+	waitFor(t, "the writer to block on the client", func() bool { return srv.OutboxStats().Frames > 0 })
+	start := time.Now()
+	if err := srv.Kick(w.peer, "afk"); err != nil {
+		t.Fatalf("Kick: %v", err)
+	}
+	if took := time.Since(start); took > 200*time.Millisecond {
+		t.Fatalf("Kick took %v on a client that stopped reading", took)
+	}
+	start = time.Now()
+	if err := srv.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if took := time.Since(start); took > wsCloseFlushTimeout+500*time.Millisecond {
+		t.Fatalf("Close took %v, want at most about %v", took, wsCloseFlushTimeout)
+	}
+}
+
+// udpDropProxy forwards one client's QUIC packets to a server and the server's back, until drop is set: from then on it throws the server's packets away, so the client never acknowledges anything the server sends while it keeps sending packets of its own.
+type udpDropProxy struct {
+	pc   stdnet.PacketConn
+	drop atomic.Bool
+}
+
+func newUDPDropProxy(t *testing.T, server stdnet.Addr) *udpDropProxy {
+	t.Helper()
+	pc, err := stdnet.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen proxy: %v", err)
+	}
+	up, err := stdnet.Dial("udp", server.String())
+	if err != nil {
+		t.Fatalf("dial server: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close(); _ = up.Close() })
+	p := &udpDropProxy{pc: pc}
+	var client atomic.Pointer[stdnet.Addr]
+	go func() {
+		buf := make([]byte, 1<<16)
+		for {
+			n, from, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			client.Store(&from)
+			_, _ = up.Write(buf[:n])
+		}
+	}()
+	go func() {
+		buf := make([]byte, 1<<16)
+		for {
+			n, err := up.Read(buf)
+			if err != nil {
+				return
+			}
+			if to := client.Load(); to != nil && !p.drop.Load() {
+				_, _ = pc.WriteTo(buf[:n], *to)
+			}
+		}
+	}()
+	return p
+}
+
+// Send handed unreliable frames to QUIC's SendDatagram on the caller's goroutine, which waits while the connection's queue of 32 datagrams is full: a client that kept its connection alive but stopped acknowledging held every broadcast for the retransmission timer, which doubles each time.
+func TestWebTransportServerSendDoesNotBlockOnAClientThatStopsAcknowledging(t *testing.T) {
+	srv, rawURL, opts := listenWT(t, Auth{}, nil)
+	proxy := newUDPDropProxy(t, srv.Addr())
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Host = proxy.pc.LocalAddr().String()
+	stalled, err := DialWebTransport(u.String(), nil, opts)
+	if err != nil {
+		t.Fatalf("dial through the proxy: %v", err)
+	}
+	t.Cleanup(func() { _ = stalled.Close() })
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: stalled.LocalID()}) {
+		t.Fatalf("event = %+v, want the stalled client joined", ev)
+	}
+	healthy, err := DialWebTransport(rawURL, nil, opts)
+	if err != nil {
+		t.Fatalf("DialWebTransport: %v", err)
+	}
+	t.Cleanup(func() { _ = healthy.Close() })
+	if ev := nextEvent(t, srv, srv.changed); ev != (PeerEvent{Kind: PeerJoined, Peer: healthy.LocalID()}) {
+		t.Fatalf("event = %+v, want the healthy client joined", ev)
+	}
+	proxy.drop.Store(true)
+
+	payload := make([]byte, 1000)
+	received := 0
+	for i := range 300 {
+		sent := make(chan error, 1)
+		go func() { sent <- srv.Send(PeerBroadcast, ChannelUnreliable, payload) }()
+		select {
+		case err := <-sent:
+			if err != nil {
+				t.Fatalf("broadcast %d: %v", i+1, err)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("broadcast %d blocked for more than 500ms on a client that stopped acknowledging", i+1)
+		}
+		for {
+			if _, ok := healthy.Recv(); !ok {
+				break
+			}
+			received++
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	waitFor(t, "the healthy client to receive broadcasts", func() bool {
+		for {
+			if _, ok := healthy.Recv(); !ok {
+				break
+			}
+			received++
+		}
+		return received > 0
+	})
+
+	// A payload past the datagram size is still refused at once.
+	if err := srv.Send(healthy.LocalID(), ChannelUnreliable, make([]byte, 8192)); !errors.Is(err, ErrPayloadTooLarge) {
+		t.Fatalf("oversized datagram err = %v, want ErrPayloadTooLarge", err)
 	}
 }

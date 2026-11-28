@@ -125,9 +125,11 @@ lastWarnings, lastDropped = st.ReliableWarnings, st.UnreliableDropped
 
 ### 发件队列上限
 
-`WebSocketServer.Send` 与 `WebTransportServer.Send` 从不在调用方的 goroutine 上写客户端的连接。每个客户端有一个发件队列：`Send` 编码帧、放入队列后立即返回，由该客户端自己的 goroutine 按顺序写出，因此网络慢的玩家或不再读取的客户端只会拖慢自己的帧，不会拖住对局的 tick，也不会影响其他玩家。`WebTransportServer` 只把共用一条 QUIC 流的 `ChannelReliableOrdered` 帧放入队列，不可靠数据报直接交给 QUIC。
+`WebSocketServer.Send` 与 `WebTransportServer.Send` 从不在调用方的 goroutine 上写客户端的连接。每个客户端有一个发件队列：`Send` 编码帧、放入队列后立即返回，由该客户端自己的 goroutine 按顺序写出，因此网络慢的玩家或不再读取的客户端只会拖慢自己的帧，不会拖住对局的 tick，也不会影响其他玩家。`WebTransportServer` 为每个客户端准备两个上限相同的发件队列：一个放共用一条 QUIC 流的 `ChannelReliableOrdered` 帧，一个放 `ChannelUnreliable` 数据报，因此不再确认 QUIC 数据包的客户端同样拖不住 `Send`。`Send` 在数据报入队时仍会检查其大小，超出时立即返回 `ErrPayloadTooLarge`。
 
 每个发件队列最多保留 `DefaultOutboxFrames`（256）帧、共 `DefaultOutboxBytes`（4 MiB）。放不下的帧会先丢弃该客户端队列中最旧的 `ChannelUnreliable` 帧腾出空间，记入 `OutboxStats().UnreliableDropped`；仍放不下的不可靠帧本身被丢弃。放不下的 `ChannelReliableOrdered` 帧会结束该客户端的会话，因为丢弃它会破坏通道的顺序：`NextEvent` 报告 `PeerLeft`，`Reason` 为 `"outbox full"`，`Send` 对该客户端返回 `ErrDisconnected`，并记入 `OutboxStats().Overflows`。无论多大，空队列总能放下一帧。写入失败或超过 10 秒写超时时，服务端会关闭该客户端的连接，而不是在线路上留下半个帧，`NextEvent` 像对任何断开的连接一样报告 `PeerDropped`。
+
+由于 `Send` 在写出之前就返回，它只报告 `ErrDisconnected`、`ErrUnknownPeer`、`ErrPayloadTooLarge` 和 `ErrClosed`。之后才失败的写入由 `NextEvent` 报告为 `PeerDropped`，不会由 `Send` 返回，该客户端队列中剩余的帧随之丢弃。`WebSocketServer.Kick` 与 `Close` 会先让每个客户端的写入 goroutine 写完已排队的帧，再写关闭帧，因此紧接其前发送的结算结果或告别消息能够送达；它们不等待连接就返回（`Close` 对所有客户端合计最多等待一秒），一秒内仍未取走这些帧的客户端会被直接断开。
 
 两个服务端都实现 `OutboxReporter`：`SetOutboxLimits` 随时修改上限，对之后排队的帧生效；`OutboxStats` 报告所有已连接客户端合计排队的帧数和字节数，以及只增不减的计数器。`OutboxLimits` 中零表示使用默认值，负值表示取消上限。游戏需要一次发送大量可靠数据（例如关卡的初始状态）时，应调高上限而不是取消它：没有上限时，不再读取的客户端会让发给它的每一帧都留在服务端内存里，直到写超时关闭它的连接。
 
@@ -181,7 +183,7 @@ _ = cli.Reconnect() // cli.Resumed() reports whether it kept its ID
 
 - `NextEvent` 在被调用时检查宽限期与空闲超时，因此服务端应在每个 tick 与 `Recv` 一起轮询它。排队的生命周期事件（`PeerJoined`、`PeerDropped`、`PeerResumed`、`PeerLeft`）按先进先出顺序以均摊常数时间取出，不会静默丢弃。peer 处于宽限期内时，向它 `Send` 会返回 `ErrDisconnected`，`Peers` 也不会列出它。
 - 客户端调用 `Close` 即为主动告别：服务端立即报告 `PeerLeft`，不再为其保留会话。`Reconnect` 则不算告别，即使连接仍处于打开状态也是如此：浏览器关闭旧连接时会带上一个关闭码，服务端据此将其视为掉线。
-- `WebSocketServer.Kick(peer, reason)` 与 `UDPServer.Kick(peer, reason)` 立即结束指定 peer 的会话，并在 `PeerEvent.Reason` 中携带原因报告 `PeerLeft`：会话的恢复密钥随之销毁，客户端的 `Reconnect` 无法恢复该会话，只有在 `Verify` 再次接受其令牌时才能作为新 peer 加入。已连接的 WebSocket 客户端会收到一个带应用关闭码 4001 和原因的关闭帧，已连接的 UDP 客户端会收到一个加密的踢出数据报（发送三次，因为 UDP 可能丢包）；随后两者的 `Err` 都会返回 `*KickError`（与 `netplay.ErrKicked` 匹配）——在浏览器中同样如此。处于宽限期内的 peer 不会收到消息，它的下一次握手只是无法恢复而已。`Kick` 对没有会话的 ID 返回 `ErrUnknownPeer`。
+- `WebSocketServer.Kick(peer, reason)` 与 `UDPServer.Kick(peer, reason)` 立即结束指定 peer 的会话，并在 `PeerEvent.Reason` 中携带原因报告 `PeerLeft`：会话的恢复密钥随之销毁，客户端的 `Reconnect` 无法恢复该会话，只有在 `Verify` 再次接受其令牌时才能作为新 peer 加入。已连接的 WebSocket 客户端会先收到此前已发送给它的帧，再收到一个带应用关闭码 4001 和原因的关闭帧，已连接的 UDP 客户端会收到一个加密的踢出数据报（发送三次，因为 UDP 可能丢包）；随后两者的 `Err` 都会返回 `*KickError`（与 `netplay.ErrKicked` 匹配）——在浏览器中同样如此。处于宽限期内的 peer 不会收到消息，它的下一次握手只是无法恢复而已。`Kick` 对没有会话的 ID 返回 `ErrUnknownPeer`。
 - 服务端最多保留 `Auth.MaxPeers` 个会话（默认 1024），处于宽限期内的 peer 也计算在内；超出后客户端会以原因 `server full` 被拒绝。不设置 `Verify` 时任何人都能加入，因此可从互联网访问的服务端务必设置它。
 - 恢复会话需要出示上一次欢迎消息中的密钥，服务端每次握手都会更换该密钥；仅凭 ID 无法接管会话。超过宽限期后，只要令牌仍然有效，`Reconnect` 会作为新 peer 重新加入。
 - 在浏览器中 `DialWebSocket` 与 `DialWebTransport` 会立即返回：欢迎消息到达之前 `State` 为 `ConnConnecting`、`LocalID` 为 0，此间发送的包会排队。被拒绝时转为 `ConnDisconnected`，`Err` 返回 `*RejectError`。
