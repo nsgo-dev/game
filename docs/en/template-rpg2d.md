@@ -50,6 +50,8 @@ A data file that does not load shows its error in the window instead of the game
 
 ## Where to change it
 
+The editor opens `scenes/town.scene.yaml` as the `town` autoloaded main scene. It provides selectable NPC, item and exit objects for the first map. The current runtime still reads `data/world.yaml` for map rules while the scene migration continues.
+
 - **A map**: add one to `maps` in `data/world.yaml`, with an exit to it from another map. A new kind of tile or foe goes in `tiles` or `foes`, and its picture in `art.go`.
 - **A person**: add them to a map's `people`, to `data/cast.yaml` with their portraits, and give them a node in `data/dialogue.yarn`.
 - **An item**: add it to `data/items.yaml`. A piece of equipment also needs an effect of the same name in `data/stats.yaml`.

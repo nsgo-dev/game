@@ -82,6 +82,11 @@ input:
     - name: moveY
       axis: leftY
       invert: true
+autoload:
+  mainScene: town
+  scenes:
+    - name: town
+      path: scenes/town.scene.yaml
 export:
   output: dist
   presets:
