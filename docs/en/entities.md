@@ -183,3 +183,6 @@ if err := entities.LoadWorld(store, "slot1", fresh); err != nil {
 	return err
 }
 ```
+# Conditional systems
+
+Pass `RunIf(func(*World) bool)` to `Scheduler.AddSystem` to gate a system without changing its deterministic resolved order.

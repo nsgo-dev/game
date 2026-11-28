@@ -183,3 +183,6 @@ if err := entities.LoadWorld(store, "slot1", fresh); err != nil {
 	return err
 }
 ```
+# 条件系统
+
+向 `Scheduler.AddSystem` 传入 `RunIf(func(*World) bool)`，即可在不改变确定性顺序的情况下按条件运行系统。

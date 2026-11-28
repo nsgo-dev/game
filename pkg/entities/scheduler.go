@@ -37,11 +37,15 @@ func After(other string) SystemOption {
 	}
 }
 
+// RunIf runs the system only when cond is true for the current world.
+func RunIf(cond func(*World) bool) SystemOption { return func(s *systemEntry) { s.cond = cond } }
+
 type systemEntry struct {
 	name   string
 	fn     func(w *World, dt time.Duration)
 	before []string
 	after  []string
+	cond   func(*World) bool
 }
 
 // Scheduler runs named systems over a World in a deterministic topological order derived from Before and After constraints.
@@ -217,7 +221,9 @@ func (s *Scheduler) Step(w *World, dt time.Duration) error {
 		}
 	}
 	for _, idx := range s.order {
-		s.systems[idx].fn(w, dt)
+		if s.systems[idx].cond == nil || s.systems[idx].cond(w) {
+			s.systems[idx].fn(w, dt)
+		}
 	}
 	return nil
 }
