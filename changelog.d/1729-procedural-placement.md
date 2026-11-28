@@ -1,1 +1,3 @@
-新增带确定性种子的版本化程序化放置 YAML 核心与网格采样器。
+### Added
+
+- `game/procgen`: versioned `*.placement.yaml` placement files (`ParsePlacement`, `EncodePlacement`) with a seeded `grid` sampler whose `Points` gives the same prefab points on every machine; each step draws from its own stream forked by its ID (#1729).

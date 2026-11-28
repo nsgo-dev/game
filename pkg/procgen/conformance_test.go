@@ -7,7 +7,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/procgen"
 )
 
-// TestFormatConformance checks the rules and room templates formats on testdata/canonical, which holds fixtures in the bytes EncodeRules and EncodeRoomTemplates write; testdata/ruins.yaml keeps its hand-written comment and flow style for the parser tests and fuzz seeds.
+// TestFormatConformance checks the rules, room templates and placement formats on testdata/canonical, which holds fixtures in the bytes EncodeRules and EncodeRoomTemplates write; testdata/ruins.yaml keeps its hand-written comment and flow style for the parser tests and fuzz seeds.
 func TestFormatConformance(t *testing.T) {
 	t.Run("rules", func(t *testing.T) {
 		formattest.Run(t, formattest.Format[*procgen.Rules]{
@@ -23,6 +23,14 @@ func TestFormatConformance(t *testing.T) {
 			Encode: procgen.EncodeRoomTemplates,
 			Files:  []string{"testdata/canonical/rooms.yaml"},
 			Doc:    "procgen#rooms",
+		})
+	})
+	t.Run("placement", func(t *testing.T) {
+		formattest.Run(t, formattest.Format[*procgen.Placement]{
+			Decode: procgen.ParsePlacement,
+			Encode: procgen.EncodePlacement,
+			Files:  []string{"testdata/canonical/forest.placement.yaml"},
+			Doc:    "procgen#placement",
 		})
 	})
 }

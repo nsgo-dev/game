@@ -184,6 +184,7 @@ var formatVersions = map[string]string{
 	"tooling/playtest.ReportVersion":                "tooling/playtest#report",
 	"gameplugin.APIVersion":                         "",
 	"gameplugin/manifest.ManifestVersion":           "gameplugin/manifest",
+	"procgen.PlacementVersion":                      "procgen#placement",
 	"procgen.RoomTemplatesVersion":                  "procgen#rooms",
 	"procgen.RulesVersion":                          "procgen",
 	"project.BriefVersion":                          "project#brief",
