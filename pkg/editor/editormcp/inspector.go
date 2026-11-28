@@ -23,6 +23,8 @@ const objectSetFieldSchema = `{"type":"object","additionalProperties":false,"req
 	`"property":{"type":"boolean","description":"When true, edit a custom property key on the object"},` +
 	`"field":{"type":"string","description":"Object field name (e.g. x, y, rotation, scaleX, z, alpha, sprite, material, model, gridMap, particles, occluder, light, camera), component field name, or custom property key"},` +
 	`"value":{"description":"New field value"},` +
+	`"baseRevision":{"type":"integer","minimum":0,"description":"Revision returned by the preceding read; the edit is refused if the editor changed since then"},` +
+	`"requestId":{"type":"string","description":"Unique retry key; a request ID already applied is refused"},` +
 	`"label":{"type":"string","description":"Optional undo step label"},` +
 	`"why":{"type":"string","description":"Optional reason for this edit, shown in turn review"}` +
 	`}}`
@@ -98,13 +100,15 @@ func inspectorTools() []Tool {
 
 func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	var args struct {
-		ID        string          `json:"id"`
-		Component string          `json:"component"`
-		Property  bool            `json:"property"`
-		Field     string          `json:"field"`
-		Value     json.RawMessage `json:"value"`
-		Label     string          `json:"label"`
-		Why       string          `json:"why"`
+		ID           string          `json:"id"`
+		Component    string          `json:"component"`
+		Property     bool            `json:"property"`
+		Field        string          `json:"field"`
+		Value        json.RawMessage `json:"value"`
+		BaseRevision *uint64         `json:"baseRevision"`
+		RequestID    string          `json:"requestId"`
+		Label        string          `json:"label"`
+		Why          string          `json:"why"`
 	}
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_set_field: %w", err)
@@ -133,8 +137,9 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		}()
 	}
 	var (
-		res    ObjectFieldResult
-		inTurn bool
+		res          ObjectFieldResult
+		inTurn       bool
+		releaseWrite func()
 	)
 	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
@@ -151,6 +156,11 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		}
 		if obj, _, _ := ed.FindObject(targetID); obj == nil {
 			return &EditError{File: name, Object: targetID, Field: args.Field, Problem: "the open scene has no object " + quote(targetID), Fix: "use an object ID present in the open scene"}
+		}
+		var guardErr error
+		releaseWrite, guardErr = c.beginWriteGuard(ed, ToolObjectSetField, args.RequestID, args.BaseRevision, name)
+		if guardErr != nil {
+			return guardErr
 		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
@@ -249,6 +259,9 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		return nil
 	})
 	if err != nil {
+		if releaseWrite != nil {
+			releaseWrite()
+		}
 		return nil, err
 	}
 	committed = true

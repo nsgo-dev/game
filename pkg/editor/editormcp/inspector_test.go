@@ -137,3 +137,28 @@ func TestObjectSetFieldAndLocateYAML(t *testing.T) {
 		t.Fatalf("expected object_locate_yaml open=true to fail during Play mode, got %+v", playRes)
 	}
 }
+
+func TestObjectSetFieldRejectsStaleRevisionAndDuplicateRequest(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+	f.ed.SelectObject("hero")
+	base := f.ed.Revision()
+	res := call(t, cs, editormcp.ToolObjectSetField, map[string]any{
+		"field": "x", "value": 100, "baseRevision": base, "requestId": "object-write-1",
+	})
+	mustOK(t, res)
+	res = call(t, cs, editormcp.ToolObjectSetField, map[string]any{
+		"field": "x", "value": 101, "baseRevision": base, "requestId": "object-write-2",
+	})
+	if !res.IsError || !strings.Contains(text(res), "stale") {
+		t.Fatalf("stale object write = error:%v text:%q", res.IsError, text(res))
+	}
+	res = call(t, cs, editormcp.ToolObjectSetField, map[string]any{
+		"field": "x", "value": 102, "requestId": "object-write-1",
+	})
+	if !res.IsError || !strings.Contains(text(res), "already applied") {
+		t.Fatalf("duplicate object write = error:%v text:%q", res.IsError, text(res))
+	}
+}

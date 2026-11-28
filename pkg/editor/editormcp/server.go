@@ -202,10 +202,11 @@ type Server struct {
 	stream      changeStream
 
 	// pending holds the resource notices not sent yet, by URI, and wake tells the sender there are some.
-	pendingMu sync.Mutex
-	pending   map[string]mcp.Meta
-	wake      chan struct{}
-	holds     *objectHoldManager
+	pendingMu       sync.Mutex
+	pending         map[string]mcp.Meta
+	wake            chan struct{}
+	holds           *objectHoldManager
+	writeRequestIDs map[string]struct{}
 }
 
 type trackedSession struct {
@@ -218,23 +219,24 @@ type trackedSession struct {
 func New(ed *editor.Editor, opts Options) *Server {
 	srvCtx, srvCancel := context.WithCancel(context.Background())
 	s := &Server{
-		ed:             ed,
-		run:            opts.Run,
-		runPlaytest:    opts.RunPlaytest,
-		onPermAsk:      opts.OnPermissionAsk,
-		onPermDecision: opts.OnPermissionDecision,
-		tools:          map[string]Tool{},
-		advertised:     map[string]bool{},
-		disabled:       map[string]bool{},
-		subs:           map[*mcp.ServerSession]map[string]bool{},
-		conns:          map[net.Conn]struct{}{},
-		sessions:       map[*mcp.ServerSession]trackedSession{},
-		done:           make(chan struct{}),
-		ctx:            srvCtx,
-		cancel:         srvCancel,
-		pending:        map[string]mcp.Meta{},
-		wake:           make(chan struct{}, 1),
-		holds:          newObjectHoldManager(),
+		ed:              ed,
+		run:             opts.Run,
+		runPlaytest:     opts.RunPlaytest,
+		onPermAsk:       opts.OnPermissionAsk,
+		onPermDecision:  opts.OnPermissionDecision,
+		tools:           map[string]Tool{},
+		advertised:      map[string]bool{},
+		disabled:        map[string]bool{},
+		subs:            map[*mcp.ServerSession]map[string]bool{},
+		conns:           map[net.Conn]struct{}{},
+		sessions:        map[*mcp.ServerSession]trackedSession{},
+		done:            make(chan struct{}),
+		ctx:             srvCtx,
+		cancel:          srvCancel,
+		pending:         map[string]mcp.Meta{},
+		wake:            make(chan struct{}, 1),
+		holds:           newObjectHoldManager(),
+		writeRequestIDs: map[string]struct{}{},
 	}
 	s.sdk = mcp.NewServer(&mcp.Implementation{Name: ServerName, Title: "NSGo Game Editor"}, &mcp.ServerOptions{
 		Instructions:       instructions,
