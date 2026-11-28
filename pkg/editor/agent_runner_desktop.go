@@ -255,6 +255,12 @@ func buildCLIArgsForInput(kind ExternalAgentKind, req AgentRequest, input AgentM
 	if err := validateCLISessionID(req.SessionID); err != nil {
 		return nil, err
 	}
+	if err := validateCLIModelValue("model", req.Model); err != nil {
+		return nil, err
+	}
+	if err := validateCLIModelValue("reasoning effort", req.ReasoningEffort); err != nil {
+		return nil, err
+	}
 	var refs []cliRefImage
 	if len(input.Images) > 0 && req.ProjectRoot != "" {
 		for _, img := range input.Images {
@@ -312,9 +318,11 @@ func buildCLIArgsForInput(kind ExternalAgentKind, req AgentRequest, input AgentM
 		prompt := agentUntrustedContentNotice + "\n\n" + input.FullPrompt
 		if req.SessionID != "" {
 			args := append([]string{"exec", "resume", "--json"}, policy...)
+			args = appendLocalModelArgs(args, kind, req)
 			return append(args, "--", req.SessionID, appendRefPrompt(prompt)), nil
 		}
 		args := append([]string{"exec", "--json"}, policy...)
+		args = appendLocalModelArgs(args, kind, req)
 		if req.ProjectRoot != "" {
 			args = append(args, "-C", req.ProjectRoot)
 		}
@@ -324,6 +332,7 @@ func buildCLIArgsForInput(kind ExternalAgentKind, req AgentRequest, input AgentM
 		return append(args, "--", prompt), nil
 	}
 	args := []string{"--print", "--output-format=stream-json", "--verbose"}
+	args = appendLocalModelArgs(args, kind, req)
 	policy, err := claudeLaunchPolicyArgs(req.MCPServers)
 	if err != nil {
 		return nil, err
@@ -339,6 +348,32 @@ func buildCLIArgsForInput(kind ExternalAgentKind, req AgentRequest, input AgentM
 	args = append(args, "--append-system-prompt="+sysPrompt)
 	prompt := appendRefPrompt(input.TurnPrompt)
 	return append(args, "--", prompt), nil
+}
+
+func validateCLIModelValue(label, value string) error {
+	if value == "" {
+		return nil
+	}
+	if len(value) > 128 {
+		return fmt.Errorf("agent runner: %s is too long", label)
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune("._:-/", r) {
+			continue
+		}
+		return fmt.Errorf("agent runner: invalid %s %q", label, value)
+	}
+	return nil
+}
+
+func appendLocalModelArgs(args []string, kind ExternalAgentKind, req AgentRequest) []string {
+	if req.Model != "" {
+		args = append(args, "--model", req.Model)
+	}
+	if kind == ExternalAgentCodex && req.ReasoningEffort != "" {
+		args = append(args, "-c", "model_reasoning_effort=\""+req.ReasoningEffort+"\"")
+	}
+	return args
 }
 
 // claudeDeniedBuiltinTools are Claude Code's built-in tools that change files or run commands directly. The composer denies them, even when the person's own Claude Code settings allow them, so every change goes through the editor's MCP tools, turns and permissions.yaml.

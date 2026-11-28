@@ -69,6 +69,30 @@ func TestBuildCLIArgsPreventsFlagInjection(t *testing.T) {
 	})
 }
 
+func TestBuildCLIArgsCarriesModelAndEffort(t *testing.T) {
+	req := AgentRequest{Prompt: "hi", Model: "gpt-5.4", ReasoningEffort: "high", ProjectRoot: t.TempDir()}
+	claude, err := buildCLIArgs(ExternalAgentClaudeCode, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(claude, "--model") || !slices.Contains(claude, "gpt-5.4") {
+		t.Fatalf("claude args = %q", claude)
+	}
+	codex, err := buildCLIArgs(ExternalAgentCodex, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(codex, " ")
+	if !strings.Contains(joined, `model_reasoning_effort="high"`) {
+		t.Fatalf("codex args = %q", codex)
+	}
+	for _, bad := range []string{"$(touch pwned)", "model value", strings.Repeat("x", 129)} {
+		if _, err := buildCLIArgs(ExternalAgentClaudeCode, AgentRequest{Prompt: "hi", Model: bad}); err == nil {
+			t.Fatalf("model %q accepted", bad)
+		}
+	}
+}
+
 func TestCappedBufferTruncatesAtLimit(t *testing.T) {
 	buf := &cappedBuffer{limit: maxCLISstderrBytes}
 	chunk := bytes.Repeat([]byte("e"), 4096)

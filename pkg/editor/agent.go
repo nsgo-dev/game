@@ -351,18 +351,20 @@ type AgentOpenRequest struct {
 // text from the composer or an automation triggers, carrying both runner/automation metadata
 // and the exact context assembled from the active composer chips (and nothing else).
 type AgentRequest struct {
-	ThreadID         string
-	SessionID        string
-	TaskID           string
-	Prompt           string
-	ProjectRoot      string
-	ScenePath        string
-	SelectedID       string
-	AgentKind        ExternalAgentKind
-	Permissions      AgentPermissions
-	Task             AgentTaskKind
-	Route            AgentModelRoute
-	Model            string
+	ThreadID    string
+	SessionID   string
+	TaskID      string
+	Prompt      string
+	ProjectRoot string
+	ScenePath   string
+	SelectedID  string
+	AgentKind   ExternalAgentKind
+	Permissions AgentPermissions
+	Task        AgentTaskKind
+	Route       AgentModelRoute
+	Model       string
+	// ReasoningEffort selects the local agent's effort level when supported by its CLI.
+	ReasoningEffort  string
 	PriorTurns       []AgentTurnSummary
 	AutomationID     string
 	AutomationName   string

@@ -1010,6 +1010,8 @@ func main() {
 
 ### 智能体设置页：模型与连接、工具、用量与隐私（#1028、#1030）
 
+外部智能体请求会将选定的 `AgentRequest.Model` 和 `ReasoningEffort` 传递到 CLI。Claude Code 接收 `--model <id>`，Codex 接收相同的模型参数以及 `-c model_reasoning_effort="<level>"` 覆盖项。值在交给 `os/exec` 前校验，因此 shell 元字符、空格和超长值会被拒绝，同时继续保留启动策略和 `--` 提示分隔符。
+
 全部保存在每台电脑的 `EditorSettings`（`editor.yaml` 的 `agent` 小节，从不写入项目目录），且所有修改方法都会拒绝来自智能体的调用（`ErrAgentSettingsYouOnly`）：
 
 - **模型与连接（`SettingsPageModels`）**：展示已连接的本机 MCP 智能体（如 Claude Code）、内置 API 连接（`Anthropic API`，密钥通过 `StoreAgentAPIKey`、`HasAgentAPIKey`、`DeleteAgentAPIKey` 和 `AgentAPIKey` 仅保存在 NSGo 的 `core.Secrets`（`AgentAPIKeySecretAccount`）或系统钥匙串（`AgentKeychainServiceName`）中，绝不写入 `editor.yaml`、任何项目文件或日志）、打开 `ConnectAgentDialogView` 的 **+ 连接其他智能体或模型** 按钮，以及 **任务分工**（`AgentTaskRoute` / `SetAgentTaskRoute` / `ResolveAgentModelRoute`）。导航栏徽章实时显示已连接数量（`AgentActiveConnectionCount`，如 `2 个已连接`）。
