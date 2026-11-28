@@ -79,3 +79,6 @@ wall_jump_lock: 150ms
 ```
 
 `ground_accel` 和 `air_accel` 让水平速度趋向 `move * run_speed`，`ground_decel` 在地面上没有输入时减速；设为 0 会立即达到目标速度。`max_fall_speed: 0` 表示下落速度不设上限。
+# 场景行为配置
+
+使用版本化的场景行为词汇在对象旁描述控制器设置。运行时组件可以读取编辑器使用的同一组轴、速度、范围和目标参数。
