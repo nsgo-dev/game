@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/nsgo-dev/game/pkg/online/steamworks"
 )
 
 // Steam rich presence limits from Steamworks' isteamfriends.h.
@@ -64,10 +66,19 @@ type SteamDriver interface {
 
 // SteamConfig configures a [Steam] rich presence provider.
 type SteamConfig struct {
+	// Client is the shared process-wide Steamworks client returned by
+	// [steamworks.Open]. When set (and Driver is nil), Steam writes rich
+	// presence through Client and does not load, initialize, or shut down
+	// Steamworks itself.
+	Client *steamworks.Client
+
 	// LibraryPath overrides the shared library path loaded on desktop targets
 	// (for example a custom path to libsteam_api.dylib, libsteam_api.so, or
 	// steam_api64.dll). When empty, standard library names beside the game
 	// executable and on the system loader path are tried.
+	//
+	// Ignored when Client or Driver is set. Prefer opening one shared
+	// [steamworks.Client] and passing it in Client.
 	LibraryPath string
 
 	// DisplayToken sets the default "steam_display" localization token (for
@@ -77,14 +88,32 @@ type SteamConfig struct {
 
 	// AutoInit, when true, calls SteamAPI_Init if ISteamFriends is not yet
 	// initialized when opening the Steamworks library, and calls
-	// SteamAPI_Shutdown on Close if Steam initialized it. Leave false when the
-	// game initializes Steamworks elsewhere.
+	// SteamAPI_Shutdown on Close if Steam initialized it.
+	//
+	// Ignored when Client or Driver is set. Prefer opening one shared
+	// [steamworks.Client] and passing it in Client.
 	AutoInit bool
 
-	// Driver overrides dynamic purego loading with a custom or mock
+	// Driver overrides Client and dynamic purego loading with a custom or mock
 	// SteamDriver.
 	Driver SteamDriver
 }
+
+type clientSteamDriver struct {
+	client *steamworks.Client
+}
+
+func (d *clientSteamDriver) SetRichPresence(key, value string) bool {
+	return d.client.SetRichPresence(key, value)
+}
+
+func (d *clientSteamDriver) ClearRichPresence() {
+	d.client.ClearRichPresence()
+}
+
+// Close is a no-op because the shared steamworks.Client owns Steamworks'
+// lifecycle and shuts down when its owning scope is disposed.
+func (d *clientSteamDriver) Close() error { return nil }
 
 // Steam publishes rich presence updates through Steamworks'
 // ISteamFriends::SetRichPresence and ClearRichPresence flat C API using purego
@@ -235,6 +264,15 @@ func (s *Steam) Close() error {
 }
 
 func (s *Steam) ensureDriverLocked() (SteamDriver, error) {
+	if s.cfg.Client != nil && s.cfg.Driver == nil {
+		if s.cfg.Client.Closed() {
+			return nil, ErrUnavailable
+		}
+		if s.driver == nil {
+			s.driver = &clientSteamDriver{client: s.cfg.Client}
+		}
+		return s.driver, nil
+	}
 	if s.driver != nil {
 		return s.driver, nil
 	}
