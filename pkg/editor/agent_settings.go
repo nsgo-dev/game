@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -129,8 +132,8 @@ func ClassifyProjectFilePrivacy(relPath string) PrivacyContentKind {
 	clean = strings.TrimPrefix(clean, "/")
 	base := path.Base(clean)
 
-	// 0. Credentials and private editor or VCS state, whatever the switches say.
-	if isSecretProjectPath(clean, base) {
+	// 0. Credentials and private editor or VCS state, whatever the switches say. The name is fully case folded first, as case-insensitive file systems (APFS, NTFS) open ".nſgo" or "keyﬆore.properties" as ".nsgo" or "keystore.properties" although strings.ToLower leaves them unchanged.
+	if folded := foldSecretPath(clean); isSecretProjectPath(folded, path.Base(folded)) {
 		return PrivacySecrets
 	}
 
@@ -198,21 +201,26 @@ func ClassifyProjectFilePrivacy(relPath string) PrivacyContentKind {
 // isSecretProjectPath reports whether the lower-cased, slash-separated project path clean (with base name base) looks like a credential file or lies in a .git or .nsgo directory.
 func isSecretProjectPath(clean, base string) bool {
 	for _, dir := range strings.Split(clean, "/") {
-		dir = windowsPathComponent(dir)
-		if dir == ".git" || dir == ".nsgo" {
+		switch windowsPathComponent(dir) {
+		case ".git", ".nsgo", ".aws", ".ssh":
 			return true
 		}
 	}
 	base = windowsPathComponent(base)
 	switch base {
-	case ".env", ".envrc", ".netrc", "_netrc", ".npmrc", "keystore.properties":
+	case ".env", ".envrc", ".netrc", "_netrc", ".npmrc", ".git-credentials", "keystore.properties", "credentials.json", "google-services.json", "googleservice-info.plist":
 		return true
 	}
 	if strings.HasPrefix(base, ".env.") {
 		return true
 	}
-	switch path.Ext(base) {
-	case ".pem", ".key", ".p8", ".p12", ".pfx", ".jks", ".keystore":
+	ext := path.Ext(base)
+	switch ext {
+	case ".env", ".pem", ".key", ".p8", ".p12", ".pfx", ".jks", ".keystore":
+		return true
+	}
+	// Cloud service account keys such as service-account.json and service_account-prod.json.
+	if ext == ".json" && (strings.HasPrefix(base, "service-account") || strings.HasPrefix(base, "service_account")) {
 		return true
 	}
 	// SSH keys such as id_rsa, id_ed25519 and id_ecdsa.pub; a dotted name such as id_table.data.yaml is game data.
@@ -220,6 +228,96 @@ func isSecretProjectPath(clean, base string) bool {
 		return true
 	}
 	return false
+}
+
+// foldSecretPath returns the lower-cased path p fully case folded and in NFC, the form in which case-insensitive file systems compare names.
+func foldSecretPath(p string) string {
+	return norm.NFC.String(cases.Fold().String(p))
+}
+
+// IsSecretProjectFile reports whether the slash-separated path rel inside the project directory root names a file that looks like a credential or the editor's private state (ClassifyProjectFilePrivacy returns PrivacySecrets). It judges the path as given, the names the file system stores for it, and the target of an in-project symlink, so a name the file system opens as a secret file under another spelling, such as an NTFS 8.3 short name like KEYSTO~1.PRO, is refused too. A path that does not exist yet is judged on the parts that do.
+func IsSecretProjectFile(root, rel string) bool {
+	if ClassifyProjectFilePrivacy(rel) == PrivacySecrets {
+		return true
+	}
+	if root == "" {
+		return false
+	}
+	clean := strings.TrimPrefix(path.Clean(strings.ReplaceAll(strings.TrimSpace(rel), `\`, "/")), "/")
+	if ClassifyProjectFilePrivacy(projectPathOnDisk(root, clean)) == PrivacySecrets {
+		return true
+	}
+	abs := filepath.Join(root, filepath.FromSlash(clean))
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		realParent, perr := filepath.EvalSymlinks(filepath.Dir(abs))
+		if perr != nil {
+			return false
+		}
+		real = filepath.Join(realParent, filepath.Base(abs))
+	}
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		rootReal = root
+	}
+	inside, err := filepath.Rel(rootReal, real)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) || filepath.IsAbs(inside) {
+		return false
+	}
+	inside = filepath.ToSlash(inside)
+	return ClassifyProjectFilePrivacy(inside) == PrivacySecrets || ClassifyProjectFilePrivacy(projectPathOnDisk(rootReal, inside)) == PrivacySecrets
+}
+
+// projectPathOnDisk returns the clean slash-separated path rel inside root with each existing component that the file system could match under another spelling replaced by the name stored in its directory, found with os.SameFile, stopping at the first component that does not exist. Only components with a non-ASCII rune or a '~' are looked up: ASCII case, NTFS stream suffixes and trailing dots are already handled by ClassifyProjectFilePrivacy, while Unicode case folding, normalization and 8.3 short names need the stored name.
+func projectPathOnDisk(root, rel string) string {
+	parts := strings.Split(rel, "/")
+	dir := root
+	for i, part := range parts {
+		next := filepath.Join(dir, part)
+		if needsStoredName(part) {
+			fi, err := os.Lstat(next)
+			if err != nil {
+				break
+			}
+			if stored, ok := storedName(dir, part, fi); ok {
+				parts[i] = stored
+				next = filepath.Join(dir, stored)
+			}
+		}
+		dir = next
+	}
+	return strings.Join(parts, "/")
+}
+
+func needsStoredName(part string) bool {
+	if strings.ContainsRune(part, '~') {
+		return true
+	}
+	for i := 0; i < len(part); i++ {
+		if part[i] >= 0x80 {
+			return true
+		}
+	}
+	return false
+}
+
+// storedName returns the name under which directory dir stores the file fi that part opened, preferring part itself when it is stored as given.
+func storedName(dir, part string, fi os.FileInfo) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if e.Name() == part {
+			return part, true
+		}
+	}
+	for _, e := range entries {
+		if efi, err := os.Lstat(filepath.Join(dir, e.Name())); err == nil && os.SameFile(fi, efi) {
+			return e.Name(), true
+		}
+	}
+	return "", false
 }
 
 // windowsPathComponent returns the name Windows opens for the path component c, without an NTFS stream suffix (":stream") and without the trailing dots and spaces Windows drops, so ".env::$data" and ".git." are still recognized.

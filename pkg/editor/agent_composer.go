@@ -1408,6 +1408,9 @@ func (e *Editor) AttachFileChip(relPath string) (AgentContextChip, error) {
 	if err != nil {
 		return AgentContextChip{}, err
 	}
+	if IsSecretProjectFile(root, clean) {
+		return AgentContextChip{}, fmt.Errorf("editor: %s looks like a credential or the editor's private state and is never attached for an agent", clean)
+	}
 	if root != "" {
 		if _, err := resolveSafeProjectRegularPath(root, clean); err != nil {
 			return AgentContextChip{}, err
@@ -1941,6 +1944,10 @@ func resolveSafeProjectRegularPath(root, rel string) (string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
+	}
+	// Every composer read feeds an agent request (chip payloads, mention details), so a file that looks like a credential or the editor's private state is never read here.
+	if IsSecretProjectFile(absRoot, clean) {
+		return "", fmt.Errorf("editor: %s looks like a credential or the editor's private state and is never read for an agent", clean)
 	}
 	abs := filepath.Join(absRoot, filepath.FromSlash(clean))
 	lfi, err := os.Lstat(abs)
