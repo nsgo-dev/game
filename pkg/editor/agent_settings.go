@@ -436,7 +436,11 @@ type AgentUsageStats struct {
 	// KeptChanges is the number of reviewed agent changes kept by the person.
 	KeptChanges int `yaml:"keptChanges,omitempty"`
 	// PlaytestRuns is the number of local headless playtest runs recorded on this computer.
-	PlaytestRuns int `yaml:"playtestRuns,omitempty"`
+	PlaytestRuns      int     `yaml:"playtestRuns,omitempty"`
+	InputTokens       int     `yaml:"inputTokens,omitempty"`
+	CachedInputTokens int     `yaml:"cachedInputTokens,omitempty"`
+	OutputTokens      int     `yaml:"outputTokens,omitempty"`
+	EstimatedCostUSD  float64 `yaml:"estimatedCostUSD,omitempty"`
 }
 
 // KeptPercent returns the rounded percentage of reviewed changes kept and whether any review has been resolved.
@@ -460,7 +464,10 @@ type AgentSettings struct {
 	// MCPServers configures other MCP servers the agent may use alongside the editor's own server.
 	MCPServers []AgentMCPServer `yaml:"mcpServers,omitempty"`
 	// WeeklyRequestLimit sets the weekly agent request budget (0 disables the limit; omitted defaults to 300).
-	WeeklyRequestLimit *int `yaml:"weeklyRequestLimit,omitempty"`
+	WeeklyRequestLimit   *int     `yaml:"weeklyRequestLimit,omitempty"`
+	WeeklySpendLimitUSD  *float64 `yaml:"weeklySpendLimitUSD,omitempty"`
+	RequestSpendLimitUSD *float64 `yaml:"requestSpendLimitUSD,omitempty"`
+	ToolCallLimit        *int     `yaml:"toolCallLimit,omitempty"`
 	// Privacy controls WHAT MAY LEAVE THIS COMPUTER across every connected agent.
 	Privacy *AgentPrivacySettings `yaml:"privacy,omitempty"`
 	// Usage stores local usage counters (requests this week, kept review share, and local playtest runs).
@@ -618,6 +625,14 @@ func validateAgentSettings(a *AgentSettings) error {
 	if a.WeeklyRequestLimit != nil && *a.WeeklyRequestLimit < 0 {
 		return loaderr.Errorf("agent.weeklyRequestLimit", "set weeklyRequestLimit to 0 (no limit) or a positive integer", "editor: negative weeklyRequestLimit %d", *a.WeeklyRequestLimit)
 	}
+	for name, value := range map[string]*float64{"weeklySpendLimitUSD": a.WeeklySpendLimitUSD, "requestSpendLimitUSD": a.RequestSpendLimitUSD} {
+		if value != nil && *value < 0 {
+			return loaderr.Errorf("agent."+name, "set the spend cap to 0 or a positive amount", "editor: negative %s", name)
+		}
+	}
+	if a.ToolCallLimit != nil && *a.ToolCallLimit < 0 {
+		return loaderr.Errorf("agent.toolCallLimit", "set toolCallLimit to 0 or a positive integer", "editor: negative toolCallLimit")
+	}
 	if a.Usage != nil {
 		if a.Usage.WeekStart != "" {
 			if _, err := time.Parse("2006-01-02", a.Usage.WeekStart); err != nil {
@@ -659,7 +674,8 @@ func cloneAgentSettings(a *AgentSettings) *AgentSettings {
 		return nil
 	}
 	out := &AgentSettings{
-		BuiltInProvider: a.BuiltInProvider,
+		BuiltInProvider:     a.BuiltInProvider,
+		WeeklySpendLimitUSD: cloneFloat64Ptr(a.WeeklySpendLimitUSD), RequestSpendLimitUSD: cloneFloat64Ptr(a.RequestSpendLimitUSD), ToolCallLimit: cloneIntPtr(a.ToolCallLimit),
 	}
 	if len(a.Routes) > 0 {
 		out.Routes = maps.Clone(a.Routes)
@@ -735,6 +751,21 @@ func cloneAgentSettings(a *AgentSettings) *AgentSettings {
 		return nil
 	}
 	return out
+}
+
+func cloneFloat64Ptr(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	x := *v
+	return &x
+}
+func cloneIntPtr(v *int) *int {
+	if v == nil {
+		return nil
+	}
+	x := *v
+	return &x
 }
 
 func (e *Editor) ensureAgentSettings() *AgentSettings {
@@ -1428,6 +1459,51 @@ func (e *Editor) AgentUsage() AgentUsageStats {
 		}
 	}
 	return u
+}
+
+// RecordAgentSpend adds token and estimated-cost usage to this week's counters.
+func (e *Editor) RecordAgentSpend(input, cached, output int, costUSD float64) {
+	if e == nil {
+		return
+	}
+	week := weekStartISO(e.nowTime())
+	e.settingsMu.Lock()
+	a := e.ensureAgentSettings()
+	if a.Usage == nil {
+		a.Usage = &AgentUsageStats{}
+	}
+	if a.Usage.WeekStart != week {
+		a.Usage.WeekStart = week
+		a.Usage.InputTokens = 0
+		a.Usage.CachedInputTokens = 0
+		a.Usage.OutputTokens = 0
+		a.Usage.EstimatedCostUSD = 0
+	}
+	a.Usage.InputTokens += max(input, 0)
+	a.Usage.CachedInputTokens += max(cached, 0)
+	a.Usage.OutputTokens += max(output, 0)
+	if costUSD > 0 {
+		a.Usage.EstimatedCostUSD += costUSD
+	}
+	e.settingsMu.Unlock()
+	_ = e.persistEditorSettings()
+	e.notify()
+}
+
+// AgentSpendCapReached reports whether the configured weekly spend cap is exhausted.
+func (e *Editor) AgentSpendCapReached() bool {
+	if e == nil {
+		return false
+	}
+	e.settingsMu.RLock()
+	a := e.settings.Agent
+	if a == nil || a.WeeklySpendLimitUSD == nil {
+		e.settingsMu.RUnlock()
+		return false
+	}
+	cap := *a.WeeklySpendLimitUSD
+	e.settingsMu.RUnlock()
+	return cap > 0 && e.AgentUsage().EstimatedCostUSD >= cap
 }
 
 // WeeklyRequestLimit returns the weekly agent request limit (defaults to DefaultWeeklyRequestLimit = 300; 0 means no limit).
