@@ -1,0 +1,22 @@
+version: 1
+id: editor-workflow
+title: Use the editor MCP workflow
+description: Exercise scene inspection, editor edits and game checks through the documented tool catalog.
+prompt: |
+  Add a title and pause menu to this NSGo game project. Use the editor MCP tools to inspect scenes and layers before editing, then validate the project with game_check.
+min_score: 100
+context_docs: [docs/en/scene.md, docs/en/mcp.md, docs/en/editor.md]
+starter_dir: tools/agenteval/testdata/fixtures/add-menu/starter
+reference_dir: tools/agenteval/testdata/fixtures/add-menu/reference
+checks:
+  yaml_files: [game.yaml, scenes/menu.scene.yaml, scenes/gameplay.scene.yaml]
+  menu_spec: {scene_file: scenes/menu.scene.yaml, min_menu_items: 2, require_screen_layer: true}
+  required_tools: [game_scenes_list, game_layers_list, scene_edit, game_check]
+  mcp_verify:
+    min_scenes: 2
+    require_scene_names: [menu, gameplay]
+    inspect_layer_scene: menu
+    require_layer_space: screen
+    step_count: 15
+    click: {x: 240, y: 128, expect_scene: gameplay}
+  weights: {yaml_valid: 15, project_check: 15, domain_check: 25, build_check: 15, mcp_verify: 30}

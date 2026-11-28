@@ -39,6 +39,7 @@ type ChecksSpec struct {
 	EnemySpec       *EnemySpec      `yaml:"enemy_spec,omitempty"`
 	MenuSpec        *MenuSpec       `yaml:"menu_spec,omitempty"`
 	MCPVerify       *MCPVerifySpec  `yaml:"mcp_verify,omitempty"`
+	RequiredTools   []string        `yaml:"required_tools,omitempty"`
 	Weights         CriteriaWeights `yaml:"weights"`
 }
 
@@ -212,6 +213,9 @@ func (t *Task) Validate() error {
 	}
 	if t.Checks.MCPVerify == nil {
 		return fmt.Errorf("task %q: checks.mcp_verify is required", t.ID)
+	}
+	if err := validateRequiredTools(t.ID, t.Checks.RequiredTools); err != nil {
+		return err
 	}
 	if err := t.Checks.MCPVerify.validate(t.ID); err != nil {
 		return err
