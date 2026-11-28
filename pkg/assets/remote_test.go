@@ -386,6 +386,35 @@ func TestRemoteAssetsOfflineStartFromPersistedCache(t *testing.T) {
 	}
 }
 
+func TestDirRemoteCacheReopensAndEnforcesLowerQuota(t *testing.T) {
+	dir := t.TempDir()
+	first := assets.NewDirRemoteCache(dir, 90)
+	dataA := bytes.Repeat([]byte("a"), 40)
+	dataB := bytes.Repeat([]byte("b"), 40)
+	hashA, hashB := remoteSHA256Hex(dataA), remoteSHA256Hex(dataB)
+	if err := first.Put(hashA, dataA); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Put(hashB, dataB); err != nil {
+		t.Fatal(err)
+	}
+	if got := first.Usage(); got.Bytes != 80 || got.Files != 2 {
+		t.Fatalf("initial usage = %+v, want both files", got)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second := assets.NewDirRemoteCache(dir, 40)
+	got := second.Usage()
+	if got.Bytes != 40 || got.Files != 1 || got.Quota != 40 {
+		t.Fatalf("reopened usage = %+v, want one file within lower quota", got)
+	}
+	if second.Has(hashA) || !second.Has(hashB) {
+		t.Fatalf("reopened cache should evict the older file: A=%v B=%v", second.Has(hashA), second.Has(hashB))
+	}
+}
+
 func TestRemoteAssetsCorruptAndPartialCacheRecovery(t *testing.T) {
 	payload := []byte("self-healing-payload-bytes")
 	entry := makeRemoteEntry("asset:heal.bin", "heal.bin", payload)

@@ -302,6 +302,14 @@ func (c *DirRemoteCache) ensureLoadedLocked() error {
 		reconciled = true
 	}
 	c.loaded = true
+	// A cache may be reopened with a smaller quota than the one used when its
+	// index was written. Enforce the current quota before serving any entries,
+	// otherwise Usage and the next cache hit can exceed the configured budget.
+	beforeEviction := c.totalSize
+	c.evictLocked("")
+	if c.totalSize != beforeEviction {
+		reconciled = true
+	}
 	if reconciled {
 		c.dirty = true
 		_ = c.flushLocked(true)
