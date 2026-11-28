@@ -332,7 +332,7 @@ claude mcp add game-editor -- go tool game mcp
 | `tile_review_revert_all` | edit | 无 | 丢弃当前瓦片审查中的所有待确认改动，还原到审查前的瓦片地图并关闭审查。 |
 | `object_set_field` | edit | `field`、`value`（必填），`id`、`component`、`property`、`label`、`why`（可选） | 通过检查器自身的 `Editor` 方法设置对象 `id` 的单个检查器字段、组件字段（`component`）或自定义属性（`property: true`），在回合之外作为单个撤销步骤。省略 `id` 时见[编辑目标](#编辑目标)。 |
 | `object_copy_yaml` | read | `id`（可选） | 将当前场景中的对象（本地或解析后的继承/实例对象）序列化为规范 `sceneformat` YAML，复制到编辑器剪贴板并显示复制提示。 |
-| `object_paste_yaml` | edit | `yaml`、`layer`（可选） | 解析规范 `sceneformat` 对象 YAML（省略 `yaml` 时读取编辑器当前剪贴板，最大 4 MiB），分配全新的唯一 ID 并作为一个撤销步骤放置到 `layer`。 |
+| `object_paste_yaml` | edit | `yaml`、`layer`（可选） | 解析规范 `sceneformat` 对象 YAML（省略 `yaml` 时读取编辑器当前剪贴板，最大 4 MiB），分配全新的唯一 ID 并作为一个撤销步骤放置到 `layer`，结果以 `layer` 报告所放置的图层。省略 `layer` 时见[编辑目标](#编辑目标)。 |
 | `object_duplicate` | edit | `id`（可选） | 在同一图层中克隆对象 `id`（及其子项）并分配全新的唯一 ID，作为单个撤销步骤，并以 `sourceId` 报告源对象。省略 `id` 时见[编辑目标](#编辑目标)。 |
 | `object_group` | edit | `ids`、`name`（可选） | 新建父分组对象并将对象 `ids` 移入其下，保持世界变换不变，作为单个撤销步骤，并以 `children` 报告这些对象。省略 `ids` 时见[编辑目标](#编辑目标)。 |
 | `object_move_under` | edit | `id`、`parent`、`listCandidates`（可选） | 将对象 `id` 重新挂到 `parent` 下（`parent` 为空时移至图层顶层）并保持世界变换不变，作为单个撤销步骤；当 `listCandidates: true` 时仅列出合法候选父级而不修改场景，只有这种情况下 `id` 默认为选中对象。移动时省略 `id` 见[编辑目标](#编辑目标)。 |
@@ -391,6 +391,13 @@ claude mcp add game-editor -- go tool game mcp
 - 省略时，若处于打开的智能体回合中，编辑用户发送请求时固定下来的对象，即 `agent_turn_get` 返回的 `selectionIds`，与当前选中了什么无关。只编辑一个对象的工具遇到固定了多个对象的请求会拒绝，并要求传入 `id`。
 - 省略时，若不在回合中，返回修复建议为 `pass id; selection_get shows the selected object` 的 `EditError`，不做任何改动；若回合的请求没有固定任何对象，修复建议改为指向 `agent_turn_get`。
 - 固定的对象已不在打开的场景中时，以问题 `the object the request was about was removed or renamed` 拒绝，并建议用 `scene_read` 重新读取场景，与未知 `id` 的错误不同。
+
+`object_paste_yaml` 以同样的方式在持有图层（`layer:<name>`）之前只解析一次目标图层，持有、粘贴与报告（`layer`）的都是这同一个图层：
+
+- 给出 `layer` 时，粘贴到所指定的图层。
+- 省略时，若处于打开的智能体回合中且请求固定了对象，粘贴到这些对象所在的图层，与当前选中了什么、哪个图层处于激活状态无关。固定的对象分布在多个图层时会拒绝，并要求传入 `layer`；固定的对象已不在打开的场景中时，以同样的 removed-or-renamed 问题拒绝。
+- 否则，若复制得到的场景 YAML（即 `object_copy_yaml` 写出的格式）指明的图层存在于打开的场景中，粘贴到该图层。
+- 否则，返回修复建议为 `pass layer; scene_read lists the layers` 的 `EditError`，不做任何改动。绝不回退到选中对象所在的图层或激活图层。
 
 只读的 `object_locate_yaml`、`object_copy_yaml` 与 `object_find_usages` 仍默认使用选中对象，因为它们不会写错地方。
 
