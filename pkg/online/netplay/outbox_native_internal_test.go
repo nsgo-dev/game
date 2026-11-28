@@ -441,8 +441,13 @@ func TestWebSocketServerKickDoesNotWaitOnAClientThatStopsReading(t *testing.T) {
 		_ = srv.Send(w.peer, ChannelReliableOrdered, make([]byte, 64<<10))
 	}
 	waitFor(t, "the writer to block on the client", func() bool { return srv.OutboxStats().Frames > 0 })
+	// Kick arms a flush deadline wsCloseFlushTimeout ahead for the writer; a Kick that waited on that writer returns only once the deadline passes, so returning before it is the behavior checked, not a speed.
+	start := time.Now()
 	if err := srv.Kick(w.peer, "afk"); err != nil {
 		t.Fatalf("Kick: %v", err)
+	}
+	if took := time.Since(start); took >= wsCloseFlushTimeout {
+		t.Fatalf("Kick took %v on a client that stopped reading, waiting out the %v flush deadline", took, wsCloseFlushTimeout)
 	}
 	if err := srv.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
