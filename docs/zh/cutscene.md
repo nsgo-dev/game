@@ -281,3 +281,5 @@ app.Progress("id:cutscene", 3*time.Second, 3*time.Second) // done 收到 Finishe
 ## 对话字幕
 
 `cutscene.NewCaptionBridge(player, captions)` 把时间线当前的对话行同步到 `a11y.CaptionTrack`，过场对话因此会在 `CaptionsView` 中套用玩家的字幕设置。在每次固定步长更新中，于 `Player.Step` 之后调用它的 `Update`。每条对话只显示一次并带上说话人，在对话片段结束或被下一行替换时撤下字幕，因此字幕持续时间与片段一致，重播时会再次显示。
+
+信号轨道在播放越过标记时发出事件。拖动定位不会发出信号。

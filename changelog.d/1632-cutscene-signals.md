@@ -1,0 +1,1 @@
+- Add signal marker tracks and playback callbacks to cutscenes.

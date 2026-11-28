@@ -90,7 +90,8 @@ const (
 	// TrackSound triggers one-shot sound effects.
 	TrackSound TrackKind = "sound"
 	// TrackMusic plays background music tracks with optional fade-in and fade-out.
-	TrackMusic TrackKind = "music"
+	TrackMusic  TrackKind = "music"
+	TrackSignal TrackKind = "signal"
 )
 
 // Action selects what a camera or actor clip does.
@@ -216,7 +217,9 @@ type Clip struct {
 	// FadeOut is the fade-out duration for a music clip, as a Go duration string such as "1s".
 	FadeOut Duration `yaml:"fadeOut,omitempty"`
 	// Loop repeats a music clip until its duration ends.
-	Loop bool `yaml:"loop,omitempty"`
+	Loop   bool           `yaml:"loop,omitempty"`
+	Signal string         `yaml:"signal,omitempty"`
+	Args   map[string]any `yaml:"args,omitempty"`
 }
 
 // Cutscene is one video or timeline cutscene, and the document a cutscene file holds.
@@ -486,7 +489,7 @@ func checkTrack(ti int, tr *Track, length time.Duration, trackIDs, clipIDs, acto
 		trackIDs[tr.ID] = true
 	}
 	switch tr.Kind {
-	case TrackCamera, TrackActor, TrackDialogue, TrackSound, TrackMusic:
+	case TrackCamera, TrackActor, TrackDialogue, TrackSound, TrackMusic, TrackSignal:
 	default:
 		return loaderr.Errorf(loaderr.Join(tPath, "kind"), "set kind to camera, actor, dialogue, sound or music", "cutscene: track %d: unknown kind %q (want camera, actor, dialogue, sound or music)", ti, tr.Kind)
 	}
@@ -597,6 +600,10 @@ func checkClip(ti, ci int, kind TrackKind, cl *Clip, length time.Duration, clipI
 		return checkSoundClip(cPath, prefix, cl)
 	case TrackMusic:
 		return checkMusicClip(cPath, prefix, cl)
+	case TrackSignal:
+		if strings.TrimSpace(cl.Signal) == "" {
+			return loaderr.Errorf(loaderr.Join(cPath, "signal"), "set a non-empty signal name", "%s (signal): requires signal", prefix)
+		}
 	}
 	return nil
 }
