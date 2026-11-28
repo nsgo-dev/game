@@ -391,3 +391,6 @@ go tool game net stats session.capture.jsonl
 ### Live network debug overlay
 
 For live in-game inspection without per-frame allocations, wrap your transport with `gamedebug.NewNetMonitor` and pass `mon.Snapshot` to `gamedebug.Options.Net`. The overlay panel displays bytes/s and packets/s per channel and per peer, `InboxStats` counters (queued, dropped, refused, warnings), and the most recent decoded message types using reused `wire` codec buffers. See [gamedebug](gamedebug.md#network-inspector).
+# Peer bandwidth budgets
+
+Call `ServerWorld.SetPeerBudget` with bytes per second to bound replication per peer. Deferred payload pressure is reported by `ReplicationStats.BytesDeferred`.

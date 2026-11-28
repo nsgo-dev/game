@@ -207,6 +207,7 @@ type ReplicationStats struct {
 	FullSnapshotsSent  uint64
 	DeltaSnapshotsSent uint64
 	AvgBytesPerTick    float64
+	BytesDeferred      uint64
 }
 
 type worldSnapshot struct {
@@ -220,7 +221,8 @@ type peerReplState struct {
 	ackedTick uint32
 	hasAck    bool
 	// err is the version mismatch of the peer's last replication message, nil once it sends one of ReplicationVersion.
-	err error
+	err    error
+	budget float64
 }
 
 // ServerWorld owns authoritative entity state and replicates compact full and bitmask-delta snapshots to connected peers over a Transport.
@@ -237,10 +239,23 @@ type ServerWorld struct {
 	history      map[uint32]map[EntityID]EntityState
 	peers        map[PeerID]*peerReplState
 
-	stats     ReplicationStats
-	stepTicks uint64
-	maxSize   int
+	stats      ReplicationStats
+	stepTicks  uint64
+	maxSize    int
+	peerBudget int
+	priority   func(PeerID, EntityState) float32
 }
+
+// SetPeerBudget limits each peer to approximately bytesPerSecond. Zero disables the limit.
+func (w *ServerWorld) SetPeerBudget(bytesPerSecond int) {
+	if bytesPerSecond < 0 {
+		bytesPerSecond = 0
+	}
+	w.peerBudget = bytesPerSecond
+}
+
+// SetPriority records an entity relevance callback for future per-entity scheduling.
+func (w *ServerWorld) SetPriority(fn func(PeerID, EntityState) float32) { w.priority = fn }
 
 // NewServerWorld creates a new authoritative replication world backed by transport, with a random replication epoch. Two runs pick the same epoch with a chance of one in 2^32; SetEpoch takes a number the game chooses instead.
 func NewServerWorld(transport Transport) *ServerWorld {
@@ -386,6 +401,12 @@ func (w *ServerWorld) Step(tick uint32) error {
 			ps = &peerReplState{}
 			w.peers[peerID] = ps
 		}
+		if w.peerBudget > 0 {
+			ps.budget += float64(w.peerBudget) / 60
+			if ps.budget > float64(w.peerBudget) {
+				ps.budget = float64(w.peerBudget)
+			}
+		}
 
 		var parts [][]byte
 		isDelta := false
@@ -413,6 +434,11 @@ func (w *ServerWorld) Step(tick uint32) error {
 
 		sent := true
 		for _, payload := range parts {
+			if w.peerBudget > 0 && ps.budget < float64(len(payload)) {
+				w.stats.BytesDeferred += uint64(len(payload))
+				sent = false
+				break
+			}
 			if err := w.transport.Send(peerID, ChannelUnreliable, payload); err != nil {
 				if firstErr == nil {
 					firstErr = err
@@ -421,6 +447,9 @@ func (w *ServerWorld) Step(tick uint32) error {
 				break
 			}
 			w.stats.BytesSent += uint64(len(payload))
+			if w.peerBudget > 0 {
+				ps.budget -= float64(len(payload))
+			}
 			w.stats.PacketsSent++
 		}
 		if !sent {
