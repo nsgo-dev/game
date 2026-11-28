@@ -1,0 +1,1 @@
+{"name":"nsgo-game","version":"1.0.0","description":"NSGo game skill and local MCP servers","skills":["../skills/nsgo-game","../skills/nsgo-game-onboarding"],"mcpServers":{"editor":{"command":"go","args":["tool","game","mcp"]},"game":{"command":"go","args":["tool","nsgo","mcp"]}}}
