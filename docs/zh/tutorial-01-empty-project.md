@@ -131,6 +131,12 @@ func TestShowsTitleOverPlayfield(t *testing.T) {
 go tool nsgo test ./...
 ```
 
+## 完整源文件
+
+上面的代码块展示了本章引入的片段。在新模块中跟随教程时，可以复制下面的完整文件。文件包含颜色常量、`fill` 辅助函数和代码块使用的窗口大小测试。
+
+`game.go` 和 `game_test.go` 的完整版本请参阅[本章示例目录](../../examples/tutorial/ch01-empty-project/)。该目录中的文件与 CI 构建的版本保持同步。
+
 ## 下一章
 
 场地现在还只是一张图。[第 2 章](tutorial-02-game-loop.md)用固定步长的游戏循环让它动起来。

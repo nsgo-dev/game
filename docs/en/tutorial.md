@@ -20,6 +20,8 @@ In Star Catcher, stars and rocks fall down five lanes. The player moves a basket
 
 Every chapter is a complete program. Its directory holds the whole game as it stands at the end of the chapter, so you can run any chapter on its own, or compare two to see exactly what a chapter changed:
 
+The code blocks in chapters 1 through 9 are excerpts unless a section says Complete source files. Each chapter names the files it changes and links its directory, which contains the complete source for that chapter.
+
 ```sh
 git diff --no-index examples/tutorial/ch04-sprites examples/tutorial/ch05-rules
 ```
