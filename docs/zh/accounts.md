@@ -204,3 +204,5 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ```
 
 `init` 从不覆盖已有配置，且不写入 `allowedOrigins`；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `accounts.yaml` 的 `allowedOrigins`。`genkey` 从不覆盖已有密钥，并把新公钥加进密钥集文件，这是轮换的第一步；它先写临时文件再改名替换，游戏服务器读取时不会读到写了一半的文件，密钥集写入失败时还会删掉刚生成的密钥。`serve -keyset` 接受并提供密钥集中的所有公钥，所以轮换后用旧密钥签名的令牌在服务上依然有效。`serve` 把 JSON 日志写到 stderr，收到 SIGINT 或 SIGTERM 时停止。需要绑定平台身份的游戏，用自己的校验器围绕 `accounts.New` 构建自己的命令。
+
+`accounts.AppAccountToken(accountID)` 根据账号 ID 派生稳定的 UUID 形状 App Store 账号 token，可用于购买请求且不包含账号 secret。
