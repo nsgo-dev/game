@@ -647,3 +647,67 @@ func TestRemoteAssetsRetriesTransientErrors(t *testing.T) {
 		t.Fatalf("404 was retried: hits=%d, want 1", missingHits.Load())
 	}
 }
+
+func TestRemoteAssetsReloadAfterCancelStartsFreshFetch(t *testing.T) {
+	payload := []byte("reload-after-cancel-payload")
+	entry := makeRemoteEntry("asset:reload.bin", "reload.bin", payload)
+
+	firstStarted := make(chan struct{})
+	firstCancelled := make(chan struct{})
+	firstGate := make(chan struct{})
+	var calls atomic.Int32
+
+	manifest := &assets.RemoteManifest{
+		Version: assets.RemoteManifestVersion,
+		Base:    "https://cdn.example.com/game/",
+		Files:   []assets.RemoteEntry{entry},
+	}
+	// The first fetch returns only after firstGate closes, as a transport that is slow to abort would; every later fetch succeeds.
+	fetchFn := func(ctx context.Context, _ string) (io.ReadCloser, int64, error) {
+		if calls.Add(1) == 1 {
+			close(firstStarted)
+			<-ctx.Done()
+			close(firstCancelled)
+			<-firstGate
+			return nil, -1, ctx.Err()
+		}
+		return io.NopCloser(bytes.NewReader(payload)), int64(len(payload)), nil
+	}
+
+	var mgr *assets.Manager
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		mgr = assets.NewManager(cx, assets.WithRemote(assets.RemoteOptions{
+			Manifest: manifest,
+			Fetch:    fetchFn,
+		}))
+		mgr.Group("g").AddBytes("data", entry.URI)
+		return core.View{}
+	})
+
+	mgr.LoadGroup("g", nil)
+	select {
+	case <-firstStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("fetch did not start")
+	}
+	mgr.ReleaseGroup("g")
+	select {
+	case <-firstCancelled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("releasing the only waiting group did not cancel the fetch")
+	}
+
+	// The abandoned fetch is still unwinding; a new load must start its own fetch rather than join it and inherit context.Canceled.
+	done := make(chan error, 1)
+	mgr.LoadGroup("g", func(err error) { done <- err })
+	close(firstGate)
+	if err := waitGroupDone(t, app, done); err != nil {
+		t.Fatalf("reload after cancel failed: %v", err)
+	}
+	if b, ok := mgr.Group("g").Bytes("data"); !ok || !bytes.Equal(b, payload) {
+		t.Fatalf("bytes mismatch: ok=%v got=%q", ok, b)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("fetch calls = %d, want 2", got)
+	}
+}
