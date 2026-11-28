@@ -137,8 +137,8 @@ func TestObjectContextMenuMCPTools(t *testing.T) {
 		t.Fatalf("selection_get.SelectedIDs = %v, want [slime_1 slime_2]", selOut.SelectedIDs)
 	}
 
-	// 6. object_group groups the selection in one undo step.
-	res = call(t, cs, editormcp.ToolObjectGroup, map[string]any{"name": "Slimes"})
+	// 6. object_group groups the objects it names in one undo step.
+	res = call(t, cs, editormcp.ToolObjectGroup, map[string]any{"ids": selOut.SelectedIDs, "name": "Slimes"})
 	mustOK(t, res)
 	var grpOut editormcp.ObjectGroupResult
 	structured(t, res, &grpOut)

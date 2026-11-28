@@ -18,7 +18,7 @@ const (
 )
 
 const objectSetFieldSchema = `{"type":"object","additionalProperties":false,"required":["field","value"],"properties":{` +
-	`"id":{"type":"string","description":"Object ID to edit; defaults to the currently selected object"},` +
+	`"id":{"type":"string","description":"Object ID to edit; inside an agent turn, defaults to the one object the person's request pinned when it was sent (agent_turn_get selectionIds), never the live selection; outside a turn it is required"},` +
 	`"component":{"type":"string","description":"When set, edit this component's field on the object"},` +
 	`"property":{"type":"boolean","description":"When true, edit a custom property key on the object"},` +
 	`"field":{"type":"string","description":"Object field name (e.g. x, y, rotation, scaleX, z, alpha, sprite, material, model, gridMap, particles, occluder, light, camera), component field name, or custom property key"},` +
@@ -57,7 +57,7 @@ func inspectorTools() []Tool {
 		{
 			Name:        ToolObjectSetField,
 			Title:       "Set an object inspector field",
-			Description: "Set one inspector field, component field, or custom property on an object (defaulting to the selected object) through the exact same Editor methods as the inspector, recorded as one undo step.",
+			Description: "Set one inspector field, component field, or custom property on an object (id, or inside an agent turn the object its request pinned; the live selection is never a write target) through the exact same Editor methods as the inspector, recorded as one undo step.",
 			InputSchema: []byte(objectSetFieldSchema),
 			Action:      ActionEdit,
 			Target:      sceneEditTarget,
@@ -93,32 +93,28 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	if args.Component != "" && args.Property {
 		return nil, errors.New("object_set_field: component and property cannot both be set")
 	}
+	resolved, err := c.resolveObjectTarget(ctx, nonEmpty(args.ID), true)
+	if err != nil {
+		return nil, err
+	}
+	targetID := resolved.ids[0]
 	committed := false
 	if !c.onEditor {
-		holdTarget := args.ID
-		if holdTarget == "" {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				holdTarget = ed.SelectedID
-				return nil
-			})
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, resolved.holdIDs())
+		if err != nil {
+			return nil, err
 		}
-		if holdTarget != "" {
-			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
-			if err != nil {
-				return nil, err
+		defer func() {
+			if !committed {
+				rollback()
 			}
-			defer func() {
-				if !committed {
-					rollback()
-				}
-			}()
-		}
+		}()
 	}
 	var (
 		res    ObjectFieldResult
 		inTurn bool
 	)
-	err := c.Editor(ctx, func(ed *editor.Editor) error {
+	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
 		name := sceneName(ed, root)
 		res.File = name
@@ -128,12 +124,8 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		if holdErr := sketchHoldEditError(ed, name); holdErr != nil {
 			return holdErr
 		}
-		targetID := args.ID
-		if targetID == "" {
-			targetID = ed.SelectedID
-		}
-		if targetID == "" {
-			return &EditError{File: name, Field: args.Field, Problem: "no object id was provided and no object is selected", Fix: "pass id or select an object first"}
+		if err := resolved.missing(ed, name); err != nil {
+			return err
 		}
 		if obj, _, _ := ed.FindObject(targetID); obj == nil {
 			return &EditError{File: name, Object: targetID, Field: args.Field, Problem: "the open scene has no object " + quote(targetID), Fix: "use an object ID present in the open scene"}

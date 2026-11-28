@@ -1666,6 +1666,51 @@ func (e *Editor) AgentTurn(id string) (AgentTurn, bool) {
 	return AgentTurn{}, false
 }
 
+// AgentTurnPin is what an open agent turn pinned when the person sent it: the objects the request is about and the scene they are in. Edit tools write to the pinned objects when a call names none, because the live selection can change while the agent works.
+type AgentTurnPin struct {
+	// TurnID is the open turn's ID.
+	TurnID string
+	// ScenePath is the scene the request was sent from, as AgentTurnContext.ScenePath records it, or empty when unknown.
+	ScenePath string
+	// SceneOpen reports that the scene the request was sent from is the open scene now, or that the turn recorded no scene.
+	SceneOpen bool
+	// SelectionIDs lists the objects the request is about, in the order the turn recorded them; it is empty when nothing was selected or the turn's source pins no selection.
+	SelectionIDs []string
+}
+
+// OpenAgentTurnPin returns the pin of the open agent turn a tool call belongs to and true, or false when no such turn is open. A non-empty taskID selects that background task's own turn. Otherwise it is the most recent turn the person sent, skipping the turns the editor records for a terminal agent's tool calls and background tasks' turns, and it counts as open while its status is pending or running.
+func (e *Editor) OpenAgentTurnPin(taskID string) (AgentTurnPin, bool) {
+	if e == nil {
+		return AgentTurnPin{}, false
+	}
+	var turn *AgentTurn
+	if taskID != "" {
+		task, ok := e.Task(taskID)
+		if !ok || task.TurnID == "" {
+			return AgentTurnPin{}, false
+		}
+		turn = e.findAgentTurn(task.TurnID)
+	} else {
+		for i := len(e.agent.turns) - 1; i >= 0; i-- {
+			t := &e.agent.turns[i]
+			if t.External || t.Source == "task" {
+				continue
+			}
+			turn = t
+			break
+		}
+	}
+	if turn == nil || turn.Done || turn.Stopped || (turn.Status != "pending" && turn.Status != "running") {
+		return AgentTurnPin{}, false
+	}
+	return AgentTurnPin{
+		TurnID:       turn.ID,
+		ScenePath:    turn.Context.ScenePath,
+		SceneOpen:    turn.Context.ScenePath == "" || turn.Context.ScenePath == e.effectiveScenePath(),
+		SelectionIDs: slices.Clone(turn.Context.SelectionIDs),
+	}, true
+}
+
 // AgentTurnSeq returns a monotonically increasing sequence number bumped whenever an agent turn is added or updated.
 func (e *Editor) AgentTurnSeq() uint64 {
 	if e == nil {

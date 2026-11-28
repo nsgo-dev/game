@@ -37,14 +37,14 @@ const (
 		`"layer":{"type":"string","description":"Optional target layer name; defaults to the selected object's layer or active layer"}}}`
 
 	objectDuplicateSchema = `{"type":"object","additionalProperties":false,"properties":{` +
-		`"id":{"type":"string","description":"Object ID to duplicate; defaults to the selected object"}}}`
+		`"id":{"type":"string","description":"Object ID to duplicate; inside an agent turn, defaults to the one object the person's request pinned when it was sent (agent_turn_get selectionIds), never the live selection; outside a turn it is required"}}}`
 
 	objectGroupSchema = `{"type":"object","additionalProperties":false,"properties":{` +
-		`"ids":{"type":"array","items":{"type":"string"},"description":"Object IDs to group under a new parent; defaults to the current selection"},` +
+		`"ids":{"type":"array","items":{"type":"string"},"description":"Object IDs to group under a new parent; inside an agent turn, defaults to the objects the person's request pinned when it was sent (agent_turn_get selectionIds), never the live selection; outside a turn they are required"},` +
 		`"name":{"type":"string","description":"Optional display name for the created group object"}}}`
 
 	objectMoveUnderSchema = `{"type":"object","additionalProperties":false,"properties":{` +
-		`"id":{"type":"string","description":"Object ID to reparent; defaults to the selected object"},` +
+		`"id":{"type":"string","description":"Object ID to reparent; inside an agent turn, defaults to the one object the person's request pinned when it was sent (agent_turn_get selectionIds), never the live selection; outside a turn it is required; with listCandidates it defaults to the selected object"},` +
 		`"parent":{"type":"string","description":"Target parent object ID, or empty string to move to the top level of its layer"},` +
 		`"listCandidates":{"type":"boolean","description":"When true, lists valid candidate parents without modifying the scene"}}}`
 
@@ -52,7 +52,7 @@ const (
 		`"id":{"type":"string","description":"Object ID whose prefab or instanced scene to match; defaults to the selected object"}}}`
 
 	objectVisibilitySchema = `{"type":"object","additionalProperties":false,"properties":{` +
-		`"id":{"type":"string","description":"Object ID to update; defaults to the selected object"},` +
+		`"id":{"type":"string","description":"Object ID to update; inside an agent turn, defaults to the one object the person's request pinned when it was sent (agent_turn_get selectionIds), never the live selection; outside a turn it is required"},` +
 		`"hidden":{"type":"boolean","description":"Hide or show the object in the 2D and 3D viewports for this session"},` +
 		`"locked":{"type":"boolean","description":"Lock or unlock the object against viewport picking and manipulation for this session"}}}`
 
@@ -91,7 +91,7 @@ func objectMenuTools() []Tool {
 		{
 			Name:        ToolObjectGroup,
 			Title:       "Group objects",
-			Description: "Create a new parent group object and reparent the given objects (or current selection) under it in one undo step, preserving world transforms.",
+			Description: "Create a new parent group object and reparent the given objects (or, inside an agent turn, the objects its request pinned) under it in one undo step, preserving world transforms.",
 			InputSchema: []byte(objectGroupSchema),
 			Action:      ActionEdit,
 			Target:      sceneEditTarget,
@@ -295,40 +295,35 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_duplicate: %w", err)
 	}
+	resolved, err := c.resolveObjectTarget(ctx, nonEmpty(args.ID), true)
+	if err != nil {
+		return nil, fmt.Errorf("object_duplicate: %w", err)
+	}
+	src := resolved.ids[0]
 	committed := false
 	if !c.onEditor {
-		holdTarget := args.ID
-		if holdTarget == "" {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				holdTarget = ed.SelectedID
-				return nil
-			})
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, resolved.holdIDs())
+		if err != nil {
+			return nil, err
 		}
-		if holdTarget != "" {
-			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
-			if err != nil {
-				return nil, err
+		defer func() {
+			if !committed {
+				rollback()
 			}
-			defer func() {
-				if !committed {
-					rollback()
-				}
-			}()
-		}
+		}()
 	}
 	var out ObjectDuplicateResult
 	var sceneFile string
-	err := c.Editor(ctx, func(ed *editor.Editor) error {
+	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		sceneFile = sceneName(ed, projectRoot(ed))
 		if holdErr := sketchHoldEditError(ed, sceneFile); holdErr != nil {
 			return holdErr
 		}
+		if err := resolved.missing(ed, sceneFile); err != nil {
+			return err
+		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
-		}
-		src := args.ID
-		if src == "" {
-			src = ed.SelectedID
 		}
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
@@ -378,40 +373,35 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_group: %w", err)
 	}
+	resolved, err := c.resolveObjectTarget(ctx, args.IDs, false)
+	if err != nil {
+		return nil, fmt.Errorf("object_group: %w", err)
+	}
+	ids := resolved.ids
 	committed := false
 	if !c.onEditor {
-		holdTargets := args.IDs
-		if len(holdTargets) == 0 {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				holdTargets = ed.SelectedIDs()
-				return nil
-			})
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, resolved.holdIDs())
+		if err != nil {
+			return nil, err
 		}
-		if len(holdTargets) > 0 {
-			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, holdTargets)
-			if err != nil {
-				return nil, err
+		defer func() {
+			if !committed {
+				rollback()
 			}
-			defer func() {
-				if !committed {
-					rollback()
-				}
-			}()
-		}
+		}()
 	}
 	var out ObjectGroupResult
 	var sceneFile string
-	err := c.Editor(ctx, func(ed *editor.Editor) error {
+	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		sceneFile = sceneName(ed, projectRoot(ed))
 		if holdErr := sketchHoldEditError(ed, sceneFile); holdErr != nil {
 			return holdErr
 		}
+		if err := resolved.missing(ed, sceneFile); err != nil {
+			return err
+		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
-		}
-		ids := args.IDs
-		if len(ids) == 0 {
-			ids = ed.SelectedIDs()
 		}
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
@@ -482,24 +472,17 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_move_under: %w", err)
 	}
+	// Listing candidates writes nothing, so it keeps the selection default; a move resolves its target once, before the hold.
+	var resolved objectTarget
 	committed := false
-	if !c.onEditor && !args.ListCandidates {
-		targetID := args.ID
-		if targetID == "" {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				targetID = ed.SelectedID
-				return nil
-			})
+	if !args.ListCandidates {
+		var err error
+		resolved, err = c.resolveObjectTarget(ctx, nonEmpty(args.ID), true)
+		if err != nil {
+			return nil, fmt.Errorf("object_move_under: %w", err)
 		}
-		var holdTargets []string
-		if targetID != "" {
-			holdTargets = append(holdTargets, targetID)
-		}
-		if args.Parent != "" {
-			holdTargets = append(holdTargets, args.Parent)
-		}
-		if len(holdTargets) > 0 {
-			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, holdTargets)
+		if !c.onEditor {
+			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, resolved.holdIDs(args.Parent))
 			if err != nil {
 				return nil, err
 			}
@@ -513,18 +496,22 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 	var out ObjectMoveUnderResult
 	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
-		id := args.ID
-		if id == "" {
-			id = ed.SelectedID
-		}
 		if args.ListCandidates {
+			id := args.ID
+			if id == "" {
+				id = ed.SelectedID
+			}
 			cands := ed.MoveUnderCandidates(id)
 			out = ObjectMoveUnderResult{ID: id, Candidates: cands, Revision: ed.Revision()}
 			return nil
 		}
+		id := resolved.ids[0]
 		sceneFile = sceneName(ed, projectRoot(ed))
 		if holdErr := sketchHoldEditError(ed, sceneFile); holdErr != nil {
 			return holdErr
+		}
+		if err := resolved.missing(ed, sceneFile); err != nil {
+			return err
 		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
@@ -623,32 +610,27 @@ func objectVisibility(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_visibility: %w", err)
 	}
+	resolved, err := c.resolveObjectTarget(ctx, nonEmpty(args.ID), true)
+	if err != nil {
+		return nil, fmt.Errorf("object_visibility: %w", err)
+	}
+	id := resolved.ids[0]
 	committed := false
 	if !c.onEditor {
-		holdTarget := args.ID
-		if holdTarget == "" {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				holdTarget = ed.SelectedID
-				return nil
-			})
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, resolved.holdIDs())
+		if err != nil {
+			return nil, err
 		}
-		if holdTarget != "" {
-			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
-			if err != nil {
-				return nil, err
+		defer func() {
+			if !committed {
+				rollback()
 			}
-			defer func() {
-				if !committed {
-					rollback()
-				}
-			}()
-		}
+		}()
 	}
 	var out ObjectVisibilityResult
-	err := c.Editor(ctx, func(ed *editor.Editor) error {
-		id := args.ID
-		if id == "" {
-			id = ed.SelectedID
+	err = c.Editor(ctx, func(ed *editor.Editor) error {
+		if err := resolved.missing(ed, sceneName(ed, projectRoot(ed))); err != nil {
+			return err
 		}
 		if obj, _ := ed.FindResolvedObject(id); obj == nil {
 			return fmt.Errorf("object %q not found", id)
