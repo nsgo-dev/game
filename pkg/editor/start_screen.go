@@ -27,10 +27,8 @@ type ProjectTemplate struct {
 	Title string
 	// Summary is the one-line description shown on the template card.
 	Summary string
-	// Cover is the project-relative or hosted deterministic gallery cover shown on the card.
+	// Cover is the URI of the template's gallery cover image, drawn over the card's swatch; empty leaves the swatch color.
 	Cover string
-	// Preview is an optional silent hover clip URL. It is loaded only while a card is focused or hovered.
-	Preview string
 	// Dimension classifies the template for Start Screen filter chips: "2d" or "3d" (inferred when empty).
 	Dimension string
 	// Default marks the template selected initially.

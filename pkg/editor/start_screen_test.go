@@ -696,3 +696,27 @@ func waitForCreateInApp(t *testing.T, app *nsgotest.App, ed *editor.Editor) {
 		}
 	}
 }
+
+func TestStartScreenTemplateCardDrawsDeclaredCoverOnly(t *testing.T) {
+	ed, err := editor.NewDemo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cover := filepath.Join(t.TempDir(), "cover.png")
+	ed.SetProjectTemplates([]editor.ProjectTemplate{
+		{Name: "starter", Title: "Starter", Summary: "An empty scene and a loop", Dimension: "2d", Cover: cover, Default: true},
+		{Name: "racing3d", Title: "3D racer", Summary: "Laps, ghosts, AI drivers", Dimension: "3d"},
+	})
+	ed.SetStartScreenOpen(true)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800))
+
+	if !app.Exists("id:start-template-cover-starter") {
+		t.Fatal("template with a Cover rendered no cover image")
+	}
+	if app.Exists("id:start-template-cover-racing3d") {
+		t.Fatal("template without a Cover rendered a cover image")
+	}
+}

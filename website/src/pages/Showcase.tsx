@@ -1,8 +1,9 @@
+import { useRef } from 'react'
 import { Eyebrow, SpeedLines } from '../components/Brand'
 import { Icon } from '../components/Icon'
 import { LocaleLink } from '../components/LocaleLink'
 import { isPlaygroundId } from '../content/playground'
-import { galleryCover, SHOWCASE_ENTRIES, type ShowcaseEntry } from '../content/showcase'
+import { SHOWCASE_ENTRIES, type ShowcaseEntry } from '../content/showcase'
 import { type Copy, copies } from '../copy'
 import { type Lang, pageHead, useLang } from '../i18n'
 import { CONTRIBUTING_URL, SHOWCASE_SUBMIT_URL } from '../links'
@@ -51,12 +52,18 @@ function ShowcaseCard({ entry, index, lang, copy }: { entry: ShowcaseEntry; inde
   const chipClass = entry.kind === 'example' ? 'chip chip--cleared' : 'chip chip--accent'
   // An example the playground runs is played on its page there, in the reader's language.
   const playground = isPlaygroundId(entry.id) ? entry.id : undefined
+  const preview = useRef<HTMLVideoElement>(null)
+  // The preview has preload="none", so the clip is fetched only when the pointer or focus reaches the card. A rejected play() (an interrupted load or a browser autoplay policy) leaves the cover showing.
+  const playPreview = () => void preview.current?.play().catch(() => undefined)
+  const pausePreview = () => preview.current?.pause()
   return (
-    <li className="showcase-card hud">
-      <div className="showcase-card__media">
-        <img src={galleryCover(entry)} alt="" loading="lazy" width={864} height={486} />
-        {entry.preview && <video className="showcase-card__preview" src={entry.preview} muted playsInline preload="none" loop aria-hidden="true" />}
-      </div>
+    <li className="showcase-card hud" onMouseEnter={playPreview} onMouseLeave={pausePreview} onFocus={playPreview} onBlur={pausePreview}>
+      {entry.cover && (
+        <div className="showcase-card__media">
+          <img src={entry.cover} alt="" loading="lazy" width={864} height={486} />
+          {entry.preview && <video ref={preview} className="showcase-card__preview" src={entry.preview} muted playsInline preload="none" loop aria-hidden="true" />}
+        </div>
+      )}
       <div className="showcase-card__top">
         <span className="hud-label">{copy.entry(index)}</span>
         <span className={chipClass}>{copy.kinds[entry.kind]}</span>
