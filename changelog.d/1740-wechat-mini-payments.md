@@ -1,1 +1,3 @@
-新增微信小游戏支付订单签名与 OutTradeNo 幂等发货边界。
+### Added
+
+- `game/pkg/online/storeverify/wechatpay`: the NSGo-free server side of WeChat mini game virtual payments: `SignOrder` builds the `signData`, `paySig` and user-state `signature` for `wx.requestMidasPaymentGameItem`, and `Handler` verifies goods delivery pushes (event, `PayEventSig`, environment) and delivers each `OutTradeNo` once through a `DeliveryStore` (#1740).
