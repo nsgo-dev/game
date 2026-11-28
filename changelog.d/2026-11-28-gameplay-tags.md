@@ -1,0 +1,1 @@
+- Add the `pkg/tags` gameplay tag registry with implied parents, reference-counted containers and deterministic tag queries.
