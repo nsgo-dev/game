@@ -24,7 +24,8 @@ type PlayStepArgs struct {
 type PlayInputArgs struct {
 	Action, Event string
 	Value         float64 `json:"value,omitempty"`
-	X, Y          float64 `json:"x,omitempty"`
+	X             float64 `json:"x,omitempty"`
+	Y             float64 `json:"y,omitempty"`
 }
 type PlayState struct {
 	Playing, Paused bool
