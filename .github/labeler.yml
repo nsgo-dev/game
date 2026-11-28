@@ -1,4 +1,4 @@
-# Path labels for pull requests, applied by pr-triage.yml. Each flat package under pkg/ gets a pkg/<name> label, and a nested package shares its parent's label (pkg/ai covers pkg/ai/navbake, pkg/tilemap covers pkg/tilemap/tileshape). The grouped directories take one label for everything under them: pkg/online also covers the service daemons in cmd/ and examples/dedicatedserver, and pkg/tooling covers every tooling package. The root package and the module files get pkg/game, cmd/ gets pkg/cmd, internal/ gets pkg/internal, and the rest of the repository is labelled by area (area/examples, area/template, area/website, area/tools, area/agents, area/ci), with documentation and dependencies on top. A new flat package needs its own entry here.
+# Path labels for pull requests, applied by pr-triage.yml. Each flat package under pkg/ gets a pkg/<name> label, and a nested package shares its parent's label (pkg/ai covers pkg/ai/navbake, pkg/tilemap covers pkg/tilemap/tileshape). The grouped directories take one label for everything under them: pkg/online also covers the service daemons in cmd/ and examples/dedicatedserver, and pkg/tooling covers every tooling package and the shared library/ index. The root package and the module files get pkg/game, cmd/ gets pkg/cmd, internal/ gets pkg/internal, and the rest of the repository is labelled by area (area/examples, area/template, area/website, area/skill, area/tools, area/agents, area/ci), with documentation and dependencies on top. A new flat package needs its own entry here; internal/repocheck/catalog_test.go fails without it.
 
 pkg/game:
   - changed-files:
@@ -12,6 +12,11 @@ pkg/a11y:
       - any-glob-to-any-file:
           - pkg/a11y/**
 
+pkg/ability:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/ability/**
+
 pkg/ai:
   - changed-files:
       - any-glob-to-any-file:
@@ -22,10 +27,25 @@ pkg/anim3d:
       - any-glob-to-any-file:
           - pkg/anim3d/**
 
+pkg/animclip:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/animclip/**
+
 pkg/assets:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/assets/**
+
+pkg/bullets:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/bullets/**
+
+pkg/cards:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/cards/**
 
 pkg/cmd:
   - changed-files:
@@ -63,10 +83,25 @@ pkg/entities:
       - any-glob-to-any-file:
           - pkg/entities/**
 
+pkg/fighting:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/fighting/**
+
 pkg/flow:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/flow/**
+
+pkg/fog:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/fog/**
+
+pkg/framedata:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/framedata/**
 
 pkg/gametest:
   - changed-files:
@@ -83,6 +118,11 @@ pkg/gltf:
       - any-glob-to-any-file:
           - pkg/gltf/**
 
+pkg/idle:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/idle/**
+
 pkg/importsettings:
   - changed-files:
       - any-glob-to-any-file:
@@ -97,6 +137,11 @@ pkg/internal:
   - changed-files:
       - any-glob-to-any-file:
           - internal/**
+
+pkg/inventory:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/inventory/**
 
 pkg/jsonschema:
   - changed-files:
@@ -118,6 +163,16 @@ pkg/lights2d:
       - any-glob-to-any-file:
           - pkg/lights2d/**
 
+pkg/loaderr:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/loaderr/**
+
+pkg/loot:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/loot/**
+
 pkg/math2d:
   - changed-files:
       - any-glob-to-any-file:
@@ -127,6 +182,11 @@ pkg/math3d:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/math3d/**
+
+pkg/mcp:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/mcp/**
 
 pkg/modding:
   - changed-files:
@@ -162,10 +222,60 @@ pkg/physics3d:
       - any-glob-to-any-file:
           - pkg/physics3d/**
 
+pkg/pixelfx:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/pixelfx/**
+
+pkg/placeholder:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/placeholder/**
+
+pkg/platformer:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/platformer/**
+
+pkg/playtest:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/playtest/**
+
+pkg/plugin:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/plugin/**
+
+pkg/procgen:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/procgen/**
+
+pkg/project:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/project/**
+
+pkg/quality:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/quality/**
+
+pkg/quest:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/quest/**
+
 pkg/random:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/random/**
+
+pkg/refs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/refs/**
 
 pkg/render3d:
   - changed-files:
@@ -186,6 +296,16 @@ pkg/rhythm:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/rhythm/**
+
+pkg/rooms:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/rooms/**
+
+pkg/rts:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/rts/**
 
 pkg/save:
   - changed-files:
@@ -232,6 +352,16 @@ pkg/sprite:
       - any-glob-to-any-file:
           - pkg/sprite/**
 
+pkg/statedump:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/statedump/**
+
+pkg/stats:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/stats/**
+
 pkg/text:
   - changed-files:
       - any-glob-to-any-file:
@@ -246,16 +376,42 @@ pkg/tooling:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/tooling/**
+          - library/**
 
 pkg/tween:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/tween/**
 
+pkg/undo:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/undo/**
+
+pkg/vehicle:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/vehicle/**
+
+pkg/vn:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/vn/**
+
+pkg/voxel:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/voxel/**
+
 pkg/world3d:
   - changed-files:
       - any-glob-to-any-file:
           - pkg/world3d/**
+
+pkg/worldmap:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/worldmap/**
 
 area/examples:
   - changed-files:
@@ -271,6 +427,11 @@ area/website:
   - changed-files:
       - any-glob-to-any-file:
           - website/**
+
+area/skill:
+  - changed-files:
+      - any-glob-to-any-file:
+          - skills/**
 
 area/tools:
   - changed-files:
