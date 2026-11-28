@@ -51,7 +51,7 @@ func TestThemeTextScaleAppliesWhenRootLeavesItUnset(t *testing.T) {
 	theme.TextScale = 1.5
 	theme.TextMeasurer = fontSizeMeasurer
 	l := &Label{Text: "theme"}
-	r := NewRoot(l)
+	r := NewRoot(&VBox{Children: []Widget{l}})
 	r.Theme = &theme
 	r.Layout(core.Bounds{Size: core.Size{Width: 400, Height: 400}})
 	if got := l.Bounds().Size.Height; got != 15 {
