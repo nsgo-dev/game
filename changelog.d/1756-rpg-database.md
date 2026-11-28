@@ -1,3 +1,3 @@
-# RPG database YAML
+### Added
 
-Added a versioned `pkg/rpgdata` YAML database for RPG records and deterministic level progression.
+- `rpgdata`: versioned YAML records for RPG classes, actors, skills, enemies and troops with deterministic level progression (#1756).

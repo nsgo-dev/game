@@ -97,6 +97,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `inventory` | `github.com/nsgo-dev/game/pkg/inventory` | [inventory](inventory.md) | Item definitions in YAML, stacking slot containers, typed equipment slots and save snapshots |
 | `ability` | `github.com/nsgo-dev/game/pkg/ability` | [ability](ability.md) | YAML ability sets and a per-step `Caster`: costs, cooldowns, charges, cast and channel times and conditions driven by input actions |
 | `quest` | `github.com/nsgo-dev/game/pkg/quest` | [quest](quest.md) | YAML quest books with collect/reach/defeat/talk objectives, prerequisites and rewards, advanced by bus events and saved as snapshots |
+| `rpgdata` | `github.com/nsgo-dev/game/pkg/rpgdata` | [RPG database](rpgdata.md) | Versioned YAML records for classes, actors, skills, enemies and troops, with cross-reference validation and deterministic progression |
 | `loot` | `github.com/nsgo-dev/game/pkg/loot` | [loot](loot.md) | Nested weighted drop tables in YAML with guaranteed drops and hard/soft pity counters on seeded streams |
 | `vn` | `github.com/nsgo-dev/game/pkg/vn` | [vn](vn.md) | Visual novel presenter: YAML cast of portraits and expressions, name plates, typewriter text box, choices, backlog, auto/skip modes and voice lines |
 | `modding` | `github.com/nsgo-dev/game/pkg/modding` | [modding](modding.md) | Capability-sandboxed TSX `"game"` modding API and `mod.yaml` dependency/lifecycle manager |

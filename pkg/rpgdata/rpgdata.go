@@ -73,10 +73,10 @@ func Parse(data []byte) (*Database, error) {
 		return nil, err
 	}
 	var extra any
-	if err := dec.Decode(&extra); err != nil {
-		if err != io.EOF {
-			return nil, errors.New("rpgdata: trailing YAML document")
-		}
+	if err := dec.Decode(&extra); err == nil {
+		return nil, errors.New("rpgdata: trailing YAML document")
+	} else if err != io.EOF {
+		return nil, fmt.Errorf("rpgdata: decode trailing YAML: %w", err)
 	}
 	if err := d.Validate(); err != nil {
 		return nil, err

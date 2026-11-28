@@ -28,3 +28,19 @@ func TestProgressionLevelUps(t *testing.T) {
 		t.Fatalf("progression = %+v, levels=%v", p, got)
 	}
 }
+
+func TestParseRejectsUnknownFieldsAndTrailingDocuments(t *testing.T) {
+	if _, err := Parse([]byte("version: 1\nunknown: true\n")); err == nil {
+		t.Fatal("unknown field accepted")
+	}
+	if _, err := Parse([]byte("version: 1\n---\nversion: 1\n")); err == nil {
+		t.Fatal("trailing document accepted")
+	}
+}
+
+func TestProgressionStopsAtMaximum(t *testing.T) {
+	p := NewProgression(1, 2, 100)
+	if got := p.AddExperience(500); len(got) != 1 || got[0] != 2 || p.Level != 2 || p.Experience != 400 {
+		t.Fatalf("max progression = %+v, levels=%v", p, got)
+	}
+}
