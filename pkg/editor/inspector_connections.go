@@ -193,6 +193,8 @@ func connectionsSection(
 			Handler: handler,
 			Args:    args,
 			Once:    onceVal.GetUntracked(),
+			// The form has no field for When yet, so an edit keeps the connection's condition.
+			When: editedConn.When,
 		}
 		var err error
 		if m == connFormNew {

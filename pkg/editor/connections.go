@@ -374,7 +374,7 @@ func cloneConnectionDoc(c sceneformat.ConnectionDoc) sceneformat.ConnectionDoc {
 }
 
 func connectionsEqual(a, b sceneformat.ConnectionDoc) bool {
-	if a.From != b.From || a.Event != b.Event || a.To != b.To || a.Handler != b.Handler || a.Once != b.Once {
+	if a.From != b.From || a.Event != b.Event || a.To != b.To || a.Handler != b.Handler || a.Once != b.Once || a.When != b.When {
 		return false
 	}
 	if len(a.Args) == 0 && len(b.Args) == 0 {

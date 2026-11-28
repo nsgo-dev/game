@@ -125,7 +125,7 @@ type ConnectionDoc struct {
 	Args map[string]any `yaml:"args,omitempty"`
 	// Once disconnects the connection after the first time the event fires, as Godot's one-shot connections do.
 	Once bool `yaml:"once,omitempty"`
-	// When is an optional expression evaluated before the handler runs. Empty means always.
+	// When is a condition the handler runs only while it holds, such as "score >= 10" or "has_key", read from the values Signals.SetRuleContext gives (EvaluateWhen describes the syntax). Empty means always. A once connection whose condition is false stays connected. Validate refuses an expression it cannot parse.
 	When string `yaml:"when,omitempty"`
 }
 

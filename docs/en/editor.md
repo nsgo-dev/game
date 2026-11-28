@@ -485,8 +485,11 @@ connections:
 | `handler` | `string` | Required handler name, such as `open`, or `door.open`. |
 | `args` | map | Optional values for the handler's params by name, each a bool, a number or a string; a param left out takes its default. |
 | `once` | `bool` | Disconnects after the first time the event fires, as Godot's one-shot connections do. |
+| `when` | `string` | Optional condition; the handler runs only while it holds. Empty or left out, the connection always runs. |
 
 The events and handlers come from the component registry: a `ComponentType` lists the `Events` an object with that component emits and the `Handlers` it can run, each handler with typed `Params` (declared and checked like fields) and the `Func` that runs it. The game registers what each kind of component does once; the scene files decide which objects are wired together.
+
+A `when` condition is `true`, `false`, a bare name such as `has_key`, or a name, an operator and a value separated by spaces, such as `score >= 10` or `mode == combat`: a number compares with `<`, `<=`, `>`, `>=`, `==` and `!=`, a string or a bool with `==` and `!=`, and the value may be quoted but holds no space. The names are the game's: it passes a `sceneformat.RuleContext` of `Numbers`, `Strings` and `Bools` maps to `Signals.SetRuleContext`, and changes a value by changing its map, since each event's conditions read the maps when it fires. A condition that does not hold skips its handler, and a `once` connection stays connected until it fires with its condition holding. Loading a scene refuses a `when` it cannot parse; a name the rule context has no value of, or a value of the wrong type, skips the handler and makes `Emit` and `Flush` return the error after running the rest. `sceneformat.EvaluateWhen` evaluates an expression the same way, for tools.
 
 ```go
 reg.MustRegister(sceneformat.ComponentType{
@@ -1747,6 +1750,3 @@ Every color, type size, spacing step, corner radius, height, and motion duration
   - Radii & geometry: `6` controls (`theme.RadiusControl`), `8` buttons (`theme.RadiusButton`), `12` cards and toasts (`theme.RadiusCard`), `18` dialogs (`theme.RadiusDialog`); heights `28` rows/tool buttons (`theme.RowHeight`, minimum hit area `theme.MinHitSize = 28`), `30`–`32` buttons (`theme.ButtonHeight`, `theme.ButtonTallHeight`), `44` header (`theme.HeaderHeight`); `1` px inner borders (`theme.BorderWidth`).
   - Motion: `120 ms` hover/press (`theme.MotionHover`), `180 ms` panels/popovers/toasts (`theme.MotionPanel`), `240 ms` agent overlays (`theme.MotionOverlay`), `1.6 s` agent pulse (`theme.MotionAgentPulse`, `100%` ↔ `45%` opacity). `theme.MotionDuration` and `theme.AgentPulseOpacity` disable all motion (`0` duration, solid `1.0` opacity) whenever `Env.ReduceMotion` is enabled.
 - **No hardcoded UI color literals or dark-only package aliases**: every non-test `.go` file in `pkg/editor` outside `theme/theme.go` draws UI chrome, gizmos, overlays, and debug views exclusively from reactive `theme.Palette` tokens (`ed.Palette(cx)` / `e.activePalette()`, keeping scene content data such as `scene.BackgroundColor` as scene data). `TestSpecNoHardcodedColorLiteralsInEditor` rejects any `core.RGB`/`core.RGBA` call or hardcoded UI hex color literal outside `theme/theme.go`, and `TestSpecNoDarkOnlyPackageColorVarsInEditor` rejects package-level color variables initialized from `theme.Dark()` or `theme.Light()` so every editor screen repaints live across Dark and Light appearances.
-# Scene rule conditions
-
-Connection entries may include `when`, such as `when: "score >= 10"`, to let a scene rule run only when its expression is true. Empty or omitted `when` keeps the connection unconditional.
