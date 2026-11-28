@@ -22,6 +22,14 @@
       "description": "AppVersion is the game's release version, such as 0.1.0, which nsgo.yaml's version follows.",
       "type": "string"
     },
+    "origin": {
+      "description": "Origin records the source used by game new, when the project was copied from a template, example, directory, or pack.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Origin"
+        }
+      ]
+    },
     "window": {
       "description": "Window is the main window's size, limits, title and appearance.",
       "allOf": [
@@ -1240,6 +1248,22 @@
           "items": {
             "$ref": "#/definitions/NavAgent"
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Origin": {
+      "description": "Origin describes where a project created by game new came from.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
         }
       },
       "additionalProperties": false

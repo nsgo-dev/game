@@ -87,6 +87,7 @@ func defineNew(a *app, fs *flag.FlagSet) func() error {
 	name := fs.String("name", "", "the game's display name in game.yaml and nsgo.yaml: letters, digits, spaces, - and _ (default: the directory's name)")
 	module := fs.String("module", "", "the module path in go.mod (default: the name in lower case with its words joined by -)")
 	tmpl := fs.String("template", projectTemplates[0].name, "the template to start from: "+strings.Join(names, ", ")+"; -list describes each")
+	from := fs.String("from", "", "copy a project from a template, example, directory, or pack directory")
 	version := fs.String("version", "", "the version of "+gameModule+" to require, such as v0.4.0, a commit or latest (default: this command's own version, or latest for a development build)")
 
 	return func() error {
@@ -107,6 +108,7 @@ func defineNew(a *app, fs *flag.FlagSet) func() error {
 			name:     *name,
 			module:   *module,
 			template: *tmpl,
+			from:     *from,
 			version:  *version,
 		}, a.stdout, a.stderr)
 	}
@@ -117,6 +119,7 @@ type createProjectOptions struct {
 	name     string
 	module   string
 	template string
+	from     string
 	version  string
 }
 
@@ -124,6 +127,9 @@ type createProjectOptions struct {
 // runs `go get -tool` and `go mod tidy`, and writes progress and command output to stdout and stderr.
 // Shared by `game new` and the scene editor's Start Screen.
 func createProject(opts createProjectOptions, stdout, stderr io.Writer) error {
+	if opts.from != "" {
+		return createProjectFrom(opts, stdout, stderr)
+	}
 	names := templateNames()
 	tmplName := opts.template
 	if tmplName == "" {
@@ -149,6 +155,9 @@ func createProject(opts createProjectOptions, stdout, stderr io.Writer) error {
 		return fmt.Errorf("template %s: %w", tmplName, err)
 	}
 	if err := writeProject(opts.dir, files); err != nil {
+		return err
+	}
+	if err := writeOrigin(opts.dir, project.Origin{Kind: "template", Source: projectTemplates[i].module, Path: tmplName}); err != nil {
 		return err
 	}
 	for _, f := range files {
@@ -180,6 +189,119 @@ func createProject(opts createProjectOptions, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "After git init, run: go tool game merge -setup")
 	}
 	return nil
+}
+
+func createProjectFrom(opts createProjectOptions, stdout, stderr io.Writer) error {
+	data, err := projectData(opts.dir, opts.name, opts.module)
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(opts.from)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(abs)
+	if err != nil || !info.IsDir() {
+		return usagef("-from %q must name a directory, example, template, or pack directory", opts.from)
+	}
+	files, err := renderSource(os.DirFS(abs), data)
+	if err != nil {
+		return fmt.Errorf("-from %s: %w", opts.from, err)
+	}
+	if err := writeProject(opts.dir, files); err != nil {
+		return err
+	}
+	kind := "directory"
+	if _, e := os.Stat(filepath.Join(abs, "pack.yaml")); e == nil {
+		kind = "pack"
+	}
+	if strings.Contains(filepath.ToSlash(abs), "/examples/") {
+		kind = "example"
+	}
+	if err := writeOrigin(opts.dir, project.Origin{Kind: kind, Source: opts.from}); err != nil {
+		return err
+	}
+	for _, f := range files {
+		if !f.dir {
+			fmt.Fprintln(stdout, filepath.Join(opts.dir, f.name))
+		}
+	}
+	v := opts.version
+	if v == "" {
+		v = toolVersion()
+	}
+	for _, args := range [][]string{{"get", "-tool", gameTool + "@" + v}, {"mod", "tidy"}} {
+		if err := runGo(opts.dir, stdout, stderr, args...); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(stdout, "\ncd %s && go tool nsgo dev\n", shellWord(opts.dir, runtime.GOOS))
+	return nil
+}
+
+func renderSource(src fs.FS, data newData) ([]projectFile, error) {
+	var files []projectFile
+	err := fs.WalkDir(src, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || name == "." {
+			return err
+		}
+		base := filepath.Base(name)
+		if base == ".git" || base == ".nsgo" || base == "node_modules" || base == ".DS_Store" || strings.HasPrefix(base, ".env") || strings.HasSuffix(base, ".local") || strings.HasSuffix(base, ".tmp") || base == "go.work" || base == "go.work.sum" {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		f := projectFile{name: name, dir: d.IsDir()}
+		if !f.dir {
+			content, e := fs.ReadFile(src, name)
+			if e != nil {
+				return e
+			}
+			f.name = strings.TrimSuffix(name, ".tmpl")
+			if strings.HasSuffix(name, ".tmpl") || f.name == "nsgo.yaml" || f.name == project.FileName || f.name == "main.go" {
+				t, e := template.New(name).Option("missingkey=error").Parse(string(content))
+				if e != nil {
+					return e
+				}
+				var b bytes.Buffer
+				if e = t.Execute(&b, data); e != nil {
+					return e
+				}
+				content = b.Bytes()
+			}
+			if f.name == "nsgo.yaml" || f.name == project.FileName {
+				for _, kv := range [][2]string{{"name", data.Name}, {"id", data.ID}} {
+					content, e = setYAMLScalar(content, kv[0], kv[1])
+					if e != nil {
+						return e
+					}
+				}
+			}
+			f.content = content
+		}
+		files = append(files, f)
+		return nil
+	})
+	return files, err
+}
+
+func writeOrigin(dir string, origin project.Origin) error {
+	p := filepath.Join(dir, project.FileName)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return err
+	}
+	doc, err := project.Parse(data)
+	if err != nil {
+		return err
+	}
+	doc.Origin = &origin
+	out, err := project.Encode(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, out, 0o644)
 }
 
 // shellWord returns s as one word for a shell on goos: as it is when it holds only characters a shell takes literally, and otherwise in single quotes for a POSIX shell or in double quotes on Windows, where cmd and PowerShell both take them and \ separates paths.

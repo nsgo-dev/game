@@ -197,6 +197,7 @@ go tool game new [flags] <dir>
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
+| `-from string` |  | copy a project from a template, example, directory, or pack directory |
 | `-list` |  | list the templates, each with a line describing it, instead of creating a project |
 | `-module string` |  | the module path in go.mod (default: the name in lower case with its words joined by -) |
 | `-name string` |  | the game's display name in game.yaml and nsgo.yaml: letters, digits, spaces, - and \_ (default: the directory's name) |
