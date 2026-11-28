@@ -530,8 +530,8 @@ func TestParallelRevertTaskPreservesOtherTasksKeptEditsOverMCP(t *testing.T) {
 	}
 }
 
-// taskRunnerWait bounds each wait on the default task runner's goroutines, which only guards against a hang: 5 seconds timed out on loaded macOS CI runners while the holds were still being acquired.
-const taskRunnerWait = 30 * time.Second
+// taskRunnerWait bounds each wait on the default task runner's goroutines, which only guards against a hang.
+const taskRunnerWait = 10 * time.Second
 
 // #1507: Built-in agent tasks run through the default AgentTaskRunner (AgentTaskRunner == nil)
 // with editormcp per-object holds, Needs you permission prompts, and separate TaskReviews/AgentTurns.
@@ -648,7 +648,11 @@ func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *test
 		}
 		http.Error(w, "unexpected task", http.StatusBadRequest)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	// Registered after srv.Close so it runs first: a failure before the release would otherwise leave task-1's handler blocked and srv.Close waiting on it until the test binary's timeout.
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseTask1) }) }
+	t.Cleanup(release)
 
 	ed.BuiltInAgentEndpoint = srv.URL
 	ed.BuiltInHTTPClient = srv.Client()
@@ -691,11 +695,7 @@ func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *test
 	if submitErr != nil {
 		t.Fatalf("SubmitTask b1: %v", submitErr)
 	}
-	select {
-	case <-task1Held:
-	case <-time.After(taskRunnerWait):
-		t.Fatal("timed out waiting for b1 to acquire slime_02")
-	}
+	awaitSettling(t, app, task1Held, taskRunnerWait, "b1 to acquire slime_02")
 
 	// Submit parallel task 2; it must hold waiting on slime_02 held by b1.
 	app.Post(func() {
@@ -710,14 +710,10 @@ func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *test
 	if submitErr != nil {
 		t.Fatalf("SubmitTask b2: %v", submitErr)
 	}
-	select {
-	case <-task2Blocked:
-	case <-time.After(taskRunnerWait):
-		t.Fatal("timed out waiting for b2 to block on slime_02")
-	}
+	awaitSettling(t, app, task2Blocked, taskRunnerWait, "b2 to block on slime_02")
 
 	// Release task 1 -> both finish as separate Ready to review tasks with distinct reviews and turns.
-	close(releaseTask1)
+	release()
 	app.WaitUntil(taskRunnerWait, func() bool {
 		t1, _ := ed.Task("b1")
 		t2, _ := ed.Task("b2")
