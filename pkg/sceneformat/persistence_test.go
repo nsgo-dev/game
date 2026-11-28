@@ -166,6 +166,19 @@ connections:
 	if built.Objects["crate_1"].Doc.X != 112 || built.Objects["crate_1"].Doc.Y != 64 {
 		t.Fatalf("built crate_1 at (%v,%v), want (112,64)", built.Objects["crate_1"].Doc.X, built.Objects["crate_1"].Doc.Y)
 	}
+	// Pushing crate_1 back to where the scene file places it clears the override from the first visit.
+	w2.Hierarchy2D().SetLocal(spawned2["crate_1"], entities.Transform2D{X: 30, Y: 40, ScaleX: 1, ScaleY: 1})
+	sceneformat.CapturePersistence(doc, w2, spawned2, reloadedPers, scenePath)
+	if _, _, moved := reloadedPers.Position(scenePath, "crate_1"); moved {
+		t.Fatal("crate_1 kept its stale position override after returning to its scene-file position")
+	}
+	if st, ok := reloadedPers.Object(scenePath, "crate_1"); ok && st.Rotation != nil {
+		t.Fatalf("crate_1 kept its stale rotation override %v", *st.Rotation)
+	}
+	if !reloadedPers.IsDestroyed(scenePath, "slime_1") || !reloadedPers.Switch(scenePath, "chest_1", "A") {
+		t.Fatal("second capture dropped state of other objects")
+	}
+
 	// Original doc must remain completely unmutated.
 	if len(doc.Layers[0].Objects) != 5 || len(doc.Connections) != 1 || doc.Layers[0].Objects[1].X != 30 {
 		t.Fatal("ApplyPersistence mutated original SceneDoc")

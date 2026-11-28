@@ -477,7 +477,6 @@ func (g *Game) PeekPart(s *Store, slot, name string, dst any) error {
 		return fmt.Errorf("save: unknown part %q", name)
 	}
 	var rawDoc json.RawMessage
-	var partRaw json.RawMessage
 	found := false
 	err := s.LoadChecked(slot, &rawDoc, func() error {
 		savedParts, err := parseGameSlotDoc(rawDoc, g.byName)
@@ -496,7 +495,6 @@ func (g *Game) PeekPart(s *Store, slot, name string, dst any) error {
 		if err := unmarshalClean(migrated, dst); err != nil {
 			return wrapPartError(name, "data", err)
 		}
-		partRaw = migrated
 		found = true
 		return nil
 	})
@@ -506,7 +504,6 @@ func (g *Game) PeekPart(s *Store, slot, name string, dst any) error {
 	if !found {
 		return fmt.Errorf("save: part %q in slot %q: %w", name, slot, ErrNotFound)
 	}
-	_ = partRaw
 	return nil
 }
 

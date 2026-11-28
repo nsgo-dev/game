@@ -35,7 +35,7 @@ Inside `save.Store`'s outer `{"version": N, "data": ...}` envelope, `Game.Save` 
 
 ### Package boundaries and adapters
 
-Because `game/pkg/save` is a `Stable` package, it never imports `Experimental` packages (`inventory`, `quest`, `stats`, `ability`, `entities`, `sceneformat`), and `pkg/entities` already imports `pkg/save`. Instead, `pkg/save` exposes `StagedFuncPart[T]` which performs `json.Unmarshal` inside `pkg/save`, and each subsystem package provides a `SavePart() save.Part` method (`inventory.Container`, `inventory.Equipment`, `quest.Log`, `stats.Sheet`, `ability.Caster`, `flow.Machine[S]`, `flow.DialogueRunner`, `entities.World`) without importing `encoding/json`. `pkg/stats` also gains `Sheet.Snapshot()` and `Sheet.Restore()`. (The project-wide variables/switches of #1754 are not yet landed and will add their own `SavePart()` when implemented.)
+Because `game/pkg/save` is a `Stable` package, it never imports `Experimental` packages (`inventory`, `quest`, `stats`, `ability`, `entities`, `sceneformat`), and `pkg/entities` already imports `pkg/save`. Instead, `pkg/save` exposes `StagedFuncPart[T]` which performs `json.Unmarshal` inside `pkg/save`, and each subsystem package provides a `SavePart() save.Part` method (`inventory.Container`, `inventory.Equipment`, `quest.Log`, `stats.Sheet`, `ability.Caster`, `flow.Machine[S]`, `dialogue.Runner`, `entities.World`) without importing `encoding/json`. `pkg/stats` also gains `Sheet.Snapshot()` and `Sheet.Restore()`. (The project-wide variables/switches of #1754 are not yet landed and will add their own `SavePart()` when implemented.)
 
 ### Scene persistence
 
