@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
@@ -68,19 +69,26 @@ type Store struct {
 	// Migrations maps a version v to the Migration that upgrades a save's JSON data from v to v+1.
 	Migrations map[int]Migration
 
-	backend Backend
+	backend      Backend
+	backgroundIO bool
+	ioMu         sync.Mutex
+	async        saveQueue
 }
 
 // NewStore returns a Store backed by backend, defaulting to Version 1 before applying opts.
 func NewStore(backend Backend, opts ...Option) *Store {
 	s := &Store{
-		Version: 1,
-		backend: backend,
+		Version:      1,
+		backend:      backend,
+		backgroundIO: backend != nil,
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(s)
 		}
+	}
+	if _, storage := backend.(*storageBackend); storage {
+		s.backgroundIO = false
 	}
 	return s
 }
@@ -114,27 +122,43 @@ func (s *Store) Save(slot string, value any) error {
 //
 // Keep the header small (a chapter, a location, play time, a date): Headers reads every slot's envelope to list them.
 func (s *Store) SaveWithHeader(slot string, header, value any) error {
-	h, err := json.Marshal(header)
+	h, err := encodeHeader(slot, header)
 	if err != nil {
-		return fmt.Errorf("save: marshal header %q: %w", slot, err)
-	}
-	if t := bytes.TrimSpace(h); len(t) == 0 || t[0] != '{' {
-		return fmt.Errorf("save: header for %q is not a JSON object", slot)
+		return err
 	}
 	return s.write(slot, h, value)
 }
 
+func encodeHeader(slot string, header any) (json.RawMessage, error) {
+	h, err := json.Marshal(header)
+	if err != nil {
+		return nil, fmt.Errorf("save: marshal header %q: %w", slot, err)
+	}
+	if t := bytes.TrimSpace(h); len(t) == 0 || t[0] != '{' {
+		return nil, fmt.Errorf("save: header for %q is not a JSON object", slot)
+	}
+	return h, nil
+}
+
 // write encodes value, with header when it is not nil, into a versioned envelope and writes it to slot.
 func (s *Store) write(slot string, header json.RawMessage, value any) error {
-	if err := validateSlot(slot); err != nil {
+	payload, err := s.encode(slot, header, value)
+	if err != nil {
 		return err
 	}
+	return s.writePayload(slot, payload)
+}
+
+func (s *Store) encode(slot string, header json.RawMessage, value any) ([]byte, error) {
+	if err := validateSlot(slot); err != nil {
+		return nil, err
+	}
 	if s.backend == nil {
-		return errors.New("save: store has no backend")
+		return nil, errors.New("save: store has no backend")
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return fmt.Errorf("save: marshal %q: %w", slot, err)
+		return nil, fmt.Errorf("save: marshal %q: %w", slot, err)
 	}
 	payload, err := json.Marshal(envelope{
 		Version: s.version(),
@@ -142,16 +166,32 @@ func (s *Store) write(slot string, header json.RawMessage, value any) error {
 		Data:    json.RawMessage(raw),
 	})
 	if err != nil {
-		return fmt.Errorf("save: encode %q: %w", slot, err)
+		return nil, fmt.Errorf("save: encode %q: %w", slot, err)
 	}
+	return payload, nil
+}
+
+func (s *Store) writePayload(slot string, payload []byte) error {
+	defer s.lockIO()()
 	return s.backend.Write(slot, payload)
+}
+
+// lockIO protects backend operations that can overlap the worker. Leave
+// engine-only backends free to trigger reactive reads in synchronous callers.
+func (s *Store) lockIO() func() {
+	if s.backgroundIO {
+		s.ioMu.Lock()
+		return s.ioMu.Unlock
+	}
+	return func() {}
 }
 
 // Headers returns the header of every slot saved with SaveWithHeader, keyed by slot name, without unmarshaling any slot's data into a Go value. A slot saved with Save, or by a build that predates headers, has no header and is left out; Slots still lists it.
 //
-// Each header comes from the copy Load would read: the primary, or the backup when the primary is missing or is not a valid envelope. A slot neither of whose copies is a valid envelope is left out too, and Load reports what is wrong with it.
+// Headers prefers a valid primary envelope and tries the backup when the primary cannot be read or parsed. Slots whose primary uses a newer unknown envelope format are omitted so an older backup is not presented as the current save.
 func (s *Store) Headers() (map[string]json.RawMessage, error) {
-	slots, err := s.Slots()
+	defer s.lockIO()()
+	slots, err := s.slots()
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +210,9 @@ func (s *Store) readEnvelope(slot string) (envelope, bool) {
 	if raw, err := s.backend.Read(slot); err == nil {
 		if env, err := parseEnvelope(raw); err == nil {
 			return env, true
+		}
+		if v, ok := EnvelopeVersion(raw); ok && v > s.version() {
+			return envelope{}, false
 		}
 	}
 	if raw, err := s.backend.ReadBackup(slot); err == nil {
@@ -197,6 +240,11 @@ func (s *Store) Load(slot string, dst any) error {
 //
 // When check returns a *loaderr.Error whose Field is a path in dst's JSON, the error LoadChecked returns gives that field's line in the stored copy, under "data". A nil check checks nothing.
 func (s *Store) LoadChecked(slot string, dst any, check func() error) error {
+	defer s.lockIO()()
+	return s.loadChecked(slot, dst, check, s.version(), s.Migrations)
+}
+
+func (s *Store) loadChecked(slot string, dst any, check func() error, target int, migrations map[int]Migration) error {
 	if err := validateSlot(slot); err != nil {
 		return err
 	}
@@ -205,13 +253,13 @@ func (s *Store) LoadChecked(slot string, dst any, check func() error) error {
 	}
 	restore := snapshot(dst)
 	decode := func(backup bool, payload []byte) error {
-		err := s.decode(copyName(s.backend, slot, backup), payload, dst, check)
+		err := decodeEnvelope(copyName(s.backend, slot, backup), payload, target, migrations, dst, check)
 		if err != nil {
 			restore()
 		}
 		return err
 	}
-	primary, primaryErr := s.backend.Read(slot)
+	primary, primaryErr := s.readPrimary(slot)
 	if primaryErr == nil {
 		err := decode(false, primary)
 		if err == nil {
@@ -220,7 +268,7 @@ func (s *Store) LoadChecked(slot string, dst any, check func() error) error {
 		if errors.Is(err, ErrFutureVersion) || errors.Is(err, ErrMissingMigration) {
 			return err
 		}
-		if backup, bakErr := s.backend.ReadBackup(slot); bakErr == nil {
+		if backup, bakErr := s.readBackup(slot); bakErr == nil {
 			recErr := decode(true, backup)
 			if recErr == nil {
 				if isDamagedPayload(primary) {
@@ -234,7 +282,7 @@ func (s *Store) LoadChecked(slot string, dst any, check func() error) error {
 		}
 		return err
 	}
-	backup, bakErr := s.backend.ReadBackup(slot)
+	backup, bakErr := s.readBackup(slot)
 	if bakErr != nil {
 		if errors.Is(primaryErr, ErrNotFound) && errors.Is(bakErr, ErrNotFound) {
 			return fmt.Errorf("save: load %q: %w", slot, ErrNotFound)
@@ -278,8 +326,21 @@ func (s *Store) repair(slot string, backup []byte) {
 	_ = s.backend.Write(slot, backup)
 }
 
+func (s *Store) readPrimary(slot string) ([]byte, error) {
+	return s.backend.Read(slot)
+}
+
+func (s *Store) readBackup(slot string) ([]byte, error) {
+	return s.backend.ReadBackup(slot)
+}
+
 // Delete removes slot and its backup copy. Deleting a slot that does not exist returns nil. The backup goes first, so an interrupted Delete leaves either the whole slot or nothing that Load could resurrect.
 func (s *Store) Delete(slot string) error {
+	defer s.lockIO()()
+	return s.delete(slot)
+}
+
+func (s *Store) delete(slot string) error {
 	if err := validateSlot(slot); err != nil {
 		return err
 	}
@@ -291,16 +352,17 @@ func (s *Store) Delete(slot string) error {
 
 // DeleteAll removes every save slot and its backup copy. Player settings stored alongside save slots are never touched.
 func (s *Store) DeleteAll() error {
+	defer s.lockIO()()
 	if s.backend == nil {
 		return errors.New("save: store has no backend")
 	}
-	slots, err := s.Slots()
+	slots, err := s.slots()
 	if err != nil {
 		return err
 	}
 	var errs []error
 	for _, slot := range slots {
-		if err := s.backend.Delete(slot); err != nil {
+		if err := s.delete(slot); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -309,6 +371,7 @@ func (s *Store) DeleteAll() error {
 
 // Exists reports whether slot has a stored save or backup copy.
 func (s *Store) Exists(slot string) bool {
+	defer s.lockIO()()
 	if validateSlot(slot) != nil || s.backend == nil {
 		return false
 	}
@@ -317,6 +380,11 @@ func (s *Store) Exists(slot string) bool {
 
 // Slots returns the sorted names of all slots stored in the backend.
 func (s *Store) Slots() ([]string, error) {
+	defer s.lockIO()()
+	return s.slots()
+}
+
+func (s *Store) slots() ([]string, error) {
 	if s.backend == nil {
 		return nil, errors.New("save: store has no backend")
 	}
@@ -363,11 +431,6 @@ func copyName(b any, slot string, backup bool) string {
 		return backupName(slot)
 	}
 	return slot
-}
-
-// decode decodes payload, the copy of a save named name, into dst.
-func (s *Store) decode(name string, payload []byte, dst any, check func() error) error {
-	return decodeEnvelope(name, payload, s.version(), s.Migrations, dst, check)
 }
 
 // decodeEnvelope decodes payload, the copy of a save named name, into dst. Its errors are *loaderr.Error values that name name and the line of the problem in payload, and match ErrCorrupt, ErrFutureVersion or ErrMissingMigration with errors.Is.

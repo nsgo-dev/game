@@ -107,6 +107,10 @@ for slot, raw := range headers {
 
 早于摘要功能的构建会把带摘要的信封读作 `ErrCorrupt` 并回退到备份，因此可能降级的游戏不要在同一个模式版本中开始写入摘要。
 
+## 异步文件存档
+
+对于较大的存档，`SaveAsync(cx, ctx, slot, value, done)` 会在调用 goroutine 捕获 JSON，再把文件 I/O 移出引擎 goroutine；`LoadAsync(cx, ctx, slot, &value, done)` 会在工作 goroutine 读取和解码。每个回调都会通过 `cx` 回到引擎 goroutine，同一个 `Store` 的调用按顺序串行执行，`Flush(ctx)` 会等待队列中的操作完成，适合应用进入后台或关闭前调用。取消的 context 会跳过尚未开始的操作。这些方法需要 `NewFileStore`；`core.Storage` 必须留在引擎 goroutine 上，因此从异步方法返回 `ErrAsyncUnavailable`。
+
 ## 原子写入与备份恢复
 
 `Save` 会先完成 JSON 编码再接触底层存储，因此序列化失败不会破坏原有存档。在替换主存档之前，两种内置后端都会先保留上一次有效存档作为备份：
