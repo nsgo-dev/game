@@ -42,6 +42,7 @@ func runCLI(args []string) error {
 		summaryPath        = fs.String("summary", "", "optional path to append Markdown summary (defaults to $GITHUB_STEP_SUMMARY when set)")
 		timeout            = fs.Duration("timeout", 5*time.Minute, "per-task grading timeout (nsgo check and the MCP verification test)")
 		agentTimeout       = fs.Duration("agent-timeout", 15*time.Minute, "per-task agent budget in -mode=command or -mode=agent, separate from -timeout")
+		trials             = fs.Int("trials", 1, "independent trials per task")
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -60,6 +61,9 @@ func runCLI(args []string) error {
 	}
 	if *agentTimeout < 0 {
 		return fmt.Errorf("agenteval: -agent-timeout must be non-negative (got %s)", *agentTimeout)
+	}
+	if *trials < 1 {
+		return fmt.Errorf("agenteval: -trials must be at least 1 (got %d)", *trials)
 	}
 
 	root, err := findRepoRoot()
@@ -92,6 +96,7 @@ func runCLI(args []string) error {
 		MinScoreOverride:   *minScore,
 		Timeout:            *timeout,
 		AgentTimeout:       *agentTimeout,
+		Trials:             *trials,
 	})
 	if err != nil {
 		return err

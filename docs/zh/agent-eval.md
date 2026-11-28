@@ -9,3 +9,7 @@
 ## 任务
 
 `editor-workflow` 要求做与 `add-menu` 相同的菜单，按同一套评分细则打分；它的提示词要求智能体在编辑前检查场景和图层，通过 `scene_edit` 编辑，并用 `game_check` 校验。
+
+## 试验
+
+运行 `go run ./tools/agenteval -mode=reference -trials 3`，即可在独立工作区重复每个任务。JSON 报告会为每个任务包含 `trials`、`pass_rate`、`mean_score` 和 `stddev`。

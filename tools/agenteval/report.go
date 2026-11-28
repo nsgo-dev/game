@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,12 +30,16 @@ type TaskReport struct {
 	Criteria    []CriterionResult `json:"criteria"`
 	AgentOutput string            `json:"agent_output,omitempty"`
 	// AgentTimedOut reports that the agent hit its own timeout; grading still ran on what it left.
-	AgentTimedOut         bool   `json:"agent_timed_out,omitempty"`
-	AgentError            string `json:"agent_error,omitempty"`
-	AgentTurns            int    `json:"agent_turns,omitempty"`
-	AgentToolCalls        int    `json:"agent_tool_calls,omitempty"`
-	AgentPromptTokens     int    `json:"agent_prompt_tokens,omitempty"`
-	AgentCompletionTokens int    `json:"agent_completion_tokens,omitempty"`
+	AgentTimedOut         bool    `json:"agent_timed_out,omitempty"`
+	AgentError            string  `json:"agent_error,omitempty"`
+	AgentTurns            int     `json:"agent_turns,omitempty"`
+	AgentToolCalls        int     `json:"agent_tool_calls,omitempty"`
+	AgentPromptTokens     int     `json:"agent_prompt_tokens,omitempty"`
+	AgentCompletionTokens int     `json:"agent_completion_tokens,omitempty"`
+	Trials                int     `json:"trials"`
+	PassRate              float64 `json:"pass_rate"`
+	MeanScore             float64 `json:"mean_score"`
+	StdDev                float64 `json:"stddev"`
 }
 
 // SuiteReport aggregates scores across every evaluated task.
@@ -50,6 +55,35 @@ type SuiteReport struct {
 	AverageScore float64      `json:"average_score"`
 	Passed       bool         `json:"passed"`
 	Tasks        []TaskReport `json:"tasks"`
+	CommitSHA    string       `json:"commit_sha,omitempty"`
+	ContextHash  string       `json:"context_hash,omitempty"`
+}
+
+// AggregateTaskReports combines repeated independent trials for one task.
+func AggregateTaskReports(trials []TaskReport) TaskReport {
+	if len(trials) == 0 {
+		return TaskReport{}
+	}
+	out := trials[0]
+	out.Trials = len(trials)
+	var sum, pass float64
+	for _, t := range trials {
+		sum += float64(t.Score)
+		if t.Passed {
+			pass++
+		}
+	}
+	out.MeanScore = sum / float64(len(trials))
+	out.PassRate = pass / float64(len(trials))
+	var variance float64
+	for _, t := range trials {
+		d := float64(t.Score) - out.MeanScore
+		variance += d * d
+	}
+	out.StdDev = math.Sqrt(variance / float64(len(trials)))
+	out.Score = int(math.Round(out.MeanScore))
+	out.Passed = out.PassRate >= 1
+	return out
 }
 
 // BuildSuiteReport computes aggregate totals and pass/fail status from task reports.
