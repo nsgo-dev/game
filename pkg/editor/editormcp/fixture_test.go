@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 // heroColor is the colour of every pixel of the fixture's sprite image.
@@ -244,6 +246,23 @@ func connect(t testing.TB, s *editormcp.Server, opts *mcp.ClientOptions) *mcp.Cl
 	}
 	t.Cleanup(func() { _ = cs.Close() })
 	return cs
+}
+
+// awaitSettling receives from ch while it settles app, failing the test with what after timeout. A server built with Options{Run: app.Post} (or a scope's Post) hands each editor call to the app's queue, which nsgotest runs only inside a step, so a test that waits in a plain select leaves the tool call it waits on parked in that queue: the hold-blocked hook, a tool's result and the default task runner's next request all come after at least one more editor call.
+func awaitSettling[T any](t testing.TB, app *nsgotest.App, ch <-chan T, timeout time.Duration, what string) T {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		app.Settle()
+		select {
+		case v := <-ch:
+			return v
+		case <-time.After(5 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out after %v waiting for %s", timeout, what)
+		}
+	}
 }
 
 // call calls the tool name with args and returns its result, failing the test on a protocol error.

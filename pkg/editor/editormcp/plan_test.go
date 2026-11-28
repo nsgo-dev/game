@@ -236,12 +236,7 @@ layers:
 	app.Settle()
 
 	// 3. Receive and verify the structured decision returned by plan_propose.
-	var out callOutcome
-	select {
-	case out = <-outcomeCh:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for plan_propose decision")
-	}
+	out := awaitSettling(t, app, outcomeCh, 3*time.Second, "the plan_propose decision")
 	if out.err != nil || out.res == nil || out.res.IsError {
 		t.Fatalf("plan_propose failed: err=%v res=%+v", out.err, out.res)
 	}
