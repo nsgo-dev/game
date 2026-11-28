@@ -484,3 +484,7 @@ In `pkg/editor/editormcp`, the editor's MCP server enforces two non-bypassable t
 - **You-only refusal (`*editormcp.YouOnlyError`)**: Every non-read tool call (built-in or registered via `Server.AddTool`) is checked before its handler runs across explicit argument paths, derived targets (including bare-stem `refactor_rename` and `release_notes_draft`), and open document paths, and refused if any target resolves to `permissions.yaml`, `.nsgo/permissions.yaml`, `tools.yaml`, `mcp.yaml`, `models.yaml`, `usage.yaml`, or `Editor.SettingsPath`.
 - **`permissions_draft`**: Submits a You-only draft card (`Editor.SubmitPermissionsDraft`) with zero rules ticked by default. It never modifies `permissions.yaml` directly; only explicit person ticks + **Apply** can persist changes.
 - **`game_delete_file`**: Refuses You-only files, symlinks, `.git/**`, `game.yaml`, open scene tabs, and >1 MiB files; for ordinary project files it proposes a deletion in the Review changes panel with line count and scene usages (`Editor.ProposeFileDeletion`) without deleting the file on disk. **Keep all** never deletes pending files; confirming deletes via a checkpoint command that `⌘Z` restores byte-for-byte.
+
+## Release MCP self-test
+
+`go tool game mcp selftest -project <dir>` writes `release-check.yaml` with the version, template/project name, operating system, and pass/fail checks for the headless editor MCP registration. Release workflows can upload this YAML as evidence alongside failure logs and screenshots.
