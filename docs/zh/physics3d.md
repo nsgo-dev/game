@@ -6,6 +6,8 @@ import "github.com/nsgo-dev/game/pkg/physics3d"
 
 纯 Go 实现的紧凑、确定性 3D 碰撞检测、射线检测、刚体动力学与运动学角色控制器。
 
+`World.Substeps` 默认值为 4，会以确定性的较小步长推进重力、接触、关节和位置。设置为正数可以选择其他次数。该值写入 `WorldSnapshot` 版本 5，旧版本快照恢复时使用默认值。
+
 ## 架构决策（#180）
 
 `physics3d` 采用**方案 (a)**：仅依赖 Go 标准库的零 cgo 纯 Go 实现。

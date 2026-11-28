@@ -31,6 +31,67 @@ type identifiableJoint interface {
 	setJointInternalID(uint64)
 }
 
+// JointSoftness configures optional harmonic spring-damper softness on a joint.
+// When Hertz <= 0 (the default), the joint acts as a rigid constraint; positive
+// Hertz softens the joint with natural frequency Hertz (in cycles per second)
+// and dimensionless DampingRatio (0 = undamped, 1 = critically damped, > 1 =
+// overdamped).
+type JointSoftness struct {
+	Hertz        float32 `json:"hertz,omitempty"`
+	DampingRatio float32 `json:"dampingRatio,omitempty"`
+}
+
+func makeJointSoftness(s JointSoftness, dt float64) (biasRate, gammaScale float64, soft bool) {
+	if !(s.Hertz > 0) || dt <= 0 {
+		return 0, 0, false
+	}
+	omega := float64(float64(2.0*math.Pi) * float64(s.Hertz))
+	zeta := max(0.0, float64(s.DampingRatio))
+	hOmega := float64(dt * omega)
+	a1 := float64(2.0*zeta) + hOmega
+	a2 := float64(hOmega * a1)
+	if a2 <= 1e-12 {
+		return 0, 0, false
+	}
+	return omega / a1, 1.0 / a2, true
+}
+
+func applyPushImpulse2D(b *RigidBody, deltas []rigidBodyDelta, ix, iy, rx, ry float64) {
+	if b == nil || b.fixed() || b.sleeping || b.index < 0 || b.index >= len(deltas) {
+		return
+	}
+	d := &deltas[b.index]
+	invM := float64(b.InvMass)
+	invI := float64(b.InvInertia)
+	d.pvx += float64(ix * invM)
+	d.pvy += float64(iy * invM)
+	cross := float64(rx*iy) - float64(ry*ix)
+	d.pav += float64(cross * invI)
+}
+
+func applyAngularPush2D(a, b *RigidBody, deltas []rigidBodyDelta, imp float64) {
+	if a != nil && !a.fixed() && !a.sleeping && a.index >= 0 && a.index < len(deltas) {
+		deltas[a.index].pav -= float64(imp * float64(a.InvInertia))
+	}
+	if b != nil && !b.fixed() && !b.sleeping && b.index >= 0 && b.index < len(deltas) {
+		deltas[b.index].pav += float64(imp * float64(b.InvInertia))
+	}
+}
+
+func bodyPushVel2D(b *RigidBody, deltas []rigidBodyDelta) (pvx, pvy, pav float64) {
+	if b == nil || b.fixed() || b.sleeping || b.index < 0 || b.index >= len(deltas) {
+		return 0, 0, 0
+	}
+	d := &deltas[b.index]
+	return d.pvx, d.pvy, d.pav
+}
+
+type substepJoint2D interface {
+	solveVelocitySubstep(skipAnchor bool)
+	solvePushOut(deltas []rigidBodyDelta, skipAnchor bool)
+	solveRelax(skipAnchor bool)
+}
+
 type stepReactionJoint interface {
 	resetStepReaction(dt float64)
 }
@@ -248,19 +309,24 @@ type DistanceJoint struct {
 	Stiffness        float32
 	Compliance       float32
 	Damping          float32
-	BreakForce       float32 // max reaction force before breaking (<= 0 disables)
-	BreakTorque      float32 // max reaction torque before breaking (<= 0 disables)
+	Softness         JointSoftness // optional harmonic softness (Hertz > 0 softens the distance constraint)
+	BreakForce       float32       // max reaction force before breaking (<= 0 disables)
+	BreakTorque      float32       // max reaction torque before breaking (<= 0 disables)
 	CollideConnected bool
 
 	jointReaction
 	initialized bool
 	active      bool
+	soft        bool
 	dt          float64
 	ux, uy      float64
 	rAx, rAy    float64
 	rBx, rBy    float64
 	effMass     float64
+	softGamma   float64
+	softBias    float64
 	accImpulse  float64
+	pushAcc     float64
 	mode        int // 0 = slack, 1 = bilateral fixed length, 2 = min limit, 3 = max limit (rope)
 	targetLen   float64
 }
@@ -336,7 +402,11 @@ func (j *DistanceJoint) effectiveRange() (lo, hi float64, unilateral bool) {
 
 func (j *DistanceJoint) preStep(dt float64) {
 	j.active = false
+	j.soft = false
+	j.softGamma = 0
+	j.softBias = 0
 	j.accImpulse = 0
+	j.pushAcc = 0
 	j.mode = 0
 	j.targetLen = 0
 	if j.A == nil || j.B == nil || (j.A.Static && j.B.Static) {
@@ -385,17 +455,32 @@ func (j *DistanceJoint) preStep(dt float64) {
 		float64(float64(float64(j.A.InvInertia)*rnA)*rnA) +
 		float64(float64(float64(j.B.InvInertia)*rnB)*rnB)
 
-	alpha := max(0, float64(j.Compliance)) / float64(dt*dt)
-	denom := k + alpha
-	if denom <= 1e-12 {
-		return
+	if biasRate, gammaScale, soft := makeJointSoftness(j.Softness, dt); soft {
+		j.soft = true
+		j.softGamma = float64(gammaScale * k)
+		j.softBias = float64(biasRate * (dist - j.targetLen))
+		denom := k + j.softGamma
+		if denom <= 1e-12 {
+			return
+		}
+		j.effMass = 1.0 / denom
+	} else {
+		alpha := max(0, float64(j.Compliance)) / float64(dt*dt)
+		denom := k + alpha
+		if denom <= 1e-12 {
+			return
+		}
+		j.effMass = 1.0 / denom
 	}
-	j.effMass = 1.0 / denom
 	j.dt = dt
 	j.active = true
 }
 
 func (j *DistanceJoint) solveVelocity() {
+	j.solveVelocitySubstep(false)
+}
+
+func (j *DistanceJoint) solveVelocitySubstep(_ bool) {
 	if !j.active || j.mode == 0 {
 		return
 	}
@@ -405,11 +490,16 @@ func (j *DistanceJoint) solveVelocity() {
 	vBy := float64(j.B.VY) + float64(float64(j.B.AngularVel)*j.rBx)
 
 	vRel := float64((vBx-vAx)*j.ux) + float64((vBy-vAy)*j.uy)
-	dLambda := float64(float64(-vRel*j.effMass) * j.effectiveStiffness())
-	if j.Damping > 0 {
-		// Additional viscous damping along the rod axis.
-		damp := min(1.0, float64(j.Damping)*j.dt)
-		dLambda = float64(dLambda * (1.0 - float64(0.5*damp)))
+	var dLambda float64
+	if j.soft {
+		dLambda = float64(-(vRel + j.softBias + float64(j.softGamma*j.accImpulse)) * j.effMass)
+	} else {
+		dLambda = float64(float64(-vRel*j.effMass) * j.effectiveStiffness())
+		if j.Damping > 0 {
+			// Additional viscous damping along the rod axis.
+			damp := min(1.0, float64(j.Damping)*j.dt)
+			dLambda = float64(dLambda * (1.0 - float64(0.5*damp)))
+		}
 	}
 
 	applied := dLambda
@@ -433,6 +523,94 @@ func (j *DistanceJoint) solveVelocity() {
 	j.A.applyImpulseRaw(-px, -py, j.rAx, j.rAy)
 	j.B.applyImpulseRaw(px, py, j.rBx, j.rBy)
 	j.addLinearImpulse(px, py)
+}
+
+func (j *DistanceJoint) solvePushOut(deltas []rigidBodyDelta, _ bool) {
+	if j.soft || j.A == nil || j.B == nil || (j.A.Static && j.B.Static) || j.dt <= 0 {
+		return
+	}
+	pA := j.A.LocalToWorld(j.AnchorA)
+	pB := j.B.LocalToWorld(j.AnchorB)
+	dx := float64(pB.X) - float64(pA.X)
+	dy := float64(pB.Y) - float64(pA.Y)
+	dist := detmath.Hypot(dx, dy)
+
+	lo, hi, unilateral := j.effectiveRange()
+	var err float64
+	mode := 1
+	if !unilateral {
+		if !j.active {
+			return
+		}
+		err = dist - lo
+	} else if lo > 0 && dist < lo {
+		err = dist - lo
+		mode = 2
+	} else if dist > hi {
+		err = dist - hi
+		mode = 3
+	} else {
+		return
+	}
+	if math.Abs(err) <= 1e-6 && j.pushAcc == 0 {
+		return
+	}
+	ux, uy := 1.0, 0.0
+	if dist > 1e-8 {
+		ux, uy = dx/dist, dy/dist
+	}
+	rAx := float64(pA.X) - float64(j.A.X)
+	rAy := float64(pA.Y) - float64(j.A.Y)
+	rBx := float64(pB.X) - float64(j.B.X)
+	rBy := float64(pB.Y) - float64(j.B.Y)
+
+	rnA := float64(rAx*uy) - float64(rAy*ux)
+	rnB := float64(rBx*uy) - float64(rBy*ux)
+	k := float64(float64(j.A.InvMass)+float64(j.B.InvMass)) +
+		float64(float64(float64(j.A.InvInertia)*rnA)*rnA) +
+		float64(float64(float64(j.B.InvInertia)*rnB)*rnB)
+	alpha := max(0, float64(j.Compliance)) / float64(j.dt*j.dt)
+	denom := k + alpha
+	if denom <= 1e-12 {
+		return
+	}
+
+	pvAx, pvAy, pavA := bodyPushVel2D(j.A, deltas)
+	pvBx, pvBy, pavB := bodyPushVel2D(j.B, deltas)
+	vAx := pvAx - float64(pavA*rAy)
+	vAy := pvAy + float64(pavA*rAx)
+	vBx := pvBx - float64(pavB*rBy)
+	vBy := pvBy + float64(pavB*rBx)
+	vRel := float64((vBx-vAx)*ux) + float64((vBy-vAy)*uy)
+
+	bias := clamp64(float64(float64(err*j.effectiveStiffness())*(jointPushBiasFraction/j.dt)), -jointMaxPushSpeed, jointMaxPushSpeed)
+	dLambda := -(vRel + bias) / denom
+	applied := dLambda
+	if mode == 2 || mode == 3 {
+		newAcc := j.pushAcc + dLambda
+		if mode == 2 && newAcc < 0 {
+			newAcc = 0
+		} else if mode == 3 && newAcc > 0 {
+			newAcc = 0
+		}
+		applied = newAcc - j.pushAcc
+		j.pushAcc = newAcc
+	} else {
+		j.pushAcc += applied
+	}
+	if applied == 0 {
+		return
+	}
+	px, py := float64(applied*ux), float64(applied*uy)
+	applyPushImpulse2D(j.A, deltas, -px, -py, rAx, rAy)
+	applyPushImpulse2D(j.B, deltas, px, py, rBx, rBy)
+}
+
+func (j *DistanceJoint) solveRelax(_ bool) {
+	if !j.active || j.mode == 0 || j.soft || j.Compliance > 0 || (j.Stiffness > 0 && j.Stiffness < 1) {
+		return
+	}
+	j.solveVelocitySubstep(false)
 }
 
 func (j *DistanceJoint) solvePosition() {
@@ -614,7 +792,8 @@ type RevoluteJoint struct {
 	A, B             *RigidBody
 	AnchorA          core.Point
 	AnchorB          core.Point
-	ReferenceAngle   float32 // initial relative angle B.Angle - A.Angle
+	ReferenceAngle   float32       // initial relative angle B.Angle - A.Angle
+	Softness         JointSoftness // optional harmonic softness (Hertz > 0 softens the 2-DOF anchor)
 	EnableLimit      bool
 	LowerAngle       float32 // radians
 	UpperAngle       float32 // radians
@@ -626,16 +805,27 @@ type RevoluteJoint struct {
 	CollideConnected bool
 
 	jointReaction
-	active       bool
-	dt           float64
-	rAx, rAy     float64
-	rBx, rBy     float64
-	m11, m12     float64
-	m22          float64
-	motorMass    float64
-	motorImpulse float64
-	limitImpulse float64
-	limitState   int // 0 = inactive, -1 = lower, +1 = upper, 2 = locked
+	active         bool
+	soft           bool
+	dt             float64
+	rAx, rAy       float64
+	rBx, rBy       float64
+	m11, m12       float64
+	m22            float64
+	softBiasRate   float64
+	softGammaScale float64
+	softG00        float64
+	softG01        float64
+	softG11        float64
+	softBiasX      float64
+	softBiasY      float64
+	impulseX       float64
+	impulseY       float64
+	motorMass      float64
+	motorImpulse   float64
+	limitImpulse   float64
+	pushLimitImp   float64
+	limitState     int // 0 = inactive, -1 = lower, +1 = upper, 2 = locked
 }
 
 // NewRevoluteJoint creates a RevoluteJoint pinning a and b together at worldPivot.
@@ -657,6 +847,26 @@ func (j *RevoluteJoint) jointBodyPair() (*RigidBody, *RigidBody) { return j.A, j
 func (j *RevoluteJoint) collideConnected() bool                  { return j.CollideConnected }
 func (j *RevoluteJoint) checkBreak() (JointBreakEvent, bool) {
 	return j.evalBreak(j, j.A, j.B, j.BreakForce, j.BreakTorque)
+}
+
+func (j *RevoluteJoint) anchorBodies2D() (a, b *RigidBody, anchorA, anchorB core.Point) {
+	return j.A, j.B, j.AnchorA, j.AnchorB
+}
+
+func (j *RevoluteJoint) anchorSoftness2D() (biasRate, gammaScale float64, soft bool) {
+	return j.softBiasRate, j.softGammaScale, j.soft
+}
+
+func (j *RevoluteJoint) anchorAccImpulse2D() (ix, iy float64) {
+	return j.impulseX, j.impulseY
+}
+
+func (j *RevoluteJoint) addAnchorImpulse2D(px, py float64, recordReaction bool) {
+	j.impulseX += px
+	j.impulseY += py
+	if recordReaction {
+		j.addLinearImpulse(px, py)
+	}
 }
 
 // JointAngle returns the current relative rotation in radians: B.Angle - A.Angle - ReferenceAngle.
@@ -693,10 +903,17 @@ func revoluteEffMass(a, b *RigidBody, rAx, rAy, rBx, rBy float64) (m11, m12, m22
 
 func (j *RevoluteJoint) preStep(dt float64) {
 	j.active = false
+	j.soft = false
 	j.dt = dt
+	j.softBiasRate = 0
+	j.softGammaScale = 0
+	j.softG00, j.softG01, j.softG11 = 0, 0, 0
+	j.softBiasX, j.softBiasY = 0, 0
+	j.impulseX, j.impulseY = 0, 0
 	j.motorMass = 0
 	j.motorImpulse = 0
 	j.limitImpulse = 0
+	j.pushLimitImp = 0
 	j.limitState = 0
 	if j.A == nil || j.B == nil || (j.A.Static && j.B.Static) {
 		return
@@ -708,13 +925,34 @@ func (j *RevoluteJoint) preStep(dt float64) {
 	j.rBx = float64(pB.X) - float64(j.B.X)
 	j.rBy = float64(pB.Y) - float64(j.B.Y)
 
-	m11, m12, m22, ok := revoluteEffMass(j.A, j.B, j.rAx, j.rAy, j.rBx, j.rBy)
-	if !ok {
+	invMA, invIA := float64(j.A.InvMass), float64(j.A.InvInertia)
+	invMB, invIB := float64(j.B.InvMass), float64(j.B.InvInertia)
+	k11 := float64(invMA+invMB) + float64(float64(invIA*j.rAy)*j.rAy) + float64(float64(invIB*j.rBy)*j.rBy)
+	k12 := float64(float64(-invIA*j.rAx)*j.rAy) - float64(float64(invIB*j.rBx)*j.rBy)
+	k22 := float64(invMA+invMB) + float64(float64(invIA*j.rAx)*j.rAx) + float64(float64(invIB*j.rBx)*j.rBx)
+
+	if biasRate, gammaScale, soft := makeJointSoftness(j.Softness, dt); soft {
+		j.soft = true
+		j.softBiasRate = biasRate
+		j.softGammaScale = gammaScale
+		j.softG00 = float64(gammaScale * k11)
+		j.softG01 = float64(gammaScale * k12)
+		j.softG11 = float64(gammaScale * k22)
+		j.softBiasX = float64(biasRate * (float64(pB.X) - float64(pA.X)))
+		j.softBiasY = float64(biasRate * (float64(pB.Y) - float64(pA.Y)))
+		k11 += j.softG00
+		k12 += j.softG01
+		k22 += j.softG11
+	}
+
+	det := float64(k11*k22) - float64(k12*k12)
+	if math.Abs(det) <= 1e-12 {
 		return
 	}
-	j.m11, j.m12, j.m22 = m11, m12, m22
+	invDet := 1.0 / det
+	j.m11, j.m12, j.m22 = k22*invDet, -k12*invDet, k11*invDet
 
-	invISum := float64(j.A.InvInertia) + float64(j.B.InvInertia)
+	invISum := invIA + invIB
 	if invISum > 1e-12 {
 		j.motorMass = 1.0 / invISum
 		if j.EnableLimit && j.LowerAngle <= j.UpperAngle {
@@ -735,6 +973,10 @@ func (j *RevoluteJoint) preStep(dt float64) {
 }
 
 func (j *RevoluteJoint) solveVelocity() {
+	j.solveVelocitySubstep(false)
+}
+
+func (j *RevoluteJoint) solveVelocitySubstep(skipAnchor bool) {
 	if !j.active {
 		return
 	}
@@ -753,22 +995,149 @@ func (j *RevoluteJoint) solveVelocity() {
 		}
 	}
 
-	// 2. Point-to-point 2-DOF anchor constraint.
-	vAx := float64(j.A.VX) - float64(float64(j.A.AngularVel)*j.rAy)
-	vAy := float64(j.A.VY) + float64(float64(j.A.AngularVel)*j.rAx)
-	vBx := float64(j.B.VX) - float64(float64(j.B.AngularVel)*j.rBy)
-	vBy := float64(j.B.VY) + float64(float64(j.B.AngularVel)*j.rBx)
+	// 2. Point-to-point 2-DOF anchor constraint (skipped when solved by the O(N) tree pass).
+	if !skipAnchor {
+		vAx := float64(j.A.VX) - float64(float64(j.A.AngularVel)*j.rAy)
+		vAy := float64(j.A.VY) + float64(float64(j.A.AngularVel)*j.rAx)
+		vBx := float64(j.B.VX) - float64(float64(j.B.AngularVel)*j.rBy)
+		vBy := float64(j.B.VY) + float64(float64(j.B.AngularVel)*j.rBx)
 
-	dvx := vBx - vAx
-	dvy := vBy - vAy
-	px := -(float64(j.m11*dvx) + float64(j.m12*dvy))
-	py := -(float64(j.m12*dvx) + float64(j.m22*dvy))
+		rhsX := -(vBx - vAx)
+		rhsY := -(vBy - vAy)
+		if j.soft {
+			rhsX -= j.softBiasX + float64(j.softG00*j.impulseX) + float64(j.softG01*j.impulseY)
+			rhsY -= j.softBiasY + float64(j.softG01*j.impulseX) + float64(j.softG11*j.impulseY)
+		}
+		px := float64(j.m11*rhsX) + float64(j.m12*rhsY)
+		py := float64(j.m12*rhsX) + float64(j.m22*rhsY)
 
-	j.A.applyImpulseRaw(-px, -py, j.rAx, j.rAy)
-	j.B.applyImpulseRaw(px, py, j.rBx, j.rBy)
-	j.addLinearImpulse(px, py)
+		j.impulseX += px
+		j.impulseY += py
+		j.A.applyImpulseRaw(-px, -py, j.rAx, j.rAy)
+		j.B.applyImpulseRaw(px, py, j.rBx, j.rBy)
+		j.addLinearImpulse(px, py)
+	}
 
 	// 3. Angular limit constraint (solved after motor and anchor so limits strictly hold).
+	if j.limitState != 0 && j.motorMass > 0 {
+		wRel := float64(j.B.AngularVel) - float64(j.A.AngularVel)
+		dLambda := float64(-wRel * j.motorMass)
+		oldImp := j.limitImpulse
+		newImp := oldImp + dLambda
+		if j.limitState < 0 && newImp < 0 {
+			newImp = 0
+		} else if j.limitState == 1 && newImp > 0 {
+			newImp = 0
+		}
+		applied := newImp - oldImp
+		j.limitImpulse = newImp
+		if applied != 0 {
+			applyAngularImpulse2D(j.A, j.B, applied)
+			j.addAngularImpulse(applied)
+		}
+	}
+}
+
+func (j *RevoluteJoint) solvePushOut(deltas []rigidBodyDelta, skipAnchor bool) {
+	if !j.active || j.dt <= 0 {
+		return
+	}
+
+	// 1. Angular limit push-out into angular pseudo-velocity.
+	if j.EnableLimit && j.LowerAngle <= j.UpperAngle && j.motorMass > 0 {
+		angle := (float64(j.B.Angle) - float64(j.A.Angle)) - float64(j.ReferenceAngle)
+		lower, upper := float64(j.LowerAngle), float64(j.UpperAngle)
+		var angErr float64
+		limMode := 0
+		if math.Abs(upper-lower) <= 1e-6 {
+			angErr = angle - lower
+			limMode = 2
+		} else if angle < lower {
+			angErr = angle - lower
+			limMode = -1
+		} else if angle > upper {
+			angErr = angle - upper
+			limMode = 1
+		}
+		if limMode != 0 && (math.Abs(angErr) > 1e-6 || j.pushLimitImp != 0) {
+			_, _, pavA := bodyPushVel2D(j.A, deltas)
+			_, _, pavB := bodyPushVel2D(j.B, deltas)
+			bias := clamp64(float64(angErr*(jointPushBiasFraction/j.dt)), -jointMaxAngPushSpeed, jointMaxAngPushSpeed)
+			dLambda := float64(-((pavB - pavA) + bias) * j.motorMass)
+			oldImp := j.pushLimitImp
+			newImp := oldImp + dLambda
+			if limMode < 0 && newImp < 0 {
+				newImp = 0
+			} else if limMode == 1 && newImp > 0 {
+				newImp = 0
+			}
+			applied := newImp - oldImp
+			j.pushLimitImp = newImp
+			if applied != 0 {
+				applyAngularPush2D(j.A, j.B, deltas, applied)
+			}
+		}
+	}
+
+	// 2. Point-to-point anchor push-out (for rigid non-tree / cycle-closing anchors).
+	if skipAnchor || j.soft {
+		return
+	}
+	pA := j.A.LocalToWorld(j.AnchorA)
+	pB := j.B.LocalToWorld(j.AnchorB)
+	cx := float64(pB.X) - float64(pA.X)
+	cy := float64(pB.Y) - float64(pA.Y)
+	if float64(cx*cx)+float64(cy*cy) <= 1e-12 {
+		return
+	}
+	rAx := float64(pA.X) - float64(j.A.X)
+	rAy := float64(pA.Y) - float64(j.A.Y)
+	rBx := float64(pB.X) - float64(j.B.X)
+	rBy := float64(pB.Y) - float64(j.B.Y)
+	m11, m12, m22, ok := revoluteEffMass(j.A, j.B, rAx, rAy, rBx, rBy)
+	if !ok {
+		return
+	}
+	pvAx, pvAy, pavA := bodyPushVel2D(j.A, deltas)
+	pvBx, pvBy, pavB := bodyPushVel2D(j.B, deltas)
+	vAx := pvAx - float64(pavA*rAy)
+	vAy := pvAy + float64(pavA*rAx)
+	vBx := pvBx - float64(pavB*rBy)
+	vBy := pvBy + float64(pavB*rBx)
+
+	biasRate := jointPushBiasFraction / j.dt
+	biasX := float64(cx * biasRate)
+	biasY := float64(cy * biasRate)
+	if speedSq := float64(biasX*biasX) + float64(biasY*biasY); speedSq > float64(jointMaxPushSpeed*jointMaxPushSpeed) {
+		scale := jointMaxPushSpeed / math.Sqrt(speedSq)
+		biasX *= scale
+		biasY *= scale
+	}
+	rhsX := -((vBx - vAx) + biasX)
+	rhsY := -((vBy - vAy) + biasY)
+	px := float64(m11*rhsX) + float64(m12*rhsY)
+	py := float64(m12*rhsX) + float64(m22*rhsY)
+	applyPushImpulse2D(j.A, deltas, -px, -py, rAx, rAy)
+	applyPushImpulse2D(j.B, deltas, px, py, rBx, rBy)
+}
+
+func (j *RevoluteJoint) solveRelax(skipAnchor bool) {
+	if !j.active {
+		return
+	}
+	if !skipAnchor && !j.soft {
+		vAx := float64(j.A.VX) - float64(float64(j.A.AngularVel)*j.rAy)
+		vAy := float64(j.A.VY) + float64(float64(j.A.AngularVel)*j.rAx)
+		vBx := float64(j.B.VX) - float64(float64(j.B.AngularVel)*j.rBy)
+		vBy := float64(j.B.VY) + float64(float64(j.B.AngularVel)*j.rBx)
+		dvx := vBx - vAx
+		dvy := vBy - vAy
+		px := -(float64(j.m11*dvx) + float64(j.m12*dvy))
+		py := -(float64(j.m12*dvx) + float64(j.m22*dvy))
+		j.A.applyImpulseRaw(-px, -py, j.rAx, j.rAy)
+		j.B.applyImpulseRaw(px, py, j.rBx, j.rBy)
+		j.addLinearImpulse(px, py)
+	}
 	if j.limitState != 0 && j.motorMass > 0 {
 		wRel := float64(j.B.AngularVel) - float64(j.A.AngularVel)
 		dLambda := float64(-wRel * j.motorMass)
@@ -821,6 +1190,9 @@ func (j *RevoluteJoint) solvePosition() {
 	}
 
 	// 2. Point-to-point positional projection.
+	if j.soft {
+		return
+	}
 	pA := j.A.LocalToWorld(j.AnchorA)
 	pB := j.B.LocalToWorld(j.AnchorB)
 	cx := float64(pB.X) - float64(pA.X)

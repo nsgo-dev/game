@@ -9,6 +9,8 @@ import (
 
 const (
 	defaultSolverIterations = 8
+	// DefaultSubsteps is the default number of dynamics substeps per World.Step.
+	DefaultSubsteps         = 4
 	restitutionVelThreshold = 1.0
 	positionSlop            = 0.001
 	positionPercent         = 0.8
@@ -367,29 +369,30 @@ type solverContact struct {
 	depth          float32
 	point          Vec3
 	// rA and rB are the contact point relative to each body's center of mass, so impulses also apply torque (#546).
-	rA, rB         Vec3
-	localA, localB Vec3
-	featureID      uint32
-	hasPlane       bool
-	refIsA         bool
-	localRefPoint  Vec3
-	localRefNormal Vec3
-	localIncPoint  Vec3
-	incRadius      float32
-	restitution    float32
-	friction       float32
-	bias           float32
-	normalImpulse  float32
-	tangentImpulse Vec3
-	isStaticTri    bool
-	isHeightfield  bool
-	isVoxel        bool
-	tri            Triangle
-	voxel          *VoxelCollider
-	voxelX         int
-	voxelY         int
-	voxelZ         int
-	staticID       int
+	rA, rB          Vec3
+	localA, localB  Vec3
+	featureID       uint32
+	hasPlane        bool
+	refIsA          bool
+	localRefPoint   Vec3
+	localRefNormal  Vec3
+	localIncPoint   Vec3
+	incRadius       float32
+	restitution     float32
+	friction        float32
+	bias            float32
+	restitutionBias float32
+	normalImpulse   float32
+	tangentImpulse  Vec3
+	isStaticTri     bool
+	isHeightfield   bool
+	isVoxel         bool
+	tri             Triangle
+	voxel           *VoxelCollider
+	voxelX          int
+	voxelY          int
+	voxelZ          int
+	staticID        int
 }
 
 // World holds static, kinematic, and dynamic bodies, static triangle meshes,
@@ -398,9 +401,16 @@ type World struct {
 	// Gravity is the constant acceleration applied to dynamic bodies each step.
 	// NewWorld initializes it to (0, -9.81, 0).
 	Gravity Vec3
-	// SolverIterations is the number of velocity and positional solver passes
-	// per Step; values <= 0 default to 8.
+	// SolverIterations is the total budget of velocity and positional solver
+	// passes per Step, distributed across substeps; values <= 0 default to 8.
 	SolverIterations int
+	// Substeps is the number of dynamics substeps per Step; values <= 0 default
+	// to DefaultSubsteps.
+	Substeps int
+	// EnablePositionCleanup runs optional final non-linear joint correction
+	// after all substeps. It is off by default because soft substep constraints
+	// correct drift without injecting energy into body velocities.
+	EnablePositionCleanup bool
 	// DisableSleep keeps every body awake. Step wakes bodies that were sleeping
 	// when it is set.
 	DisableSleep bool
@@ -462,14 +472,18 @@ type World struct {
 	islandRest            []float32
 	islandAwake           []uint8
 	ccd                   ccdScratch3D
+	substepBatch          bool
+	substepFinal          bool
+	substepCount          int
 }
 
-// NewWorld returns a World with standard Y-up gravity (0, -9.81, 0) and 8
-// solver iterations.
+// NewWorld returns a World with standard Y-up gravity (0, -9.81, 0), 8
+// solver iterations, and 4 dynamics substeps.
 func NewWorld() *World {
 	return &World{
 		Gravity:          Vec3{Y: -9.81},
 		SolverIterations: defaultSolverIterations,
+		Substeps:         DefaultSubsteps,
 		cache:            make(map[contactKey]cachedManifold),
 		activeContacts:   make(map[contactKey]activeContactRecord),
 	}
@@ -707,6 +721,69 @@ func (w *World) Step(dt time.Duration) {
 	if dt <= 0 {
 		return
 	}
+	substeps := w.Substeps
+	if substeps <= 0 {
+		substeps = DefaultSubsteps
+	}
+	if substeps <= 1 {
+		w.stepSubstep(dt)
+		if w.EnablePositionCleanup {
+			w.cleanupJointPositions(float32(dt.Seconds()))
+		}
+		return
+	}
+	previous := w.Substeps
+	w.Substeps = 1
+	w.substepBatch = true
+	w.substepCount = substeps
+	if w.nextActiveContacts == nil {
+		w.nextActiveContacts = make(map[contactKey]activeContactRecord)
+	} else {
+		clear(w.nextActiveContacts)
+	}
+	defer func() { w.Substeps = previous; w.substepBatch = false; w.substepFinal = false; w.substepCount = 0 }()
+	for sub := range substeps {
+		if sub > 0 {
+			for _, j := range w.joints {
+				if r, ok := j.(interface{ preserveStepReaction(float32) }); ok {
+					r.preserveStepReaction(float32(dt.Seconds()))
+				}
+			}
+		}
+		w.substepFinal = sub == substeps-1
+		w.stepSubstep(dt / time.Duration(substeps))
+	}
+	for _, j := range w.joints {
+		if r, ok := j.(interface{ setReactionBatchScale(float32) }); ok {
+			r.setReactionBatchScale(float32(substeps))
+		}
+		if r, ok := j.(interface{ finishStepReaction(float32) }); ok {
+			r.finishStepReaction(float32((dt / time.Duration(substeps)).Seconds()))
+		}
+	}
+	if w.EnablePositionCleanup {
+		w.cleanupJointPositions(float32(dt.Seconds()))
+	}
+	w.evaluateBreakableJoints()
+	if w.OnJointBreak != nil {
+		for _, ev := range w.jointBreakEvents {
+			w.OnJointBreak(ev)
+		}
+	}
+}
+
+func (w *World) cleanupJointPositions(dt float32) {
+	for range 4 {
+		for _, j := range w.joints {
+			j.SolvePosition(dt)
+		}
+	}
+}
+
+func (w *World) stepSubstep(dt time.Duration) {
+	if dt <= 0 {
+		return
+	}
 	w.jointBreakEvents = w.jointBreakEvents[:0]
 	if len(w.bodies) == 0 {
 		if len(w.activeContacts) > 0 {
@@ -802,7 +879,10 @@ func (w *World) Step(dt time.Duration) {
 
 	// 2. Deterministic narrowphase pair detection with up to 4-point
 	// contact manifolds and per-point warm-start lookup.
-	if w.nextActiveContacts == nil {
+	if w.substepBatch {
+		// The outer step owns the contact union so a fast body that touches
+		// during an early substep still emits its contact event.
+	} else if w.nextActiveContacts == nil {
 		w.nextActiveContacts = make(map[contactKey]activeContactRecord)
 	} else {
 		clear(w.nextActiveContacts)
@@ -1331,7 +1411,9 @@ func (w *World) Step(dt time.Duration) {
 
 	// 4a. Check breakable joints against their accumulated step reaction force/torque
 	// and remove broken joints before positional correction.
-	w.evaluateBreakableJoints()
+	if !w.substepBatch {
+		w.evaluateBreakableJoints()
+	}
 
 	// 4b. Scoped shock propagation, velocity half: only intervenes on vertical
 	// columns with large upper-to-lower mass ratios (> shockMassRatio) or tall
@@ -1545,13 +1627,18 @@ func (w *World) Step(dt time.Duration) {
 
 	// 5b. Residual penetration check and scoped shock propagation (position half).
 	w.resolveResidualPenetration(contacts, shock, shockMask, up)
-
 	// Refresh dynamic broadphase proxies with final post-solver poses so
 	// post-Step raycasts, overlaps, and character queries see exact positions.
 	w.bp.syncDynamicBodies(w, prevPos)
 
 	// 6. Put settled islands to sleep so resting stacks have zero drift.
-	w.updateSleep(contacts, prevPos, dtSec)
+	if !w.substepBatch || w.substepFinal {
+		sleepDt := dtSec
+		if w.substepBatch && w.substepCount > 0 {
+			sleepDt *= float32(w.substepCount)
+		}
+		w.updateSleep(contacts, prevPos, sleepDt)
+	}
 	clear(contacts)
 	w.contactsBuf = contacts[:0]
 
@@ -1601,7 +1688,9 @@ func (w *World) Step(dt time.Duration) {
 	}
 
 	// 8. Reconcile active contacts and emit deterministic Enter/Stay/Exit and joint-break events.
-	w.reconcileContactEvents(currentPairs)
+	if !w.substepBatch || w.substepFinal {
+		w.reconcileContactEvents(currentPairs)
+	}
 	if w.OnJointBreak != nil {
 		for _, ev := range w.jointBreakEvents {
 			w.OnJointBreak(ev)

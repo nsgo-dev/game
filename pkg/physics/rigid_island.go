@@ -64,6 +64,8 @@ type rigidScratch struct {
 	pinchBest     []int
 	pinchSecond   []int
 	pinchPairs    [][3]int // {m0, m1, sharedBodyIndex}
+	jointTree     jointTree2D
+	jointIgnored  map[[2]*RigidBody]struct{}
 	statics       []int
 	movers        []int
 	ccdContacts   []ccdContact

@@ -16,10 +16,11 @@ import (
 // Version 3 added WorldSnapshot sleep settings (DisableSleep,
 // SleepLinearThreshold, SleepAngularThreshold, TimeToSleep) and
 // BodySnapshot.AllowSleep / AllowSleepSet.
+// Version 5 added WorldSnapshot.Substeps for deterministic substep settings.
 // Version 2 added WorldSnapshot.Materials and BodySnapshot.MaterialIndex so
 // shared *PhysicsMaterial identity survives Save and Restore. Restore still
 // reads version 1 through 3 snapshots and refuses any other version.
-const SnapshotVersion = 4
+const SnapshotVersion = 5
 
 // oldestSnapshotVersion is the oldest snapshot version Restore reads.
 const oldestSnapshotVersion = 1
@@ -330,6 +331,7 @@ type WorldSnapshot struct {
 	Version               int                       `json:"version"`
 	Gravity               Vec3                      `json:"gravity"`
 	SolverIterations      int                       `json:"solverIterations"`
+	Substeps              int                       `json:"substeps,omitempty"`
 	DisableSleep          bool                      `json:"disableSleep,omitempty"`
 	SleepLinearThreshold  float32                   `json:"sleepLinearThreshold,omitempty"`
 	SleepAngularThreshold float32                   `json:"sleepAngularThreshold,omitempty"`
@@ -910,6 +912,7 @@ func (w *World) Save() WorldSnapshot {
 		Version:               SnapshotVersion,
 		Gravity:               w.Gravity,
 		SolverIterations:      w.SolverIterations,
+		Substeps:              w.Substeps,
 		DisableSleep:          w.DisableSleep,
 		SleepLinearThreshold:  w.SleepLinearThreshold,
 		SleepAngularThreshold: w.SleepAngularThreshold,
@@ -1431,6 +1434,10 @@ func (w *World) Restore(snap WorldSnapshot) error {
 
 	w.Gravity = snap.Gravity
 	w.SolverIterations = snap.SolverIterations
+	w.Substeps = snap.Substeps
+	if w.Substeps <= 0 {
+		w.Substeps = DefaultSubsteps
+	}
 	w.DisableSleep = snap.DisableSleep
 	w.SleepLinearThreshold = snap.SleepLinearThreshold
 	w.SleepAngularThreshold = snap.SleepAngularThreshold
@@ -1465,6 +1472,7 @@ func (w *World) Checksum() uint64 {
 	}
 	hashVec3(&h, w.Gravity)
 	h.WriteInt(w.SolverIterations)
+	h.WriteInt(w.Substeps)
 	h.WriteBool(w.DisableSleep)
 	h.WriteFloat32(w.SleepLinearThreshold)
 	h.WriteFloat32(w.SleepAngularThreshold)

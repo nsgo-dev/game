@@ -485,6 +485,10 @@ type RigidWorld struct {
 	SolverIterations int
 	// Substeps is the number of solver substeps per Step; zero or negative means DefaultSubsteps.
 	Substeps int
+	// EnablePositionCleanup runs an optional post-step non-linear Gauss-Seidel
+	// joint positional cleanup pass after all substeps finish; off by default
+	// because the substepped solver resolves joint error via soft push-out.
+	EnablePositionCleanup bool
 	// DisableSleep keeps every body awake. Step wakes bodies that were sleeping when it is set.
 	DisableSleep bool
 	// SleepLinearThreshold is the speed in pixels per second below which a body counts as resting; zero, a negative value, NaN or an infinity means DefaultSleepLinearThreshold.
@@ -742,16 +746,17 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	manifolds := w.detectContacts(pairs, h, subH, ignoredPairs)
 	w.updateContactEvents(manifolds, ignoredPairs)
 
-	// 3. Collect awake joints and pinched high-mass-ratio contact pairs, and reset full-step reaction accumulators once before substeps.
+	// 3. Collect awake joints, build the spanning-forest anchor tree and pinched high-mass-ratio contact pairs, and reset full-step reaction accumulators once before substeps.
 	joints := w.awakeJoints()
 	for _, j := range joints {
 		if rj, ok := j.(stepReactionJoint); ok {
 			rj.resetStepReaction(h)
 		}
 	}
+	w.scratch.jointTree.build(w, joints)
 	pinchPairs := w.findPinchPairs(manifolds)
 
-	// 4. Solve in substeps: integrate velocities, warm-start contacts, solve velocity constraints without penetration bias, solve soft contact push-out into pseudo-velocities at the contact points, integrate positions, then relax velocities without bias.
+	// 4. Solve in substeps: integrate velocities, warm-start contacts, solve velocity constraints without penetration bias, solve soft contact and joint push-out into pseudo-velocities, integrate positions, then relax velocities without bias.
 	for sub := range substeps {
 		w.integrateSubstepVelocities(activeAreas, gx, gy, subH)
 		if sub == 0 {
@@ -785,18 +790,42 @@ func (w *RigidWorld) Step(dt time.Duration) {
 				solvePinchPairVelocity(&manifolds[pp[0]], &manifolds[pp[1]], w.Bodies[pp[2]], deltas, invSubH)
 			}
 			if iter < jointIters {
-				for _, j := range joints {
-					j.solveVelocity()
+				w.scratch.jointTree.solve(w, deltas, jointTreeVelocity, subH)
+				if (sub+iter)&1 == 0 {
+					for ji, j := range joints {
+						skipAnchor := w.scratch.jointTree.inTree[ji]
+						if sj, ok := j.(substepJoint2D); ok {
+							sj.solveVelocitySubstep(skipAnchor)
+						} else {
+							j.solveVelocity()
+						}
+					}
+				} else {
+					for ji := len(joints) - 1; ji >= 0; ji-- {
+						j := joints[ji]
+						skipAnchor := w.scratch.jointTree.inTree[ji]
+						if sj, ok := j.(substepJoint2D); ok {
+							sj.solveVelocitySubstep(skipAnchor)
+						} else {
+							j.solveVelocity()
+						}
+					}
 				}
 			}
 		}
 		for iter := velIters; iter < jointIters; iter++ {
-			for _, j := range joints {
-				j.solveVelocity()
+			w.scratch.jointTree.solve(w, deltas, jointTreeVelocity, subH)
+			for ji, j := range joints {
+				skipAnchor := w.scratch.jointTree.inTree[ji]
+				if sj, ok := j.(substepJoint2D); ok {
+					sj.solveVelocitySubstep(skipAnchor)
+				} else {
+					j.solveVelocity()
+				}
 			}
 		}
 
-		// Reset push-out pseudo-velocities and push impulses for this substep, then solve soft contact push-out at contact points (linear + angular, zero velocity injection).
+		// Reset push-out pseudo-velocities and push impulses for this substep, then solve soft contact and rigid joint push-out (linear + angular, zero velocity injection).
 		for i := range deltas {
 			deltas[i].pvx = 0
 			deltas[i].pvy = 0
@@ -820,6 +849,13 @@ func (w *RigidWorld) Step(dt time.Duration) {
 			for _, pp := range pinchPairs {
 				solvePinchPairPushOut(&manifolds[pp[0]], &manifolds[pp[1]], w.Bodies[pp[2]], deltas)
 			}
+			w.scratch.jointTree.solve(w, deltas, jointTreePushOut, subH)
+			for ji, j := range joints {
+				skipAnchor := w.scratch.jointTree.inTree[ji]
+				if sj, ok := j.(substepJoint2D); ok {
+					sj.solvePushOut(deltas, skipAnchor)
+				}
+			}
 		}
 
 		// Integrate positions for this substep using velocity + soft push-out pseudo-velocity, and update per-body deltas from start poses.
@@ -841,19 +877,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 			updateBodyDelta(&deltas[i], b, starts[i])
 		}
 
-		// Project rigid joint positions and refresh their bodies' deltas so subsequent substeps see the corrected poses.
-		for _, j := range joints {
-			j.solvePosition()
-			a, b := jointPair(j)
-			if w.inWorld(a) && !a.Static && !a.sleeping {
-				updateBodyDelta(&deltas[a.index], a, starts[a.index])
-			}
-			if w.inWorld(b) && !b.Static && !b.sleeping {
-				updateBodyDelta(&deltas[b.index], b, starts[b.index])
-			}
-		}
-
-		// Relaxation iterations without bias in alternating manifold order so velocities stay consistent with the updated poses and stacks settle cleanly.
+		// Relaxation iterations without bias in alternating manifold order so velocities stay consistent with the updated poses and stacks/chains settle cleanly.
 		for iter := range relaxIters {
 			if (sub+iter)&1 == 0 {
 				for mi := len(manifolds) - 1; mi >= 0; mi-- {
@@ -866,6 +890,13 @@ func (w *RigidWorld) Step(dt time.Duration) {
 			}
 			for _, pp := range pinchPairs {
 				solvePinchPairVelocity(&manifolds[pp[0]], &manifolds[pp[1]], w.Bodies[pp[2]], deltas, invSubH)
+			}
+			w.scratch.jointTree.solve(w, deltas, jointTreeRelax, subH)
+			for ji, j := range joints {
+				skipAnchor := w.scratch.jointTree.inTree[ji]
+				if sj, ok := j.(substepJoint2D); ok {
+					sj.solveRelax(skipAnchor)
+				}
 			}
 		}
 
@@ -911,6 +942,16 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	if w.evaluateBreakableJoints() {
 		ignoredPairs = w.buildJointIgnoredPairs()
 		joints = w.awakeJoints()
+	}
+
+	if w.EnablePositionCleanup {
+		for range 4 {
+			for _, j := range w.Joints {
+				if j != nil {
+					j.solvePosition()
+				}
+			}
+		}
 	}
 
 	// 7. Sweep fast bodies against static ones, and wake any sleeping body overlapped by a moved body.
@@ -1030,7 +1071,11 @@ func (w *RigidWorld) buildJointIgnoredPairs() map[[2]*RigidBody]struct{} {
 	if len(w.Joints) == 0 {
 		return nil
 	}
-	var pairs map[[2]*RigidBody]struct{}
+	pairs := w.scratch.jointIgnored
+	if pairs != nil {
+		clear(pairs)
+	}
+	hasAny := false
 	for _, j := range w.Joints {
 		if j == nil {
 			continue
@@ -1048,9 +1093,14 @@ func (w *RigidWorld) buildJointIgnoredPairs() map[[2]*RigidBody]struct{} {
 		}
 		if pairs == nil {
 			pairs = make(map[[2]*RigidBody]struct{}, len(w.Joints)*2)
+			w.scratch.jointIgnored = pairs
 		}
 		pairs[[2]*RigidBody{a, b}] = struct{}{}
 		pairs[[2]*RigidBody{b, a}] = struct{}{}
+		hasAny = true
+	}
+	if !hasAny {
+		return nil
 	}
 	return pairs
 }
@@ -1066,6 +1116,10 @@ func (w *RigidWorld) evaluateBreakableJoints() bool {
 		if bj, ok := j.(breakableJoint); ok {
 			if ev, broken := bj.checkBreak(); broken {
 				w.jointBreakEvents = append(w.jointBreakEvents, ev)
+				// Removing the last support of a sleeping island must let its
+				// bodies fall instead of freezing them at the broken pose.
+				ev.BodyA.Wake()
+				ev.BodyB.Wake()
 				brokeAny = true
 				continue
 			}
