@@ -109,7 +109,7 @@ func shortcutsSettingsPageView(
 	}
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		toolbar := core.View{
 			Style: core.Style{
 				Direction:  core.Row,
@@ -154,7 +154,7 @@ func shortcutsSettingsPageView(
 						_ = uiKeyMemo.Get()
 						return !ed.HasCustomShortcuts()
 					},
-					Color: func() core.Color { return ed.SpecPalette(cx).Raised },
+					Color: func() core.Color { return ed.Palette(cx).Raised },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 500,
@@ -177,7 +177,7 @@ func shortcutsSettingsPageView(
 
 		rows := core.Dynamic(func(cx *core.Scope) core.Node {
 			_ = uiKeyMemo.Get()
-			curPal := ed.SpecPalette(cx)
+			curPal := ed.Palette(cx)
 			q := query.Get()
 			capID := capturing.Get()
 			conf := conflict.Get()
@@ -513,7 +513,7 @@ func shortcutsSettingsPageView(
 				toolbar,
 				ui.ScrollView{
 					TestID:    "shortcuts-list",
-					EdgeColor: func() core.Color { return ed.SpecPalette(cx).Panel },
+					EdgeColor: func() core.Color { return ed.Palette(cx).Panel },
 					Style: core.Style{
 						Height: core.Pt(332),
 					},
@@ -539,7 +539,7 @@ func ShortcutsSheetView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	content := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = uiKeyMemo.Get()
 		_ = langMemo.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		targetOS := cx.Env().OS()
 		apple := targetOS == core.OSMacOS || targetOS == core.OSIOS
 		subtitle := ed.T("shortcutsSheet.subtitleOther")

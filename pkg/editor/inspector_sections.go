@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
@@ -1165,7 +1166,7 @@ func inspectorObjectKindLabel(obj *sceneformat.ObjectDoc) string {
 
 // objectSwatchColor returns a Spec token swatch color identifying the object's kind in the
 // inspector header.
-func objectSwatchColor(spec SpecPalette, obj *sceneformat.ObjectDoc) core.Color {
+func objectSwatchColor(spec theme.Palette, obj *sceneformat.ObjectDoc) core.Color {
 	if obj == nil {
 		return spec.TextFaint
 	}

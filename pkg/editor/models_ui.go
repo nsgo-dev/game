@@ -309,7 +309,7 @@ func modelField(ed *Editor, rev *core.Signal[uint64], objID string, disabled fun
 // Viewport3DModelsStripView renders the bottom MODELS strip along the 3D viewport (design/editor/Viewport3D.dc.html),
 // showing offscreen-rendered thumbnails of the project's models and built-in primitives with drag-into-viewport placement,
 // tooltips, an "Or ask for one" button, and an inline agent prompt bar when opened. All surfaces, borders, text, focus rings,
-// and icons come strictly from SpecPalette tokens.
+// and icons come strictly from theme.Palette tokens.
 func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	thumbRev := core.NewSignal(cx, uint64(0))
 	unsubThumb := ed.thumbs.subscribe(func() { thumbRev.Set(thumbRev.GetUntracked() + 1) })
@@ -365,7 +365,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 			return core.View{
 				TestID: "viewport3d-agent-prompt-bar",
 				StyleFunc: func() core.Style {
-					cur := ed.SpecPalette(cx)
+					cur := ed.Palette(cx)
 					return core.Style{
 						Direction:   core.Row,
 						AlignItems:  core.AlignCenter,
@@ -380,7 +380,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					core.Icon{
 						SVG: lucide.Sparkles(),
 						StyleFunc: func() core.Style {
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							return core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: cur.Agent.Fg, FlexShrink: 0}
 						},
 					},
@@ -407,7 +407,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						Label:    ed.T("models.promptSend"),
 						Disabled: promptDisabled,
 						StyleFunc: func() core.Style {
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							return core.Style{
 								Height:         core.Pt(30),
 								Padding:        core.Symmetric(0, 12),
@@ -427,7 +427,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							core.Text{
 								Content: ed.T("models.promptSend"),
 								StyleFunc: func() core.Style {
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									return core.Style{
 										FontSize:   12,
 										FontWeight: 600,
@@ -465,7 +465,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				Label:  tip,
 				StyleFunc: func() core.Style {
 					_ = rev.Get()
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					bg, border := p.Raised, p.LineRaised
 					if ed.SelectedModel != nil && *ed.SelectedModel == m {
 						bg, border = p.Accent.Fill, p.Accent.Edge
@@ -520,7 +520,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						MaxLines: 1,
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							fg := p.TextMuted
 							if ed.SelectedModel != nil && *ed.SelectedModel == m {
 								fg = p.TextPrimary
@@ -538,7 +538,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				View: card,
 				Data: func() any { return m },
 				Preview: func(any) core.Node {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.View{
 						Style: core.Style{
 							Padding:      core.Symmetric(4, 8),
@@ -578,7 +578,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		Label:  ed.T("models.askForOne"),
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			bg := p.Panel
 			border := p.LineRaised
 			if ed.Viewport3DAgentPromptKind() == Viewport3DAgentPromptModel {
@@ -615,14 +615,14 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 			core.Icon{
 				SVG: lucide.Sparkles(),
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.Agent.Fg, FlexShrink: 0}
 				},
 			},
 			core.Text{
 				Content: ed.T("models.askForOne"),
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						FontSize: 12,
 						Color:    p.TextMuted,
@@ -635,7 +635,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 	strip := core.View{
 		TestID: "viewport3d-models-strip",
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				Height:      core.Pt(88),
 				FlexShrink:  0,
@@ -660,7 +660,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						TestID:  "viewport3d-models-strip-title",
 						Content: ed.T("models.stripTitle"),
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{
 								FontSize:   11,
 								FontWeight: 600,
@@ -672,7 +672,7 @@ func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						TestID:  "viewport3d-models-strip-hint",
 						Content: ed.T("models.dragIn"),
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{
 								FontSize: 11,
 								Color:    p.TextFaint,
@@ -740,7 +740,7 @@ func equalChildrenSummary3D(a, b memoChildrenSummary3D) bool {
 // inspectorModel3DSections renders the Viewport3D.dc.html inspector cards for a placed 3D object or group:
 // CHILDREN (for a group), MODEL (thumbnail, path, triangle count & material count, plus the project model picker),
 // MATERIAL (material file & roughness/metallic summary), COLLIDER ("Convex hull · static" etc.),
-// and "Ask to add a component…". All colors use SpecPalette tokens exclusively and every section respects the
+// and "Ask to add a component…". All colors use theme.Palette tokens exclusively and every section respects the
 // Inspector field filter query q.
 func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objID, q string, disabled func() bool, modelPickerRow core.Node) []core.Node {
 	thumbRev := core.NewSignal(cx, uint64(0))
@@ -781,7 +781,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			TestID:  testID,
 			Content: title,
 			StyleFunc: func() core.Style {
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				return core.Style{
 					FontSize:   11,
 					FontWeight: 600,
@@ -807,7 +807,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						sectionLabel("inspector-children-header", ed.T("inspector.section.children")),
 						core.View{
 							StyleFunc: func() core.Style {
-								p := ed.SpecPalette(cx)
+								p := ed.Palette(cx)
 								return core.Style{
 									Padding:      core.Symmetric(8, 12),
 									CornerRadius: 12,
@@ -826,7 +826,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 										return ""
 									},
 									StyleFunc: func() core.Style {
-										p := ed.SpecPalette(cx)
+										p := ed.Palette(cx)
 										return core.Style{
 											FontFamily: core.FontMonospace,
 											FontSize:   11.5,
@@ -858,7 +858,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						return core.View{
 							TestID: "inspector-model-card",
 							StyleFunc: func() core.Style {
-								p := ed.SpecPalette(cx)
+								p := ed.Palette(cx)
 								return core.Style{
 									Direction:    core.Row,
 									AlignItems:   core.AlignCenter,
@@ -874,7 +874,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								core.Canvas{
 									TestID: "inspector-model-thumb",
 									StyleFunc: func() core.Style {
-										p := ed.SpecPalette(cx)
+										p := ed.Palette(cx)
 										return core.Style{
 											Width:        core.Pt(44),
 											Height:       core.Pt(44),
@@ -916,7 +916,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 												return ed.T("inspector.modelPrimitive", l10n.Param("mesh", m.summary.Mesh))
 											},
 											StyleFunc: func() core.Style {
-												p := ed.SpecPalette(cx)
+												p := ed.Palette(cx)
 												return core.Style{
 													FontFamily: core.FontMonospace,
 													FontSize:   11.5,
@@ -934,7 +934,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 												return ""
 											},
 											StyleFunc: func() core.Style {
-												p := ed.SpecPalette(cx)
+												p := ed.Palette(cx)
 												return core.Style{
 													FontSize: 11.5,
 													Color:    p.TextFaint,
@@ -966,7 +966,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 					core.Text{
 						Content: label,
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{
 								Width:      core.Pt(68),
 								FlexShrink: 0,
@@ -983,7 +983,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							Height:     core.Pt(16),
 						},
 						Draw: func(d *core.Drawing, size core.Size) {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							v := clampUnit32(read())
 							w, h := float32(size.Width), float32(size.Height)
 							if w <= 8 || h <= 0 {
@@ -1006,7 +1006,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 							return fmt.Sprintf("%.2f", clampUnit32(read()))
 						},
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{
 								Width:      core.Pt(34),
 								FlexShrink: 0,
@@ -1044,7 +1044,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 								return ed.T("inspector.section.material") + " · " + name
 							},
 							StyleFunc: func() core.Style {
-								p := ed.SpecPalette(cx)
+								p := ed.Palette(cx)
 								return core.Style{
 									FontSize:   11,
 									FontWeight: 600,
@@ -1085,7 +1085,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						core.View{
 							TestID: "inspector-collider3d-summary",
 							StyleFunc: func() core.Style {
-								p := ed.SpecPalette(cx)
+								p := ed.Palette(cx)
 								return core.Style{
 									Height:         core.Pt(28),
 									Direction:      core.Row,
@@ -1108,7 +1108,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 										return ""
 									},
 									StyleFunc: func() core.Style {
-										p := ed.SpecPalette(cx)
+										p := ed.Palette(cx)
 										return core.Style{
 											FontSize: 12,
 											Color:    p.TextSecondary,
@@ -1124,7 +1124,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 										return ""
 									},
 									StyleFunc: func() core.Style {
-										p := ed.SpecPalette(cx)
+										p := ed.Palette(cx)
 										return core.Style{
 											FontSize: 11.5,
 											Color:    p.TextFaint,
@@ -1148,7 +1148,7 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			Disabled: disabled,
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				bg := p.Panel
 				border := p.LineRaised
 				if ed.Viewport3DAgentPromptKind() == Viewport3DAgentPromptComponent && ed.Viewport3DAgentPromptObjectID() == objID {
@@ -1179,14 +1179,14 @@ func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 				core.Icon{
 					SVG: lucide.Sparkles(),
 					StyleFunc: func() core.Style {
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						return core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.Agent.Fg, FlexShrink: 0}
 					},
 				},
 				core.Text{
 					Content: ed.T("inspector.askAddComponent"),
 					StyleFunc: func() core.Style {
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						return core.Style{
 							FontSize: 12,
 							Color:    p.TextMuted,

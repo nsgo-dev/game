@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/core"
@@ -543,7 +544,7 @@ func ProjectSettingsPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 }
 
 func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	disabled := func() bool {
 		_ = rev.Get()
 		return ed.Playing() || ed.Project == nil
@@ -701,7 +702,7 @@ func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 	}
 }
 
-func psSectionHeading(pal SpecPalette, title string) core.Node {
+func psSectionHeading(pal theme.Palette, title string) core.Node {
 	return core.Text{
 		Content: title,
 		Style: core.Style{
@@ -714,7 +715,7 @@ func psSectionHeading(pal SpecPalette, title string) core.Node {
 	}
 }
 
-func psErrorText(pal SpecPalette, testID string, errMsg *core.Signal[string]) core.Node {
+func psErrorText(pal theme.Palette, testID string, errMsg *core.Signal[string]) core.Node {
 	return core.Show{
 		When: func() bool { return errMsg.Get() != "" },
 		Then: func(cx *core.Scope) core.Node {
@@ -727,7 +728,7 @@ func psErrorText(pal SpecPalette, testID string, errMsg *core.Signal[string]) co
 	}
 }
 
-func psFieldLayout(pal SpecPalette, ed *Editor, caption, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
+func psFieldLayout(pal theme.Palette, ed *Editor, caption, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
 	return settingsRow(
 		pal,
 		ed,
@@ -804,7 +805,7 @@ func psTextField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID, c
 		},
 	}
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	return psFieldLayout(pal, ed, caption, help, input, policy, psErrorText(pal, testID+"-error", errMsg))
 }
 
@@ -840,7 +841,7 @@ func psNumberField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID,
 		},
 	}
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	return psFieldLayout(pal, ed, caption, help, num, policy, psErrorText(pal, testID+"-error", errMsg))
 }
 
@@ -875,7 +876,7 @@ func psSwitchField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID,
 		},
 	}
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	return settingsRow(pal, ed, "", caption, help, sw, policy, psErrorText(pal, testID+"-error", errMsg))
 }
 
@@ -912,12 +913,12 @@ func psSelectField(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID,
 		},
 	}
 
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	return psFieldLayout(pal, ed, caption, help, sel, policy, psErrorText(pal, testID+"-error", errMsg))
 }
 
 func psGeneralSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	winErr := core.NewSignal(cx, "")
 	mainErr := core.NewSignal(cx, "")
 	winSync := core.NewMemo(cx, func() string {
@@ -1118,7 +1119,7 @@ func psGeneralSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 }
 
 func psWindowSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	appearanceOpts := []ui.Option[string]{
 		{Value: "", Label: ed.T("projectSettings.window.appearanceSystem")},
 		{Value: "light", Label: ed.T("projectSettings.window.appearanceLight")},
@@ -1259,7 +1260,7 @@ func psWindowSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disab
 }
 
 func psDisplaySection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	displayDisabled := func() bool {
 		_ = rev.Get()
 		return disabled() || ed.Project == nil || ed.Project.Display == nil
@@ -1361,7 +1362,7 @@ func psDisplaySection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 }
 
 func psAutoloadSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	refreshFiles := core.NewSignal(cx, 0)
 
 	filesKey := core.NewMemo(cx, func() string {
@@ -1761,7 +1762,7 @@ func psAutoloadEntryRow(
 							},
 						},
 					},
-					settingsSpecButton(ed.SpecPalette(cx), prefix+"-remove", ed.T("projectSettings.remove"), ed.T("projectSettings.autoload.entryRemoveLabel", l10n.Param("kind", kindLabel), l10n.Param("index", idx)), false, disabled, func() {
+					settingsSpecButton(ed.Palette(cx), prefix+"-remove", ed.T("projectSettings.remove"), ed.T("projectSettings.autoload.entryRemoveLabel", l10n.Param("kind", kindLabel), l10n.Param("index", idx)), false, disabled, func() {
 						if err := remove(idx); err != nil {
 							rowErr.Set(err.Error())
 							ed.report(err)
@@ -1771,13 +1772,13 @@ func psAutoloadEntryRow(
 					}),
 				},
 			},
-			psErrorText(ed.SpecPalette(cx), prefix+"-error", rowErr),
+			psErrorText(ed.Palette(cx), prefix+"-error", rowErr),
 		},
 	}
 }
 
 func psPluginsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	registeredKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		return ed.ProjectPath + "\x00" + strings.Join(ed.RegisteredPlugins(), "\x00")
@@ -1830,7 +1831,7 @@ func psPluginsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 }
 
 func psRegisteredPluginRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], name string, disabled func() bool) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	errMsg := core.NewSignal(cx, "")
 	summary := pluginSummary(ed, ed.plugin(name))
 
@@ -1873,7 +1874,7 @@ func psRegisteredPluginRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 }
 
 func psMissingPluginRow(cx *core.Scope, ed *Editor, name string, disabled func() bool) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	errMsg := core.NewSignal(cx, "")
 	return core.View{
 		TestID: "project-settings-missing-plugin-" + name,

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -457,11 +458,11 @@ type axisMark3D struct {
 
 // axisMarks3D returns the six axis ends of the orientation widget for camera c using the dark Spec palette.
 func axisMarks3D(c OrbitCamera3D) []axisMark3D {
-	return axisMarks3DFor(c, DarkSpecPalette())
+	return axisMarks3DFor(c, theme.Dark())
 }
 
 // axisMarks3DFor returns the six axis ends of the orientation widget for camera c using palette p, the farthest first, as they are drawn.
-func axisMarks3DFor(c OrbitCamera3D, p SpecPalette) []axisMark3D {
+func axisMarks3DFor(c OrbitCamera3D, p theme.Palette) []axisMark3D {
 	right, up, forward := c.basis64()
 	ends := []struct {
 		id       string
@@ -521,7 +522,7 @@ func pickAxisMark3D(c OrbitCamera3D, x, y float32) (View3D, bool) {
 }
 
 // drawAxisLines3D draws the three positive world-axis spokes from the orientation widget's center.
-func drawAxisLines3D(d *core.Drawing, c OrbitCamera3D, p SpecPalette) {
+func drawAxisLines3D(d *core.Drawing, c OrbitCamera3D, p theme.Palette) {
 	center := axisWidgetSize3D / 2
 	for _, m := range axisMarks3DFor(c, p) {
 		if !m.positive {
@@ -533,7 +534,7 @@ func drawAxisLines3D(d *core.Drawing, c OrbitCamera3D, p SpecPalette) {
 
 // drawAxisWidget3D draws the full orientation widget onto d for offscreen/canvas tests: a line from the center to each positive end, a Spec-colored lettered disc with WCAG AA ink at each positive end, and a raised bordered disc at each negative end, the nearer over the farther.
 func drawAxisWidget3D(d *core.Drawing, c OrbitCamera3D, ink core.Color) {
-	p := DarkSpecPalette()
+	p := theme.Dark()
 	center := axisWidgetSize3D / 2
 	font := core.Font{Size: 10, Weight: 600}
 	for _, m := range axisMarks3DFor(c, p) {
@@ -551,7 +552,7 @@ func drawAxisWidget3D(d *core.Drawing, c OrbitCamera3D, ink core.Color) {
 	}
 }
 
-func divider3D(p SpecPalette) core.Node {
+func divider3D(p theme.Palette) core.Node {
 	return core.View{
 		Style: core.Style{
 			Width:      core.Pt(1),
@@ -562,7 +563,7 @@ func divider3D(p SpecPalette) core.Node {
 	}
 }
 
-func keycap3D(p SpecPalette, label string) core.Node {
+func keycap3D(p theme.Palette, label string) core.Node {
 	return core.View{
 		Style: core.Style{
 			Height:         core.Pt(18),
@@ -587,7 +588,7 @@ func keycap3D(p SpecPalette, label string) core.Node {
 	}
 }
 
-func helpGroup3D(p SpecPalette, keys []string, text string) core.Node {
+func helpGroup3D(p theme.Palette, keys []string, text string) core.Node {
 	children := make([]core.Node, 0, len(keys)+1)
 	for _, k := range keys {
 		if k != "" {
@@ -679,13 +680,13 @@ func localizedShading3D(ed *Editor, m Shading3D) string {
 	}
 }
 
-// viewport3DOverlay renders the 3D viewport HUD strictly with SpecPalette tokens (Dark & Light),
+// viewport3DOverlay renders the 3D viewport HUD strictly with theme.Palette tokens (Dark & Light),
 // matching design/editor/Viewport3D.dc.html:
 //   - Top-left: Persp/Ortho segmented control, Shading menu (Lit/Unlit/Wireframe), view name, Reset view, Camera/Env toggles, and the keycap help line below it.
 //   - Top-right: 88×88 circular orientation widget with clickable, keyboard-focusable axis buttons (+X/-X/+Y/-Y/+Z/-Z) and Orbit 15° left/right buttons.
 //   - Bottom-center: Local/Global space segmented control, Snap settings popover, and Focus button.
 func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	focusRing := p.FocusRing(2)
 
 	ortho := func() bool {
@@ -1075,7 +1076,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 				},
 				core.Dynamic(func(cx *core.Scope) core.Node {
 					fk := focusKeyMemo.Get()
-					hp := SpecPaletteFor(fk.dark)
+					hp := theme.PaletteFor(fk.dark)
 					orbitKeys := []string{ed.T("viewport3d.keyDrag")}
 					panKeys := []string{ed.T("viewport3d.keyMiddle")}
 					helpLabel := ed.T("viewport3d.helpDefault")
@@ -1160,12 +1161,12 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 							},
 							Draw: func(d *core.Drawing, _ core.Size) {
 								k := axesKey.Get()
-								drawAxisLines3D(d, ed.Camera3D, SpecPaletteFor(k.dark))
+								drawAxisLines3D(d, ed.Camera3D, theme.PaletteFor(k.dark))
 							},
 						},
 						core.Dynamic(func(cx *core.Scope) core.Node {
 							k := axesKey.Get()
-							ap := SpecPaletteFor(k.dark)
+							ap := theme.PaletteFor(k.dark)
 							aRing := ap.FocusRing(2)
 							marks := axisMarks3DFor(ed.Camera3D, ap)
 							btns := make([]core.Node, 0, len(marks))
@@ -1313,7 +1314,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 						divider3D(p),
 						core.Dynamic(func(cx *core.Scope) core.Node {
 							fk := focusKeyMemo.Get()
-							fp := SpecPaletteFor(fk.dark)
+							fp := theme.PaletteFor(fk.dark)
 							fRing := fp.FocusRing(2)
 							label := ed.T("viewport3d.frameSelection")
 							if fk.focusKey != "" {
@@ -1377,7 +1378,7 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 				return !ed.Playing() && ed.Tool == ToolPlace && ed.GridMapTool() == GridMapToolNone
 			},
 			Then: func(cx *core.Scope) core.Node {
-				pp := ed.SpecPalette(cx)
+				pp := ed.Palette(cx)
 				return core.View{
 					TestID: "view3d-place-bar",
 					Role:   core.RoleGroup,

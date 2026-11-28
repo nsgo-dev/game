@@ -6,11 +6,13 @@ import (
 	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/lights2d"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/pathfind/navbake"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const (
@@ -568,14 +570,14 @@ func (e *Editor) drawNavMesh2DOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if !showMesh && !showTool {
 		return
 	}
-	pal := e.activeSpecPalette()
-	navMesh2DFillColor := specAlpha(pal.Accent.Fg, 0.2)
-	navMesh2DEdgeColor := specAlpha(pal.Accent.Edge, 0.78)
-	navMesh2DPortalColor := specAlpha(pal.Agent.Fg, 0.45)
-	navRegionWalkableColor := specAlpha(pal.Added.Fg, 0.92)
-	navRegionWalkableSubtle := specAlpha(pal.Added.Fg, 0.5)
-	navRegionObstacleColor := specAlpha(pal.Removed.Fg, 0.92)
-	navRegionObstacleSubtle := specAlpha(pal.Removed.Fg, 0.5)
+	pal := e.activePalette()
+	navMesh2DFillColor := ui.Alpha(pal.Accent.Fg, 0.2)
+	navMesh2DEdgeColor := ui.Alpha(pal.Accent.Edge, 0.78)
+	navMesh2DPortalColor := ui.Alpha(pal.Agent.Fg, 0.45)
+	navRegionWalkableColor := ui.Alpha(pal.Added.Fg, 0.92)
+	navRegionWalkableSubtle := ui.Alpha(pal.Added.Fg, 0.5)
+	navRegionObstacleColor := ui.Alpha(pal.Removed.Fg, 0.92)
+	navRegionObstacleSubtle := ui.Alpha(pal.Removed.Fg, 0.5)
 
 	// 1. Built convex navigation mesh overlay (filled polygons, outer edges, shared portals).
 	if showMesh && scene.NavBake2D != nil && len(scene.NavBake2D.Polygons) > 0 {
@@ -650,9 +652,9 @@ func (e *Editor) drawNavPathPreview2D(d *core.Drawing) {
 	if !p.HasStart && !p.HasEnd {
 		return
 	}
-	pal := e.activeSpecPalette()
-	navPathLineColor := specAlpha(pal.Warning.Fg, 0.95)
-	navPathBlockedColor := specAlpha(pal.Removed.Fg, 0.85)
+	pal := e.activePalette()
+	navPathLineColor := ui.Alpha(pal.Warning.Fg, 0.95)
+	navPathBlockedColor := ui.Alpha(pal.Removed.Fg, 0.85)
 	navPathStartColor := pal.Added.Fg
 	navPathEndColor := pal.Changed.Fg
 	gizmoColorCenter := pal.TextPrimary
@@ -699,15 +701,15 @@ func (e *Editor) drawSelectedNavRegionHandles2D(d *core.Drawing) {
 	if !ok {
 		return
 	}
-	pal := e.activeSpecPalette()
+	pal := e.activePalette()
 	gizmoColorCenter := pal.TextPrimary
 	gizmoColorActive := pal.Warning.Fg
 	active := e.drag2D.handle
-	stroke := specAlpha(pal.Added.Fg, 0.92)
-	midFill := CompositeOver(specAlpha(pal.TextPrimary, 0.6), pal.Added.Fg)
+	stroke := ui.Alpha(pal.Added.Fg, 0.92)
+	midFill := theme.CompositeOver(ui.Alpha(pal.TextPrimary, 0.6), pal.Added.Fg)
 	if ng.dbg.Mode == "obstacle" {
-		stroke = specAlpha(pal.Removed.Fg, 0.92)
-		midFill = CompositeOver(specAlpha(pal.TextPrimary, 0.6), pal.Removed.Fg)
+		stroke = ui.Alpha(pal.Removed.Fg, 0.92)
+		midFill = theme.CompositeOver(ui.Alpha(pal.TextPrimary, 0.6), pal.Removed.Fg)
 	}
 	d.Save()
 	for i, mid := range ng.edgeMids {

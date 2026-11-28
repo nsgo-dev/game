@@ -573,7 +573,7 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 }
 
 func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	spec := ed.SpecPalette(cx)
+	spec := ed.Palette(cx)
 	schema := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		return inspectorSchemaKey(ed)
@@ -598,7 +598,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			return !shouldShowRemoteInspector(ed) && ed.Doc != nil
 		},
 		Then: func(cx *core.Scope) core.Node {
-			btnSpec := ed.SpecPalette(cx)
+			btnSpec := ed.Palette(cx)
 			return core.View{
 				TestID: "inspector-open-yaml",
 				Role:   core.RoleButton,
@@ -653,7 +653,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					return playInspectorTabBarView(cx, ed, rev)
 				},
 				Else: func(cx *core.Scope) core.Node {
-					hdrSpec := ed.SpecPalette(cx)
+					hdrSpec := ed.Palette(cx)
 					return core.View{
 						Style: core.Style{
 							Direction:      core.Row,
@@ -718,7 +718,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 										Content: ed.T("inspector.empty"),
 										Style: core.Style{
 											FontSize: 12,
-											Color:    ed.SpecPalette(cx).TextFaint,
+											Color:    ed.Palette(cx).TextFaint,
 										},
 									}
 								}
@@ -1179,7 +1179,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 
 func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objID, layerName string) core.Node {
 	colors := ui.ColorsOf(cx)
-	spec := ed.SpecPalette(cx)
+	spec := ed.Palette(cx)
 	info := ed.ObjectOverrideInfo(objID)
 	isLocal := info.Origin == ObjectLocal
 	disabled := func() bool {

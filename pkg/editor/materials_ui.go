@@ -138,7 +138,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Style: core.Style{
 					Width:        core.Pt(232),
 					Height:       core.Pt(156),
-					Background:   ed.SpecPalette(cx).Viewport,
+					Background:   ed.Palette(cx).Viewport,
 					CornerRadius: 6,
 					BorderWidth:  1,
 					BorderColor:  colors.Line(),
@@ -538,7 +538,7 @@ func drawMaterialPreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	spec := ed.activeSpecPalette()
+	spec := ed.activePalette()
 	// Draw transparency checkerboard so opacity and blend modes are legible.
 	const cell float32 = 12
 	for y := float32(0); y < h; y += cell {
@@ -612,7 +612,7 @@ func drawMaterialPreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 		label = path.Base(ed.material.relPath)
 	}
 	d.Save()
-	d.SetFillColor(specAlpha(spec.PillBg, 0.85)).FillRect(4, h-18, w-8, 14)
+	d.SetFillColor(ui.Alpha(spec.PillBg, 0.85)).FillRect(4, h-18, w-8, 14)
 	d.SetFillColor(spec.TextSecondary).FillText(label, 8, h-7, core.Font{Size: 10})
 	d.Restore()
 }

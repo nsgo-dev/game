@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -106,7 +107,7 @@ func TestToastsKindsQueueMergeTimingAndPause(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1440, 900), nsgotest.Environment(toastDesktopEnv(true, true)), nsgotest.ManualFrames())
 
-	dark := editor.DarkSpecPalette()
+	dark := theme.Dark()
 
 	// 1. First visible toast: Success with Undo ⌘Z, +3 badge, 40 px height, radius 12, Raised fill.
 	toastView := app.Find("id:editor-toast")

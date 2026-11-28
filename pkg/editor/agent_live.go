@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 )
@@ -160,9 +161,9 @@ type agentLiveState struct {
 }
 
 const (
-	agentPulsePeriod   = SpecMotionAgentPulse
-	agentPulseMinAlpha = SpecAgentPulseMinOpacity
-	agentPulseMaxAlpha = SpecAgentPulseMaxOpacity
+	agentPulsePeriod   = theme.MotionAgentPulse
+	agentPulseMinAlpha = theme.AgentPulseMinOpacity
+	agentPulseMaxAlpha = theme.AgentPulseMaxOpacity
 )
 
 // RunAsAgent executes fn while marking edits as originating from the agent rather than manual UI input,

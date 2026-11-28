@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -12,7 +13,7 @@ import (
 )
 
 // agentComposerSummaryCard renders the compacted or fresh-thread summary card inside AgentPanelView.
-func agentComposerSummaryCard(ed *Editor, p SpecPalette, summary string) core.Node {
+func agentComposerSummaryCard(ed *Editor, p theme.Palette, summary string) core.Node {
 	return core.View{
 		TestID: "agent-thread-summary",
 		Style: core.Style{
@@ -37,7 +38,7 @@ func agentComposerSummaryCard(ed *Editor, p SpecPalette, summary string) core.No
 }
 
 // agentComposerThreadNodes renders folded earlier composer requests and the latest composer turn inside AgentPanelView.
-func agentComposerThreadNodes(ed *Editor, p SpecPalette, turns []AgentThreadTurn) []core.Node {
+func agentComposerThreadNodes(ed *Editor, p theme.Palette, turns []AgentThreadTurn) []core.Node {
 	if len(turns) == 0 {
 		return nil
 	}
@@ -323,7 +324,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		if !pickerOpen && !breakdownOpen && hovered == "" && !hasRefPopover {
 			return ""
 		}
-		dark := ed.SpecPalette(cx).Dark
+		dark := ed.Palette(cx).Dark
 		lang := ed.ResolvedLanguage()
 		var b strings.Builder
 		fmt.Fprintf(&b, "%v|%s|%v|%v|%s|", dark, lang, pickerOpen, breakdownOpen, hovered)
@@ -349,7 +350,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	chipRowsKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		rk := refMemo.Get()
-		dark := ed.SpecPalette(cx).Dark
+		dark := ed.Palette(cx).Dark
 		lang := ed.ResolvedLanguage()
 		var b strings.Builder
 		fmt.Fprintf(&b, "%v|%s|%s|%s|%v|%s|%d|%d|%s|%v|%s|%s|",
@@ -367,7 +368,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	actionsKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
-		dark := ed.SpecPalette(cx).Dark
+		dark := ed.Palette(cx).Dark
 		lang := ed.ResolvedLanguage()
 		hasDraft := strings.TrimSpace(ed.ComposerDraft()) != ""
 		meter := ed.ContextMeter()
@@ -381,7 +382,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		if popoverKey.Get() == "" {
 			return nil
 		}
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		pickerOpen := ed.MentionPickerOpen()
 		breakdownOpen := ed.ContextBreakdownOpen()
 		hoverPayload, hasHover := ed.HoveredChipPayload()
@@ -420,7 +421,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	// Chip rows (attached, suggested, always, viewport image toggle) above the stable Input.
 	chipRowsView := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = chipRowsKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		attached := ed.ComposerChips()
 		suggested, hasSuggested := ed.SuggestedChip()
 		always := ed.AlwaysChips()
@@ -689,7 +690,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	// Action bar (@, context meter ring, Send) below the stable Input.
 	actionsView := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = actionsKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		pickerOpen := ed.MentionPickerOpen()
 		breakdownOpen := ed.ContextBreakdownOpen()
 		meter := ed.ContextMeter()
@@ -967,7 +968,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				Width:            core.Pct(100),
 				MinHeight:        core.Pt(40),
@@ -986,7 +987,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		TestID: "agent-composer-card",
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			bw := core.Points(1)
 			bc := p.LineRaised
 			if ed.AgentComposerRewound() {
@@ -1021,7 +1022,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				FontSize: 11,
 				Color:    p.TextFaint,
@@ -1039,7 +1040,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				FontSize: 11,
 				Color:    p.TextFaint,
@@ -1062,7 +1063,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				FlexShrink:  0,
 				Padding:     core.All(specSpace12),
@@ -1087,7 +1088,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 const maxMentionPickerRenderedRows = 200
 
-func mentionPickerView(p SpecPalette, ed *Editor, inputRef *core.Ref) core.Node {
+func mentionPickerView(p theme.Palette, ed *Editor, inputRef *core.Ref) core.Node {
 	items := ed.MentionPickerItems()
 	activeGroup := ed.MentionPickerGroup()
 	activeIdx := ed.MentionPickerActiveIndex()
@@ -1379,7 +1380,7 @@ func mentionPickerView(p SpecPalette, ed *Editor, inputRef *core.Ref) core.Node 
 	}
 }
 
-func chipHoverPreviewView(p SpecPalette, payload AgentChipPayload) core.Node {
+func chipHoverPreviewView(p theme.Palette, payload AgentChipPayload) core.Node {
 	var bodyNodes []core.Node
 	if payload.Header != "" {
 		bodyNodes = append(bodyNodes, core.Text{
@@ -1435,7 +1436,7 @@ func chipHoverPreviewView(p SpecPalette, payload AgentChipPayload) core.Node {
 	}
 }
 
-func contextBreakdownView(p SpecPalette, ed *Editor) core.Node {
+func contextBreakdownView(p theme.Palette, ed *Editor) core.Node {
 	meter := ed.ContextMeter()
 	titleText := ed.T("composer.contextUsedTitle", l10n.Param("pct", meter.Percent))
 	tokensText := ed.T("composer.contextTokensOf",
@@ -1593,8 +1594,8 @@ func contextBreakdownView(p SpecPalette, ed *Editor) core.Node {
 	}
 }
 
-// contextRingCanvas draws a 20×20 circular progress ring matching Threads.dc.html using SpecPalette tokens.
-func contextRingCanvas(p SpecPalette, pct int, level ContextMeterLevel) core.Node {
+// contextRingCanvas draws a 20×20 circular progress ring matching Threads.dc.html using theme.Palette tokens.
+func contextRingCanvas(p theme.Palette, pct int, level ContextMeterLevel) core.Node {
 	trackCol := p.LineRaised
 	arcCol := p.TextMuted
 	switch level {
@@ -1659,7 +1660,7 @@ func drawRingArc(d *core.Drawing, cx, cy, r float32, frac float64, col core.Colo
 	d.Restore()
 }
 
-func chipDotColor(p SpecPalette, role string) core.Color {
+func chipDotColor(p theme.Palette, role string) core.Color {
 	switch role {
 	case "added":
 		return p.Added.Fg
@@ -1678,7 +1679,7 @@ func chipDotColor(p SpecPalette, role string) core.Color {
 	}
 }
 
-func mentionIconNode(p SpecPalette, kind MentionIconKind) core.Node {
+func mentionIconNode(p theme.Palette, kind MentionIconKind) core.Node {
 	switch kind {
 	case MentionIconObject:
 		return specIcon(lucide.Square, 13, p.TextMuted)

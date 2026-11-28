@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
@@ -74,7 +75,7 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
-				cur := ed.SpecPalette(cx)
+				cur := ed.Palette(cx)
 				active := ed.LeftRailMode() == mode
 				bg := core.Transparent
 				if active {
@@ -99,7 +100,7 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Content: label,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						cur := ed.SpecPalette(cx)
+						cur := ed.Palette(cx)
 						col := cur.TextFaint
 						if ed.LeftRailMode() == mode {
 							col = cur.TextPrimary
@@ -118,7 +119,7 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	return core.View{
 		TestID: "left-rail-switch",
 		StyleFunc: func() core.Style {
-			cur := ed.SpecPalette(cx)
+			cur := ed.Palette(cx)
 			return core.Style{
 				Height:      core.Pt(specHeaderHeight),
 				FlexShrink:  0,
@@ -135,7 +136,7 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				TestID: "left-rail-mode-group",
 				Label:  ed.T("region.sceneTree"),
 				StyleFunc: func() core.Style {
-					cur := ed.SpecPalette(cx)
+					cur := ed.Palette(cx)
 					return core.Style{
 						FlexGrow:     1,
 						Direction:    core.Row,
@@ -162,8 +163,8 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	snapMemo := newAssetSnapMemo(cx, ed, rev)
 
 	body := core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
-		selectedRowFill := specAlpha(p.Accent.Fg, 0.14)
+		p := ed.Palette(cx)
+		selectedRowFill := ui.Alpha(p.Accent.Fg, 0.14)
 		snap := snapMemo.Get().snap
 		folderRows := make([]core.Node, 0, len(snap.Folders))
 		for _, f := range snap.Folders {
@@ -347,7 +348,7 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			ed.report(err)
 		},
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				Width:       core.Pt(232),
 				FlexShrink:  0,
@@ -361,11 +362,11 @@ func AssetsLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			LeftRailSwitchView(cx, ed, rev),
 			ui.ScrollView{
 				Style:     core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-				EdgeColor: func() core.Color { return ed.SpecPalette(cx).Bg },
+				EdgeColor: func() core.Color { return ed.Palette(cx).Bg },
 				Children:  []core.Node{body},
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				return core.View{
 					TestID: "assets-drop-zone",
 					Style: core.Style{
@@ -418,7 +419,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			Label:  label,
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				var bg core.Color
 				if ed.AssetDrawerKind() == kind {
 					bg = p.LineRaised
@@ -441,7 +442,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					Content: label,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						col := p.TextFaint
 						if ed.AssetDrawerKind() == kind {
 							col = p.TextPrimary
@@ -458,7 +459,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	}
 
 	header := core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "asset-drawer-header",
 			Style: core.Style{
@@ -633,7 +634,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	})
 
 	gridBody := core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		snap := snapMemo.Get().snap
 		var children []core.Node
 
@@ -673,7 +674,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	})
 
 	footer := core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		snap := snapMemo.Get().snap
 		countText := ed.T("assetDrawer.footerCount",
 			l10n.Param("total", len(snap.AllItems)),
@@ -750,7 +751,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			ed.report(err)
 		},
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				FlexGrow:    1,
 				FlexBasis:   core.Pt(0),
@@ -764,7 +765,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			header,
 			ui.ScrollView{
 				Style:     core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-				EdgeColor: func() core.Color { return ed.SpecPalette(cx).Panel },
+				EdgeColor: func() core.Color { return ed.Palette(cx).Panel },
 				Children:  []core.Node{gridBody},
 			},
 			footer,
@@ -772,7 +773,7 @@ func AssetDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	}
 }
 
-func proposedImportBanner(ed *Editor, count int, p SpecPalette) core.Node {
+func proposedImportBanner(ed *Editor, count int, p theme.Palette) core.Node {
 	title := ed.Plural("assetDrawer.proposedBannerTitle", count)
 	return core.View{
 		TestID: "asset-proposed-banner",
@@ -785,7 +786,7 @@ func proposedImportBanner(ed *Editor, count int, p SpecPalette) core.Node {
 			CornerRadius:   12,
 			Background:     p.Raised,
 			BorderWidth:    1,
-			BorderColor:    specAlpha(p.Added.Fg, 0.45),
+			BorderColor:    ui.Alpha(p.Added.Fg, 0.45),
 		},
 		Children: []core.Node{
 			core.View{
@@ -845,7 +846,7 @@ func proposedImportBanner(ed *Editor, count int, p SpecPalette) core.Node {
 	}
 }
 
-func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) core.Node {
+func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p theme.Palette) core.Node {
 	if snap.EmptyFolder != "" {
 		isAudioFolder := strings.Contains(strings.ToLower(snap.EmptyFolder), "audio") ||
 			strings.Contains(strings.ToLower(snap.EmptyFolder), "music") ||
@@ -975,10 +976,10 @@ func assetDrawerEmptyState(ed *Editor, snap AssetDrawerSnapshot, p SpecPalette) 
 	}
 }
 
-func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool, p SpecPalette) core.Node {
+func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool, p theme.Palette) core.Node {
 	cardID := "asset-card-" + sanitizeAssetTestID(it.Path)
-	selectedRowFill := specAlpha(p.Accent.Fg, 0.14)
-	bgOverlay := specAlpha(p.Bg, 0.92)
+	selectedRowFill := ui.Alpha(p.Accent.Fg, 0.14)
+	bgOverlay := ui.Alpha(p.Bg, 0.92)
 
 	bg := p.Raised
 	borderColor := p.LineRaised
@@ -1201,7 +1202,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	})
 
 	content := core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		_ = inspectorKeyMemo.Get()
 		snap := snapMemo.Get().snap
 		if snap.Selected == nil {
@@ -1222,8 +1223,8 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		// Isolate preview box & clip/audio playback controls into a preview-keyed Dynamic so
 		// 8 Hz clip ticks only update preview nodes and 60 Hz drag moves trigger zero rebuilds.
 		previewSection := core.Dynamic(func(cx *core.Scope) core.Node {
-			cur := ed.SpecPalette(cx)
-			bgOverlay := specAlpha(cur.Bg, 0.92)
+			cur := ed.Palette(cx)
+			bgOverlay := ui.Alpha(cur.Bg, 0.92)
 			_ = previewKeyMemo.Get()
 			clip := activePreviewClip(&sel, ed.AssetPreviewClip())
 			frameIdx := ed.AssetPreviewFrame()
@@ -1709,7 +1710,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		Role:   core.RoleRegion,
 		Label:  ed.T("assetDrawer.inspectorLabel"),
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				Width:       core.Pt(380),
 				FlexShrink:  0,
@@ -1723,7 +1724,7 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 }
 
-func assetImportSummarySection(ed *Editor, info AssetImportInfo, p SpecPalette) core.Node {
+func assetImportSummarySection(ed *Editor, info AssetImportInfo, p theme.Palette) core.Node {
 	row := func(label, val string) core.Node {
 		return core.View{
 			Style: core.Style{
@@ -1788,8 +1789,8 @@ func assetImportSummarySection(ed *Editor, info AssetImportInfo, p SpecPalette) 
 	}
 }
 
-func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool, p SpecPalette) core.Node {
-	checkerAlt := specAlpha(p.LineRaised, 0.36)
+func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool, p theme.Palette) core.Node {
+	checkerAlt := ui.Alpha(p.LineRaised, 0.36)
 	return core.Canvas{
 		Style: core.Style{
 			Width:  core.Pct(100),
@@ -1880,8 +1881,8 @@ func assetThumbnailCanvas(it AssetDrawerItem, w, h float32, audioPlaying bool, p
 func assetDragViewportOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rev.Get()
-		p := ed.SpecPalette(cx)
-		bgOverlay := specAlpha(p.Bg, 0.92)
+		p := ed.Palette(cx)
+		bgOverlay := ui.Alpha(p.Bg, 0.92)
 		inAssets := ed.LeftRailMode() == LeftRailAssets
 		st := ed.AssetDragState()
 		if !inAssets && !st.Active {

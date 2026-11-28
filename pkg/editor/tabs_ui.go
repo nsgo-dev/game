@@ -59,7 +59,7 @@ func SceneTabsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						list := tabs.Get()
 						nodes := make([]core.Node, 0, len(list))
 						for i, tab := range list {

@@ -852,7 +852,7 @@ func tileLayerControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p T
 	if len(p.TileLayers) == 0 && !isTilesetFile(p.Tileset) {
 		return core.View{}
 	}
-	spec := ed.SpecPalette(cx)
+	spec := ed.Palette(cx)
 	var children []core.Node
 	if len(p.TileLayers) > 0 {
 		layers := make([]core.Node, 0, len(p.TileLayers))
@@ -987,7 +987,7 @@ func tilePaletteSelectedCard(cx *core.Scope, ed *Editor, palette *core.Memo[Tile
 		if !ok {
 			return core.View{}
 		}
-		spec := ed.SpecPalette(cx)
+		spec := ed.Palette(cx)
 		name := tile.Name
 		if name == "" {
 			name = ed.T("tilePaletteExtra.tileLabel", l10n.Param("number", tile.Number))

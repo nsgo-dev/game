@@ -30,11 +30,13 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/tooling/audioconv"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const (
@@ -131,9 +133,9 @@ func DefaultAssetStyleBrief() AssetStyleBrief {
 		MaxPeakDB:     -0.5,
 		LoudnessTolDB: 3.0,
 		Backgrounds: []AssetPreviewBackground{
-			{ID: "floor3", Label: "Floor 3", Color: CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.12), darkSpecPalette.Raised)},
-			{ID: "floor1", Label: "Floor 1", Color: CompositeOver(specAlpha(darkSpecPalette.Changed.Fg, 0.08), darkSpecPalette.Raised)},
-			{ID: "checker", Label: "Checker", Color: darkSpecPalette.Raised, Checker: true},
+			{ID: "floor3", Label: "Floor 3", Color: theme.CompositeOver(ui.Alpha(theme.Dark().Accent.Fg, 0.12), theme.Dark().Raised)},
+			{ID: "floor1", Label: "Floor 1", Color: theme.CompositeOver(ui.Alpha(theme.Dark().Changed.Fg, 0.08), theme.Dark().Raised)},
+			{ID: "checker", Label: "Checker", Color: theme.Dark().Raised, Checker: true},
 		},
 	}
 }
@@ -592,7 +594,7 @@ func parseBriefStyleYAML(data []byte, base AssetStyleBrief) AssetStyleBrief {
 			if strings.TrimSpace(bg.ID) == "" {
 				continue
 			}
-			c := CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.12), darkSpecPalette.Raised)
+			c := theme.CompositeOver(ui.Alpha(theme.Dark().Accent.Fg, 0.12), theme.Dark().Raised)
 			if parsedCol, err := core.ParseColor(strings.TrimSpace(bg.Color)); err == nil {
 				c = parsedCol
 			}

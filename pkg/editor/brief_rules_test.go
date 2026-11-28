@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -763,8 +764,8 @@ func TestBriefAndRulesDraftStabilityAndThemeRepaint(t *testing.T) {
 		t.Fatal("settings-agent-card missing in dark theme")
 	}
 	darkBG := cardDark.Style.Background
-	if darkBG != editor.SpecPaletteFor(true).Panel {
-		t.Fatalf("dark settings-agent-card bg = %#x, want %#x", uint32(darkBG), uint32(editor.SpecPaletteFor(true).Panel))
+	if darkBG != theme.PaletteFor(true).Panel {
+		t.Fatalf("dark settings-agent-card bg = %#x, want %#x", uint32(darkBG), uint32(theme.PaletteFor(true).Panel))
 	}
 	app.Post(func() { _ = ed.SetAppearance(editor.AppearanceLight) })
 	app.Settle()
@@ -772,8 +773,8 @@ func TestBriefAndRulesDraftStabilityAndThemeRepaint(t *testing.T) {
 	if cardLight == nil {
 		t.Fatal("settings-agent-card missing in light theme")
 	}
-	if cardLight.Style.Background != editor.SpecPaletteFor(false).Panel {
-		t.Fatalf("light settings-agent-card bg = %#x, want %#x", uint32(cardLight.Style.Background), uint32(editor.SpecPaletteFor(false).Panel))
+	if cardLight.Style.Background != theme.PaletteFor(false).Panel {
+		t.Fatalf("light settings-agent-card bg = %#x, want %#x", uint32(cardLight.Style.Background), uint32(theme.PaletteFor(false).Panel))
 	}
 }
 

@@ -23,6 +23,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `scene` | `github.com/nsgo-dev/game/pkg/scene` | [scene](scene.md) | World/screen layers, hit testing, scene stacks and animated transitions |
 | `sceneformat` | `github.com/nsgo-dev/game/pkg/sceneformat` | [Scene format](formats.md#scene) | Versioned YAML scene documents: strict parsing and validation, deterministic encoding and building into sprite batches ready to draw |
 | `editor` | `github.com/nsgo-dev/game/pkg/editor` | [Scene Editor](editor.md) | The NSGo Scene Editor over `sceneformat`: undoable scene, tilemap, layer and property editing, play-in-editor, asset browser, plugins and project panels |
+| `editor/theme` | `github.com/nsgo-dev/game/pkg/editor/theme` | [Design tokens](editor.md#design-tokens-1002) | The editor's design tokens: the embedded YAML theme, the dark and light palettes, type, spacing, shape and motion constants, and the WCAG 2.2 contrast table every palette meets |
 | `physics` | `github.com/nsgo-dev/game/pkg/physics` | [physics](physics.md) | `Box`/`Circle` overlaps, `MoveAndSlide` tile resolution and `World` queries |
 | `physics3d` | `github.com/nsgo-dev/game/pkg/physics3d` | [physics3d](physics3d.md) | Deterministic 3D collision detection, raycasts, rigid-body dynamics and a kinematic character controller |
 | `platformer` | `github.com/nsgo-dev/game/pkg/platformer` | [platformer](platformer.md) | Platformer `Controller` on `CharacterBody`: coyote time, jump buffer, variable jump height, wall slide and wall jump from a YAML config |

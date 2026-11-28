@@ -4,29 +4,30 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-func tileReviewOverlayBg(p SpecPalette) core.Color {
-	return specAlpha(p.Raised, 0.92)
+func tileReviewOverlayBg(p theme.Palette) core.Color {
+	return ui.Alpha(p.Raised, 0.92)
 }
 
-func tileReviewCardFocusBg(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.Accent.Fg, 0.12), p.Raised)
+func tileReviewCardFocusBg(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.Accent.Fg, 0.12), p.Raised)
 }
 
-func tileReviewFocusEdge(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.Accent.Fg, 0.35), p.LineRaised)
+func tileReviewFocusEdge(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.Accent.Fg, 0.35), p.LineRaised)
 }
 
-func tileReviewKeycapBg(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.TextFaint, 0.08), p.Raised)
+func tileReviewKeycapBg(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.TextFaint, 0.08), p.Raised)
 }
 
-func tileReviewRestoreTextColor(p SpecPalette) core.Color {
-	return CompositeOver(specAlpha(p.TextPrimary, 0.62), p.Accent.Fg)
+func tileReviewRestoreTextColor(p theme.Palette) core.Color {
+	return theme.CompositeOver(ui.Alpha(p.TextPrimary, 0.62), p.Accent.Fg)
 }
 
 // viewportTileOverlays returns the 2D viewport floating overlays:
@@ -64,7 +65,7 @@ func viewportTileOverlays(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					},
 					Then: func(cx *core.Scope) core.Node {
 						return core.Dynamic(func(cx *core.Scope) core.Node {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.View{
 								TestID:        "viewport-tile-caption",
 								PointerEvents: core.PointerEventsNone,
@@ -126,7 +127,7 @@ func viewportTileOverlays(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							ed.SetTileReviewPeekBefore(false)
 						})
 						return core.Dynamic(func(cx *core.Scope) core.Node {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.View{
 								TestID: "tile-review-bar",
 								Style: core.Style{
@@ -205,7 +206,7 @@ func viewportTileOverlays(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			},
 			Then: func(cx *core.Scope) core.Node {
 				return core.Dynamic(func(cx *core.Scope) core.Node {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					legendRow := func(color core.Color, text string, dashed bool) core.Node {
 						return core.View{
 							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
@@ -264,7 +265,7 @@ func tileReviewSegButton(cx *core.Scope, ed *Editor, testID, text string, active
 			onPress()
 		},
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			var bg core.Color
 			if active() {
 				bg = p.LineRaised
@@ -283,7 +284,7 @@ func tileReviewSegButton(cx *core.Scope, ed *Editor, testID, text string, active
 			core.Text{
 				Content: text,
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					col := p.TextMuted
 					if active() {
 						col = p.TextPrimary
@@ -328,7 +329,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	}
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "tile-review-panel",
 			Role:   core.RoleRegion,
@@ -353,7 +354,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				// Agent step trace
 				core.Dynamic(func(cx *core.Scope) core.Node {
 					_ = regionsKey.Get()
-					curPal := ed.SpecPalette(cx)
+					curPal := ed.Palette(cx)
 					steps := ed.TileReviewSteps()
 					if len(steps) == 0 {
 						return core.View{}
@@ -455,7 +456,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 													},
 													StyleFunc: func() core.Style {
 														_ = rev.Get()
-														curPal := ed.SpecPalette(cx)
+														curPal := ed.Palette(cx)
 														bg := core.Transparent
 														if ed.SketchReviewOverlayVisible() {
 															bg = curPal.LineRaised
@@ -475,7 +476,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 															Content: ed.T("tileReview.sketchOverlay"),
 															StyleFunc: func() core.Style {
 																_ = rev.Get()
-																curPal := ed.SpecPalette(cx)
+																curPal := ed.Palette(cx)
 																col := curPal.TextMuted
 																if ed.SketchReviewOverlayVisible() {
 																	col = curPal.TextPrimary
@@ -506,7 +507,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							Children: []core.Node{
 								core.Dynamic(func(cx *core.Scope) core.Node {
 									_ = regionsKey.Get()
-									curPal := ed.SpecPalette(cx)
+									curPal := ed.Palette(cx)
 									regions := ed.TileReviewRegions()
 									focusedID := ed.TileReviewFocusedRegion()
 									rows := make([]core.Node, 0, len(regions))

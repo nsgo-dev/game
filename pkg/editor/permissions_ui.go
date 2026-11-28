@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -39,7 +40,7 @@ type permissionsOverlayMemoKey struct {
 }
 
 // PermissionsSettingsView renders the standalone full-window Settings › Permissions screen matching
-// design/editor/Settings.dc.html and design/editor/Permissions.dc.html using SpecPalette tokens.
+// design/editor/Settings.dc.html and design/editor/Permissions.dc.html using theme.Palette tokens.
 func PermissionsSettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.PermissionsSettingsOpen() {
@@ -52,20 +53,20 @@ func PermissionsSettingsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 		return permissionsMemoKey{
 			rev:  ed.permissionsStateRev(),
 			lang: ed.ResolvedLanguage(),
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 		}
 	})
 	chromeKey := core.NewMemo(cx, func() permissionsMemoKey {
 		_ = rev.Get()
 		return permissionsMemoKey{
 			lang: ed.ResolvedLanguage(),
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 		}
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = chromeKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "permissions-settings-standalone",
 			Role:   core.RoleRegion,
@@ -107,7 +108,7 @@ func permissionsSettingsPageBody(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 		return permissionsMemoKey{
 			rev:  ed.permissionsRulesRev(),
 			lang: ed.ResolvedLanguage(),
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 		}
 	})
 	railKey := core.NewMemo(cx, func() permissionsMemoKey {
@@ -115,7 +116,7 @@ func permissionsSettingsPageBody(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 		return permissionsMemoKey{
 			rev:  ed.permissionsStateRev(),
 			lang: ed.ResolvedLanguage(),
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 		}
 	})
 
@@ -170,7 +171,7 @@ func permissionsSettingsPageBody(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 func permissionsSidebarView(cx *core.Scope, ed *Editor, railKey *core.Memo[permissionsMemoKey]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = railKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		focusRing := p.FocusRing(2)
 		perms := ed.Permissions()
 		projName := ed.T("permissions.noProject")
@@ -346,7 +347,7 @@ func permissionsSidebarView(cx *core.Scope, ed *Editor, railKey *core.Memo[permi
 	})
 }
 
-func permissionsTopBarView(p SpecPalette, ed *Editor) core.Node {
+func permissionsTopBarView(p theme.Palette, ed *Editor) core.Node {
 	return core.View{
 		Style: core.Style{
 			Padding:     core.Symmetric(14, 28),
@@ -394,7 +395,7 @@ func permissionsMainPaneView(
 ) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rulesKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		focusRing := p.FocusRing(2)
 		perms := ed.Permissions()
 		modified := perms.IsModified()
@@ -1180,7 +1181,7 @@ func permissionsMainPaneView(
 func permissionsAgentRailView(cx *core.Scope, ed *Editor, railKey *core.Memo[permissionsMemoKey]) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = railKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		perms := ed.Permissions()
 		allowN, askN, denyN := 0, 0, 0
 		for _, r := range perms.Rules {
@@ -1252,7 +1253,7 @@ func permissionsAgentRailView(cx *core.Scope, ed *Editor, railKey *core.Memo[per
 	})
 }
 
-func permissionsBlockedCardNode(p SpecPalette, ed *Editor, step BlockedPermissionStep, linkTestID string) core.Node {
+func permissionsBlockedCardNode(p theme.Palette, ed *Editor, step BlockedPermissionStep, linkTestID string) core.Node {
 	focusRing := p.FocusRing(2)
 	ruleSummary := step.Evaluation.Reason
 	if step.Evaluation.Rule != nil {
@@ -1343,7 +1344,7 @@ func permissionsBlockedCardNode(p SpecPalette, ed *Editor, step BlockedPermissio
 	}
 }
 
-func permissionsAskCardNode(p SpecPalette, ed *Editor, req PendingPermissionRequest, testPrefix string) core.Node {
+func permissionsAskCardNode(p theme.Palette, ed *Editor, req PendingPermissionRequest, testPrefix string) core.Node {
 	focusRing := p.FocusRing(2)
 	reqID := req.ID
 	rule := AlwaysRuleForEvaluation(req.Evaluation)
@@ -1480,7 +1481,7 @@ func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 		return permissionsMemoKey{
 			rev:  ed.permissionsStateRev(),
 			lang: ed.ResolvedLanguage(),
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 		}
 	})
 	return core.Show{
@@ -1496,7 +1497,7 @@ func PermissionsToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				if !ok {
 					return core.View{}
 				}
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				focusRing := p.FocusRing(2)
 				msg := ed.T("permissions.toastSaved")
 				return core.View{
@@ -1628,7 +1629,7 @@ func PermissionsWorkspaceOverlayView(cx *core.Scope, ed *Editor, rev *core.Signa
 			rev:  ed.permissionsStateRev(),
 			open: ed.PermissionsSettingsOpen(),
 			lang: ed.ResolvedLanguage(),
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 		}
 	})
 	return core.Show{
@@ -1645,7 +1646,7 @@ func PermissionsWorkspaceOverlayView(cx *core.Scope, ed *Editor, rev *core.Signa
 				if k.open {
 					return core.View{}
 				}
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				items := make([]core.Node, 0, 2)
 				if pending := ed.PendingPermissionRequests(); len(pending) > 0 && ed.PendingAgentPermissionAsk() == nil {
 					items = append(items, permissionsAskCardNode(p, ed, pending[0], "workspace-perm-ask"))

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -633,8 +634,8 @@ func TestSettingsWindowScreenshots(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	dark := editor.DarkSpecPalette()
-	light := editor.LightSpecPalette()
+	dark := theme.Dark()
+	light := theme.Light()
 
 	// 1. General (Dark)
 	app.Key("mod+,")

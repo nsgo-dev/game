@@ -8,10 +8,12 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/render3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // ViewProj returns the right-handed Y-up [0, 1] NDC view-projection matrix
@@ -432,16 +434,16 @@ func hasOccluder(o *sceneformat.ObjectDoc) bool {
 
 // lodColor3D returns a distinct Spec token color for each LOD index so level transitions
 // stand out clearly in the 3D viewport.
-func lodColor3D(spec SpecPalette, level int) core.Color {
+func lodColor3D(spec theme.Palette, level int) core.Color {
 	switch level {
 	case 0:
-		return specAlpha(spec.Added.Fg, 0.95) // green: LOD0 (finest)
+		return ui.Alpha(spec.Added.Fg, 0.95) // green: LOD0 (finest)
 	case 1:
-		return specAlpha(spec.Warning.Fg, 0.95) // warning: LOD1
+		return ui.Alpha(spec.Warning.Fg, 0.95) // warning: LOD1
 	case 2:
-		return specAlpha(spec.Changed.Fg, 0.95) // amber: LOD2
+		return ui.Alpha(spec.Changed.Fg, 0.95) // amber: LOD2
 	default:
-		return specAlpha(spec.Removed.Fg, 0.95) // red: LOD3+
+		return ui.Alpha(spec.Removed.Fg, 0.95) // red: LOD3+
 	}
 }
 
@@ -457,11 +459,11 @@ func (e *Editor) drawObjectLODBadge3D(d *core.Drawing, obj *sceneformat.ObjectDo
 	if !vis {
 		return
 	}
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	label := fmt.Sprintf("LOD%d", lod)
 	col := lodColor3D(spec, lod)
 	d.Save().
-		SetFillColor(specAlpha(spec.PillBg, 0.88)).
+		SetFillColor(ui.Alpha(spec.PillBg, 0.88)).
 		FillRect(sx-18, sy-15, 36, 14).
 		SetFillColor(col).
 		FillText(label, sx-14, sy-4, core.Font{Size: 10}).
@@ -474,9 +476,9 @@ func (e *Editor) drawOccluders3D(d *core.Drawing, w, h float32) {
 	if !e.ShowOccluders || d == nil || e.Doc == nil {
 		return
 	}
-	spec := e.activeSpecPalette()
-	occColor := specAlpha(spec.Agent.Fg, 0.95)
-	occLabelBg := specAlpha(spec.Agent.Fill, 0.90)
+	spec := e.activePalette()
+	occColor := ui.Alpha(spec.Agent.Fg, 0.95)
+	occLabelBg := ui.Alpha(spec.Agent.Fill, 0.90)
 
 	// Track which object IDs were drawn from built scenemodel.Occluders so
 	// fallback doc walking does not double-draw them.
@@ -628,7 +630,7 @@ func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[u
 			return ed.ViewMode == ViewMode3D && ed.ShowRenderStats
 		},
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.View{
 				TestID: "viewport3d-render-stats-panel",
 				Style: core.Style{

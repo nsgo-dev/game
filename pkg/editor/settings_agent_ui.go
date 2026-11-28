@@ -5,15 +5,16 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // settingsModelsPageView renders Settings › Models and connections matching design/editor/Settings.dc.html
-// using exclusively SpecPalette tokens and real accessible controls. All settings on this page are You only
+// using exclusively theme.Palette tokens and real accessible controls. All settings on this page are You only
 // and stored per computer (API keys strictly in the OS keychain, never in any file).
-func settingsModelsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+func settingsModelsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette) core.Node {
 	apiKeyEditorOpen := core.NewSignal(cx, false)
 	apiKeyDraft := core.NewSignal(cx, "")
 	apiKeyErr := core.NewSignal(cx, "")
@@ -562,7 +563,7 @@ func settingsModelsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 // settingsToolsPageView renders Settings › Tools matching design/editor/Settings.dc.html:
 // every tool registered on the editor's MCP server with its name, description, and role=switch toggle,
 // plus other MCP servers the agent may use (starting with Running game · nsgo dev) and "+ Add a server".
-func settingsToolsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+func settingsToolsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette) core.Node {
 	toolFilter := core.NewSignal(cx, "")
 	addServerOpen := core.NewSignal(cx, false)
 	srvName := core.NewSignal(cx, "")
@@ -1008,7 +1009,7 @@ func settingsToolsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 // settingsUsagePageView renders Settings › Usage and privacy matching design/editor/Settings.dc.html:
 // weekly requests vs weekly limit, kept review percentage, local playtest runs, and the four
 // WHAT MAY LEAVE THIS COMPUTER switches enforced by the MCP server for every agent.
-func settingsUsagePageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+func settingsUsagePageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette) core.Node {
 	limitDraft := core.NewSignal(cx, strconv.Itoa(ed.WeeklyRequestLimit()))
 	limitErr := core.NewSignal(cx, "")
 	savedLimit := core.NewMemo(cx, func() int {

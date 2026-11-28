@@ -1006,7 +1006,7 @@ func main() {
 
 ## 统一设置页面：智能体、项目、输入映射、音频总线、导出、通用偏好与快捷键（#907、#908、#909、#916、#1028、#1060、#1061）
 
-所有每台电脑的智能体控制、项目级 `game.yaml` 配置与编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `design/editor/Settings.dc.html` 与 `Spec.dc.html`，并在深色与浅色外观下统一使用 `SpecPalette` 令牌。左侧导航将 **`AGENT`**（**Models and connections**、**Tools**、**Usage and privacy**，全部保存在此计算机且为**仅限用户**）、**`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**、**Shortcuts**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
+所有每台电脑的智能体控制、项目级 `game.yaml` 配置与编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `design/editor/Settings.dc.html` 与 `Spec.dc.html`，并在深色与浅色外观下统一使用 `theme.Palette` 令牌。左侧导航将 **`AGENT`**（**Models and connections**、**Tools**、**Usage and privacy**，全部保存在此计算机且为**仅限用户**）、**`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**、**Shortcuts**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
 
 ### 智能体设置页：模型与连接、工具、用量与隐私（#1028、#1030）
 
@@ -1231,7 +1231,7 @@ func main() {
   - **状态栏保存状态项（`Editor.SaveStatus`，`SaveStatusSaved` / `SaveStatusSaving` / `SaveStatusFailed`）**：已保存时以柔和 Spec 样式显示 `已保存`（悬停提示显示上次保存时间）；仅当保存耗时超过 300 毫秒（`DefaultSavingIndicatorDelay`，可通过 `Editor.SavingIndicatorDelay` 配置）后才显示 `正在保存…`，避免快速保存闪烁；自动保存失败时会持续停留在状态栏中（从不以 toast 弹出），显示可读原因（如 `无法保存：文件夹为只读` 或 `无法保存：磁盘已满 · 剩余 12 MB`）以及**重试**（`Editor.RetrySave`）和**另存为…**操作，直到问题解决。
   - **保存失败期间**：场景名称及失败标签页旁的未保存圆点变为 Spec 问题红（`#FF6B6B`），退出前会先询问（`Editor.HasUnsavedChanges()` 保持为 `true`），且 `editormcp` 会在后续每次工具结果中警告智能体当前更改未落盘，直到保存成功。
 - **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在统一**设置**视图的 **`EDITOR · THIS COMPUTER` > General** 页面（`SettingsView` / `EditorSettingsDialogView`，可通过 `文件 > 编辑器设置…`、命令面板 `CmdEditorSettings` 或 `mod+,` 打开）中切换语言后，顶栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
-- **外观（`core.Scope.SetAppearance`）与 Spec 深/浅色主题（#1062）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`EditorView` 会在根作用域挂载内嵌的 YAML 规范主题（`spec_theme.yaml`，经由 `core.ParseTheme` 解析并通过 `SpecTheme`、`DarkSpecPalette`、`LightSpecPalette`、`SpecPaletteFor` 与 `Editor.SpecPalette` 暴露），使所有 NSGo `ui` 组件、面板、视口叠加层、叠加图例（`SpecOverlayLegendView` / `SetOverlayLegendOpen`）与轻提示 Toast（`ShowToast` / `DismissToast` / `ToastView`）在深色与浅色外观下都严格遵循 Spec 令牌，不再回退到 NSGo 默认主题。深浅两套调色板中的每一组前景/背景、强调按钮文字、警告卡片与视口叠加层均按同一张 WCAG 2.2 对比度表进行校验（`ContrastRatio`、`SpecContrastTable`：正文、胶囊文字及强调/智能体/问题填充上的文字均 >= 4.5:1 AA；焦点环与视口叠加层描边 >= 3:1 UI 对比度）。当设置为 `AppearanceSystem` 时，系统外观变化会实时重绘编辑器而无需重启；显式选择的 `AppearanceLight` 或 `AppearanceDark` 会持久化到 `Editor.SettingsPath` 并在重启后保持生效。
+- **外观（`core.Scope.SetAppearance`）与 Spec 深/浅色主题（#1062）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`EditorView` 会在根作用域挂载内嵌的 YAML 规范主题（`theme.yaml`，经由 `core.ParseTheme` 解析并通过 `theme.Core`、`theme.Dark`、`theme.Light`、`theme.PaletteFor` 与 `Editor.Palette` 暴露），使所有 NSGo `ui` 组件、面板、视口叠加层、叠加图例（`SpecOverlayLegendView` / `SetOverlayLegendOpen`）与轻提示 Toast（`ShowToast` / `DismissToast` / `ToastView`）在深色与浅色外观下都严格遵循 Spec 令牌，不再回退到 NSGo 默认主题。深浅两套调色板中的每一组前景/背景、强调按钮文字、警告卡片与视口叠加层均按同一张 WCAG 2.2 对比度表进行校验（`theme.ContrastRatio`、`theme.ContrastTable`：正文、胶囊文字及强调/智能体/问题填充上的文字均 >= 4.5:1 AA；焦点环与视口叠加层描边 >= 3:1 UI 对比度）。当设置为 `AppearanceSystem` 时，系统外观变化会实时重绘编辑器而无需重启；显式选择的 `AppearanceLight` 或 `AppearanceDark` 会持久化到 `Editor.SettingsPath` 并在重启后保持生效。
 - **快捷键：按作用域搜索与重绑（#1061）**：
   - **命令作用域**：每个 `EditorCommand` 和 `PluginCommand` 都带有 `Scope`（`ScopeGlobal`、`ScopeViewport`、`ScopeViewport2D`、`ScopeViewport3D`、`ScopeSceneTree`、`ScopeTile`、`ScopeAnimation`、`ScopePlay`，未指定时默认为 `ScopeGlobal`）。
   - **设置 › 快捷键（`EditorSettingsTabShortcuts`、`OpenShortcutsSettings`、`CmdShortcutsSettings`）**：列出所有已注册的内置、自定义与已启用插件命令及其作用域和当前按键，支持按命令名称、按键或作用域搜索（`FilterShortcutCommands`）。点击命令的按键按钮即可进入按键录制模式（`ShortcutFromKeyEvent`，按 `Escape` 可取消录制而不关闭设置对话框）。若按键在**同一作用域**中已被占用（`ShortcutConflict` / `*ShortcutConflictError`），会在行内原地提示并提供**交换**按钮（`SwapShortcut`，交换后两条命令互换按键且均保持绑定）；若按键仅在**不同作用域**中被使用（`RebindShortcut`），则会立即绑定而不弹出冲突提示。支持单行**重置**（`ResetShortcut`）与顶部**全部重置**（`ResetAllShortcuts`）。
@@ -1378,8 +1378,8 @@ func main() {
 
 编辑器中的每个交互控件都遵循 `design/editor/Spec.dc.html` 规范，在键盘聚焦时绘制焦点环，并可通过 `Tab`、`F6` 或方向键访问：
 
-- **仅键盘焦点环（`:focus-visible`）**：`EditorView` 安装 `SpecTheme()`（`FocusTheme()` 亦返回同一主题），将 `info`、`focus` 与 `ring` 映射为规范强调色（深色 `#3B7BFF`、浅色 `#1D5CE6`）并保持深浅两套外观表面。按钮、切换按钮、下拉选择、复选框以及 `SpecIconButton` / `SpecSwitch` 仅在键盘聚焦时绘制 2 px、`+2 px` 偏移的强调色焦点环，鼠标点击不会绘制焦点环。
-- **内嵌焦点环与 `:focus-within`**：树节点行（`SceneTreeView`、`LayersView`）、列表行（`AssetBrowserView`、`FilesView`）、文本与数值输入框（`ui.Input`、`ui.NumberInput`）以及通过 `F6` 聚焦的整个区域均通过 `SpecPalette.FocusRing(-2)` 绘制 `-2 px` 内嵌偏移的强调色焦点环，确保滚动父容器不会裁剪它。同时被选中和聚焦的行会同时显示选中背景填充与内嵌焦点环；输入框/卡片容器（`SpecFocusWithinCard`、`hud-composer-card`）则通过 `:focus-within` 在卡片外圈绘制 `+2 px` 焦点环。
+- **仅键盘焦点环（`:focus-visible`）**：`EditorView` 安装 `theme.Core()`（`FocusTheme()` 亦返回同一主题），将 `info`、`focus` 与 `ring` 映射为规范强调色（深色 `#3B7BFF`、浅色 `#1D5CE6`）并保持深浅两套外观表面。按钮、切换按钮、下拉选择、复选框以及 `SpecIconButton` / `SpecSwitch` 仅在键盘聚焦时绘制 2 px、`+2 px` 偏移的强调色焦点环，鼠标点击不会绘制焦点环。
+- **内嵌焦点环与 `:focus-within`**：树节点行（`SceneTreeView`、`LayersView`）、列表行（`AssetBrowserView`、`FilesView`）、文本与数值输入框（`ui.Input`、`ui.NumberInput`）以及通过 `F6` 聚焦的整个区域均通过 `theme.Palette.FocusRing(-2)` 绘制 `-2 px` 内嵌偏移的强调色焦点环，确保滚动父容器不会裁剪它。同时被选中和聚焦的行会同时显示选中背景填充与内嵌焦点环；输入框/卡片容器（`SpecFocusWithinCard`、`hud-composer-card`）则通过 `:focus-within` 在卡片外圈绘制 `+2 px` 焦点环。
 - **固定顺序的键盘区域（`F6` / `Shift-F6`）**：`F6` 移至下一个可见区域，`Shift-F6` 返回上一个可见区域，严格遵循规范顺序：**Header 顶栏**（`RegionHeader`）→ **Scene tree 左侧栏**（`RegionSceneTree`）→ **Viewport 视口**（`RegionViewport`）→ **Agent 与 Inspector 右侧栏**（`RegionInspector`）→ **Status bar 状态栏**（`RegionStatusBar`）→ **Toast 提示**（`RegionToast`，仅在 `ToastView` 通过 `Editor.ShowToast` 显示提示时参与循环）。每次进入区域都会绘制该区域的 `-2 px` 内嵌焦点环，并恢复该区域上一次聚焦的控件；在快捷键录制及全窗口页面期间 `F6` / `Shift-F6` 会自动暂停，并在切换区域时关闭打开的对象右键菜单。
 - **视口内焦点即选中对象**：视口画布本身不绘制焦点环；当焦点位于视口（`editor-viewport-frame`）内时，`Tab`（`Editor.SelectNextObject`）与 `Shift-Tab`（`Editor.SelectPreviousObject`）按场景顺序循环选中下一个/上一个可见且未锁定的对象。
 - **对话框焦点限制与关闭恢复**：所有编辑器对话框（`EditorSettingsDialogView`、`ShortcutsSheetView`、`CommandPaletteView`、未保存提示、场景路径对话框与保存冲突对话框）会将 `Tab` / `Shift-Tab` 限制在最顶层模态框内（同时不干扰 `Settings › Shortcuts` 的按键录制），在对话框打开期间屏蔽全局快捷键（除用于停止智能体的 `⌘.` / `Ctrl+.`，即 `Editor.OnStopAgent` 外），并在按 `Esc` 取消或点击操作按钮关闭后将焦点精确恢复到打开该对话框的控件。
@@ -1438,7 +1438,7 @@ func main() {
   - **并行运行**（`TaskStartParallel`）：立即作为独立的智能体会话启动，并在视口与场景树中拥有自己的编号叠加层（`1`、`2`……）。
   - **默认执行器与未连接拦截**：当 `Editor.AgentTaskRunner` 为 nil 时，`SubmitTask`、`SubmitComposerTask`、`tasks_submit` 以及排队推进会自动沿用智能体输入框的同一路由（`resolveRouteAndRunner`——外部 CLI 或内置 API 密钥执行器），以独立会话和独立 `AgentTurn` 运行任务，并将步骤、**需要确认**（`Needs you`）、**待审查**（`Ready to review`）与**失败**（`Failed`）回写到现有任务状态流转；未连接智能体时提交会弹出 Connect 连接对话框且不创建任务。
 - **`editormcp` 对象持有锁与权限规则（`Server.ConnectTask`、`CompleteTaskTurn`、`ReleaseTaskHolds`、`TaskReviewSnapshot`）**：每个并行任务绑定到独立的 MCP 会话（外部 CLI 子进程通过 `go tool game mcp` 传递 `NSGO_EDITOR_TASK_ID` 自动绑定，内置执行器通过 `WithTaskToolContext` 自动绑定）。会话通过 `scene_edit`、`object_set_field`、对象菜单工具或瓦片编辑工具编辑对象时会持有该对象直到当前回合结束；另一个并行会话若尝试编辑同一对象，会按 FIFO 顺序自动等待，在面板、视口和场景树中显示 `"waiting on <object>"` 并标注持有它的任务编号，待前一个任务释放持有后自动继续完成，并为两个回合分别生成独立的 `TaskReview`。命中 `Ask` 权限规则的工具调用会将该任务暂停在**需要确认**（`BeginTaskPermissionAsk`），待用户点击**允许一次**或**拒绝**（`ResolveTaskPermission`）后继续。
-- **视口与场景树编号叠加层**：运行中任务会在正在编辑的对象周围绘制实线紫色（`SpecPalette.Agent`）描边与编号胶囊（如 `1 placing the jump arc`），在等待持有的对象周围绘制 45% 不透明度的虚线描边、时钟图标与 `"2 waiting on slime_02"` 胶囊，并在视口左下角显示紧凑图例，在场景树行右侧显示 `"1 · editing"` / `"2 · holding"` 标记（`ObjectTaskBadge`、`SceneTaskOverlays`）。
+- **视口与场景树编号叠加层**：运行中任务会在正在编辑的对象周围绘制实线紫色（`theme.Palette.Agent`）描边与编号胶囊（如 `1 placing the jump arc`），在等待持有的对象周围绘制 45% 不透明度的虚线描边、时钟图标与 `"2 waiting on slime_02"` 胶囊，并在视口左下角显示紧凑图例，在场景树行右侧显示 `"1 · editing"` / `"2 · holding"` 标记（`ObjectTaskBadge`、`SceneTaskOverlays`）。
 - **批量忽略与摘要徽章计数**：可在 **待审查** 分组中勾选多项任务（`ToggleTaskDismissSelection`）并一键批量忽略（`DismissSelectedTasks` / `DismissTasks`），绝不还原任何已保留的修改。`TaskSummary` 与 `TaskDockBadgeCount` 提供 `NeedsYou`、`Running`、`Blocked`、`ReadyToReview`、`Queued`、`Failed`、`MostUrgent` 及 `DockBadge = NeedsYou + ReadyToReview + Failed`（运行中与排队中绝不计入徽章），供状态栏（`No tasks`、`1 running · 0:38`、按紧急程度排序的混合计数与持久化的 `Failed`）及后续系统通知/程序坞徽章（#1023）直接复用。
 - **配套 MCP 工具（`editormcp`）**：提供 `tasks_list`（查询任务、对象持有锁与摘要计数）、`tasks_submit`（排队或并行提交任务）与 `tasks_control`（执行 `keep`、`revert`、`dismiss`、`stop`、`retry`、`open`、`focus`、`allow`、`deny`）。
 ## 游戏简报与项目规则（#1026）
@@ -1481,7 +1481,7 @@ func main() {
 - **“全部保留”永不自动执行的提议删除（`game_delete_file` / `AgentReviewPanelView`）**：`game_delete_file` 默认关闭（`Editor.ToolEnabled("game_delete_file") == false`），调用后始终只在**审查更改**面板中提议删除（`Editor.ProposeFileDeletion`），展示文件精确行数（或二进制摘要）、红色差异预览以及是否有场景引用该文件（基于 `Editor.FindUsages`），并拒绝符号链接、`.git/**`、`game.yaml`、已打开的场景标签页及大于 1 MiB 的文件。执行**全部保留**（`Editor.KeepAllReviewChanges` / `⌘↵`）会保留其他改动并将待确认删除的文件原样留在磁盘上；用户就地点击**删除此文件**（`Editor.ConfirmProposedDeletion`）后会通过带检查点的可逆命令（`deleteFileCmd`）删除文件，按 **`⌘Z`（`Editor.Undo`）** 可从检查点逐字节恢复原文件。
 ## 轻提示 Toast 与反馈通道（#1004）
 
-编辑器中的瞬时反馈统一使用同一个符合 Spec 规范的 Toast 组件（`ToastView`、`WindowToastView` 与 `SpecToastCard`，对应 `design/editor/Toasts.dc.html` 与 `Spec.dc.html`，严格仅使用 `SpecPalette` 令牌）。需要用户做决定的事项绝不放入 Toast：权限请求与提问留在智能体面板卡片中，检查失败进入 Problems 面板，完成的智能体回合打开审查流。
+编辑器中的瞬时反馈统一使用同一个符合 Spec 规范的 Toast 组件（`ToastView`、`WindowToastView` 与 `SpecToastCard`，对应 `design/editor/Toasts.dc.html` 与 `Spec.dc.html`，严格仅使用 `theme.Palette` 令牌）。需要用户做决定的事项绝不放入 Toast：权限请求与提问留在智能体面板卡片中，检查失败进入 Problems 面板，完成的智能体回合打开审查流。
 
 - **五种语义类型，统一 40 px 高、12 圆角、单行胶囊**：
   - `ToastSuccess`（圆圈对勾图标，`Added.Fg`）、`ToastInfo`（圆圈 `i` 图标，`TextMuted`）、`ToastWarning`（三角感叹图标，`Warning.Fg`，置于 `Warning.Fill` 与 `Warning.Edge` 表面上）、`ToastError`（带竖杠圆圈图标，`Removed.Fg`）以及 `ToastProgress`（进度环 + 底部 2 px 进度条 + 实时百分比）。
@@ -1521,7 +1521,7 @@ func main() {
   - `before_export`（可选 `platform`）：在 `StartExportBuild` 或 `StartReleaseBuild` 开始前触发。
   - `daily`（24 小时制 `HH:MM` 的 `time`）：编辑器打开期间每天到达或超过指定时间后最多触发一次（由 UI 调度器定期检查，也可通过 `Editor.StepAutomations` 确定性驱动）。
 - **运行前检查点、权限、后台任务与待审查机制**：每次自动化运行开始前，编辑器都会先将受追踪的项目文本/YAML/Go 文件快照（跳过符号链接、内部状态与仅限用户文件，并受文件数与总字节上限约束）写入 `.nsgo/checkpoints/<id>/`（已被 git 忽略，可通过 `AutomationCheckpoints` 查看、通过 `RestoreAutomationCheckpoint` 在路径与符号链接隔离校验下恢复）。任务在有界并发与超时保护下运行于 `WithAgentActor` 与项目权限规则（`Editor.Permissions` / `CheckAutomationActionPermission`）约束内，同步登记到共享后台任务列表（`TaskSourceAutomation`）并以 `AgentTurn` 落入智能体面板的 **待审查**（`AgentReviewReady`），提供 **保留**、**忽略** 与 **恢复检查点** 按钮。`automations.yaml` 与 `.nsgo/automations-state.yaml` 受“仅限用户”边界（`YouOnlyAutomations`）保护，自动化永远无法直接应用“仅限用户”草案（`PermissionsDraft`、`AutomationDraft`）、确认暂挂的权限放宽或提议删除，或自行保留审查（返回 `ErrAutomationYouOnly`）。
-- **设置 › 自动化页面（`SettingsPageAutomations`）**：以 `WHEN → THE AGENT` 卡片展示每项自动化、本周运行次数（`AutomationWeeklyRuns`，保存在被 git 忽略的 `.nsgo/automations-state.yaml` 中）及 `SpecSwitch`（`core.RoleSwitch`）开关，支持 **+ 用一句话新建自动化**（`DraftAutomationFromWords` 生成草稿卡片并由用户点击 `KeepAutomationDraft` 保留）、**今天暂停全部自动化**（`PauseAutomationsForToday` / `ResumeAutomations`，暂停所有触发直至次日自动恢复）以及 **本页智能体** 卡片，深浅色外观均严格使用 `SpecPalette` 令牌。
+- **设置 › 自动化页面（`SettingsPageAutomations`）**：以 `WHEN → THE AGENT` 卡片展示每项自动化、本周运行次数（`AutomationWeeklyRuns`，保存在被 git 忽略的 `.nsgo/automations-state.yaml` 中）及 `SpecSwitch`（`core.RoleSwitch`）开关，支持 **+ 用一句话新建自动化**（`DraftAutomationFromWords` 生成草稿卡片并由用户点击 `KeepAutomationDraft` 保留）、**今天暂停全部自动化**（`PauseAutomationsForToday` / `ResumeAutomations`，暂停所有触发直至次日自动恢复）以及 **本页智能体** 卡片，深浅色外观均严格使用 `theme.Palette` 令牌。
 ## 逐项审核智能体回合改动（#1014）
 
 当智能体完成一轮编辑（`Editor.StartTurnReview`）后，全窗口的**审核**界面（`ReviewScreenView`，对应 `design/editor/Review.dc.html`，严格遵循 `Spec.dc.html` 深浅双主题令牌）允许作者按文件和改动类型逐条检查场景、预制体、数据表与 Go 文件的改动，最后一步保留或整体撤回：
@@ -1569,10 +1569,10 @@ func main() {
 当智能体通过 `editormcp` 或待定智能体回合（`Editor.BeginAgentTurn` / `Editor.RunAsAgent`）编辑场景时，编辑器会在视口与场景树中实时呈现其未确认改动（对应 `design/editor/Working.dc.html`、`Main.dc.html` 与 `Spec.dc.html`），且绝不会替智能体移动 2D 或 3D 视口相机：
 
 - **实时视口叠加层（`ViewportLiveOverlays` / `VisibleViewportLiveOverlays`）**：
-  - **新增（Added）**：1.5 px 绿色虚线框（`SpecPalette.Added`）与 `"+ <name>"` 等宽胶囊标签。
-  - **修改（Changed）**：1.5 px 琥珀色虚线框（`SpecPalette.Changed`）与 `"<field> <old> → <new>"` 等宽胶囊标签（同时自动同步到检查器的琥珀色审查提示）。
-  - **移除（Removed）**：位于对象原边界处的 25% 灰色虚影、1.5 px 红色实线框（`SpecPalette.Removed`）以及带删除线名称的 `"<name> removed"` 胶囊标签。
-  - **智能体处理中（Agent working）**：1.5 px 紫色脉冲实线框（`SpecPalette.Agent`，1.6 秒在 45%–100% 不透明度间循环；开启“减少动态效果”时固定 100% 实线），不带缩放手柄，上方显示带紫色星芒图标与活动描述的胶囊（如 `playing level_01 headless`）。
+  - **新增（Added）**：1.5 px 绿色虚线框（`theme.Palette.Added`）与 `"+ <name>"` 等宽胶囊标签。
+  - **修改（Changed）**：1.5 px 琥珀色虚线框（`theme.Palette.Changed`）与 `"<field> <old> → <new>"` 等宽胶囊标签（同时自动同步到检查器的琥珀色审查提示）。
+  - **移除（Removed）**：位于对象原边界处的 25% 灰色虚影、1.5 px 红色实线框（`theme.Palette.Removed`）以及带删除线名称的 `"<name> removed"` 胶囊标签。
+  - **智能体处理中（Agent working）**：1.5 px 紫色脉冲实线框（`theme.Palette.Agent`，1.6 秒在 45%–100% 不透明度间循环；开启“减少动态效果”时固定 100% 实线），不带缩放手柄，上方显示带紫色星芒图标与活动描述的胶囊（如 `playing level_01 headless`）。
   - **问题（Problem）**：2 px 红色实线框与实心高对比度告警胶囊。
   - 胶囊排布自动避让碰撞并向上错开，避免相邻对象或叠加状态互相遮挡。
 - **选中对象共存与步骤级只读保护**：当用户选中智能体当前正在操作的对象（`Editor.BeginAgentStep` / `editormcp.Server.BeginStep`）时，选中框保留其变换手柄，智能体轮廓自动再向外偏移 3 px（`OutsetPx: 6`）。在该步骤离开此对象（`EndAgentStep`）之前，视口、2D/3D 手柄、检查器（顶部显示紫色只读提示条）、场景树（重命名与拖拽重挂）、右键菜单及直接调用的 `Editor` 修改方法均会以 `ErrAgentTouchingObject` 拒绝手动修改；未被智能体触及的其他对象仍可自由手动编辑。
@@ -1622,7 +1622,7 @@ func main() {
 - **MCP 工具（`editormcp`）**：提供 `turn_start`、`turn_end`、`turn_status`（只读，如实报告已还原的变更）和 `file_edit`（在内存中校验并编辑 `game.yaml`、数据表、动画片段、预制体与场景），并为 `scene_edit` 与 `object_set_field` 增加 `why` 参数；按设计不提供可由智能体调用的保留或还原回合工具。
 ## 智能体面板的失败、恢复与离线状态（#1024）
 
-当智能体请求未能直接成功完成时，`AgentPanelView` 会严格使用 `SpecPalette` 设计 Token（支持深浅外观）渲染 `design/editor/AgentStates.dc.html` 定义的六种状态卡片，并且在所有状态下保持选择、移动、检视器、`CheckProblems` 与 Play 等手动编辑工具正常工作：
+当智能体请求未能直接成功完成时，`AgentPanelView` 会严格使用 `theme.Palette` 设计 Token（支持深浅外观）渲染 `design/editor/AgentStates.dc.html` 定义的六种状态卡片，并且在所有状态下保持选择、移动、检视器、`CheckProblems` 与 Play 等手动编辑工具正常工作：
 
 - **部分完成（`AgentPartialState`）**：展示 `Done N of M · couldn't place <target>` 与原因说明，提供 **Keep these**（以可撤销修改保留已完成部分）、**Let me point**（`ToggleAgentPointing`，在 2D 视口点击通过 `PickAgentPointWorld` 选取世界坐标，按 `Esc` 取消）与 **Try another way**（`TryAnotherWayAgentTurn`），并在下方展示变更统计条（`N changes · 1 file | +X −Y | Review`）。
 - **卡住暂停（`AgentStuckState`）**：当同一 MCP 工具（如 `scene_edit`）连续失败三次（`AgentStuckFailureThreshold = 3`）时，编辑器会立即暂停并取消当前请求而不再盲目重试，将状态胶囊切换为 `Waiting for you`，以等宽日志列出三次被拒绝的调用及其错误，并提供 **Hint for the agent** 输入框与 **Continue with hint**（`ContinueAgentWithHint`）或 **Stop here**（`StopStuckAgentTurn`，被拒编辑未触碰场景或磁盘文件）。
@@ -1632,7 +1632,7 @@ func main() {
 - **离线队列（`AgentStatusOffline`、`SetAgentOffline`）**：展示 `"You're offline"`，并在保持选择、移动、检视器、游戏检查与 Play 全部可用的同时，将提交的请求连同时间戳加入队列（`AgentQueuedRequests`、`QueueAgentRequest`、`RemoveQueuedAgentRequest`）。恢复联网后队列中的请求不会自动执行，而是逐条等待用户手动点击 **Send**（`SendQueuedAgentRequest`）发送。
 ## 规范视口叠加层与可切换图例（#1006）
 
-2D 与 3D 视口中的所有语义叠加层都通过统一绘制辅助函数 `DrawObjectOverlay` 绘制，完全使用 `SpecPalette` 令牌（对应 `design/editor/Spec.dc.html` 中的 “Overlay legend”），且每一种类型都配备非颜色的第二视觉线索（角点手柄、胶囊图标/前缀、灰色幽灵填充、删除线或实心警告徽章），在灰度下依然彼此可辨：
+2D 与 3D 视口中的所有语义叠加层都通过统一绘制辅助函数 `DrawObjectOverlay` 绘制，完全使用 `theme.Palette` 令牌（对应 `design/editor/Spec.dc.html` 中的 “Overlay legend”），且每一种类型都配备非颜色的第二视觉线索（角点手柄、胶囊图标/前缀、灰色幽灵填充、删除线或实心警告徽章），在灰度下依然彼此可辨：
 
 | 类型（`OverlayKind`） | 令牌与线型 | 第二视觉线索 |
 | --- | --- | --- |
@@ -1647,7 +1647,7 @@ func main() {
 - **同对象叠加、动效与减弱动态效果**：当**选中**与**智能体处理中**同时落在同一对象上（`PairedWithSelection`）时，选中框保留四个角点手柄，智能体外框向外偏移 3 px（`OverlaySelectionAgentGap`），其胶囊自动上移堆叠。已添加、已修改、已移除叠加层在 240 ms 内淡入（`OverlayChangeFadeDuration` / `OverlayFadeAlpha`），智能体处理中外框以 1.6 s 周期脉冲（`OverlayAgentPulsePeriod` / `OverlayAgentPulseAlpha`）。开启减弱动态效果（`core.Environment.ReduceMotion` 或 `Editor.SetReduceMotion(true)`）后，变更叠加层立即以 100% 出现，智能体外框保持 100% 实线且不再启动动画定时器。
 - **左上角可切换图例（`viewport-overlay-legend`）**：所有编辑态视口（2D 与 3D）在左上角挂载同一张图例卡片（`viewportOverlayLegendView`），提供 6 行无障碍 `role="switch"` 开关（**选中**、**智能体处理中**、**已添加**、**已修改**、**已移除**、**问题**），每行都绘出对应线型与第二线索。切换任一行（`Editor.ToggleOverlayKind`、`Editor.SetOverlayKindVisible`、`Editor.SetOverlayLegendKinds`）会立即在所有视口隐藏或显示该类叠加层，并将 `overlayLegend` 持久化到项目之外的用户级 `EditorSettings` YAML 文件（`Editor.SettingsPath`，绝不修改项目或场景文件）。
 - **实时场景叠加层接口与问题对象关联**：实时智能体编辑、审查与计划通过 `Editor.SetSceneOverlays`、`AddSceneOverlay`、`RemoveSceneOverlay` 和 `ClearSceneOverlays`（`SceneOverlayEntry`）将叠加层附加到场景对象或已移除幽灵边界上。`assetcheck.Problem` 现包含 `Object` 字段（同时通过 `editormcp` 的 `game_check` 返回），覆盖场景对象、组件、覆写与连接诊断，使问题面板中指向当前打开场景对象的诊断会自动在 2D 与 3D 视口中绘制 Spec **问题**叠加层。
-- **中性视口参考线**：相机取景框、相机边界、相机连线、瓦片网格与对齐网格统一迁移到中性 `SpecPalette` 令牌（`TextMuted` / `TextFaint` 1 px 细线与 `2, 4` 点线），与所有语义图例线型完全区分。
+- **中性视口参考线**：相机取景框、相机边界、相机连线、瓦片网格与对齐网格统一迁移到中性 `theme.Palette` 令牌（`TextMuted` / `TextFaint` 1 px 细线与 `2, 4` 点线），与所有语义图例线型完全区分。
 ## 智能体输入框：@-提及、上下文标签与上下文计量环（#1020）
 
 在统一右侧栏的 **智能体** 标签页（`RightRailView` / `AgentPanelView`，可通过 `⌘1` / `⌘2` 经 `CmdAgentTab` / `CmdInspectorTab` 切换）中，`AgentComposerView`（对应 `design/editor/Threads.dc.html`，严格遵循 `Spec.dc.html` 令牌）提供 `@`-提及、显式上下文标签、精确悬停预览与实时上下文计量环：
@@ -1665,7 +1665,7 @@ func main() {
 
 - **44 px 顶部栏（`mainHeaderView`）**：左侧展示 `<项目> / <场景>` 面包屑（`ProjectDisplayName`、`SceneBreadcrumbName`）、场景文件菜单及未保存圆点（`aria-label` 为 `"unsaved changes"` / `"save failed"`）；居中放置工具单选组（`Select V`、`Move W`、`Rotate E`、`Scale R`、`Pan Space`，纯图标 1.8 px@15 px `currentColor` Lucide 图标，悬停提示 `"名称 · 快捷键"`）与 `2D / 3D` 分段单选组；右侧为 `History (⌘Y)` 图标按钮、`Search ⌘K` 命令面板按钮，以及唯一主按钮 `Play (⌘P)`。
 - **232 px 左侧栏（`leftRailSceneView`）**：包含 `Scene / Assets` 切换与 `SCENE · N nodes`（`SceneNodeCount`）标题、场景树快捷筛选开关（`SceneTreeFilter` / `SetSceneTreeFilter` / `SetSceneTreeFilterOpen`，按名称、ID 或类型即时筛选并自动展开祖先节点）、快捷添加 `+` 菜单（`AddSceneRailObject` 添加空对象、触发器或光源，以及 `AddSceneRailLayer` 添加图层，全部可经由 `History` 撤销）、带类型色点（`ObjectKindColor`）、类型标签（`SceneRailObjectKind`、`LayerKindLabel`）以及待审查新增对象 `NEW` 标记（`IsObjectProposedNew`、`SetProposedNewObjectIDs`）且支持省略截断不裁剪显隐/锁定按钮的场景树行；底部 `FILES` 区域列出当前打开的场景、场景引用的预制体/实例场景（`SceneUsedPrefabs`）以及 `game.yaml`。选中场景树中的节点会自动将右侧栏切换至**检视器（Inspector）**。
-- **视口点阵、无精灵对象标记、标题、底部控制条与叠加层图例**：在 2D 编辑模式下，`DrawViewport` 在未设置场景背景色时绘制中性 Spec 16×16 点阵底纹（`SpecPalette.ViewportDot`），并为可见的无精灵对象绘制中性 Spec 标记方块，使空节点、无精灵预制体与触发器清晰可见且可直接点选，同时绝不与语义叠加层图例颜色混淆。`viewportCameraCaptionView` 订阅 `Editor.SubscribeCanvasSize`（`CanvasSizeRevision`），使 `Camera · W × H` 在首次布局与每次缩放窗口时紧贴相机框上方且避开左上角叠加层图例，并配以底部控制条（缩小、百分比、放大、`Snap` 开关 `base.Switch`、`Fit` 与 `Overlays N`）。
+- **视口点阵、无精灵对象标记、标题、底部控制条与叠加层图例**：在 2D 编辑模式下，`DrawViewport` 在未设置场景背景色时绘制中性 Spec 16×16 点阵底纹（`theme.Palette.ViewportDot`），并为可见的无精灵对象绘制中性 Spec 标记方块，使空节点、无精灵预制体与触发器清晰可见且可直接点选，同时绝不与语义叠加层图例颜色混淆。`viewportCameraCaptionView` 订阅 `Editor.SubscribeCanvasSize`（`CanvasSizeRevision`），使 `Camera · W × H` 在首次布局与每次缩放窗口时紧贴相机框上方且避开左上角叠加层图例，并配以底部控制条（缩小、百分比、放大、`Snap` 开关 `base.Switch`、`Fit` 与 `Overlays N`）。
 - **命令面板（`⌘K`、`PaletteItems`、`ExecutePaletteItem`）**：统一检索内置/自定义/插件命令、插件工具与面板、项目场景与文件、**当前场景节点**（`node:<id>`，选中节点、切换至检查器并自动聚焦）及 **设置页面**（`setting:<page>`）；支持作用域前缀（`>` 命令、`@` 节点、`#` 文件）、空查询时的**最近使用**分组（`PaletteRecent`），以及面向自然语言输入的**询问智能体**条目（`ask:<query>`，一键将提示词填入智能体面板输入框）。
 - **380 px 右侧面板（`RightRailView`）**：承载 `Agent`（`⌘1`）与 `Inspector`（`⌘2`）单选标签、线程历史记录切换按钮及实时连接状态胶囊（`Connected · MCP`、`Working`、`Waiting for you`、`Reconnecting`、`Disconnected`）；点击场景树行会自动切到 **Inspector**。
 - **32 px 状态栏（`mainStatusBarView`）**：在 `bg` 表面以弱化文本呈现左侧的活动图层按钮（可切换图层面板）、实时 2D 指针坐标与当前工具，以及右侧的问题数胶囊（打开问题面板）、输出（Output）与调试器（Debugger）。原工具栏中的其余面板（设置、混音器、输入映射、多语言、导出、资源库、数据表、项目搜索、文件、资源、动画、粒子、材质、HUD 布局、地形、导航网格）全部保留，可通过命令面板（`⌘K`）、菜单栏、设置窗口与状态栏访问。
@@ -1691,7 +1691,7 @@ func main() {
 
 ## 逐文件审查智能体的 Go 代码更改（#1034）
 
-当智能体在一个回合中同时修改了 Go 代码与场景、预制体或数据 YAML 文件时，编辑器会打开专用的逐文件 Go 代码审查界面（`CodeReviewView`，对照 `design/editor/ReviewCode.dc.html` 与 `Review.dc.html`，在深色与浅色外观下均仅使用 `SpecPalette` 令牌）：
+当智能体在一个回合中同时修改了 Go 代码与场景、预制体或数据 YAML 文件时，编辑器会打开专用的逐文件 Go 代码审查界面（`CodeReviewView`，对照 `design/editor/ReviewCode.dc.html` 与 `Review.dc.html`，在深色与浅色外观下均仅使用 `theme.Palette` 令牌）：
 
 - **待确认 Go 代码隔离与 Go 构建覆盖层检查**：回合中提交的 Go 文件（`ProposeCodeReviewFiles` 或 `editormcp` 的 `code_review_propose`）在确认并保留之前仅暂存于内存中，磁盘上的项目文件与运行模式（Play）仍继续执行旧代码。`RunCodeReviewChecks` / `RunCodeReviewChecksAsync` 会生成临时 Go 构建覆盖层 JSON（`BuildGoOverlay`，同时映射规范路径与符号链接解析后的路径，兼容 macOS `/var` → `/private/var`），并通过 `GOFLAGS=-overlay=<overlay.json>` 在不触碰磁盘项目文件的前提下执行 `go tool nsgo check <pkg>` 与 `go tool nsgo test -json <pkg> -count=1`（可通过 `Editor.CodeReviewCheckRunner` 注入替换）。
 - **分组文件列表与统一 / 分栏差异视图**：左侧栏拆分为 **PREFABS · IN KEEP**（随保留一同应用的 YAML/预制体文件）和 **GO · CONFIRM EACH FILE**（每个 Go 文件显示 `+n −n` 行数变化与 **Needs OK** / **OK** 徽章），底部附带说明卡片（*“为什么 Go 代码需要单独确认”*）。Go 差异支持 **Unified（统一）**（`u`）与 **Split（分栏）**（`s`）切换，展示旧/新行号、右侧行标签（`fails test`、`failed here`、`agent edited`、`round 2`）以及在外部 IDE 打开按钮（`Editor.ExternalEditorName`、`OpenCodeReviewInExternalEditor`，依次调用 `Editor.OnOpenSourceFile`、`Editor.OnOpenFileAtLine` 或系统默认打开器）。
@@ -1727,18 +1727,18 @@ func main() {
 
 ## 设计令牌（#1002）
 
-编辑器中的每一处色彩、字号、间距阶梯、圆角、高度与动效时长都统一来自嵌入的 YAML 主题文件与常量定义（`pkg/editor/spec_theme.yaml` 与 `pkg/editor/spec_theme.go`），与 `design/editor/Spec.dc.html` 及 `design/editor/Viewport3D.dc.html` 保持一致：
+编辑器中的每一处色彩、字号、间距阶梯、圆角、高度与动效时长都统一来自嵌入的 YAML 主题文件与常量定义（`pkg/editor/theme/theme.yaml` 与 `pkg/editor/theme/theme.go`），与 `design/editor/Spec.dc.html` 及 `design/editor/Viewport3D.dc.html` 保持一致：
 
-- **嵌入 YAML 主题（`spec_theme.yaml`、`SpecTheme`、`SpecPalette`）**：通过 `core.ParseTheme` 解析并在 `EditorView` 根作用域通过 `cx.SetTheme(SpecTheme())` 生效。NSGo 的所有 `core.Palette` 与 `ui.ColorsOf` 角色（`Background`、`Surface`、`Raised`、`Line`、`Border`、`Text`、`TextMuted`、`Accent`、`AccentText`、`Success`、`Warning`、`Danger`、`Focus`）均在深色与浅色外观下直接映射到规范调色板；`Editor.SpecPalette(cx)`（以及 `DarkSpecPalette()`、`LightSpecPalette()`、`SpecPaletteFor(dark)`）同时提供 NSGo 未命名的规范角色（`TextPrimary` / 强文本、`TextSecondary` / 正文、`TextMuted` / 次级文本、`TextFaint` / 弱化文本、`OnTextPrimary`、`Viewport`、`ViewportDot`、`PillBg`、`HoverOverlay`、`ActiveOverlay`、`PrimaryHover`、`AccentHover`、`AccentPressed`、`Viewport3DGround`、`Viewport3DGrid`、`Accent`、`Agent`、`Added`、`Changed`、`Removed`/`Problem`、含专用 `Fill` 与 `Edge` 的 `Warning`，以及 3D 坐标轴令牌 `AxisX`、`AxisY`、`AxisZ`）。
+- **嵌入 YAML 主题（`theme.yaml`、`theme.Core`、`theme.Palette`）**：通过 `core.ParseTheme` 解析并在 `EditorView` 根作用域通过 `cx.SetTheme(theme.Core())` 生效。NSGo 的所有 `core.Palette` 与 `ui.ColorsOf` 角色（`Background`、`Surface`、`Raised`、`Line`、`Border`、`Text`、`TextMuted`、`Accent`、`AccentText`、`Success`、`Warning`、`Danger`、`Focus`）均在深色与浅色外观下直接映射到规范调色板；`Editor.Palette(cx)`（以及 `theme.Dark()`、`theme.Light()`、`theme.PaletteFor(dark)`）同时提供 NSGo 未命名的规范角色（`TextPrimary` / 强文本、`TextSecondary` / 正文、`TextMuted` / 次级文本、`TextFaint` / 弱化文本、`OnTextPrimary`、`Viewport`、`ViewportDot`、`PillBg`、`HoverOverlay`、`ActiveOverlay`、`PrimaryHover`、`AccentHover`、`AccentPressed`、`Viewport3DGround`、`Viewport3DGrid`、`Accent`、`Agent`、`Added`、`Changed`、`Removed`/`Problem`、含专用 `Fill` 与 `Edge` 的 `Warning`，以及 3D 坐标轴令牌 `AxisX`、`AxisY`、`AxisZ`）。
 - **深色模式色彩令牌（`Spec.dc.html` 与 `Viewport3D.dc.html`）**：
   - 表面与边框：`bg #101216`、`panel #12141A`、`raised #171A21`、`line #1F232A`、`line raised #262B35`、`viewport #15181D`、`viewportDot #2A2F38`。
   - 四级文本：`text strong #FFFFFF`、`text #D9DDE5`、`text secondary #B4BAC6`、`text muted #8B92A0`。已退役的 `#6F7684`、`#5D6472` 与 `#4A505C` 不再用于文本。
   - 语义角色：`accent #3B7BFF`（填充上的文字使用 `#101216` 且字重 600，绝不在深色强调色或智能体色填充上使用 `#FFFFFF`）、`agent #9B7BFF`、`added #4FD38A`、`changed #E9A84A`、`removed · problem #FF6B6B`、`warning #F2C14E`（填充 `#2A2414`、描边 `#4A3F1F`）。
   - 3D 坐标轴（`Viewport3D.dc.html`）：`axisX #FF6B6B`、`axisY #4FD38A`、`axisZ #3B7BFF`（浅色模式对应通过 WCAG 校验的 `#C92A2A`、`#0D7A43`、`#1D5CE6`）。
-- **实测 WCAG 2.2 对比度表（`SpecContrastTable`、`ContrastRatio`）**：`TestSpecContrastTableDarkAndLight` 直接从 `spec_theme.yaml` 计算深色与浅色两套主题中每一组前景/背景、实心填充文字、警告卡片、胶囊标签、视口叠加层与 3D 坐标轴的 WCAG 2.2 亮度对比度；常规文本及填充文字低于 `4.5:1`、UI 边界与叠加层低于 `3.0:1` 即报错，并包含回归测试验证将深色 `text_muted` 退回 `#6F7684` 时测试必然失败。
+- **实测 WCAG 2.2 对比度表（`theme.ContrastTable`、`theme.ContrastRatio`）**：`TestContrastTableDarkAndLight` 直接从 `theme.yaml` 计算深色与浅色两套主题中每一组前景/背景、实心填充文字、警告卡片、胶囊标签、视口叠加层与 3D 坐标轴的 WCAG 2.2 亮度对比度；常规文本及填充文字低于 `4.5:1`、UI 边界与叠加层低于 `3.0:1` 即报错，并包含回归测试验证将深色 `text_muted` 退回 `#6F7684` 时测试必然失败。
 - **排版、间距、圆角、高度与动效常量**：
-  - 排版：Inter 标题 `14 / 600`（`SpecFontTitleSize`、`SpecFontTitleWeight`）、正文 `12.5 / 400`（`SpecFontBodySize`、`SpecFontBodyWeight`）、分区标题 `11 / 600` 加 `+6%` 字距（`SpecFontSectionSize`、`SpecFontSectionWeight`、`SpecFontSectionTrack`）、代码 JetBrains Mono `11.5`（`SpecFontCodeSize`、`SpecFontFamilyMono`）。
-  - 间距：仅使用 `4`、`8`、`12`、`16`、`24` px（`SpecSpace4`–`SpecSpace24`）。
-  - 圆角与几何：控件 `6`（`SpecRadiusControl`）、按钮 `8`（`SpecRadiusButton`）、卡片与轻提示 `12`（`SpecRadiusCard`）、对话框 `18`（`SpecRadiusDialog`）；行与工具按钮高 `28`（`SpecRowHeight`，最小命中热区 `SpecMinHitSize = 28`）、按钮高 `30`–`32`（`SpecButtonHeight`、`SpecButtonTallHeight`）、顶栏高 `44`（`SpecHeaderHeight`）；`1` px 内描边（`SpecBorderWidth`）。
-  - 动效：悬停与按压 `120 ms`（`SpecMotionHover`）、面板/浮层/轻提示 `180 ms`（`SpecMotionPanel`）、智能体叠加层淡入 `240 ms`（`SpecMotionOverlay`）、智能体脉冲 `1.6 s`（`SpecMotionAgentPulse`，透明度 `100%` ↔ `45%`）。开启 `Env.ReduceMotion` 时，`SpecMotionDuration` 返回 `0`，`SpecAgentPulseOpacity` 保持 `1.0` 不闪烁。
-- **禁止硬编码 UI 颜色字面量与仅深色包级别名**：`pkg/editor` 中除 `spec_theme.go` 外的所有非测试 `.go` 文件在绘制界面元素、操纵杆、叠加层与调试视图时仅使用响应式的 `SpecPalette` 令牌（`ed.SpecPalette(cx)` / `e.activeSpecPalette()`，场景内容数据如 `scene.BackgroundColor` 保留为场景数据）。`TestSpecNoHardcodedColorLiteralsInEditor` 拒绝在 `spec_theme.go` 之外出现任何 `core.RGB`/`core.RGBA` 调用或硬编码 UI 十六进制颜色，`TestSpecNoDarkOnlyPackageColorVarsInEditor` 拒绝由 `darkSpecPalette`/`lightSpecPalette` 初始化的包级颜色变量，确保所有编辑器页面在深色与浅色外观下均可实时重绘。
+  - 排版：Inter 标题 `14 / 600`（`theme.FontTitleSize`、`theme.FontTitleWeight`）、正文 `12.5 / 400`（`theme.FontBodySize`、`theme.FontBodyWeight`）、分区标题 `11 / 600` 加 `+6%` 字距（`theme.FontSectionSize`、`theme.FontSectionWeight`、`theme.FontSectionTrack`）、代码 JetBrains Mono `11.5`（`theme.FontCodeSize`、`theme.FontFamilyMono`）。
+  - 间距：仅使用 `4`、`8`、`12`、`16`、`24` px（`theme.Space4`–`theme.Space24`）。
+  - 圆角与几何：控件 `6`（`theme.RadiusControl`）、按钮 `8`（`theme.RadiusButton`）、卡片与轻提示 `12`（`theme.RadiusCard`）、对话框 `18`（`theme.RadiusDialog`）；行与工具按钮高 `28`（`theme.RowHeight`，最小命中热区 `theme.MinHitSize = 28`）、按钮高 `30`–`32`（`theme.ButtonHeight`、`theme.ButtonTallHeight`）、顶栏高 `44`（`theme.HeaderHeight`）；`1` px 内描边（`theme.BorderWidth`）。
+  - 动效：悬停与按压 `120 ms`（`theme.MotionHover`）、面板/浮层/轻提示 `180 ms`（`theme.MotionPanel`）、智能体叠加层淡入 `240 ms`（`theme.MotionOverlay`）、智能体脉冲 `1.6 s`（`theme.MotionAgentPulse`，透明度 `100%` ↔ `45%`）。开启 `Env.ReduceMotion` 时，`theme.MotionDuration` 返回 `0`，`theme.AgentPulseOpacity` 保持 `1.0` 不闪烁。
+- **禁止硬编码 UI 颜色字面量与仅深色包级别名**：`pkg/editor` 中除 `theme/theme.go` 外的所有非测试 `.go` 文件在绘制界面元素、操纵杆、叠加层与调试视图时仅使用响应式的 `theme.Palette` 令牌（`ed.Palette(cx)` / `e.activePalette()`，场景内容数据如 `scene.BackgroundColor` 保留为场景数据）。`TestSpecNoHardcodedColorLiteralsInEditor` 拒绝在 `theme/theme.go` 之外出现任何 `core.RGB`/`core.RGBA` 调用或硬编码 UI 十六进制颜色，`TestSpecNoDarkOnlyPackageColorVarsInEditor` 拒绝由 `theme.Dark()`/`theme.Light()` 初始化的包级颜色变量，确保所有编辑器页面在深色与浅色外观下均可实时重绘。

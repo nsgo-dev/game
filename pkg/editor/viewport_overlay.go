@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -182,9 +183,9 @@ type ObjectOverlay struct {
 	ReduceMotion bool
 }
 
-// specHandleFill returns the crisp handle fill color from SpecPalette tokens only
+// specHandleFill returns the crisp handle fill color from theme.Palette tokens only
 // (#FFFFFF in both dark and light modes, matching Spec.dc.html).
-func specHandleFill(p SpecPalette) core.Color {
+func specHandleFill(p theme.Palette) core.Color {
 	if p.Dark {
 		return p.TextPrimary
 	}
@@ -216,10 +217,10 @@ func overlayTextWidth(s string, asciiAdvance float32) float32 {
 
 // DrawObjectOverlay is the single Spec viewport overlay drawing helper in editor.
 // It draws any of the seven Spec overlay kinds (Selection, Agent working, Added, Changed,
-// Removed, Problem, Focused change in Review) using exclusively SpecPalette tokens at the
+// Removed, Problem, Focused change in Review) using exclusively theme.Palette tokens at the
 // Spec's exact line widths, dash patterns, offsets, handles, ghosts, and pills, and returns
 // the canvas rectangle occupied by the drawn tag/pill (if any).
-func DrawObjectOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay) core.Bounds {
+func DrawObjectOverlay(d *core.Drawing, p theme.Palette, ov ObjectOverlay) core.Bounds {
 	if d == nil || !ov.Kind.Valid() {
 		return core.Bounds{}
 	}
@@ -325,7 +326,7 @@ func expandQuadOutward(corners []math2d.Vec2, pad float32) []math2d.Vec2 {
 	return out
 }
 
-func drawSelectionSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bx, by, bw, bh float32) core.Bounds {
+func drawSelectionSpecOverlay(d *core.Drawing, p theme.Palette, ov ObjectOverlay, bx, by, bw, bh float32) core.Bounds {
 	pad := OverlayBaseOffset
 	handleHalf := overlayHandleSize * 0.5
 	handleFill := specHandleFill(p)
@@ -382,7 +383,7 @@ func drawSelectionSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, 
 	}
 }
 
-func drawAgentSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bx, by, bw, bh float32) core.Bounds {
+func drawAgentSpecOverlay(d *core.Drawing, p theme.Palette, ov ObjectOverlay, bx, by, bw, bh float32) core.Bounds {
 	pad := OverlayBaseOffset
 	if ov.PairedWithSelection {
 		pad += OverlaySelectionAgentGap
@@ -495,7 +496,7 @@ func drawAgentSparkleGlyph(d *core.Drawing, cx, cy, r float32, col core.Color) {
 		Fill()
 }
 
-func drawChangeSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, base OverlayKind, focused bool, bx, by, bw, bh float32) core.Bounds {
+func drawChangeSpecOverlay(d *core.Drawing, p theme.Palette, ov ObjectOverlay, base OverlayKind, focused bool, bx, by, bw, bh float32) core.Bounds {
 	alpha := float32(1)
 	if ov.HasElapsed {
 		alpha = OverlayFadeAlpha(ov.Elapsed, ov.ReduceMotion)
@@ -504,7 +505,7 @@ func drawChangeSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bas
 		return core.Bounds{}
 	}
 
-	var role SpecRole
+	var role theme.Role
 	var dashed bool
 	switch base {
 	case OverlayKindChanged:
@@ -603,7 +604,7 @@ func drawChangeSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bas
 	}
 }
 
-func drawProblemSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bx, by, bw, bh float32) core.Bounds {
+func drawProblemSpecOverlay(d *core.Drawing, p theme.Palette, ov ObjectOverlay, bx, by, bw, bh float32) core.Bounds {
 	role := p.Problem()
 	pad := OverlayBaseOffset
 	ox, oy := bx-pad, by-pad
@@ -1065,7 +1066,7 @@ func (e *Editor) drawSceneOverlays2D(d *core.Drawing, scene *sceneformat.BuiltSc
 	if e == nil || d == nil || scene == nil || e.playing || !e.ShowAgentChanges() || len(e.sceneOverlays) == 0 {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	now := e.overlayNow()
 	rm := e.ReduceMotion()
 	canvas := core.Size{Width: core.Points(e.canvasW), Height: core.Points(e.canvasH)}
@@ -1184,7 +1185,7 @@ func (e *Editor) drawSceneOverlays3D(d *core.Drawing, w, h float32) {
 	if e == nil || d == nil || e.playing || e.HistoryPreviewActive() {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	now := e.overlayNow()
 	rm := e.ReduceMotion()
 	vc := e.activeView3DCam(w, h)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
@@ -774,7 +775,7 @@ func TestProblemAgentPanelInputFocusStabilityAndLiveThemeSwitch(t *testing.T) {
 	// Standalone ProblemAgentPanelView + ProblemsView mount: verify live Dark <-> Light switches
 	// repaint reactively via StyleFunc without remounting problem-ask-input or dropping its focus.
 	standalone := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		cx.SetTheme(editor.SpecTheme())
+		cx.SetTheme(theme.Core())
 		rev := core.NewSignal(cx, uint64(0))
 		unsub := ed.Subscribe(func() { rev.Set(rev.GetUntracked() + 1) })
 		cx.Cleanup(unsub)

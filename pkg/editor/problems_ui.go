@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/core"
@@ -117,7 +118,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 
 	list := core.Dynamic(func(cx *core.Scope) core.Node {
 		s := listState.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		if s.errMsg != "" {
 			retryBtn := specPanelButton(p, specPanelButtonSpec{
 				TestID:     "problems-error-retry",
@@ -249,10 +250,10 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	return core.Show{
 		When: open.Get,
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			headerIcon := core.Dynamic(func(cx *core.Scope) core.Node {
 				s := state.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				if s.checking {
 					return ui.Spinner{
 						Size:  specIconSize,
@@ -281,7 +282,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 
 			headerCounts := core.Dynamic(func(cx *core.Scope) core.Node {
 				s := listState.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				var errs, warns int
 				for _, item := range s.problems {
 					if problemIsWarning(item) {
@@ -322,7 +323,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						FontWeight: core.FontWeightSemibold,
 					},
 					StyleFunc: func() core.Style {
-						return core.Style{Color: ed.SpecPalette(cx).TextPrimary}
+						return core.Style{Color: ed.Palette(cx).TextPrimary}
 					},
 				},
 				headerCounts,
@@ -363,7 +364,7 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 // design/editor/Problem.dc.html and Spec.dc.html when ProblemAgentPanelOpen
 // is true: problem location card (file:line:col), agent explanation, before/after
 // diff card with Apply fix, Show me and Ignore, footer note, and the
-// "Ask about this problem…" composer. Styled exclusively with SpecPalette tokens.
+// "Ask about this problem…" composer. Styled exclusively with theme.Palette tokens.
 // The outer panel chrome, ScrollView, and ask input composer remain mounted
 // across rev updates so typing and background checks never lose focus or scroll.
 func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
@@ -444,7 +445,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 
 	bodyNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		s := agentState.Get()
-		spec := SpecPaletteFor(s.dark)
+		spec := theme.PaletteFor(s.dark)
 		prob, hasProb := s.prob, s.hasProb
 		hasFix := s.hasFix
 		hlLoc, hlSnippet := s.hlLoc, s.hlSnippet
@@ -804,7 +805,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 					Borders:    core.Edges{Left: 1},
 				}),
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						Background:  p.Panel,
 						BorderColor: p.Line,
@@ -821,7 +822,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 							FlexShrink: 0,
 						},
 						StyleFunc: func() core.Style {
-							return core.Style{BorderColor: ed.SpecPalette(cx).Line}
+							return core.Style{BorderColor: ed.Palette(cx).Line}
 						},
 						Children: []core.Node{
 							core.Text{
@@ -836,7 +837,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									FlexGrow:   1,
 								},
 								StyleFunc: func() core.Style {
-									return core.Style{Color: ed.SpecPalette(cx).TextPrimary}
+									return core.Style{Color: ed.Palette(cx).TextPrimary}
 								},
 							},
 							core.View{
@@ -852,7 +853,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									JustifyContent: core.JustifyCenter,
 								},
 								StyleFunc: func() core.Style {
-									return core.Style{FocusVisible: ed.SpecPalette(cx).FocusRing(2)}
+									return core.Style{FocusVisible: ed.Palette(cx).FocusRing(2)}
 								},
 								OnPress: func(core.PressEvent) {
 									ed.SetProblemAgentPanelOpen(false)
@@ -861,7 +862,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									core.Canvas{
 										Style: core.Style{Width: core.Pt(14), Height: core.Pt(14)},
 										Draw: func(d *core.Drawing, _ core.Size) {
-											d.SetStrokeColor(ed.SpecPalette(cx).TextFaint).SetLineWidth(1.6).SetLineCap(core.CapRound)
+											d.SetStrokeColor(ed.Palette(cx).TextFaint).SetLineWidth(1.6).SetLineCap(core.CapRound)
 											d.BeginPath().MoveTo(3.5, 3.5).LineTo(10.5, 10.5).MoveTo(10.5, 3.5).LineTo(3.5, 10.5).Stroke()
 										},
 									},
@@ -883,7 +884,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 							FlexShrink: 0,
 						},
 						StyleFunc: func() core.Style {
-							return core.Style{BorderColor: ed.SpecPalette(cx).Line}
+							return core.Style{BorderColor: ed.Palette(cx).Line}
 						},
 						Children: []core.Node{
 							core.View{
@@ -897,7 +898,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									BorderWidth:  1,
 								},
 								StyleFunc: func() core.Style {
-									p := ed.SpecPalette(cx)
+									p := ed.Palette(cx)
 									return core.Style{
 										Background:  p.Raised,
 										BorderColor: p.LineRaised,
@@ -934,7 +935,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 									JustifyContent: core.JustifyCenter,
 								},
 								StyleFunc: func() core.Style {
-									p := ed.SpecPalette(cx)
+									p := ed.Palette(cx)
 									return core.Style{
 										Background:   p.TextPrimary,
 										FocusVisible: p.FocusRing(2),
@@ -954,7 +955,7 @@ func ProblemAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 											FontWeight: 600,
 										},
 										StyleFunc: func() core.Style {
-											return core.Style{Color: ed.SpecPalette(cx).OnTextPrimary}
+											return core.Style{Color: ed.Palette(cx).OnTextPrimary}
 										},
 									},
 								},

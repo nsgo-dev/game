@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -671,8 +672,8 @@ func TestSketchPanelCloseSpecLightTypingAndRevertSelection(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	light := editor.LightSpecPalette()
-	dark := editor.DarkSpecPalette()
+	light := theme.Light()
+	dark := theme.Dark()
 
 	if got := app.Find("id:sketch-agent-panel").Style.Background; got != light.Panel {
 		t.Fatalf("light mode sketch-agent-panel bg = %#x, want %#x", uint32(got), uint32(light.Panel))

@@ -156,10 +156,10 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 				Style: core.Style{
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
-					FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
+					FocusVisible: ed.Palette(cx).FocusRing(-2),
 				},
 				RowStyle: core.Style{
-					FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
+					FocusVisible: ed.Palette(cx).FocusRing(-2),
 				},
 			}}},
 		},

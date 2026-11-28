@@ -99,7 +99,7 @@ func TestYouOnlyAndProposedDeletionsMacOSScreenshots(t *testing.T) {
 	app.Settle()
 	app.Screenshot("you-only-permissions-draft")
 
-	// 3. Permissions Draft card in Light theme (SpecPalette Light check).
+	// 3. Permissions Draft card in Light theme (theme.Palette Light check).
 	app.Post(func() {
 		_ = ed.SetAppearance(editor.AppearanceLight)
 	})

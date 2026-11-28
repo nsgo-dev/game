@@ -29,7 +29,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	if obj == nil || layerName == "" {
 		return nil
 	}
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	displayName := contextObjectDisplayName(obj)
 	subtitle := ed.ObjectContextSubtitle(id)
 	editsOff := func() bool { _ = rev.Get(); return ed.Playing() || ed.AgentTouchingObject(id) }

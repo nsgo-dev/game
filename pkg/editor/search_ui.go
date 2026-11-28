@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/tooling/refs"
 	"github.com/nsgo-dev/nsgo/core"
@@ -62,7 +63,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 
 	body := core.Dynamic(func(cx *core.Scope) core.Node {
 		s := snap.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		if s.loading {
 			return specLoadingState(p, "search-loading", ed.T("search.loading"))
 		}
@@ -91,7 +92,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	return core.Show{
 		When: visible.Get,
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			header := specPanelHeader(p,
 				specPanelToggleGroup(p,
 					ed.T("search.search"),
@@ -223,7 +224,7 @@ func searchKindIcon(kind SearchKind) func() *core.SVG {
 	}
 }
 
-func searchResultsList(p SpecPalette, ed *Editor, query string, results []SearchResult) core.Node {
+func searchResultsList(p theme.Palette, ed *Editor, query string, results []SearchResult) core.Node {
 	if strings.TrimSpace(query) == "" {
 		return specEmptyState(p, "search-empty", lucide.Search, p.TextFaint, ed.T("search.emptyPrompt"), "", nil)
 	}
@@ -298,7 +299,7 @@ func searchResultsList(p SpecPalette, ed *Editor, query string, results []Search
 	return core.View{TestID: "search-results", Style: core.Style{Gap: specSpace4}, Children: rows}
 }
 
-func searchRefsList(p SpecPalette, ed *Editor, target string, found []refs.Ref) core.Node {
+func searchRefsList(p theme.Palette, ed *Editor, target string, found []refs.Ref) core.Node {
 	if target == "" {
 		return specEmptyState(p, "refs-empty", lucide.Link2, p.TextFaint, ed.T("search.refsPrompt"), "", nil)
 	}

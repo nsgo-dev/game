@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/scene3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // Handle3DKind identifies an interactive 3D viewport handle for editing a selected light or 3D camera.
@@ -985,7 +987,7 @@ func (e *Editor) drawSceneLightAndCameraIcons3D(d *core.Drawing, w, h float32) {
 	if e.LookThroughCamera3D() {
 		_, activeCamID, _ = e.ActiveSceneCamera3D(w, h)
 	}
-	pal := e.activeSpecPalette()
+	pal := e.activePalette()
 	for li := range doc.Layers {
 		layer := &doc.Layers[li]
 		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
@@ -1032,7 +1034,7 @@ func (e *Editor) drawSceneLightAndCameraIcons3D(d *core.Drawing, w, h float32) {
 	}
 }
 
-func lightIconColor(pal SpecPalette, l *sceneformat.LightDoc) core.Color {
+func lightIconColor(pal theme.Palette, l *sceneformat.LightDoc) core.Color {
 	if l != nil && l.Color != "" {
 		if c, err := core.ParseColor(l.Color); err == nil {
 			return c
@@ -1041,14 +1043,14 @@ func lightIconColor(pal SpecPalette, l *sceneformat.LightDoc) core.Color {
 	return pal.Warning.Fg
 }
 
-func drawLightIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, l *sceneformat.LightDoc, selected bool) {
+func drawLightIcon2D(d *core.Drawing, pal theme.Palette, x, y float32, l *sceneformat.LightDoc, selected bool) {
 	col := lightIconColor(pal, l)
-	ring := specAlpha(pal.Bg, 0.85)
+	ring := ui.Alpha(pal.Bg, 0.85)
 	if selected {
 		ring = pal.Accent.Edge
 	}
 	// Backing disc for contrast over any sky or geometry.
-	d.Save().SetFillColor(specAlpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(ui.Alpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
 	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
 
 	switch l.Kind {
@@ -1080,16 +1082,16 @@ func drawLightIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, l *scenefor
 	}
 }
 
-func drawCameraIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, c *sceneformat.Camera3DDoc, selected bool) {
+func drawCameraIcon2D(d *core.Drawing, pal theme.Palette, x, y float32, c *sceneformat.Camera3DDoc, selected bool) {
 	col := pal.TextSecondary
 	if c != nil && c.Current {
 		col = pal.Accent.Fg
 	}
-	ring := specAlpha(pal.Bg, 0.85)
+	ring := ui.Alpha(pal.Bg, 0.85)
 	if selected {
 		ring = pal.Accent.Edge
 	}
-	d.Save().SetFillColor(specAlpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(ui.Alpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
 	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
 
 	// Camera body + lens trapezoid.
@@ -1103,32 +1105,32 @@ func drawCameraIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, c *scenefo
 		Fill().Restore()
 }
 
-func drawReflectionProbeIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, p *sceneformat.ReflectionProbeDoc, selected bool) {
+func drawReflectionProbeIcon2D(d *core.Drawing, pal theme.Palette, x, y float32, p *sceneformat.ReflectionProbeDoc, selected bool) {
 	col := pal.Accent.Fg
 	if p != nil && p.Cubemap == "" {
 		col = pal.TextFaint
 	}
-	ring := specAlpha(pal.Bg, 0.85)
+	ring := ui.Alpha(pal.Bg, 0.85)
 	if selected {
 		ring = pal.Accent.Edge
 	}
-	d.Save().SetFillColor(specAlpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(ui.Alpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
 	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
 	// Chrome sphere badge with specular highlight dot.
 	d.Save().SetFillColor(col).BeginPath().Arc(x, y, 5.5, 0, float32(2*math.Pi), false).Fill().Restore()
-	d.Save().SetFillColor(specAlpha(pal.TextPrimary, 0.9)).BeginPath().Arc(x-1.8, y-1.8, 1.8, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(ui.Alpha(pal.TextPrimary, 0.9)).BeginPath().Arc(x-1.8, y-1.8, 1.8, 0, float32(2*math.Pi), false).Fill().Restore()
 }
 
-func drawLightProbeGridIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, g *sceneformat.LightProbeGridDoc, selected bool) {
+func drawLightProbeGridIcon2D(d *core.Drawing, pal theme.Palette, x, y float32, g *sceneformat.LightProbeGridDoc, selected bool) {
 	col := pal.Warning.Fg
 	if g != nil && g.Data == "" {
 		col = pal.TextMuted
 	}
-	ring := specAlpha(pal.Bg, 0.85)
+	ring := ui.Alpha(pal.Bg, 0.85)
 	if selected {
 		ring = pal.Accent.Edge
 	}
-	d.Save().SetFillColor(specAlpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(ui.Alpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
 	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
 	// 2x2 warm probe dot grid.
 	for _, ox := range [2]float32{-3.2, 3.2} {
@@ -1152,7 +1154,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 	if obj.Light == nil && obj.Camera == nil && obj.ReflectionProbe == nil && obj.LightProbeGrid == nil {
 		return
 	}
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	vc := e.activeView3DCam(w, h)
 	activeHandle := e.ActiveHandle3D()
 	pos64, right, up, fwd := e.objectWorldFrame3D(obj)
@@ -1170,7 +1172,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 			fill = spec.Warning.Fg
 		}
 		d.Save().SetFillColor(fill).BeginPath().Arc(px, py, radius, 0, float32(2*math.Pi), false).Fill().Restore()
-		d.Save().SetStrokeColor(specAlpha(spec.Bg, 0.9)).SetLineWidth(1.5).BeginPath().Arc(px, py, radius, 0, float32(2*math.Pi), false).Stroke().Restore()
+		d.Save().SetStrokeColor(ui.Alpha(spec.Bg, 0.9)).SetLineWidth(1.5).BeginPath().Arc(px, py, radius, 0, float32(2*math.Pi), false).Stroke().Restore()
 	}
 
 	drawCircle3D := func(center, uAxis, vAxis [3]float64, radius float64, col core.Color, lw float32) {
@@ -1250,7 +1252,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 
 			// Inner cone ring.
 			if innerRad > 1e-3 {
-				drawCircle3D(center, right, up, innerRad, specAlpha(spec.Warning.Fg, 0.75), 1.25)
+				drawCircle3D(center, right, up, innerRad, ui.Alpha(spec.Warning.Fg, 0.75), 1.25)
 			}
 			// Direction axis shaft.
 			if dirTip, ok := e.HandlePosition3D(Handle3DLightDirection); ok {
@@ -1304,7 +1306,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 
 		nearR := planeRect(near)
 		prevR := planeRect(previewDist)
-		col := specAlpha(spec.Accent.Fg, 0.95)
+		col := ui.Alpha(spec.Accent.Fg, 0.95)
 		d.Save().SetStrokeColor(col).SetLineWidth(1.5).BeginPath()
 		hasSeg := false
 		seg := func(a, b [3]float32) {
@@ -1398,7 +1400,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 			sz := obj.ReflectionProbe.EffectiveSize()
 			c64 := [3]float64{float64(c[0]), float64(c[1]), float64(c[2])}
 			s64 := [3]float64{float64(sz[0]), float64(sz[1]), float64(sz[2])}
-			drawWireBox(c64, s64, specAlpha(spec.Accent.Fg, 0.95), 1.6)
+			drawWireBox(c64, s64, ui.Alpha(spec.Accent.Fg, 0.95), 1.6)
 			if b := float64(obj.ReflectionProbe.BlendDistance); b > 0 {
 				inner := [3]float64{
 					math.Max(0, s64[0]-2*b),
@@ -1406,7 +1408,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 					math.Max(0, s64[2]-2*b),
 				}
 				if inner[0] > 0 && inner[1] > 0 && inner[2] > 0 {
-					drawWireBox(c64, inner, specAlpha(spec.Accent.Fg, 0.4), 1)
+					drawWireBox(c64, inner, ui.Alpha(spec.Accent.Fg, 0.4), 1)
 				}
 			}
 		}
@@ -1417,7 +1419,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 			cnt := obj.LightProbeGrid.EffectiveCounts()
 			c64 := [3]float64{float64(c[0]), float64(c[1]), float64(c[2])}
 			s64 := [3]float64{float64(sz[0]), float64(sz[1]), float64(sz[2])}
-			drawWireBox(c64, s64, specAlpha(spec.Warning.Fg, 0.95), 1.6)
+			drawWireBox(c64, s64, ui.Alpha(spec.Warning.Fg, 0.95), 1.6)
 			if cnt[0]*cnt[1]*cnt[2] <= 512 {
 				sampleCoord := func(i, n int, mid, span float64) float64 {
 					if n <= 1 {
@@ -1425,7 +1427,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 					}
 					return (mid - span*0.5) + span*(float64(i)/float64(n-1))
 				}
-				dotCol := specAlpha(spec.Changed.Fg, 0.85)
+				dotCol := ui.Alpha(spec.Changed.Fg, 0.85)
 				for iz := range cnt[2] {
 					pz := sampleCoord(iz, cnt[2], c64[2], s64[2])
 					for iy := range cnt[1] {

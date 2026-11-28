@@ -3,24 +3,26 @@ package editor
 import (
 	"math"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/physics"
 	"github.com/nsgo-dev/game/pkg/physics3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
-func physicsDebugColor(pal SpecPalette, isTrigger bool, bodyKind string) core.Color {
+func physicsDebugColor(pal theme.Palette, isTrigger bool, bodyKind string) core.Color {
 	if isTrigger {
-		return specAlpha(pal.Warning.Fg, 0.95)
+		return ui.Alpha(pal.Warning.Fg, 0.95)
 	}
 	switch bodyKind {
 	case "dynamic":
-		return specAlpha(pal.Added.Fg, 0.95)
+		return ui.Alpha(pal.Added.Fg, 0.95)
 	case "kinematic":
-		return specAlpha(pal.Agent.Fg, 0.95)
+		return ui.Alpha(pal.Agent.Fg, 0.95)
 	default:
-		return specAlpha(pal.Accent.Fg, 0.9)
+		return ui.Alpha(pal.Accent.Fg, 0.9)
 	}
 }
 
@@ -72,7 +74,7 @@ func (e *Editor) drawPhysicsDebug2D(d *core.Drawing, scene *sceneformat.BuiltSce
 		} else {
 			applyAffine(d, e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY))
 		}
-		pal := e.activeSpecPalette()
+		pal := e.activePalette()
 		for _, item := range shapes {
 			drawPhysicsShape2D(d, pal, item)
 		}
@@ -80,7 +82,7 @@ func (e *Editor) drawPhysicsDebug2D(d *core.Drawing, scene *sceneformat.BuiltSce
 	}
 }
 
-func drawPhysicsShape2D(d *core.Drawing, pal SpecPalette, item sceneformat.PhysicsDebugShape2D) {
+func drawPhysicsShape2D(d *core.Drawing, pal theme.Palette, item sceneformat.PhysicsDebugShape2D) {
 	if item.Shape.Empty() {
 		return
 	}
@@ -186,7 +188,7 @@ func (e *Editor) drawPhysicsShape3D(d *core.Drawing, item sceneformat.PhysicsDeb
 	if len(edges) == 0 {
 		return
 	}
-	col := physicsDebugColor(e.activeSpecPalette(), item.IsTrigger, item.BodyKind)
+	col := physicsDebugColor(e.activePalette(), item.IsTrigger, item.BodyKind)
 	d.Save().SetStrokeColor(col).SetLineWidth(1.5).BeginPath()
 	hasSeg := false
 	for _, seg := range edges {

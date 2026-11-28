@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -19,7 +20,7 @@ const (
 )
 
 // SettingsView renders the unified Settings screen matching design/editor/Settings.dc.html
-// and strictly using SpecPalette color, spacing, radius, type, and contrast tokens in both Dark
+// and strictly using theme.Palette color, spacing, radius, type, and contrast tokens in both Dark
 // and Light appearances. It hosts AGENT (Models and connections, Permissions, Game brief,
 // Project rules, Tools, Automations, Usage and privacy), PROJECT · game.yaml (Project, Input map,
 // Audio buses, Export), and EDITOR · THIS COMPUTER (General, Viewport, Shortcuts), keeping every
@@ -241,7 +242,7 @@ func formatSettingsStep(v float32) string {
 }
 
 func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	scale := ed.InterfaceScale()
 	accentTint := ui.Alpha(p.Accent.Fg, 0.14)
 	accentEdge := ui.Alpha(p.Accent.Fg, 0.45)
@@ -1155,13 +1156,13 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				switch page {
 				case SettingsPageModels:
 					_ = langMemo.Get()
-					return settingsModelsPageView(cx, ed, rev, ed.SpecPalette(cx))
+					return settingsModelsPageView(cx, ed, rev, ed.Palette(cx))
 				case SettingsPageTools:
 					_ = langMemo.Get()
-					return settingsToolsPageView(cx, ed, rev, ed.SpecPalette(cx))
+					return settingsToolsPageView(cx, ed, rev, ed.Palette(cx))
 				case SettingsPageUsage:
 					_ = langMemo.Get()
-					return settingsUsagePageView(cx, ed, rev, ed.SpecPalette(cx))
+					return settingsUsagePageView(cx, ed, rev, ed.Palette(cx))
 				case SettingsPageAutomations:
 					return automationsSettingsPageView(cx, ed, rev)
 				case SettingsPageProject:
@@ -1255,7 +1256,7 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 }
 
-func settingsSearchNoMatchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, scale float32, searchQuery *core.Signal[string], onClear func()) core.Node {
+func settingsSearchNoMatchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette, scale float32, searchQuery *core.Signal[string], onClear func()) core.Node {
 	trimmedQuery := func() string {
 		return strings.TrimSpace(searchQuery.Get())
 	}
@@ -1386,7 +1387,7 @@ func matchSettingsPageQuery(q string, hasProject bool) (SettingsPage, bool) {
 	return "", false
 }
 
-func settingsNoProjectView(p SpecPalette, ed *Editor) core.Node {
+func settingsNoProjectView(p theme.Palette, ed *Editor) core.Node {
 	return core.View{
 		TestID: "settings-no-project",
 		Style: core.Style{
@@ -1412,7 +1413,7 @@ func settingsNoProjectView(p SpecPalette, ed *Editor) core.Node {
 	}
 }
 
-func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, scale float32, searchQuery *core.Signal[string], footer core.Node) core.Node {
+func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette, scale float32, searchQuery *core.Signal[string], footer core.Node) core.Node {
 	langMemo := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		return ed.ResolvedLanguage()
@@ -1428,7 +1429,7 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = langMemo.Get()
 						q := strings.TrimSpace(searchQuery.Get())
-						curPal := ed.SpecPalette(cx)
+						curPal := ed.Palette(cx)
 
 						// When the query matches the page title/subtitle directly (e.g. "general") without
 						// narrowing to a single row, show every row on the page.
@@ -1578,7 +1579,7 @@ func editorSettingsGeneralPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 	}
 }
 
-func editorSettingsViewportPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, scale float32, searchQuery *core.Signal[string], footer core.Node) core.Node {
+func editorSettingsViewportPage(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette, scale float32, searchQuery *core.Signal[string], footer core.Node) core.Node {
 	langMemo := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		return ed.ResolvedLanguage()
@@ -1645,7 +1646,7 @@ func editorSettingsViewportPage(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = langMemo.Get()
 						q := strings.TrimSpace(searchQuery.Get())
-						curPal := ed.SpecPalette(cx)
+						curPal := ed.Palette(cx)
 						overlays := ed.ViewportOverlays()
 
 						anyOverlayMatches := false
@@ -1903,7 +1904,7 @@ func editorSettingsViewportPage(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	}
 }
 
-func settingsViewportOverlayRow(p SpecPalette, scale float32, ed *Editor, rev *core.Signal[uint64], o ViewportOverlay) core.Node {
+func settingsViewportOverlayRow(p theme.Palette, scale float32, ed *Editor, rev *core.Signal[uint64], o ViewportOverlay) core.Node {
 	id := o.ID
 	name := ed.overlayDisplayName(o)
 	col := o.Color
@@ -2011,7 +2012,7 @@ func settingsViewportOverlayRow(p SpecPalette, scale float32, ed *Editor, rev *c
 	}
 }
 
-func settingsSectionLabelDynamic(p SpecPalette, textFunc func() string) core.Node {
+func settingsSectionLabelDynamic(p theme.Palette, textFunc func() string) core.Node {
 	return core.Text{
 		ContentFunc: textFunc,
 		Style: core.Style{
@@ -2024,7 +2025,7 @@ func settingsSectionLabelDynamic(p SpecPalette, textFunc func() string) core.Nod
 	}
 }
 
-func settingsPolicyBadge(p SpecPalette, ed *Editor, policy settingsAgentPolicy) core.Node {
+func settingsPolicyBadge(p theme.Palette, ed *Editor, policy settingsAgentPolicy) core.Node {
 	text := ed.T("settings.policyYouOnly")
 	color := p.TextFaint
 	if policy == policyAgentMayChange {
@@ -2046,11 +2047,11 @@ func settingsPolicyBadge(p SpecPalette, ed *Editor, policy settingsAgentPolicy) 
 
 // settingsRow renders one Settings row in the design/editor/Settings.dc.html layout:
 // label + help on the left, value control in the middle/right, "Agent may change" or "You only" policy column on the right, and optional inline error text underneath.
-func settingsRow(p SpecPalette, ed *Editor, testID, label, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
+func settingsRow(p theme.Palette, ed *Editor, testID, label, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
 	return settingsRowScaled(p, 1.0, ed, testID, label, help, control, policy, errNode)
 }
 
-func settingsRowScaled(p SpecPalette, scale float32, ed *Editor, testID, label, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
+func settingsRowScaled(p theme.Palette, scale float32, ed *Editor, testID, label, help string, control core.Node, policy settingsAgentPolicy, errNode core.Node) core.Node {
 	children := []core.Node{
 		core.View{
 			Style: core.Style{
@@ -2095,8 +2096,8 @@ func settingsRowScaled(p SpecPalette, scale float32, ed *Editor, testID, label, 
 	}
 }
 
-// settingsSpecButton builds a real accessible ui.Button styled strictly with SpecPalette tokens and focus ring.
-func settingsSpecButton(p SpecPalette, testID, text, label string, primary bool, disabled func() bool, onPress func()) core.Node {
+// settingsSpecButton builds a real accessible ui.Button styled strictly with theme.Palette tokens and focus ring.
+func settingsSpecButton(p theme.Palette, testID, text, label string, primary bool, disabled func() bool, onPress func()) core.Node {
 	bg := p.Raised
 	fg := p.TextSecondary
 	var borderW core.Points = 1

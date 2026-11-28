@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -20,7 +21,7 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		_ = rev.Get()
 		parts := ed.TaskStatusParts()
 		var b strings.Builder
-		if ed.SpecPalette(cx).Dark {
+		if ed.Palette(cx).Dark {
 			b.WriteString("D:")
 		} else {
 			b.WriteString("L:")
@@ -38,7 +39,7 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 
 	partsNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = statusKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		parts := ed.TaskStatusParts()
 		kids := make([]core.Node, 0, len(parts))
 		for i, part := range parts {
@@ -123,7 +124,7 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		},
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			border := p.LineRaised
 			if ed.TasksPanelOpen() {
 				border = p.Accent.Edge
@@ -146,7 +147,7 @@ func tasksStatusIndicatorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 // TasksPanelView renders the Agent right panel with its collapsible Tasks list (grouped under
 // Needs you, Running, Ready to review, Queued, and Failed), bulk Dismiss for Ready to review,
 // focused task detail with live steps & review actions, and Queue / Run in parallel composer,
-// matching design/editor/Tasks.dc.html using exclusively SpecPalette tokens.
+// matching design/editor/Tasks.dc.html using exclusively theme.Palette tokens.
 // The panel container, ScrollViews, and composer input remain stably mounted across task updates
 // so background progress never steals typing focus or resets scroll position.
 func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
@@ -155,7 +156,7 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 
 	themeKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
-		if ed.SpecPalette(cx).Dark {
+		if ed.Palette(cx).Dark {
 			return "D|" + ed.ResolvedLanguage()
 		}
 		return "L|" + ed.ResolvedLanguage()
@@ -211,7 +212,7 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = themeKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 
 		header := core.View{
 			TestID: "tasks-panel-header",
@@ -693,7 +694,7 @@ func taskCountChip(dotColor, textColor core.Color, label string) core.Node {
 	}
 }
 
-func taskRowView(ed *Editor, p SpecPalette, t AgentTask, focused bool) core.Node {
+func taskRowView(ed *Editor, p theme.Palette, t AgentTask, focused bool) core.Node {
 	id := t.ID
 	rowBg := core.Transparent
 	if focused {
@@ -860,7 +861,7 @@ func taskRowView(ed *Editor, p SpecPalette, t AgentTask, focused bool) core.Node
 	}
 }
 
-func taskRowActionButton(testID, label string, bg, border, fg core.Color, p SpecPalette, onPress func()) core.Node {
+func taskRowActionButton(testID, label string, bg, border, fg core.Color, p theme.Palette, onPress func()) core.Node {
 	st := core.Style{
 		Height:         core.Pt(28),
 		Padding:        core.Symmetric(0, 12),
@@ -895,7 +896,7 @@ func taskRowActionButton(testID, label string, bg, border, fg core.Color, p Spec
 	}
 }
 
-func taskStateIcon(p SpecPalette, t AgentTask) core.Node {
+func taskStateIcon(p theme.Palette, t AgentTask) core.Node {
 	return core.Canvas{
 		Style: core.Style{Width: core.Pt(16), Height: core.Pt(16), FlexShrink: 0},
 		Draw: func(d *core.Drawing, _ core.Size) {
@@ -927,7 +928,7 @@ func taskStateIcon(p SpecPalette, t AgentTask) core.Node {
 	}
 }
 
-func taskDetailView(ed *Editor, p SpecPalette, focused AgentTask, hasFocused bool) core.Node {
+func taskDetailView(ed *Editor, p theme.Palette, focused AgentTask, hasFocused bool) core.Node {
 	if !hasFocused {
 		return core.View{
 			TestID: "tasks-detail",
@@ -1174,7 +1175,7 @@ func viewportTaskLegendOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = legendKey.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				ovs := ed.SceneTaskOverlays()
 				type entry struct {
 					num     int

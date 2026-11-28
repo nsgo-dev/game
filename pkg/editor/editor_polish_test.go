@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -233,7 +234,7 @@ func TestViewportCameraCaptionReactivePositionAndDotGrid(t *testing.T) {
 	// Verify 2D edit DrawViewport renders ViewportDot backdrop and neutral non-sprite markers.
 	var editDraw core.Drawing
 	ed.DrawViewport(&editDraw, core.Size{Width: 800, Height: 600})
-	spec := editor.DarkSpecPalette()
+	spec := theme.Dark()
 	foundDot := false
 	foundMarkerFill := false
 	for _, op := range editDraw.Ops {

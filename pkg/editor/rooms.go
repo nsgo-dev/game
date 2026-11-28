@@ -14,6 +14,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/rooms"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // ErrNoRooms is returned by room-map edits and saves when no room map is open.
@@ -1190,7 +1191,7 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 		}
 	}
 
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	for i := range e.rooms.doc.Rooms {
 		r := &e.rooms.doc.Rooms[i]
 		selected := r.ID == e.rooms.selectedRoomID
@@ -1198,9 +1199,9 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 
 		// Fill room rectangle.
 		if selected {
-			d.SetFillColor(specAlpha(spec.Added.Fg, 0.20))
+			d.SetFillColor(ui.Alpha(spec.Added.Fg, 0.20))
 		} else {
-			d.SetFillColor(specAlpha(spec.Added.Fg, 0.10))
+			d.SetFillColor(ui.Alpha(spec.Added.Fg, 0.10))
 		}
 		d.BeginPath().MoveTo(pts[0].X, pts[0].Y)
 		for _, p := range pts[1:] {
@@ -1212,7 +1213,7 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 		if selected {
 			d.SetStrokeColor(spec.Added.Edge).SetLineWidth(2)
 		} else {
-			d.SetStrokeColor(specAlpha(spec.Added.Edge, 0.85)).SetLineWidth(1.5)
+			d.SetStrokeColor(ui.Alpha(spec.Added.Edge, 0.85)).SetLineWidth(1.5)
 		}
 		strokePolygon(d, pts)
 
@@ -1228,7 +1229,7 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 			label += " (" + string(tr.Kind) + ")"
 		}
 		lx, ly := e.WorldToCanvas(r.X, r.Y)
-		d.SetFillColor(specAlpha(spec.PillBg, 0.88))
+		d.SetFillColor(ui.Alpha(spec.PillBg, 0.88))
 		badgeW := float32(len(label))*6.5 + 10
 		d.FillRect(lx+4, ly+4, badgeW, 18)
 		d.SetFillColor(spec.Added.Fg).
@@ -1245,7 +1246,7 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 	// Draw live creation preview rectangle while dragging in Draw Room mode.
 	if e.roomDrag.active && e.roomDrag.creating && e.roomDrag.moved {
 		pts := worldRectCanvasCorners(e, e.roomDrag.previewX, e.roomDrag.previewY, e.roomDrag.previewW, e.roomDrag.previewH)
-		d.SetFillColor(specAlpha(spec.Added.Fg, 0.22))
+		d.SetFillColor(ui.Alpha(spec.Added.Fg, 0.22))
 		d.BeginPath().MoveTo(pts[0].X, pts[0].Y)
 		for _, p := range pts[1:] {
 			d.LineTo(p.X, p.Y)
@@ -1296,7 +1297,7 @@ func (e *Editor) drawRoomSnapGrid(d *core.Drawing, gw, gh float32) {
 		return
 	}
 	d.Save()
-	d.SetStrokeColor(specAlpha(e.activeSpecPalette().Added.Edge, 0.16)).SetLineWidth(1)
+	d.SetStrokeColor(ui.Alpha(e.activePalette().Added.Edge, 0.16)).SetLineWidth(1)
 	d.BeginPath()
 	for x, n := startX, 0; x <= maxX && n <= 258; x, n = x+gw, n+1 {
 		x0, y0 := e.WorldToCanvas(x, minY)

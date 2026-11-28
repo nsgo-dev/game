@@ -9,7 +9,7 @@ import (
 )
 
 // saveStatusBarView renders the status bar's save status item matching design/editor/Checkpoints.dc.html
-// ("Save status · status bar") using theme-aware SpecPalette tokens (Dark & Light):
+// ("Save status · status bar") using theme-aware theme.Palette tokens (Dark & Light):
 //   - Saved: muted Spec styling with a green check icon; hovering shows the last save time.
 //   - Saving…: appears only after SavingIndicatorDelay (300 ms) so quick saves do not flicker.
 //   - Failed autosave: persistent alert pill with problem red border/icon, failure reason, Retry, and Save as… buttons.
@@ -30,7 +30,7 @@ func saveStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		key := chromeKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		switch key.kind {
 		case SaveStatusFailed:
 			prob := p.Problem()

@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/playtest"
@@ -51,7 +52,7 @@ func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		Role:   core.RoleRegion,
 		Label:  ed.T("playtestReport.screenLabel"),
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				Width:      core.Pct(100),
 				Height:     core.Pct(100),
@@ -62,7 +63,7 @@ func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				k := ptRev.Get()
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				sess := ed.PlaytestSession()
 				entry := sess.ActiveEntry()
 				if entry == nil || entry.Report == nil {
@@ -88,7 +89,7 @@ func PlaytestReportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 }
 
-func playtestEmptyStateView(ed *Editor, p SpecPalette) core.Node {
+func playtestEmptyStateView(ed *Editor, p theme.Palette) core.Node {
 	return core.View{
 		TestID: "playtest-empty-state",
 		Style: core.Style{
@@ -135,7 +136,7 @@ func playtestEmptyStateView(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p SpecPalette) core.Node {
+func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p theme.Palette) core.Node {
 	rep := entry.Report
 	scope := rep.Scope.Scene
 	if scope == "" {
@@ -257,7 +258,7 @@ func playtestHeaderView(ed *Editor, sess *PlaytestReportSession, entry *Playtest
 	}
 }
 
-func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p SpecPalette) core.Node {
+func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p theme.Palette) core.Node {
 	rep := entry.Report
 	configFile := entry.ConfigPath
 	if configFile == "" {
@@ -413,9 +414,9 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 				Gap:          8,
 				Padding:      core.Edges{Left: 12, Right: 4},
 				CornerRadius: 8,
-				Background:   specAlpha(p.Agent.Fg, 0.10),
+				Background:   ui.Alpha(p.Agent.Fg, 0.10),
 				BorderWidth:  1,
-				BorderColor:  specAlpha(p.Agent.Fg, 0.50),
+				BorderColor:  ui.Alpha(p.Agent.Fg, 0.50),
 			},
 			Children: []core.Node{
 				core.View{
@@ -497,7 +498,7 @@ func playtestBotProfileView(ed *Editor, sess *PlaytestReportSession, entry *Play
 	}
 }
 
-func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette) core.Node {
+func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p theme.Palette) core.Node {
 	if sess.ReviewProposalID != "" {
 		if prop := sess.ProposalByID(sess.ReviewProposalID); prop != nil {
 			propID := prop.ID
@@ -509,10 +510,10 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 				switch {
 				case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
 					col = p.Added.Fg
-					bg = specAlpha(p.Added.Fg, 0.12)
+					bg = ui.Alpha(p.Added.Fg, 0.12)
 				case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
 					col = p.Removed.Fg
-					bg = specAlpha(p.Removed.Fg, 0.08)
+					bg = ui.Alpha(p.Removed.Fg, 0.08)
 				case strings.HasPrefix(line, "@@") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
 					col = p.TextFaint
 				}
@@ -543,7 +544,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 					Gap:         8,
 					Background:  p.Raised,
 					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specAlpha(p.Agent.Fg, 0.50),
+					BorderColor: ui.Alpha(p.Agent.Fg, 0.50),
 				},
 				Children: []core.Node{
 					core.View{
@@ -747,7 +748,7 @@ func playtestDrawersView(ed *Editor, sess *PlaytestReportSession, p SpecPalette)
 	return core.View{Style: core.Style{Height: core.Pt(0)}}
 }
 
-func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p SpecPalette) core.Node {
+func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p theme.Palette) core.Node {
 	return core.View{
 		Style: core.Style{
 			FlexGrow:  1,
@@ -775,7 +776,7 @@ func playtestBodyView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestRe
 	}
 }
 
-func playtestMetricCardsRowView(ed *Editor, cards []PlaytestMetricCard, p SpecPalette) core.Node {
+func playtestMetricCardsRowView(ed *Editor, cards []PlaytestMetricCard, p theme.Palette) core.Node {
 	displayCards := cards
 	if len(displayCards) > 4 {
 		displayCards = displayCards[:4]
@@ -798,19 +799,19 @@ func playtestMetricCardsRowView(ed *Editor, cards []PlaytestMetricCard, p SpecPa
 	}
 }
 
-func playtestMetricCardView(c PlaytestMetricCard, p SpecPalette) core.Node {
+func playtestMetricCardView(c PlaytestMetricCard, p theme.Palette) core.Node {
 	badgeBg := core.Transparent
 	badgeBorder := p.LineRaised
 	badgeFg := p.TextMuted
 	var badgeIcon *core.SVG
 	if c.Met {
 		badgeFg = p.Added.Fg
-		badgeBorder = specAlpha(p.Added.Fg, 0.45)
+		badgeBorder = ui.Alpha(p.Added.Fg, 0.45)
 		badgeIcon = lucide.Check()
 	} else if c.Missed {
 		badgeFg = p.Removed.Fg
-		badgeBg = specAlpha(p.Removed.Fg, 0.08)
-		badgeBorder = specAlpha(p.Removed.Fg, 0.50)
+		badgeBg = ui.Alpha(p.Removed.Fg, 0.08)
+		badgeBorder = ui.Alpha(p.Removed.Fg, 0.50)
 		badgeIcon = lucide.X()
 	}
 
@@ -936,7 +937,7 @@ func playtestMetricCardView(c PlaytestMetricCard, p SpecPalette) core.Node {
 	}
 }
 
-func playtestChartCardView(ed *Editor, spec PlaytestChartSpec, p SpecPalette) core.Node {
+func playtestChartCardView(ed *Editor, spec PlaytestChartSpec, p theme.Palette) core.Node {
 	doc := ed.Doc
 	return core.View{
 		TestID: "playtest-chart-card",
@@ -1009,7 +1010,7 @@ func playtestChartCardView(ed *Editor, spec PlaytestChartSpec, p SpecPalette) co
 	}
 }
 
-func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p SpecPalette) core.Node {
+func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *PlaytestReportEntry, p theme.Palette) core.Node {
 	suggestionNodes := make([]core.Node, 0, len(entry.Suggestions))
 	for i, sg := range entry.Suggestions {
 		idx := i
@@ -1018,8 +1019,8 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 		statusText := ed.T("playtestReport.askAgent")
 		statusCol := p.TextFaint
 		if sg.Requested {
-			borderCol = specAlpha(p.Agent.Fg, 0.50)
-			bgCol = specAlpha(p.Agent.Fg, 0.10)
+			borderCol = ui.Alpha(p.Agent.Fg, 0.50)
+			bgCol = ui.Alpha(p.Agent.Fg, 0.10)
 			statusText = ed.T("playtestReport.reviewRequested")
 			statusCol = p.Agent.Fg
 		}
@@ -1095,9 +1096,9 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 				Gap:          6,
 				Padding:      core.Symmetric(6, 10),
 				CornerRadius: 8,
-				Background:   specAlpha(p.Agent.Fg, 0.10),
+				Background:   ui.Alpha(p.Agent.Fg, 0.10),
 				BorderWidth:  1,
-				BorderColor:  specAlpha(p.Agent.Fg, 0.50),
+				BorderColor:  ui.Alpha(p.Agent.Fg, 0.50),
 			},
 			Children: []core.Node{
 				core.View{
@@ -1154,10 +1155,10 @@ func playtestAgentReadCardView(ed *Editor, sess *PlaytestReportSession, entry *P
 // DrawPlaytestChart renders spec onto d using exclusively Spec.dc.html color tokens.
 // Exported so tests can verify all 4 chart kinds directly against core.Drawing as well as through EditorView.
 func DrawPlaytestChart(d *core.Drawing, size core.Size, spec PlaytestChartSpec, scene *sceneformat.SceneDoc) {
-	drawPlaytestChartWithPalette(d, size, spec, scene, DarkSpecPalette(), nil)
+	drawPlaytestChartWithPalette(d, size, spec, scene, theme.Dark(), nil)
 }
 
-func drawPlaytestChartWithPalette(d *core.Drawing, size core.Size, spec PlaytestChartSpec, scene *sceneformat.SceneDoc, p SpecPalette, ed *Editor) {
+func drawPlaytestChartWithPalette(d *core.Drawing, size core.Size, spec PlaytestChartSpec, scene *sceneformat.SceneDoc, p theme.Palette, ed *Editor) {
 	if d == nil || size.Width <= 0 || size.Height <= 0 {
 		return
 	}
@@ -1182,21 +1183,21 @@ func drawPlaytestChartWithPalette(d *core.Drawing, size core.Size, spec Playtest
 	d.Restore()
 }
 
-func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeatChart, scene *sceneformat.SceneDoc, p SpecPalette, ed *Editor) {
+func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeatChart, scene *sceneformat.SceneDoc, p theme.Palette, ed *Editor) {
 	if chart == nil || len(chart.Points) == 0 {
 		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noHeatMapData"), 16, h/2, core.Font{Size: 12})
 		return
 	}
 
-	bgOverlay := specAlpha(p.Bg, 0.92)
-	gridLine := specAlpha(p.TextFaint, 0.16)
-	heatRedHigh := specAlpha(p.Removed.Fg, 0.56)
-	heatRedMid := specAlpha(p.Removed.Fg, 0.28)
-	heatRedSoft := specAlpha(p.Removed.Fg, 0.12)
-	heatAmberHi := specAlpha(p.Changed.Fg, 0.48)
-	heatAmberMid := specAlpha(p.Changed.Fg, 0.22)
-	heatAmberLow := specAlpha(p.Changed.Fg, 0.10)
-	problemEdge := specAlpha(p.Removed.Fg, 0.50)
+	bgOverlay := ui.Alpha(p.Bg, 0.92)
+	gridLine := ui.Alpha(p.TextFaint, 0.16)
+	heatRedHigh := ui.Alpha(p.Removed.Fg, 0.56)
+	heatRedMid := ui.Alpha(p.Removed.Fg, 0.28)
+	heatRedSoft := ui.Alpha(p.Removed.Fg, 0.12)
+	heatAmberHi := ui.Alpha(p.Changed.Fg, 0.48)
+	heatAmberMid := ui.Alpha(p.Changed.Fg, 0.22)
+	heatAmberLow := ui.Alpha(p.Changed.Fg, 0.10)
+	problemEdge := ui.Alpha(p.Removed.Fg, 0.50)
 
 	pad := float32(16)
 	plotX := pad
@@ -1345,14 +1346,14 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 	d.SetFillColor(p.TextMuted).FillText(ed.T("playtestReport.chart.hotspotCluster"), legX+92, legY+1, legFont)
 }
 
-func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p SpecPalette, ed *Editor) {
+func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p theme.Palette, ed *Editor) {
 	if chart == nil || len(chart.Entries) == 0 {
 		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noBarData"), 16, h/2, core.Font{Size: 12})
 		return
 	}
 
-	gridLine := specAlpha(p.TextFaint, 0.16)
-	barNormal := specAlpha(p.TextFaint, 0.45)
+	gridLine := ui.Alpha(p.TextFaint, 0.16)
+	barNormal := ui.Alpha(p.TextFaint, 0.45)
 
 	padL, padR := float32(28), float32(28)
 	padT, padB := float32(28), float32(42)
@@ -1454,14 +1455,14 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 	}
 }
 
-func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p SpecPalette, ed *Editor) {
+func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesChart, p theme.Palette, ed *Editor) {
 	if chart == nil || len(chart.Entries) == 0 {
 		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noLineData"), 16, h/2, core.Font{Size: 12})
 		return
 	}
 
-	gridLine := specAlpha(p.TextFaint, 0.16)
-	lineArea := specAlpha(p.Accent.Fg, 0.14)
+	gridLine := ui.Alpha(p.TextFaint, 0.16)
+	lineArea := ui.Alpha(p.Accent.Fg, 0.14)
 
 	padL, padR := float32(44), float32(28)
 	padT, padB := float32(32), float32(44)
@@ -1584,13 +1585,13 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 	}
 }
 
-func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatrixChart, p SpecPalette, ed *Editor) {
+func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatrixChart, p theme.Palette, ed *Editor) {
 	if chart == nil || len(chart.Labels) == 0 {
 		d.SetFillColor(p.TextFaint).FillText(ed.T("playtestReport.chart.noMatrixData"), 16, h/2, core.Font{Size: 12})
 		return
 	}
 
-	problemTint := specAlpha(p.Removed.Fg, 0.14)
+	problemTint := ui.Alpha(p.Removed.Fg, 0.14)
 
 	n := len(chart.Labels)
 	gap := float32(8)

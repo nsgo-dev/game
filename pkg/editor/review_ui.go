@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -34,7 +35,7 @@ var reviewRegionOrder = []string{
 
 // ReviewScreenView renders the full-window change-by-change agent turn Review screen
 // matching design/editor/Review.dc.html and design/editor/Spec.dc.html
-// using exclusively SpecPalette tokens (supporting both Dark and Light appearances).
+// using exclusively theme.Palette tokens (supporting both Dark and Light appearances).
 func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	reviewRev := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
@@ -175,7 +176,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = reviewRev.Get()
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				snap := ed.ReviewStatus()
 				undoKey := ed.reviewShortcutHint(CmdUndo, "mod+z")
 				fileList := ed.ReviewRevertAllFileList()
@@ -257,7 +258,7 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		Role:   core.RoleRegion,
 		Label:  ed.T("reviewScreen.screenLabel"),
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.Style{
 				Width:      core.Pct(100),
 				Height:     core.Pct(100),
@@ -286,14 +287,14 @@ func ReviewScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	}
 }
 
-func reviewRegionStyle(p SpecPalette, activeRegion *core.Signal[string], id string, base core.Style) core.Style {
+func reviewRegionStyle(p theme.Palette, activeRegion *core.Signal[string], id string, base core.Style) core.Style {
 	if activeRegion != nil && activeRegion.Get() == id {
 		return base.Merge(*p.FocusRing(-2))
 	}
 	return base
 }
 
-func specReviewButton(testID, label string, bg, border, fg core.Color, p SpecPalette, onPress func()) core.Node {
+func specReviewButton(testID, label string, bg, border, fg core.Color, p theme.Palette, onPress func()) core.Node {
 	st := core.Style{
 		Height:         core.Pt(32),
 		Padding:        core.Symmetric(0, 14),
@@ -332,7 +333,7 @@ func specReviewButton(testID, label string, bg, border, fg core.Color, p SpecPal
 	}
 }
 
-func specReviewKeycap(text string, p SpecPalette) core.Node {
+func specReviewKeycap(text string, p theme.Palette) core.Node {
 	return core.View{
 		Style: core.Style{
 			Height:         core.Pt(18),
@@ -360,7 +361,7 @@ func specReviewKeycap(text string, p SpecPalette) core.Node {
 func reviewHeaderView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], activeRegion *core.Signal[string], headerRef, revertBtnRef *core.Ref) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		snap := ed.ReviewStatus()
 
 		keepTotal := snap.KeptCount + snap.RevertedCount
@@ -718,7 +719,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 		Children: []core.Node{
 			core.View{
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						FlexGrow:     1,
 						FlexBasis:    core.Pt(0),
@@ -738,7 +739,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 					core.Icon{
 						SVG: lucide.Search(),
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: p.TextFaint, FlexShrink: 0}
 						},
 					},
@@ -753,7 +754,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 							ed.SetReviewSearch(v)
 						},
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{
 								FlexGrow:     1,
 								FlexBasis:    core.Pt(0),
@@ -777,7 +778,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 					return ed.T("reviewScreen.seenCounter", l10n.Param("seen", st.SeenCount), l10n.Param("total", st.TotalChanges))
 				},
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						FontSize:   11.5,
 						Color:      p.TextFaint,
@@ -791,7 +792,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				Label:     ed.T("reviewScreen.prevChangeLabel"),
 				Focusable: func() bool { return true },
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						Width:          core.Pt(28),
 						Height:         core.Pt(28),
@@ -812,7 +813,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 					core.Icon{
 						SVG: lucide.ChevronUp(),
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.TextMuted}
 						},
 					},
@@ -824,7 +825,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 				Label:     ed.T("reviewScreen.nextChangeLabel"),
 				Focusable: func() bool { return true },
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						Width:          core.Pt(28),
 						Height:         core.Pt(28),
@@ -845,7 +846,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 					core.Icon{
 						SVG: lucide.ChevronDown(),
 						StyleFunc: func() core.Style {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: p.TextMuted}
 						},
 					},
@@ -856,7 +857,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 
 	chipsAndBar := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		snap := ed.ReviewStatus()
 		chipSpecs := []struct {
 			id    ReviewFilter
@@ -958,7 +959,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 		if snap.Round <= 1 || snap.RoundBanner == "" {
 			return nil
 		}
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "review-round-banner",
 			Role:   core.RoleStatus,
@@ -996,7 +997,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 
 	rowsList := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		snap := ed.ReviewStatus()
 		vis := ed.ReviewVisibleRows()
 
@@ -1031,7 +1032,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 
 	footer := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		hint := func(key, text string) core.Node {
 			return core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
@@ -1075,7 +1076,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 			}
 		},
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return reviewRegionStyle(p, activeRegion, reviewRegionList, core.Style{
 				Width:       core.Pt(372),
 				FlexShrink:  0,
@@ -1088,7 +1089,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 		Children: []core.Node{
 			core.View{
 				StyleFunc: func() core.Style {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.Style{
 						Padding:     core.Edges{Top: 12, Left: 12, Right: 12, Bottom: 8},
 						Gap:         8,
@@ -1115,7 +1116,7 @@ func reviewSidebarView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64],
 	}
 }
 
-func reviewFileRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused, readOnlyRound bool) core.Node {
+func reviewFileRowView(ed *Editor, p theme.Palette, r ReviewVisibleRow, rowFocused, readOnlyRound bool) core.Node {
 	filePath := r.File
 	chev := lucide.ChevronDown()
 	if r.Collapsed {
@@ -1285,7 +1286,7 @@ func reviewChangeKindName(ed *Editor, kind ReviewChangeKind) string {
 	}
 }
 
-func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused, readOnlyRound bool) core.Node {
+func reviewKindRowView(ed *Editor, p theme.Palette, r ReviewVisibleRow, rowFocused, readOnlyRound bool) core.Node {
 	filePath := r.File
 	kind := r.Kind
 	chev := lucide.ChevronDown()
@@ -1386,7 +1387,7 @@ func reviewKindRowView(ed *Editor, p SpecPalette, r ReviewVisibleRow, rowFocused
 	}
 }
 
-func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapshot, ch *ReviewChange, noteDraftSig *core.Signal[string], rowFocused, changeFocused bool) core.Node {
+func reviewCardView(cx *core.Scope, ed *Editor, p theme.Palette, snap ReviewSnapshot, ch *ReviewChange, noteDraftSig *core.Signal[string], rowFocused, changeFocused bool) core.Node {
 	id := ch.ID
 	ver := ch.VersionFor(snap.ViewRound)
 	readOnly := snap.ViewingReadOnlyRound
@@ -1916,7 +1917,7 @@ func reviewCardView(cx *core.Scope, ed *Editor, p SpecPalette, snap ReviewSnapsh
 	}
 }
 
-func reviewConflictCardView(ed *Editor, ch *ReviewChange, p SpecPalette) core.Node {
+func reviewConflictCardView(ed *Editor, ch *ReviewChange, p theme.Palette) core.Node {
 	resolved := ch.ConflictChoice != ReviewConflictUnresolved
 	changeID := ch.ID
 	objID := ch.ObjectID
@@ -2051,7 +2052,7 @@ func reviewConflictCardView(ed *Editor, ch *ReviewChange, p SpecPalette) core.No
 	}
 }
 
-func reviewConflictLineRow(author, text string, p SpecPalette) core.Node {
+func reviewConflictLineRow(author, text string, p theme.Palette) core.Node {
 	return core.View{
 		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter},
 		Children: []core.Node{
@@ -2080,7 +2081,7 @@ func reviewConflictLineRow(author, text string, p SpecPalette) core.Node {
 	}
 }
 
-func reviewKindSpecRole(p SpecPalette, kind ReviewChangeKind) SpecRole {
+func reviewKindSpecRole(p theme.Palette, kind ReviewChangeKind) theme.Role {
 	switch kind {
 	case ReviewChangeAdded:
 		return p.Added
@@ -2096,7 +2097,7 @@ func reviewKindSpecRole(p SpecPalette, kind ReviewChangeKind) SpecRole {
 func reviewCenterView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], activeRegion *core.Signal[string], centerRef *core.Ref) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		ch := ed.review.changesByID[ed.review.focusedID]
 
 		var content core.Node
@@ -2147,7 +2148,7 @@ func reviewCenterView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], 
 	})
 }
 
-func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) core.Node {
+func reviewSceneCenterView(ed *Editor, p theme.Palette, focused *ReviewChange) core.Node {
 	fs := ed.review.filesByPath[focused.File]
 	peek := ed.ReviewPeekingBefore()
 	overlays := ed.reviewOverlaysForFile(focused.File)
@@ -2433,7 +2434,7 @@ func reviewSceneCenterView(ed *Editor, p SpecPalette, focused *ReviewChange) cor
 	}
 }
 
-func drawReviewSceneCanvas(ed *Editor, d *core.Drawing, sz core.Size, p SpecPalette, fs *reviewFileState, peek bool, overlays []ReviewSceneOverlay, pins []ReviewViewportPin) {
+func drawReviewSceneCanvas(ed *Editor, d *core.Drawing, sz core.Size, p theme.Palette, fs *reviewFileState, peek bool, overlays []ReviewSceneOverlay, pins []ReviewViewportPin) {
 	w, h := float32(sz.Width), float32(sz.Height)
 	if w <= 0 || h <= 0 {
 		return
@@ -2551,7 +2552,7 @@ func drawReviewSceneCanvas(ed *Editor, d *core.Drawing, sz core.Size, p SpecPale
 
 // drawReviewViewportNotePin draws a crisp 20×20 Spec speech-bubble pin beside a noted object
 // in both Spec Dark and Spec Light themes.
-func drawReviewViewportNotePin(d *core.Drawing, x, y float32, p SpecPalette, redone bool) {
+func drawReviewViewportNotePin(d *core.Drawing, x, y float32, p theme.Palette, redone bool) {
 	if d == nil {
 		return
 	}
@@ -2583,7 +2584,7 @@ func drawReviewViewportNotePin(d *core.Drawing, x, y float32, p SpecPalette, red
 	d.Restore()
 }
 
-func drawReviewObjectFallbackMarker(d *core.Drawing, bo *sceneformat.BuiltObject, p SpecPalette) {
+func drawReviewObjectFallbackMarker(d *core.Drawing, bo *sceneformat.BuiltObject, p theme.Palette) {
 	if bo == nil || bo.Doc == nil {
 		return
 	}
@@ -2604,7 +2605,7 @@ func drawReviewObjectFallbackMarker(d *core.Drawing, bo *sceneformat.BuiltObject
 	}
 }
 
-func reviewPrefabCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core.Node {
+func reviewPrefabCenterView(ed *Editor, p theme.Palette, ch *ReviewChange) core.Node {
 	role := reviewKindSpecRole(p, ch.Kind)
 	oldText := ch.OldValue
 	newText := ch.NewValue
@@ -2771,7 +2772,7 @@ func reviewPrefabCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core.No
 	}
 }
 
-func reviewDataTableCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core.Node {
+func reviewDataTableCenterView(ed *Editor, p theme.Palette, ch *ReviewChange) core.Node {
 	tbl := ed.ReviewDataTablePreviewFor(ch.File)
 	if tbl == nil {
 		return reviewGenericFileCenterView(ed, p, ch)
@@ -2976,7 +2977,7 @@ func reviewDataTableCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core
 	}
 }
 
-func reviewGenericFileCenterView(ed *Editor, p SpecPalette, ch *ReviewChange) core.Node {
+func reviewGenericFileCenterView(ed *Editor, p theme.Palette, ch *ReviewChange) core.Node {
 	return core.View{
 		TestID: "review-center-file",
 		Style: core.Style{
@@ -3030,7 +3031,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 
 	headerNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		ch := ed.review.changesByID[ed.review.focusedID]
 		readOnly := ed.ReviewViewingReadOnlyRound()
 
@@ -3153,7 +3154,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 
 	diffBodyNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		ch := ed.review.changesByID[ed.review.focusedID]
 		readOnly := ed.ReviewViewingReadOnlyRound()
 		viewRound := ed.ReviewViewRound()
@@ -3279,7 +3280,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 		return core.View{
 			TestID: "review-yaml-editor-box",
 			StyleFunc: func() core.Style {
-				p := ed.SpecPalette(cx)
+				p := ed.Palette(cx)
 				return core.Style{
 					Padding:     core.All(12),
 					Background:  p.Inset,
@@ -3293,7 +3294,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 				core.Text{
 					Content: ed.T("reviewScreen.editYAMLHeading"),
 					StyleFunc: func() core.Style {
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						return core.Style{
 							FontSize:      11,
 							FontWeight:    600,
@@ -3313,7 +3314,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 						_ = ed.SetReviewYAMLDraft(changeID, v)
 					},
 					StyleFunc: func() core.Style {
-						p := ed.SpecPalette(cx)
+						p := ed.Palette(cx)
 						return core.Style{
 							Width:        core.Pct(100),
 							Height:       core.Pt(160),
@@ -3335,7 +3336,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 
 	yamlFooterNode := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = reviewRev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		if ed.ReviewViewingReadOnlyRound() {
 			return core.View{Style: core.Style{Height: core.Pt(0), FlexShrink: 0}}
 		}
@@ -3474,7 +3475,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 			}
 		},
 		StyleFunc: func() core.Style {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			base := core.Style{
 				Width:       core.Pt(392),
 				FlexShrink:  0,
@@ -3495,7 +3496,7 @@ func reviewRightView(cx *core.Scope, ed *Editor, reviewRev *core.Memo[uint64], a
 	}
 }
 
-func reviewYAMLDiffLinesView(ed *Editor, p SpecPalette, lines []ReviewYAMLLine) core.Node {
+func reviewYAMLDiffLinesView(ed *Editor, p theme.Palette, lines []ReviewYAMLLine) core.Node {
 	nodes := make([]core.Node, 0, len(lines))
 	for _, l := range lines {
 		bg := core.Transparent
@@ -3608,7 +3609,7 @@ func reviewYAMLDiffLinesView(ed *Editor, p SpecPalette, lines []ReviewYAMLLine) 
 // agentReviewPanelCards renders the agent turn review card (Review waiting + Resume review,
 // or the Kept / Reverted outcome summary) inside AgentPanelView's thread list
 // (matching design/editor/Review.dc.html).
-func agentReviewPanelCards(ed *Editor, p SpecPalette, turns []AgentTurn) []core.Node {
+func agentReviewPanelCards(ed *Editor, p theme.Palette, turns []AgentTurn) []core.Node {
 	snap := ed.ReviewStatus()
 	var cards []core.Node
 	if snap.Request != "" && (len(turns) == 0 || turns[len(turns)-1].Prompt != snap.Request) {
@@ -3723,7 +3724,7 @@ func (e *Editor) drawPendingReviewOverlay(d *core.Drawing, scene *sceneformat.Bu
 	if len(overlays) == 0 {
 		return
 	}
-	p := e.SpecPalette(nil)
+	p := e.Palette(nil)
 	for _, ov := range overlays {
 		role := reviewKindSpecRole(p, ov.Kind)
 		x0, y0 := e.WorldToCanvas(ov.X, ov.Y)

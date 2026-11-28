@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/tooling/credits"
@@ -62,7 +63,7 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		return core.View{
 			TestID: "asset-gen-screen",
 			Role:   core.RoleRegion,
@@ -76,7 +77,7 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			Children: []core.Node{
 				core.Dynamic(func(cx *core.Scope) core.Node {
 					_ = genRev.Get()
-					return assetGenHeaderView(ed, ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+					return assetGenHeaderView(ed, ed.snapshotAssetGenView(), ed.Palette(cx))
 				}),
 				core.View{
 					Style: core.Style{
@@ -89,7 +90,7 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Children: []core.Node{
 						core.Dynamic(func(cx *core.Scope) core.Node {
 							_ = genRev.Get()
-							return assetGenLeftRailView(ed, ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+							return assetGenLeftRailView(ed, ed.snapshotAssetGenView(), ed.Palette(cx))
 						}),
 						// Center column: ScrollView stays mounted across genRev updates; Refine input bar sits outside Dynamic so typing never drops focus.
 						core.View{
@@ -118,14 +119,14 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 									Children: []core.Node{
 										core.Dynamic(func(cx *core.Scope) core.Node {
 											_ = genRev.Get()
-											return assetGenCenterContentView(ed, ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+											return assetGenCenterContentView(ed, ed.snapshotAssetGenView(), ed.Palette(cx))
 										}),
 									},
 								},
 								core.Show{
 									When: hasImgReq.Get,
 									Then: func(cx *core.Scope) core.Node {
-										return assetGenRefineBarView(ed, genRev, activeImgReqID, refineDraftSig, ed.SpecPalette(cx))
+										return assetGenRefineBarView(ed, genRev, activeImgReqID, refineDraftSig, ed.Palette(cx))
 									},
 								},
 							},
@@ -145,7 +146,7 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Children: []core.Node{
 								core.Dynamic(func(cx *core.Scope) core.Node {
 									_ = genRev.Get()
-									return assetGenRightInspectorHeader(ed, ed.snapshotAssetGenView(), ed.SpecPalette(cx))
+									return assetGenRightInspectorHeader(ed, ed.snapshotAssetGenView(), ed.Palette(cx))
 								}),
 								ui.ScrollView{
 									Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
@@ -156,14 +157,14 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 									Children: []core.Node{
 										core.Dynamic(func(cx *core.Scope) core.Node {
 											_ = genRev.Get()
-											return assetGenRightInspectorBody(ed, ed.snapshotAssetGenView(), onBeginEditLicense, ed.SpecPalette(cx))
+											return assetGenRightInspectorBody(ed, ed.snapshotAssetGenView(), onBeginEditLicense, ed.Palette(cx))
 										}),
 									},
 								},
 								core.Show{
 									When: hasLicEdit.Get,
 									Then: func(cx *core.Scope) core.Node {
-										return assetGenLicenseEditorBar(ed, licEditPath, licDraftSig, licCommSig, ed.SpecPalette(cx))
+										return assetGenLicenseEditorBar(ed, licEditPath, licDraftSig, licCommSig, ed.Palette(cx))
 									},
 								},
 							},
@@ -318,10 +319,10 @@ func filepathBase(p string) string {
 	return p[idx+1:]
 }
 
-func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot, p theme.Palette) core.Node {
 	pillDot := p.Agent.Fg
-	pillBg := specAlpha(p.Agent.Fg, 0.14)
-	pillBorder := specAlpha(p.Agent.Fg, 0.42)
+	pillBg := ui.Alpha(p.Agent.Fg, 0.14)
+	pillBorder := ui.Alpha(p.Agent.Fg, 0.42)
 	pillTextColor := p.TextSecondary
 	pillText := ed.T("assetGenExtra.pillConnectServer")
 
@@ -469,9 +470,9 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) co
 	}
 }
 
-func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) core.Node {
-	selectedBg := specAlpha(p.Accent.Fg, 0.14)
-	wavePass := specAlpha(p.Accent.Fg, 0.72)
+func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot, p theme.Palette) core.Node {
+	selectedBg := ui.Alpha(p.Accent.Fg, 0.14)
+	wavePass := ui.Alpha(p.Accent.Fg, 0.72)
 
 	// Combine active generation requests with on-disk generated assets (from *.source.yaml) that don't have an active request row.
 	type railRow struct {
@@ -724,7 +725,7 @@ func localizedAssetGenKind(ed *Editor, kind AssetGeneratorKind) string {
 	}
 }
 
-func assetGenStatusDisplay(ed *Editor, r *AssetGenerationRequest, p SpecPalette) (string, core.Color) {
+func assetGenStatusDisplay(ed *Editor, r *AssetGenerationRequest, p theme.Palette) (string, core.Color) {
 	switch r.Status {
 	case AssetGenLicenseUnknown:
 		return ed.T("assetGenExtra.statusLicenseUnknown"), p.Removed.Fg
@@ -743,7 +744,7 @@ func assetGenStatusDisplay(ed *Editor, r *AssetGenerationRequest, p SpecPalette)
 	}
 }
 
-func assetGenCenterContentView(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+func assetGenCenterContentView(ed *Editor, snap assetGenViewSnapshot, p theme.Palette) core.Node {
 	var sections []core.Node
 
 	if snap.activeImageReq != nil {
@@ -783,7 +784,7 @@ func assetGenCenterContentView(ed *Editor, snap assetGenViewSnapshot, p SpecPale
 
 // assetGenRefineBarView mounts outside the coarse assetGenRev Dynamic so typing in the Refine input
 // never remounts or drops keyboard focus during background updates or candidate picks.
-func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID *core.Memo[string], refineDraftSig *core.Signal[string], p SpecPalette) core.Node {
+func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID *core.Memo[string], refineDraftSig *core.Signal[string], p theme.Palette) core.Node {
 	return core.View{
 		TestID: "asset-gen-refine-bar",
 		Style: core.Style{
@@ -842,8 +843,8 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = genRev.Get()
-				cur := ed.SpecPalette(cx)
-				btnSec := specAlpha(cur.TextSecondary, 0.08)
+				cur := ed.Palette(cx)
+				btnSec := ui.Alpha(cur.TextSecondary, 0.08)
 				snap := ed.snapshotAssetGenView()
 				reqID := ""
 				candCount := 4
@@ -915,7 +916,7 @@ func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID
 	}
 }
 
-func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot, p theme.Palette) core.Node {
 	// Background switcher ("PREVIEW ON")
 	bgButtons := make([]core.Node, 0, len(snap.brief.Backgrounds))
 	for _, b := range snap.brief.Backgrounds {
@@ -1040,10 +1041,10 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	}
 }
 
-func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand GeneratedCandidate, snap assetGenViewSnapshot, p SpecPalette) core.Node {
-	selectedBg := specAlpha(p.Accent.Fg, 0.14)
-	bgOverlay := specAlpha(p.Bg, 0.92)
-	btnSec := specAlpha(p.TextSecondary, 0.08)
+func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand GeneratedCandidate, snap assetGenViewSnapshot, p theme.Palette) core.Node {
+	selectedBg := ui.Alpha(p.Accent.Fg, 0.14)
+	bgOverlay := ui.Alpha(p.Bg, 0.92)
+	btnSec := ui.Alpha(p.TextSecondary, 0.08)
 
 	bg := snap.bg
 	selected := req.SelectedCandidateID == cand.ID
@@ -1249,11 +1250,11 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 	}
 }
 
-func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot, p SpecPalette) core.Node {
-	selectedBg := specAlpha(p.Accent.Fg, 0.14)
-	btnSec := specAlpha(p.TextSecondary, 0.08)
-	wavePass := specAlpha(p.Accent.Fg, 0.72)
-	waveFail := specAlpha(p.Removed.Fg, 0.85)
+func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot, p theme.Palette) core.Node {
+	selectedBg := ui.Alpha(p.Accent.Fg, 0.14)
+	btnSec := ui.Alpha(p.TextSecondary, 0.08)
+	wavePass := ui.Alpha(p.Accent.Fg, 0.72)
+	waveFail := ui.Alpha(p.Removed.Fg, 0.85)
 
 	actionDisabled := snap.playingGame || snap.mergeConflict
 	rows := make([]core.Node, 0, len(req.Candidates))
@@ -1422,7 +1423,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	}
 }
 
-func assetGenRightInspectorHeader(ed *Editor, snap assetGenViewSnapshot, p SpecPalette) core.Node {
+func assetGenRightInspectorHeader(ed *Editor, snap assetGenViewSnapshot, p theme.Palette) core.Node {
 	headerTitle := ed.T("assetGenExtra.candidateTitle")
 	headerSub := ""
 	if snap.selectedCand != nil {
@@ -1449,9 +1450,9 @@ func assetGenRightInspectorHeader(ed *Editor, snap assetGenViewSnapshot, p SpecP
 	}
 }
 
-func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEditLicense func(assetPath string), p SpecPalette) core.Node {
-	approvedRow := specAlpha(p.Added.Fg, 0.10)
-	btnSec := specAlpha(p.TextSecondary, 0.08)
+func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEditLicense func(assetPath string), p theme.Palette) core.Node {
+	approvedRow := ui.Alpha(p.Added.Fg, 0.10)
+	btnSec := ui.Alpha(p.TextSecondary, 0.08)
 
 	// 1. Style against brief.yaml
 	var styleNodes []core.Node
@@ -1693,7 +1694,7 @@ func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEd
 
 // assetGenLicenseEditorBar mounts outside the coarse assetGenRev Dynamic so typing a license string
 // never remounts or loses focus, and never silently fabricates a license identifier.
-func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDraftSig *core.Signal[string], licCommSig *core.Signal[bool], p SpecPalette) core.Node {
+func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDraftSig *core.Signal[string], licCommSig *core.Signal[bool], p theme.Palette) core.Node {
 	return core.View{
 		TestID: "asset-gen-license-editor",
 		Style: core.Style{
@@ -1706,7 +1707,7 @@ func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDra
 		},
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				cur := ed.SpecPalette(cx)
+				cur := ed.Palette(cx)
 				target := path.Base(licEditPath.Get())
 				return core.Text{
 					Content: fmt.Sprintf("%s · %s", ed.T("assetGen.licenseEditTitle"), target),
@@ -1739,8 +1740,8 @@ func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDra
 				},
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				cur := ed.SpecPalette(cx)
-				btnSec := specAlpha(cur.TextSecondary, 0.08)
+				cur := ed.Palette(cx)
+				btnSec := ui.Alpha(cur.TextSecondary, 0.08)
 				comm := licCommSig.Get()
 				boxBg := cur.Bg
 				boxBorder := cur.LineRaised
@@ -1918,13 +1919,13 @@ func sanitizeAssetGenTestID(s string) string {
 
 // --- Canvas drawing helpers (strictly Spec-derived colors, crisp pixel rendering) ---
 
-func drawCheckerBackdrop(d *core.Drawing, sz core.Size, tile float32, p SpecPalette) {
+func drawCheckerBackdrop(d *core.Drawing, sz core.Size, tile float32, p theme.Palette) {
 	w, h := float32(sz.Width), float32(sz.Height)
 	d.SetFillColor(p.Raised).FillRect(0, 0, w, h)
 	if tile <= 0 {
 		tile = 12
 	}
-	d.SetFillColor(specAlpha(p.TextSecondary, 0.05))
+	d.SetFillColor(ui.Alpha(p.TextSecondary, 0.05))
 	for y := float32(0); y < h; y += tile {
 		row := int(y / tile)
 		for x := float32(0); x < w; x += tile {
@@ -1936,14 +1937,14 @@ func drawCheckerBackdrop(d *core.Drawing, sz core.Size, tile float32, p SpecPale
 	}
 }
 
-func drawCandidateStage(d *core.Drawing, sz core.Size, bg AssetPreviewBackground, refPix, candPix *image.RGBA, p SpecPalette) {
+func drawCandidateStage(d *core.Drawing, sz core.Size, bg AssetPreviewBackground, refPix, candPix *image.RGBA, p theme.Palette) {
 	w, h := float32(sz.Width), float32(sz.Height)
 	if bg.Checker {
 		drawCheckerBackdrop(d, sz, 12, p)
 	} else {
 		d.SetFillColor(bg.Color).FillRect(0, 0, w, h)
 		// Subtle warm torch glow in upper right using Spec changed-amber alpha.
-		d.BeginPath().Arc(w-12, 16, 48, 0, 2*math.Pi, false).SetFillColor(specAlpha(p.Changed.Fg, 0.18)).Fill()
+		d.BeginPath().Arc(w-12, 16, 48, 0, 2*math.Pi, false).SetFillColor(ui.Alpha(p.Changed.Fg, 0.18)).Fill()
 		// Floor tiles strip along bottom.
 		floorH := float32(34)
 		floorY := h - floorH
@@ -1953,7 +1954,7 @@ func drawCandidateStage(d *core.Drawing, sz core.Size, bg AssetPreviewBackground
 			d.FillRect(x, floorY, 1.5, floorH)
 		}
 		d.FillRect(0, floorY, w, 2)
-		d.SetFillColor(specAlpha(p.TextSecondary, 0.09)).FillRect(0, floorY+16, w, 1.5)
+		d.SetFillColor(ui.Alpha(p.TextSecondary, 0.09)).FillRect(0, floorY+16, w, 1.5)
 	}
 
 	groundY := h - 34
@@ -2016,7 +2017,7 @@ func drawCrispPixels(d *core.Drawing, rgba *image.RGBA, x, y, maxW, maxH float32
 	d.DrawImageFrom(core.ImageSource{Pixels: rgba}, 0, 0, float32(iw), float32(ih), ox, oy, dw, dh)
 }
 
-func drawWaveformBars(d *core.Drawing, bars []float32, x, y, w, h float32, col core.Color, playheadFrac float32, p SpecPalette) {
+func drawWaveformBars(d *core.Drawing, bars []float32, x, y, w, h float32, col core.Color, playheadFrac float32, p theme.Palette) {
 	if w <= 0 || h <= 0 {
 		return
 	}

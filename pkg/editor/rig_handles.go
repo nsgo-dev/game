@@ -8,6 +8,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/skeletal"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // RigHandle identifies an interactive handle in the 2D skeletal rig editor canvas.
@@ -656,7 +657,7 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 	cw, ch := float32(size.Width), float32(size.Height)
 	e.SetRigCanvasSize(cw, ch)
 
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	// Background and subtle grid.
 	d.Save()
 	d.SetFillColor(spec.Viewport).FillRect(0, 0, cw, ch)
@@ -678,9 +679,9 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 	d.Stroke()
 
 	// Origin axes.
-	d.SetStrokeColor(specAlpha(spec.AxisX, 0.35)).SetLineWidth(1)
+	d.SetStrokeColor(ui.Alpha(spec.AxisX, 0.35)).SetLineWidth(1)
 	d.BeginPath().MoveTo(0, oy).LineTo(cw, oy).Stroke()
-	d.SetStrokeColor(specAlpha(spec.AxisY, 0.35)).SetLineWidth(1)
+	d.SetStrokeColor(ui.Alpha(spec.AxisY, 0.35)).SetLineWidth(1)
 	d.BeginPath().MoveTo(ox, 0).LineTo(ox, ch).Stroke()
 
 	// Draw live runtime skeletal attachments.
@@ -704,17 +705,17 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 			if b.Parent != "" {
 				if pw, pok := e.rig.skel.WorldBone(b.Parent); pok {
 					px, py := e.RigWorldToCanvas(pw.X, pw.Y)
-					d.SetStrokeColor(specAlpha(spec.TextFaint, 0.45)).SetLineWidth(1).SetLineDash(3, 3)
+					d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.45)).SetLineWidth(1).SetLineDash(3, 3)
 					d.BeginPath().MoveTo(px, py).LineTo(bx, by).Stroke()
 					d.SetLineDash()
 				}
 			}
 
 			selected := b.Name == e.rig.selectedBone
-			fill := specAlpha(spec.Accent.Fg, 0.25)
-			stroke := specAlpha(spec.Accent.Fg, 0.85)
+			fill := ui.Alpha(spec.Accent.Fg, 0.25)
+			stroke := ui.Alpha(spec.Accent.Fg, 0.85)
 			if selected {
-				fill = specAlpha(spec.Warning.Fg, 0.35)
+				fill = ui.Alpha(spec.Warning.Fg, 0.35)
 				stroke = spec.Warning.Fg
 			}
 
@@ -749,7 +750,7 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 		if e.rig.selectedBone != "" {
 			if origin, tip, ring, ok := e.RigBoneHandlePos(e.rig.selectedBone); ok {
 				active := e.rig.drag.handle
-				ringCol := specAlpha(spec.Accent.Fg, 0.75)
+				ringCol := ui.Alpha(spec.Accent.Fg, 0.75)
 				if active == RigHandleBoneRotate {
 					ringCol = spec.Warning.Fg
 				}
@@ -796,7 +797,7 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 							px, py := e.RigWorldToCanvas(pt.X, pt.Y)
 							pts[i] = math2d.Vec2{X: px, Y: py}
 						}
-						d.SetStrokeColor(specAlpha(spec.Agent.Fg, 0.85)).SetLineWidth(1).SetLineDash(4, 3)
+						d.SetStrokeColor(ui.Alpha(spec.Agent.Fg, 0.85)).SetLineWidth(1).SetLineDash(4, 3)
 						strokePolygon(d, pts)
 						d.SetLineDash()
 					}

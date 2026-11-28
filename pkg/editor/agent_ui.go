@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -36,7 +37,7 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	darkMemo := core.NewMemo(cx, func() railThemeKey {
 		_ = rev.Get()
 		return railThemeKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
@@ -69,7 +70,7 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								},
 								Then: func(cx *core.Scope) core.Node {
 									return core.Dynamic(func(cx *core.Scope) core.Node {
-										p := SpecPaletteFor(darkMemo.Get().dark)
+										p := theme.PaletteFor(darkMemo.Get().dark)
 										return core.View{
 											TestID: "right-rail-history-wrap",
 											Style: dockedStyle(cx, core.Style{
@@ -93,7 +94,7 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										return ed.workspaceStateKey()
 									})
 									return core.Dynamic(func(cx *core.Scope) core.Node {
-										p := SpecPaletteFor(darkMemo.Get().dark)
+										p := theme.PaletteFor(darkMemo.Get().dark)
 										return core.View{
 											TestID: "right-rail-inspector-wrap",
 											Style: dockedStyle(cx, core.Style{
@@ -137,7 +138,7 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 }
 
 // rightRailTabBar renders the 44 pt Agent / Inspector header bar matching design/editor/Main.dc.html and AgentStates.dc.html.
-func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, showFullChip bool) core.Node {
+func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette, showFullChip bool) core.Node {
 	agentTabRef := &core.Ref{}
 	inspectorTabRef := &core.Ref{}
 	if ed.focus.ctrl != nil {
@@ -156,7 +157,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 				Content: label,
 				StyleFunc: func() core.Style {
 					_ = rev.Get()
-					cur := ed.SpecPalette(cx)
+					cur := ed.Palette(cx)
 					col := cur.TextFaint
 					if ed.RightRailTab() == tab {
 						col = cur.TextPrimary
@@ -184,7 +185,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 								Width:        core.Pt(6),
 								Height:       core.Pt(6),
 								CornerRadius: 3,
-								Background:   ed.SpecPalette(cx).Accent.Fg,
+								Background:   ed.Palette(cx).Accent.Fg,
 							}
 						},
 					}
@@ -245,7 +246,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
-				cur := ed.SpecPalette(cx)
+				cur := ed.Palette(cx)
 				active := ed.RightRailTab() == tab
 				bg := core.Transparent
 				if active {
@@ -354,7 +355,7 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 }
 
 // compactAgentChip renders a compact status dot/button in the Inspector tab header so the author can jump to Agent or Connect.
-func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p theme.Palette) core.Node {
 	return core.View{
 		TestID: "right-rail-agent-pill",
 		Role:   core.RoleButton,
@@ -464,7 +465,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	darkMemo := core.NewMemo(cx, func() railThemeKey {
 		_ = rev.Get()
 		return railThemeKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
@@ -516,7 +517,7 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 
 	chipContent := core.Dynamic(func(cx *core.Scope) core.Node {
 		st := statusMemo.Get()
-		p := SpecPaletteFor(darkMemo.Get().dark)
+		p := theme.PaletteFor(darkMemo.Get().dark)
 		switch st {
 		case AgentStatusConnected:
 			pill := core.View{
@@ -1161,7 +1162,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			activePlanID = activePlan.ID
 		}
 		fmt.Fprintf(&b, "%v|%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%d:%s|pl=%s|",
-			ed.SpecPalette(cx).Dark,
+			ed.Palette(cx).Dark,
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
 			ed.AgentTurnSeq(),
@@ -1246,7 +1247,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	darkMemo := core.NewMemo(cx, func() railThemeKey {
 		_ = rev.Get()
 		return railThemeKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
@@ -1254,17 +1255,17 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	osKind := cx.Env().OS()
 	bannerThemeKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
-		return fmt.Sprintf("%v|%s", ed.SpecPalette(cx).Dark, ed.ResolvedLanguage())
+		return fmt.Sprintf("%v|%s", ed.Palette(cx).Dark, ed.ResolvedLanguage())
 	})
 	tabBar := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = bannerThemeKey.Get()
-		p := SpecPaletteFor(darkMemo.Get().dark)
+		p := theme.PaletteFor(darkMemo.Get().dark)
 		return rightRailTabBar(cx, ed, rev, p, true)
 	})
 
 	bodyArea := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = threadKey.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		turns := ed.AgentTurns()
 		composerTurns := ed.AgentThreadTurns()
 		summary := ed.AgentThreadSummary()
@@ -1366,7 +1367,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = bannerThemeKey.Get()
-				p := SpecPaletteFor(darkMemo.Get().dark)
+				p := theme.PaletteFor(darkMemo.Get().dark)
 				return agentWorkingFooterView(cx, ed, p, addDraft)
 			})
 		},
@@ -1385,7 +1386,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		},
 		Focusable: func() bool { return true },
 		StyleFunc: func() core.Style {
-			p := SpecPaletteFor(darkMemo.Get().dark)
+			p := theme.PaletteFor(darkMemo.Get().dark)
 			return dockedStyle(cx, core.Style{
 				Width:       core.Pt(380),
 				FlexShrink:  0,
@@ -1478,7 +1479,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = bannerThemeKey.Get()
-				p := SpecPaletteFor(darkMemo.Get().dark)
+				p := theme.PaletteFor(darkMemo.Get().dark)
 				return agentRewindBannerView(ed, rev, p)
 			}),
 			footer,
@@ -1486,7 +1487,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	}
 }
 
-func agentReadyToReviewBanner(ed *Editor, p SpecPalette, count int) core.Node {
+func agentReadyToReviewBanner(ed *Editor, p theme.Palette, count int) core.Node {
 	return core.View{
 		TestID: "agent-ready-to-review-banner",
 		Role:   core.RoleStatus,
@@ -1522,7 +1523,7 @@ func agentReadyToReviewBanner(ed *Editor, p SpecPalette, count int) core.Node {
 	}
 }
 
-func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
+func agentEmptyStateCard(ed *Editor, p theme.Palette) core.Node {
 	connected := ed.AgentStatus() == AgentStatusConnected
 	heading := ed.T("agentUI.emptyHeadingConnected")
 	body := ed.T("agentUI.emptyBodyConnected")
@@ -1591,7 +1592,7 @@ func agentEmptyStateCard(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, activePlan *AgentPlan, p SpecPalette, osKind core.OS, hoveredTurnID, focusedTurnID *core.Signal[string]) core.Node {
+func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn AgentTurn, activePlan *AgentPlan, p theme.Palette, osKind core.OS, hoveredTurnID, focusedTurnID *core.Signal[string]) core.Node {
 	var children []core.Node
 	if turn.Automation {
 		stateLabel, stateFg, stateBg, stateEdge := automationReviewBadgeStyle(ed, turn.ReviewState, p)
@@ -2001,7 +2002,7 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 	}
 }
 
-func agentTurnContextChips(ed *Editor, t AgentTurn, p SpecPalette) []core.Node {
+func agentTurnContextChips(ed *Editor, t AgentTurn, p theme.Palette) []core.Node {
 	var chips []core.Node
 	if len(t.Context.SelectionIDs) > 0 {
 		selLabel := strings.Join(t.Context.SelectionNames, ", ")
@@ -2056,7 +2057,7 @@ func agentTurnContextChips(ed *Editor, t AgentTurn, p SpecPalette) []core.Node {
 	return chips
 }
 
-func agentContextChip(p SpecPalette, testID string, dotColor core.Color, label string) core.Node {
+func agentContextChip(p theme.Palette, testID string, dotColor core.Color, label string) core.Node {
 	return core.View{
 		TestID: testID,
 		Style: core.Style{
@@ -2092,7 +2093,7 @@ func agentContextChip(p SpecPalette, testID string, dotColor core.Color, label s
 	}
 }
 
-func automationReviewBadgeStyle(ed *Editor, state AgentReviewState, p SpecPalette) (label string, fg, bg, edge core.Color) {
+func automationReviewBadgeStyle(ed *Editor, state AgentReviewState, p theme.Palette) (label string, fg, bg, edge core.Color) {
 	switch state {
 	case AgentReviewRunning:
 		return ed.T("agent.automationState.running"), p.Agent.Fg, p.Agent.Fill, p.Agent.Edge
@@ -2111,7 +2112,7 @@ func automationReviewBadgeStyle(ed *Editor, state AgentReviewState, p SpecPalett
 	}
 }
 
-func agentModelErrorCard(ed *Editor, turnIdx int, turnID string, me *AgentModelErrorState, p SpecPalette) core.Node {
+func agentModelErrorCard(ed *Editor, turnIdx int, turnID string, me *AgentModelErrorState, p theme.Palette) core.Node {
 	actions := []core.Node{
 		ui.Button{
 			TestID:  fmt.Sprintf("agent-turn-retry-%d", turnIdx),
@@ -2205,7 +2206,7 @@ func agentModelErrorCard(ed *Editor, turnIdx int, turnID string, me *AgentModelE
 	}
 }
 
-func agentLimitReachedCard(ed *Editor, p SpecPalette) core.Node {
+func agentLimitReachedCard(ed *Editor, p theme.Palette) core.Node {
 	u := ed.AgentUsage()
 	limit := ed.WeeklyRequestLimit()
 	return core.View{
@@ -2269,7 +2270,7 @@ func agentLimitReachedCard(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func agentQueuedRequestsView(ed *Editor, queued []AgentQueuedRequest, limitReached bool, p SpecPalette) core.Node {
+func agentQueuedRequestsView(ed *Editor, queued []AgentQueuedRequest, limitReached bool, p theme.Palette) core.Node {
 	rows := make([]core.Node, 0, len(queued)+2)
 	rows = append(rows, core.Text{
 		TestID:  "agent-queued-heading",
@@ -2364,7 +2365,7 @@ func agentQueuedRequestsView(ed *Editor, queued []AgentQueuedRequest, limitReach
 	}
 }
 
-func agentStepRow(turnIdx, stepIdx int, step AgentStep, p SpecPalette) core.Node {
+func agentStepRow(turnIdx, stepIdx int, step AgentStep, p theme.Palette) core.Node {
 	var badge core.Node
 	textCol := p.TextMuted
 	switch step.Status {
@@ -2539,7 +2540,7 @@ func agentStepRow(turnIdx, stepIdx int, step AgentStep, p SpecPalette) core.Node
 	}
 }
 
-func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref, p SpecPalette) core.Node {
+func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref, p theme.Palette) core.Node {
 	return core.View{
 		TestID:    "agent-open-request",
 		Ref:       ref,
@@ -2592,7 +2593,7 @@ func agentOpenRequestCard(ed *Editor, req *AgentOpenRequest, ref *core.Ref, p Sp
 	}
 }
 
-func agentRewindPopoverView(ed *Editor, rev *core.Signal[uint64], turnID string, p SpecPalette) core.Node {
+func agentRewindPopoverView(ed *Editor, rev *core.Signal[uint64], turnID string, p theme.Palette) core.Node {
 	preview, ok := ed.AgentRewindPreview(turnID)
 	if !ok {
 		return core.View{}
@@ -2794,7 +2795,7 @@ func agentRewindPopoverView(ed *Editor, rev *core.Signal[uint64], turnID string,
 	}
 }
 
-func agentRewindBannerView(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+func agentRewindBannerView(ed *Editor, rev *core.Signal[uint64], p theme.Palette) core.Node {
 	shadowAlpha := float32(0.45)
 	if !p.Dark {
 		shadowAlpha = 0.14
@@ -2910,12 +2911,12 @@ func ConnectAgentDialogView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	darkMemo := core.NewMemo(cx, func() railThemeKey {
 		_ = rev.Get()
 		return railThemeKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(darkMemo.Get().dark)
+		p := theme.PaletteFor(darkMemo.Get().dark)
 		choiceCard := func(testID string, mode AgentMode, name, desc, badge string) core.Node {
 			return core.View{
 				TestID: testID,

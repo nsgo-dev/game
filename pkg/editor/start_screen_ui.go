@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -13,10 +14,10 @@ import (
 
 // templateSwatchColor returns a restrained card preview tint composed strictly from Spec tokens
 // for the active appearance (Dark or Light).
-func templateSwatchColor(p SpecPalette, name string) core.Color {
+func templateSwatchColor(p theme.Palette, name string) core.Color {
 	base := p.Raised
 	swatch := func(role core.Color, alpha float32) core.Color {
-		return CompositeOver(specAlpha(role, alpha), base)
+		return theme.CompositeOver(ui.Alpha(role, alpha), base)
 	}
 	swatches := map[string]core.Color{
 		"starter":        p.LineRaised,
@@ -67,13 +68,13 @@ func StartScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	renderKey := core.NewMemo(cx, func() startScreenRenderKey {
 		_ = rev.Get()
 		return startScreenRenderKey{
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(renderKey.Get().dark)
+		p := theme.PaletteFor(renderKey.Get().dark)
 		return core.View{
 			TestID: "editor-start-screen",
 			Style: core.Style{
@@ -91,7 +92,7 @@ func StartScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	navBtn := func(testID, label string, active bool, icon func() *core.SVG, onPress func()) core.Node {
 		var bg core.Color
 		fg := p.TextSecondary
@@ -264,7 +265,7 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	}
 }
 
-func startRecentRow(p SpecPalette, ed *Editor, index int, entry RecentProjectEntry, now time.Time) core.Node {
+func startRecentRow(p theme.Palette, ed *Editor, index int, entry RecentProjectEntry, now time.Time) core.Node {
 	relTime := ed.localizedRelativeTime(entry.LastOpened, now)
 	shortPath := shortenHomePath(entry.Path)
 	meta := shortPath + " · " + relTime
@@ -374,7 +375,7 @@ func startRecentRow(p SpecPalette, ed *Editor, index int, entry RecentProjectEnt
 }
 
 func startMainPaneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	return ui.ScrollView{
 		TestID: "start-main-scroll",
 		Style: core.Style{
@@ -415,7 +416,7 @@ func startMainPaneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 }
 
 func startGoToolchainNoticeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	return core.Show{
 		When: func() bool {
 			_ = rev.Get()
@@ -572,7 +573,7 @@ func startGoToolchainNoticeView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 }
 
 func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	return core.View{
 		TestID: "start-idea-section",
 		Style:  core.Style{Gap: 12},
@@ -687,7 +688,7 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 }
 
 func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	filterChip := func(id, label string) core.Node {
 		return ui.Button{
 			TestID:  "start-filter-" + id,
@@ -907,7 +908,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 }
 
 func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	return core.View{
 		TestID: "start-create-form",
 		Style: core.Style{
@@ -1203,7 +1204,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 }
 
 func startCreateOutputView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	return core.Show{
 		When: func() bool {
 			_ = rev.Get()

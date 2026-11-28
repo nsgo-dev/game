@@ -16,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/tooling/refs"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // NavMeshBakeConfig holds the 3D navigation mesh bake parameters edited in the editor's
@@ -610,9 +611,9 @@ func (e *Editor) drawNavMeshOverlay3D(d *core.Drawing, w, h float32) {
 
 	const lift float32 = 0.05
 
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	// 1. Translucent walkable fill for each detail triangle (clipped against camera near plane).
-	d.Save().SetFillColor(specAlpha(spec.Accent.Fg, 0.24)).BeginPath()
+	d.Save().SetFillColor(ui.Alpha(spec.Accent.Fg, 0.24)).BeginPath()
 	hasFill := false
 	var tri [3][3]float32
 	for pi := range mesh.Polygons {
@@ -669,10 +670,10 @@ func (e *Editor) drawNavMeshOverlay3D(d *core.Drawing, w, h float32) {
 	}
 
 	if outlines < len(allLines) {
-		drawLines(allLines[outlines:], specAlpha(spec.Accent.Edge, 0.55), 1.0)
+		drawLines(allLines[outlines:], ui.Alpha(spec.Accent.Edge, 0.55), 1.0)
 	}
 	if outlines > 0 {
-		drawLines(allLines[:outlines], specAlpha(spec.Accent.Edge, 0.95), 1.75)
+		drawLines(allLines[:outlines], ui.Alpha(spec.Accent.Edge, 0.95), 1.75)
 	}
 }
 

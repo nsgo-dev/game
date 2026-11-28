@@ -80,7 +80,7 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 						},
 						HandleLabel: ed.T("dockExtra.resizePanel"),
 						HandleStyleFunc: func() core.Style {
-							return core.Style{Background: ed.SpecPalette(cx).Line}
+							return core.Style{Background: ed.Palette(cx).Line}
 						},
 						Style: core.Style{
 							FlexGrow:  1,
@@ -134,7 +134,7 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 									BorderWidth:  1,
 								},
 								StyleFunc: func() core.Style {
-									p := ed.SpecPalette(cx)
+									p := ed.Palette(cx)
 									return core.Style{
 										BorderColor: p.LineRaised,
 										Background:  p.Raised,
@@ -148,7 +148,7 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 											FontWeight: 600,
 										},
 										StyleFunc: func() core.Style {
-											return core.Style{Color: ed.SpecPalette(cx).TextPrimary}
+											return core.Style{Color: ed.Palette(cx).TextPrimary}
 										},
 									},
 								},
@@ -179,7 +179,7 @@ func editorDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 										Content: ed.T("dockExtra.noPanelsOpen"),
 										Style:   core.Style{FontSize: 12},
 										StyleFunc: func() core.Style {
-											return core.Style{Color: ed.SpecPalette(cx).TextMuted}
+											return core.Style{Color: ed.Palette(cx).TextMuted}
 										},
 									},
 								},
@@ -267,7 +267,7 @@ func renderDockedPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], key
 													Bottom:      core.Pt(0),
 													Left:        core.Pt(0),
 													BorderWidth: 2,
-													BorderColor: ed.SpecPalette(cx).Accent.Edge,
+													BorderColor: ed.Palette(cx).Accent.Edge,
 												}
 											},
 										}

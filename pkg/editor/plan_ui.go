@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -13,7 +14,7 @@ import (
 
 // planHeaderPillView renders the centered agent-violet status pill in the top toolbar
 // whenever an agent plan is active (Draft, Running, or Stopped), matching design/editor/Plan.dc.html
-// using exclusively SpecPalette tokens.
+// using exclusively theme.Palette tokens.
 func planHeaderPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type pillKey struct {
 		dark   bool
@@ -28,7 +29,7 @@ func planHeaderPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			return pillKey{}
 		}
 		return pillKey{
-			dark:   ed.SpecPalette(cx).Dark,
+			dark:   ed.Palette(cx).Dark,
 			phase:  p.Phase,
 			active: true,
 			lang:   ed.ResolvedLanguage(),
@@ -39,7 +40,7 @@ func planHeaderPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				k := keyMemo.Get()
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				running := k.phase == PlanPhaseRunning
 				var dot core.Node
 				if running {
@@ -137,7 +138,7 @@ func planViewportLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		}
 		overlayLegend := ed.OverlayLegendOpen() && !(ed.SketchActive() && !ed.sketchBlockedByScreen())
 		return legendKey{
-			dark:          ed.SpecPalette(cx).Dark,
+			dark:          ed.Palette(cx).Dark,
 			active:        true,
 			running:       pl.Phase == PlanPhaseRunning,
 			overlayLegend: overlayLegend,
@@ -149,7 +150,7 @@ func planViewportLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				k := keyMemo.Get()
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				rows := []core.Node{
 					core.View{
 						Style: core.Style{
@@ -255,7 +256,7 @@ func planFilesFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			return filesKey{}
 		}
 		return filesKey{
-			dark:   ed.SpecPalette(cx).Dark,
+			dark:   ed.Palette(cx).Dark,
 			active: true,
 			seq:    ed.PlanSeq(),
 			lang:   ed.ResolvedLanguage(),
@@ -266,7 +267,7 @@ func planFilesFooterView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				k := keyMemo.Get()
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				files := ed.ResolvedPlanFiles()
 				activeCount := 0
 				for _, f := range files {
@@ -389,7 +390,7 @@ func sceneTreePlannedNodesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 			return nodesKey{}
 		}
 		return nodesKey{
-			dark:   ed.SpecPalette(cx).Dark,
+			dark:   ed.Palette(cx).Dark,
 			active: true,
 			seq:    ed.PlanSeq(),
 		}
@@ -399,7 +400,7 @@ func sceneTreePlannedNodesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				k := keyMemo.Get()
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				allNodes := ed.ResolvedPlanTreeNodes()
 				var planned []ResolvedPlanTreeNode
 				for _, n := range allNodes {
@@ -454,7 +455,7 @@ func sceneTreePlannedNodesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 	}
 }
 
-func planStepSmallBadge(p SpecPalette, step int) core.Node {
+func planStepSmallBadge(p theme.Palette, step int) core.Node {
 	return core.View{
 		Style: core.Style{
 			Width:          core.Pt(16),
@@ -481,8 +482,8 @@ func planStepSmallBadge(p SpecPalette, step int) core.Node {
 }
 
 // agentPlanCardView renders the interactive Plan card inside AgentPanelView matching design/editor/Plan.dc.html
-// using exclusively SpecPalette tokens (Dark + Light) and memoized keys so the inline step note input never remounts on unrelated rev ticks.
-func agentPlanCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
+// using exclusively theme.Palette tokens (Dark + Light) and memoized keys so the inline step note input never remounts on unrelated rev ticks.
+func agentPlanCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p theme.Palette) core.Node {
 	type planCardKey struct {
 		dark     bool
 		lang     string
@@ -497,7 +498,7 @@ func agentPlanCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 			return planCardKey{}
 		}
 		return planCardKey{
-			dark:     ed.SpecPalette(cx).Dark,
+			dark:     ed.Palette(cx).Dark,
 			lang:     ed.ResolvedLanguage(),
 			seq:      ed.PlanSeq(),
 			hasPlan:  true,
@@ -510,7 +511,7 @@ func agentPlanCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				k := cardMemo.Get()
-				pal := SpecPaletteFor(k.dark)
+				pal := theme.PaletteFor(k.dark)
 				pl := ed.ActivePlan()
 				if pl == nil {
 					return core.View{}
@@ -580,7 +581,7 @@ func agentPlanCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p S
 	}
 }
 
-func planCardHeaderView(ed *Editor, pl *AgentPlan, p SpecPalette) core.Node {
+func planCardHeaderView(ed *Editor, pl *AgentPlan, p theme.Palette) core.Node {
 	return core.View{
 		TestID: "plan-card-header",
 		Style: core.Style{
@@ -647,7 +648,7 @@ func planCardHeaderView(ed *Editor, pl *AgentPlan, p SpecPalette) core.Node {
 	}
 }
 
-func planQuestionsSectionView(ed *Editor, pl *AgentPlan, p SpecPalette) core.Node {
+func planQuestionsSectionView(ed *Editor, pl *AgentPlan, p theme.Palette) core.Node {
 	unanswered := unansweredPlanQuestions(pl)
 	var heading string
 	switch unanswered {
@@ -859,7 +860,7 @@ func planQuestionsSectionView(ed *Editor, pl *AgentPlan, p SpecPalette) core.Nod
 	}
 }
 
-func planOptionPreviewView(pr *PlanOptionPreview, p SpecPalette) core.Node {
+func planOptionPreviewView(pr *PlanOptionPreview, p theme.Palette) core.Node {
 	if pr == nil {
 		return core.View{}
 	}
@@ -931,7 +932,7 @@ func planOptionPreviewView(pr *PlanOptionPreview, p SpecPalette) core.Node {
 	}
 }
 
-func planStepsListView(ed *Editor, pl *AgentPlan, p SpecPalette) core.Node {
+func planStepsListView(ed *Editor, pl *AgentPlan, p theme.Palette) core.Node {
 	draft := pl.Phase == PlanPhaseDraft
 	running := pl.Phase == PlanPhaseRunning
 	rows := make([]core.Node, 0, len(pl.Steps))
@@ -1281,7 +1282,7 @@ func planStepsListView(ed *Editor, pl *AgentPlan, p SpecPalette) core.Node {
 	}
 }
 
-func planStepEditorDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], _ *AgentPlan, st PlanStep, p SpecPalette) core.Node {
+func planStepEditorDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], _ *AgentPlan, st PlanStep, p theme.Palette) core.Node {
 	stepNum := st.Number
 	children := []core.Node{
 		core.Text{
@@ -1499,7 +1500,7 @@ func planStepEditorDrawerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 	}
 }
 
-func planCardFooterView(ed *Editor, pl *AgentPlan, p SpecPalette, draft, running, stopped bool, approveShortcut string) core.Node {
+func planCardFooterView(ed *Editor, pl *AgentPlan, p theme.Palette, draft, running, stopped bool, approveShortcut string) core.Node {
 	var children []core.Node
 	switch {
 	case draft:
@@ -1844,7 +1845,7 @@ func planCardFooterView(ed *Editor, pl *AgentPlan, p SpecPalette, draft, running
 
 // agentTurnPlanReviewView renders the completed/reviewed plan step checklist inside an AgentTurn card,
 // listing every plan step and marking which were done, skipped/removed, or failed.
-func agentTurnPlanReviewView(ed *Editor, turnIdx int, review *AgentPlanReview, p SpecPalette) core.Node {
+func agentTurnPlanReviewView(ed *Editor, turnIdx int, review *AgentPlanReview, p theme.Palette) core.Node {
 	if review == nil || len(review.Steps) == 0 {
 		return core.View{}
 	}

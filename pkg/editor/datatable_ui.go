@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/datatable"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -28,7 +29,7 @@ func DataTablePanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 }
 
 func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	disabled := func() bool {
 		_ = rev.Get()
 		return ed.Playing()
@@ -157,7 +158,7 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			return ed.DataTableError() != nil
 		},
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			dismissBtn := specPanelButton(p, specPanelButtonSpec{
 				TestID:  "datatable-error-dismiss",
 				Icon:    lucide.X,
@@ -192,7 +193,7 @@ func dataTablePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			if structure.Get() == "" || ed.table == nil || ed.table.doc == nil {
 				return nil
 			}
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			if ed.DataTableLoading() {
 				return specLoadingState(p, "datatable-loading", ed.T("datatable.loading"))
 			}
@@ -256,7 +257,7 @@ func dataTableSortOrderLabel(ed *Editor, order SortOrder) string {
 	}
 }
 
-func dataTableHeaderRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], cols []DataTableColumn) core.Node {
+func dataTableHeaderRow(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64], cols []DataTableColumn) core.Node {
 	cells := make([]core.Node, 0, len(cols)+1)
 	cells = append(cells, core.View{
 		Style: core.Style{Width: core.Pt(120), JustifyContent: core.JustifyCenter},
@@ -343,7 +344,7 @@ func dataTableHeaderRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Sig
 	}
 }
 
-func dataTableDataRow(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], docRow int, cols []DataTableColumn, disabled func() bool) core.Node {
+func dataTableDataRow(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64], docRow int, cols []DataTableColumn, disabled func() bool) core.Node {
 	canReorder := func() bool {
 		_ = rev.Get()
 		if ed.Playing() || ed.table == nil || ed.table.doc == nil {
@@ -452,7 +453,7 @@ func currentCellText(ed *Editor, docRow int, col string) string {
 	return v.Display()
 }
 
-func dataTableCellControl(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], docRow int, col DataTableColumn, disabled func() bool) core.Node {
+func dataTableCellControl(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64], docRow int, col DataTableColumn, disabled func() bool) core.Node {
 	testID := fmt.Sprintf("datatable-cell-%d-%s", docRow, col.Name)
 	label := ed.T("datatable.cellLabel", l10n.Param("row", docRow+1), l10n.Param("col", col.Name))
 

@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const (
@@ -262,7 +264,7 @@ func (h GizmoHandle3D) referencePoint() math3d.Vec3 {
 	}
 }
 
-func (h GizmoHandle3D) effectiveColor(pal SpecPalette, active bool) core.Color {
+func (h GizmoHandle3D) effectiveColor(pal theme.Palette, active bool) core.Color {
 	if active {
 		return pal.Warning.Fg
 	}
@@ -557,7 +559,7 @@ func pickGizmoHandles3D(proj Projection3D, mat math3d.Mat4, handles []GizmoHandl
 }
 
 // drawGizmoHandle3D renders a single 3D gizmo handle transformed by mat onto d through proj.
-func drawGizmoHandle3D(d *core.Drawing, pal SpecPalette, proj Projection3D, mat math3d.Mat4, h GizmoHandle3D, active bool) {
+func drawGizmoHandle3D(d *core.Drawing, pal theme.Palette, proj Projection3D, mat math3d.Mat4, h GizmoHandle3D, active bool) {
 	if d == nil {
 		return
 	}
@@ -578,7 +580,7 @@ func drawGizmoHandle3D(d *core.Drawing, pal SpecPalette, proj Projection3D, mat 
 		}
 		d.Save()
 		d.SetFillColor(col).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Fill()
-		d.SetStrokeColor(specAlpha(pal.Bg, 0.9)).SetLineWidth(1.25).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Stroke()
+		d.SetStrokeColor(ui.Alpha(pal.Bg, 0.9)).SetLineWidth(1.25).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Stroke()
 		if active && h.Label != "" {
 			d.SetFillColor(col).FillText(h.Label, sx+r+4, sy+3, core.Font{Size: 10})
 		}
@@ -613,7 +615,7 @@ func drawGizmoHandle3D(d *core.Drawing, pal SpecPalette, proj Projection3D, mat 
 }
 
 // drawGizmoHandles3D draws visual primitives (boxes and lines) first and point handles on top.
-func drawGizmoHandles3D(d *core.Drawing, pal SpecPalette, proj Projection3D, mat math3d.Mat4, handles []GizmoHandle3D, activeID string) {
+func drawGizmoHandles3D(d *core.Drawing, pal theme.Palette, proj Projection3D, mat math3d.Mat4, handles []GizmoHandle3D, activeID string) {
 	for _, h := range handles {
 		if h.Kind != GizmoHandlePoint3D {
 			drawGizmoHandle3D(d, pal, proj, mat, h, activeID != "" && h.ID == activeID)
@@ -682,7 +684,7 @@ func newPhysicsCollider3DGizmo(component string, alwaysTrigger bool) *ComponentG
 			cy := float32(readFloat(ed, objectID, "offsetY", 0))
 			cz := float32(readFloat(ed, objectID, "offsetZ", 0))
 			center := math3d.Vec3{X: cx, Y: cy, Z: cz}
-			spec := ed.activeSpecPalette()
+			spec := ed.activePalette()
 			col := spec.Accent.Fg
 			if isTrigger(ed, objectID) {
 				col = spec.Warning.Fg
@@ -1186,7 +1188,7 @@ func (e *Editor) drawComponentGizmos3D(d *core.Drawing, proj Projection3D) {
 			if selected && e.compGizmoDrag.active && e.compGizmoDrag.objectID == obj.ID && e.compGizmoDrag.component == compName {
 				activeID = e.compGizmoDrag.handle.ID
 			}
-			drawGizmoHandles3D(d, e.activeSpecPalette(), proj, worldMat, handles, activeID)
+			drawGizmoHandles3D(d, e.activePalette(), proj, worldMat, handles, activeID)
 		}
 	}
 

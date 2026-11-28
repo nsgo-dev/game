@@ -305,7 +305,7 @@ func TestEditorParallaxAlignsGizmoTileHoverAndPhysicsDebug(t *testing.T) {
 		defer ed.SetShowPhysicsDebug(false)
 		d := &core.Drawing{}
 		ed.DrawViewport(d, size)
-		x, y, ok := findStrokedRectCanvasPos(d.Ops, ui.Alpha(ed.SpecPalette(nil).Accent.Fg, 0.9), 16, 16)
+		x, y, ok := findStrokedRectCanvasPos(d.Ops, ui.Alpha(ed.Palette(nil).Accent.Fg, 0.9), 16, 16)
 		if !ok {
 			t.Fatal("physics debug StrokeRect not found")
 		}
@@ -358,7 +358,7 @@ func TestEditorParallaxAlignsGizmoTileHoverAndPhysicsDebug(t *testing.T) {
 	}
 	d := &core.Drawing{}
 	ed.DrawViewport(d, size)
-	hx, hy, foundHover := findStrokedRectCanvasPos(d.Ops, ed.SpecPalette(nil).Accent.Fg, 16, 16)
+	hx, hy, foundHover := findStrokedRectCanvasPos(d.Ops, ed.Palette(nil).Accent.Fg, 16, 16)
 	if !foundHover {
 		t.Fatal("tile hover StrokeRect not found")
 	}

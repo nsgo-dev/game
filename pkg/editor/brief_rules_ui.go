@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/core"
@@ -29,10 +30,10 @@ func briefSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 	})
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return ed.Palette(cx).Dark
 	})
-	curPalette := func() SpecPalette {
-		return SpecPaletteFor(darkMemo.Get())
+	curPalette := func() theme.Palette {
+		return theme.PaletteFor(darkMemo.Get())
 	}
 	actionsBlocked := func() bool {
 		_ = rev.Get()
@@ -999,10 +1000,10 @@ func rulesSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 	})
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return ed.Palette(cx).Dark
 	})
-	curPalette := func() SpecPalette {
-		return SpecPaletteFor(darkMemo.Get())
+	curPalette := func() theme.Palette {
+		return theme.PaletteFor(darkMemo.Get())
 	}
 	actionsBlocked := func() bool {
 		_ = rev.Get()
@@ -1240,7 +1241,7 @@ func rulesSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 	}
 }
 
-func docReviewCardView(p SpecPalette, ed *Editor, r DocReview, disabled func() bool) core.Node {
+func docReviewCardView(p theme.Palette, ed *Editor, r DocReview, disabled func() bool) core.Node {
 	var diffNodes []core.Node
 	for _, line := range strings.Split(strings.TrimSuffix(r.Diff, "\n"), "\n") {
 		col := p.TextMuted
@@ -1343,10 +1344,10 @@ func settingsAgentCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 	})
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return ed.Palette(cx).Dark
 	})
-	curPalette := func() SpecPalette {
-		return SpecPaletteFor(darkMemo.Get())
+	curPalette := func() theme.Palette {
+		return theme.PaletteFor(darkMemo.Get())
 	}
 	actionsBlocked := func() bool {
 		_ = rev.Get()

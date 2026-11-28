@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -434,8 +435,8 @@ func TestSettingsAgentPagesUIAndTabReachability(t *testing.T) {
 	// Spec Light live repaint and live Chinese switch.
 	app.SetEnvironment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: false})
 	app.Settle()
-	if got := app.Find("id:settings-view").Style.Background; got != editor.LightSpecPalette().Bg {
-		t.Fatalf("light settings-view bg = %#x, want %#x", uint32(got), uint32(editor.LightSpecPalette().Bg))
+	if got := app.Find("id:settings-view").Style.Background; got != theme.Light().Bg {
+		t.Fatalf("light settings-view bg = %#x, want %#x", uint32(got), uint32(theme.Light().Bg))
 	}
 	app.Post(func() { _ = ed.SetLanguage(editor.LanguageChinese) })
 	app.Settle()

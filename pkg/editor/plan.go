@@ -2593,7 +2593,7 @@ func (e *Editor) drawPlanGhostsOverlay(d *core.Drawing) {
 	if len(ghosts) == 0 {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	d.Save()
 
 	// Pass 1: draw ghost boxes.

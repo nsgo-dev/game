@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -926,13 +927,13 @@ func TestFocusRingGalleryScreenshots(t *testing.T) {
 }
 
 // TestFocusSpecLightCaptureGuardsUnmountTypingAndScrub verifies:
-// 1. Spec Light appearance uses LightSpecPalette().Accent.Edge (#1D5CE6) on focus rings and F6 regions.
+// 1. Spec Light appearance uses theme.Light().Accent.Edge (#1D5CE6) on focus rings and F6 regions.
 // 2. Active shortcut capture in Settings › Shortcuts suppresses F6, Shift-F6, and Mod+.
 // 3. Unmounting a focused text input (switching selection while typing) clears IsTyping() cleanly.
 // 4. Chrome remounts (appearance switch) do not desync subsequent modal opener focus restoration.
 // 5. Active inspector scrubbing (BeginInspectorScrub) counts as IsDragging() and blocks F6 cycling.
 func TestFocusSpecLightCaptureGuardsUnmountTypingAndScrub(t *testing.T) {
-	lightAccent := editor.LightSpecPalette().Accent.Edge
+	lightAccent := theme.Light().Accent.Edge
 	lightEnv := nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: false})
 
 	// 1. Spec Light controls draw #1D5CE6 focus rings (never dark #3B7BFF).

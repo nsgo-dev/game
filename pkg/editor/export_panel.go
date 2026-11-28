@@ -20,6 +20,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/gotoolchain"
 	"github.com/nsgo-dev/game/internal/releaseplan"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/importsettings"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -1356,7 +1357,7 @@ func ExportPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	pal := ed.SpecPalette(cx)
+	pal := ed.Palette(cx)
 	outputDraft := core.NewSignal(cx, ed.ExportOutput())
 	outputErr := core.NewSignal(cx, "")
 	addPlatform := core.NewSignal(cx, firstAvailableExportPlatform(ed))
@@ -1442,7 +1443,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		{Value: "none", Label: ed.T("exportPanel.channelNone")},
 	}
 
-	// Build & release action bar styled with SpecPalette tokens.
+	// Build & release action bar styled with theme.Palette tokens.
 	buildBar := core.View{
 		Style: core.Style{
 			Direction:    core.Row,
@@ -1875,7 +1876,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	}
 }
 
-func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal SpecPalette, idx int, p project.Preset, total int, disabled func() bool) core.Node {
+func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], pal theme.Palette, idx int, p project.Preset, total int, disabled func() bool) core.Node {
 	plat := p.Platform
 	validTargets := project.TargetsOf(plat)
 	targetBtns := make([]core.Node, 0, len(validTargets))

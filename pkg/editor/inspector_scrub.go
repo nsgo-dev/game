@@ -178,7 +178,7 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 		}
 	}
 
-	spec := ed.SpecPalette(cx)
+	spec := ed.Palette(cx)
 	var prefix core.Node
 	if cfg.AxisLabel != "" {
 		axisColor := cfg.AxisColor
@@ -433,7 +433,7 @@ func inspectorTitledSection(
 		return ed.T("inspector.fieldCountOther", l10n.Param("count", fieldCount))
 	}
 
-	spec := ed.SpecPalette(cx)
+	spec := ed.Palette(cx)
 	var titleNode core.Node = core.Text{
 		TestID:   titleTestID,
 		Content:  title,
@@ -452,7 +452,7 @@ func inspectorTitledSection(
 	metaBadge := core.Dynamic(func(cx *core.Scope) core.Node {
 		m := metaMemo.Get()
 		probs, reviews := m.probs, m.reviews
-		dynSpec := ed.SpecPalette(cx)
+		dynSpec := ed.Palette(cx)
 		if probs > 0 {
 			label := ed.T("inspector.problemCountOther", l10n.Param("count", probs))
 			if probs == 1 {
@@ -536,7 +536,7 @@ func inspectorTitledSection(
 				if !isOpen() {
 					icon = lucide.ChevronRight
 				}
-				return ui.Icon(icon, 12, func() core.Color { return ed.SpecPalette(cx).TextFaint })
+				return ui.Icon(icon, 12, func() core.Color { return ed.Palette(cx).TextFaint })
 			}),
 			core.View{
 				Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
@@ -660,7 +660,7 @@ func inspectorFieldRowKeys(
 			if _, ok := reviewsText(); ok {
 				return core.Style{
 					Borders:     core.Edges{Left: 2},
-					BorderColor: ed.SpecPalette(cx).Changed.Fg,
+					BorderColor: ed.Palette(cx).Changed.Fg,
 					Padding:     core.Edges{Left: 6},
 				}
 			}
@@ -681,7 +681,7 @@ func inspectorFieldRowKeys(
 			return ok
 		},
 		Then: func(cx *core.Scope) core.Node {
-			spec := ed.SpecPalette(cx)
+			spec := ed.Palette(cx)
 			return core.View{
 				TestID: fieldTestID + "-review",
 				Style: core.Style{
@@ -720,7 +720,7 @@ func inspectorFieldRowKeys(
 			return ok
 		},
 		Then: func(cx *core.Scope) core.Node {
-			spec := ed.SpecPalette(cx)
+			spec := ed.Palette(cx)
 			return core.View{
 				Style: core.Style{
 					Direction:  core.Row,

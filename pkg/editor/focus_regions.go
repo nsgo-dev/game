@@ -3,13 +3,14 @@ package editor
 import (
 	"slices"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// FocusTheme returns the editor's unified Spec *core.Theme (SpecTheme), mapping
+// FocusTheme returns the editor's unified Spec *core.Theme (theme.Core), mapping
 // focus, info, and ring roles to Spec accent (#3B7BFF in Dark, #1D5CE6 in Light)
 // so every ui component calling ui.FocusRing draws the Spec 2 px focus ring on
 // :focus-visible while preserving both Spec Dark and Spec Light surfaces.
@@ -21,7 +22,7 @@ import (
 // core.Modal / ui.Dialog do not restore focus to the opener on close. Editor-level
 // helpers in this file bridge each gap.
 func FocusTheme() *core.Theme {
-	return SpecTheme()
+	return theme.Core()
 }
 
 // EditorRegion identifies a fixed-order keyboard landmark region in the editor,
@@ -363,7 +364,7 @@ func (c *focusRegionController) regionOutlineStyle(r EditorRegion, baseStyle cor
 		if c.cx != nil {
 			dark = c.cx.Dark()
 		}
-		return baseStyle.Merge(*SpecPaletteFor(dark).FocusRing(-2))
+		return baseStyle.Merge(*theme.PaletteFor(dark).FocusRing(-2))
 	}
 	return baseStyle
 }
@@ -917,7 +918,7 @@ type SpecSwitch struct {
 // Render implements core.Node.
 func (s SpecSwitch) Render(cx *core.Scope) core.Node {
 	checked := func() bool { return s.Checked != nil && s.Checked() }
-	p := SpecPaletteFor(cx.Dark())
+	p := theme.PaletteFor(cx.Dark())
 	colors := ui.ColorsOf(cx)
 	return base.Switch{
 		Ref:      s.Ref,
@@ -938,7 +939,7 @@ func (s SpecSwitch) Render(cx *core.Scope) core.Node {
 			Disabled:     &core.Style{Opacity: core.Alpha(0.4)},
 		},
 		TrackStyleFunc: func() core.Style {
-			cur := SpecPaletteFor(cx.Dark())
+			cur := theme.PaletteFor(cx.Dark())
 			bg := colors.Track()
 			if bg == 0 {
 				bg = cur.LineRaised
@@ -992,7 +993,7 @@ type SpecIconButton struct {
 
 // Render implements core.Node.
 func (b SpecIconButton) Render(cx *core.Scope) core.Node {
-	p := SpecPaletteFor(cx.Dark())
+	p := theme.PaletteFor(cx.Dark())
 	size := b.Size
 	if size <= 0 {
 		size = 30
@@ -1003,7 +1004,7 @@ func (b SpecIconButton) Render(cx *core.Scope) core.Node {
 	}
 	tint := b.Tint
 	if tint == nil {
-		tint = func() core.Color { return SpecPaletteFor(cx.Dark()).TextSecondary }
+		tint = func() core.Color { return theme.PaletteFor(cx.Dark()).TextSecondary }
 	}
 	tip := b.Tooltip
 	if tip == "" {
@@ -1058,7 +1059,7 @@ type SpecFocusWithinCard struct {
 
 // Render implements core.Node.
 func (c SpecFocusWithinCard) Render(cx *core.Scope) core.Node {
-	p := SpecPaletteFor(cx.Dark())
+	p := theme.PaletteFor(cx.Dark())
 	baseStyle := core.Style{
 		CornerRadius: 12,
 		Background:   p.Raised,
@@ -1078,7 +1079,7 @@ func (c SpecFocusWithinCard) Render(cx *core.Scope) core.Node {
 // appearance) and unmount-safe text-focus tracking for focus-stability guards (Editor.IsTyping).
 func specInputField(cx *core.Scope, ed *Editor, in ui.Input) ui.Input {
 	if in.Style.FocusVisible == nil {
-		in.Style.FocusVisible = ed.SpecPalette(cx).FocusRing(-2)
+		in.Style.FocusVisible = ed.Palette(cx).FocusRing(-2)
 	}
 	var focused bool
 	if cx != nil {

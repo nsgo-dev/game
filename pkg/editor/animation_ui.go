@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/animclip"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/resource"
 	"github.com/nsgo-dev/nsgo/base"
@@ -59,7 +60,7 @@ func durationOfSeconds(s float64) time.Duration {
 }
 
 func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	property := core.NewSignal(cx, "")
 	frameChoice := core.NewSignal(cx, "")
 	asepriteTag := core.NewSignal(cx, "")
@@ -291,7 +292,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			core.Show{
 				When: func() bool { return property.Get() == animclip.PropertySpriteFrame },
 				Then: func(cx *core.Scope) core.Node {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.View{
 						Style: core.Style{Width: core.Pt(160)},
 						Children: []core.Node{ui.Select[string]{
@@ -341,7 +342,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			}),
 			core.Show{
 				When: keySelected,
-				Then: func(cx *core.Scope) core.Node { return keyEditor(cx, ed.SpecPalette(cx), ed, rev, disabled) },
+				Then: func(cx *core.Scope) core.Node { return keyEditor(cx, ed.Palette(cx), ed, rev, disabled) },
 			},
 		},
 	}
@@ -352,7 +353,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			return len(ed.ClipTargetFrames("")) > 0
 		},
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.View{
 				Style: core.Style{
 					Direction:  core.Row,
@@ -368,7 +369,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 							return len(ed.ClipTargetAsepriteTags("")) > 0
 						},
 						Then: func(cx *core.Scope) core.Node {
-							p := ed.SpecPalette(cx)
+							p := ed.Palette(cx)
 							return core.View{
 								Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8},
 								Children: []core.Node{
@@ -462,7 +463,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			return ed.clipErr != nil
 		},
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return specStatusBanner(p, "anim-error", false, "", func() string {
 				_ = rev.Get()
 				if ed.clipErr == nil {
@@ -483,7 +484,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			if structure.Get() == "" {
 				return nil
 			}
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			if ed.ClipLoading() {
 				return specLoadingState(p, "anim-loading", ed.T("anim.loadingClip"))
 			}
@@ -545,7 +546,7 @@ func (e *Editor) saveClipFromPanel() error {
 }
 
 // keyEditor edits the selected key's time, value/frame and interpolation (or frame duration for discrete sprite.frame keys), and deletes it.
-func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
+func keyEditor(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
 	selectedTrack := func() (*resource.Track, int, int, bool) {
 		_ = rev.Get()
 		ti, ki, ok := ed.SelectedClipKey()
@@ -572,7 +573,7 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 		}
 		return tr.Frames[ki], tr.Target, ti, ki, true
 	}
-	interpBtn := func(p SpecPalette, id, text string, interp resource.Interp) core.Node {
+	interpBtn := func(p theme.Palette, id, text string, interp resource.Interp) core.Node {
 		return specPanelToggle(p, specPanelToggleSpec{
 			TestID:   id,
 			Text:     text,
@@ -631,7 +632,7 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 			core.Show{
 				When: selectedIsFrame,
 				Then: func(cx *core.Scope) core.Node {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.View{
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8},
 						Children: []core.Node{
@@ -732,7 +733,7 @@ func keyEditor(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 			core.Show{
 				When: func() bool { return !selectedIsFrame() },
 				Then: func(cx *core.Scope) core.Node {
-					p := ed.SpecPalette(cx)
+					p := ed.Palette(cx)
 					return core.View{
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8},
 						Children: []core.Node{
@@ -806,7 +807,7 @@ func playheadLine(ed *Editor, rev *core.Signal[uint64], color core.Color) core.N
 	}}
 }
 
-func trackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, disabled func() bool) core.Node {
+func trackLane(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, disabled func() bool) core.Node {
 	name := tr.Property
 	if tr.Target != "" {
 		name = tr.Target + " · " + tr.Property
@@ -921,7 +922,7 @@ func trackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint6
 	}
 }
 
-func frameTrackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, name string, disabled func() bool) core.Node {
+func frameTrackLane(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, name string, disabled func() bool) core.Node {
 	totalSec := ed.clipLengthSeconds()
 	if math.IsNaN(totalSec) || math.IsInf(totalSec, 0) || totalSec <= 0 {
 		totalSec = 1
@@ -1074,7 +1075,7 @@ func frameTrackLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[
 	}
 }
 
-func eventLane(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], selEvent *core.Signal[int], eventName *core.Signal[string], disabled func() bool) core.Node {
+func eventLane(cx *core.Scope, p theme.Palette, ed *Editor, rev *core.Signal[uint64], selEvent *core.Signal[int], eventName *core.Signal[string], disabled func() bool) core.Node {
 	markers := []core.Node{playheadLine(ed, rev, p.Accent.Fg)}
 	hoverFill := specHoverOverlay(p)
 	focusRing := p.FocusRing(-2)

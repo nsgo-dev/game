@@ -32,6 +32,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/tooling/refs"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const (
@@ -2067,8 +2068,8 @@ func (e *Editor) drawAssetDragOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if !st.Active || !st.HoveringViewport || e.ViewMode != ViewMode2D {
 		return
 	}
-	p := e.activeSpecPalette()
-	addedFill := specAlpha(p.Added.Fg, 0.12)
+	p := e.activePalette()
+	addedFill := ui.Alpha(p.Added.Fg, 0.12)
 	d.Save()
 	defer d.Restore()
 

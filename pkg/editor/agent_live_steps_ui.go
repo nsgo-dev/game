@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -38,7 +39,7 @@ func agentRunningSpinnerIcon(col core.Color) core.Node {
 	}
 }
 
-func agentLiveStepRow(ed *Editor, turnIdx, stepIdx int, step AgentStep, p SpecPalette) core.Node {
+func agentLiveStepRow(ed *Editor, turnIdx, stepIdx int, step AgentStep, p theme.Palette) core.Node {
 	testID := fmt.Sprintf("agent-step-%d-%d", turnIdx, stepIdx)
 	if step.Status == AgentStepPlaceholder {
 		testID = "agent-step-placeholder"
@@ -405,7 +406,7 @@ func agentLiveStepRow(ed *Editor, turnIdx, stepIdx int, step AgentStep, p SpecPa
 	}
 }
 
-func agentFollowUpBubble(p SpecPalette, testID, text string) core.Node {
+func agentFollowUpBubble(p theme.Palette, testID, text string) core.Node {
 	return core.View{
 		TestID: testID,
 		Style: core.Style{
@@ -431,7 +432,7 @@ func agentFollowUpBubble(p SpecPalette, testID, text string) core.Node {
 }
 
 func agentPermissionCardView(
-	p SpecPalette,
+	p theme.Palette,
 	ed *Editor,
 	ask AgentPermissionPrompt,
 	osKind core.OS,
@@ -630,7 +631,7 @@ func agentPermissionCardView(
 	}
 }
 
-func agentTurnReviewCardView(p SpecPalette, ed *Editor, rev AgentPendingReview, osKind core.OS) core.Node {
+func agentTurnReviewCardView(p theme.Palette, ed *Editor, rev AgentPendingReview, osKind core.OS) core.Node {
 	headerText := ed.T("agentSteps.stepsPendingMany", l10n.Param("count", rev.StepsDone))
 	if rev.StepsDone == 1 {
 		headerText = ed.T("agentSteps.stepsPendingOne")
@@ -801,7 +802,7 @@ func agentTurnReviewCardView(p SpecPalette, ed *Editor, rev AgentPendingReview, 
 	}
 }
 
-func agentWorkingFooterView(cx *core.Scope, ed *Editor, p SpecPalette, addDraft *core.Signal[string]) core.Node {
+func agentWorkingFooterView(cx *core.Scope, ed *Editor, p theme.Palette, addDraft *core.Signal[string]) core.Node {
 	osKind := cx.Env().OS()
 	var addInputFocused bool
 	cx.Cleanup(func() {
@@ -935,7 +936,7 @@ func agentStatusBarActivityView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 		return activityKey{
 			text:    ed.AgentStatusBarText(),
 			waiting: ed.AgentStatus() == AgentStatusWaitingForYou,
-			dark:    ed.SpecPalette(cx).Dark,
+			dark:    ed.Palette(cx).Dark,
 		}
 	})
 	return core.Show{
@@ -945,7 +946,7 @@ func agentStatusBarActivityView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
 				k := actMemo.Get()
-				p := SpecPaletteFor(k.dark)
+				p := theme.PaletteFor(k.dark)
 				dotColor := p.Agent.Fg
 				if k.waiting {
 					dotColor = p.Warning.Fg

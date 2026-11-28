@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -656,8 +657,8 @@ func TestAgentFailureStatesUseOnlySpecTokensInLightAndDark(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	light := editor.LightSpecPalette()
-	dark := editor.DarkSpecPalette()
+	light := theme.Light()
+	dark := theme.Dark()
 
 	if got := app.Find("id:agent-offline-card").Style.Background; got != light.Raised {
 		t.Fatalf("light offline card bg = %#x, want %#x", uint32(got), uint32(light.Raised))
@@ -824,8 +825,8 @@ func TestAgentStatesHardeningDraftQueuePreconditionsAutosaveLifecycleUTF8AndEsc(
 	if pill == nil || len(pill.Children) == 0 {
 		t.Fatal("viewport pointing pill missing")
 	}
-	if got := pill.Children[0].Style.Background; got != editor.LightSpecPalette().PillBg {
-		t.Fatalf("light pointing pill bg = %#x, want %#x", uint32(got), uint32(editor.LightSpecPalette().PillBg))
+	if got := pill.Children[0].Style.Background; got != theme.Light().PillBg {
+		t.Fatalf("light pointing pill bg = %#x, want %#x", uint32(got), uint32(theme.Light().PillBg))
 	}
 	app.SetEnvironment(core.Environment{
 		OS:     core.OSMacOS,
@@ -834,8 +835,8 @@ func TestAgentStatesHardeningDraftQueuePreconditionsAutosaveLifecycleUTF8AndEsc(
 		Locale: "en-US",
 	})
 	pill = app.Find("id:viewport-agent-pointing-pill")
-	if got := pill.Children[0].Style.Background; got != editor.DarkSpecPalette().PillBg {
-		t.Fatalf("dark pointing pill bg = %#x, want %#x", uint32(got), uint32(editor.DarkSpecPalette().PillBg))
+	if got := pill.Children[0].Style.Background; got != theme.Dark().PillBg {
+		t.Fatalf("dark pointing pill bg = %#x, want %#x", uint32(got), uint32(theme.Dark().PillBg))
 	}
 	if err := ed.Play(); err != nil {
 		t.Fatalf("Play while pointing: %v", err)

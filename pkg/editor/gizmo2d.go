@@ -1343,7 +1343,7 @@ func (e *Editor) drawGizmo2D(d *core.Drawing) {
 		return
 	}
 	g, _ := e.gizmo2D()
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	colX := spec.AxisX
 	colY := spec.AxisY
 	colRing := ui.Alpha(spec.Accent.Edge, 0.8)

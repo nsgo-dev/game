@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -12,7 +13,7 @@ import (
 )
 
 // CodeReviewView renders the full-window Go code review screen matching design/editor/ReviewCode.dc.html
-// using exclusively SpecPalette tokens (Dark & Light).
+// using exclusively theme.Palette tokens (Dark & Light).
 func CodeReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	keyOpt := core.KeyOptions{When: core.KeyNotEditing}
 	keysActive := func() bool {
@@ -68,14 +69,14 @@ func CodeReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		_ = rev.Get()
 		return reviewKey{
 			rev:  ed.codeReviewStateRev(),
-			dark: ed.SpecPalette(cx).Dark,
+			dark: ed.Palette(cx).Dark,
 			lang: ed.ResolvedLanguage(),
 		}
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		k := stateMemo.Get()
-		p := SpecPaletteFor(k.dark)
+		p := theme.PaletteFor(k.dark)
 		sess := ed.CodeReviewSession()
 		if sess == nil || !sess.Open {
 			return core.View{}
@@ -110,7 +111,7 @@ func CodeReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	})
 }
 
-func codeReviewHeaderView(ed *Editor, sess *CodeReviewSession, p SpecPalette) core.Node {
+func codeReviewHeaderView(ed *Editor, sess *CodeReviewSession, p theme.Palette) core.Node {
 	yamlFiles := sess.YAMLFiles()
 	goFiles := sess.GoFiles()
 	confirmedGo := sess.ConfirmedGoFiles()
@@ -372,7 +373,7 @@ func codeReviewHeaderView(ed *Editor, sess *CodeReviewSession, p SpecPalette) co
 	}
 }
 
-func codeReviewSidebarView(ed *Editor, sess *CodeReviewSession, p SpecPalette) core.Node {
+func codeReviewSidebarView(ed *Editor, sess *CodeReviewSession, p theme.Palette) core.Node {
 	yamlFiles := sess.YAMLFiles()
 	goFiles := sess.GoFiles()
 	sel := sess.SelectedFile()
@@ -525,7 +526,7 @@ func codeReviewFileRowTestID(relPath string) string {
 	return "code-review-file-" + r.Replace(relPath)
 }
 
-func codeReviewYAMLRow(ed *Editor, f *CodeReviewFile, selected bool, p SpecPalette) core.Node {
+func codeReviewYAMLRow(ed *Editor, f *CodeReviewFile, selected bool, p theme.Palette) core.Node {
 	var bg core.Color
 	if selected {
 		bg = p.Accent.Fill
@@ -577,7 +578,7 @@ func codeReviewYAMLRow(ed *Editor, f *CodeReviewFile, selected bool, p SpecPalet
 	}
 }
 
-func codeReviewGoRow(ed *Editor, f *CodeReviewFile, selected bool, p SpecPalette) core.Node {
+func codeReviewGoRow(ed *Editor, f *CodeReviewFile, selected bool, p theme.Palette) core.Node {
 	var bg core.Color
 	if selected {
 		bg = p.Accent.Fill
@@ -689,7 +690,7 @@ func codeReviewGoRow(ed *Editor, f *CodeReviewFile, selected bool, p SpecPalette
 	}
 }
 
-func codeReviewMainPaneView(ed *Editor, sess *CodeReviewSession, p SpecPalette) core.Node {
+func codeReviewMainPaneView(ed *Editor, sess *CodeReviewSession, p theme.Palette) core.Node {
 	file := sess.SelectedFile()
 	if file == nil {
 		return core.View{
@@ -736,7 +737,7 @@ func codeReviewMainPaneView(ed *Editor, sess *CodeReviewSession, p SpecPalette) 
 	}
 }
 
-func codeReviewFileHeaderView(ed *Editor, sess *CodeReviewSession, f *CodeReviewFile, p SpecPalette) core.Node {
+func codeReviewFileHeaderView(ed *Editor, sess *CodeReviewSession, f *CodeReviewFile, p theme.Palette) core.Node {
 	left := []core.Node{
 		core.Text{
 			TestID:  "code-review-file-path",
@@ -910,7 +911,7 @@ func codeReviewFileHeaderView(ed *Editor, sess *CodeReviewSession, f *CodeReview
 	}
 }
 
-func codeReviewChecksStripView(ed *Editor, sess *CodeReviewSession, p SpecPalette) core.Node {
+func codeReviewChecksStripView(ed *Editor, sess *CodeReviewSession, p theme.Palette) core.Node {
 	checks := sess.Checks
 	pkgLabel := strings.Join(checks.Packages, ", ")
 	if pkgLabel == "" {
@@ -1156,7 +1157,7 @@ func codeReviewChecksStripView(ed *Editor, sess *CodeReviewSession, p SpecPalett
 	}
 }
 
-func codeReviewFailureCardView(ed *Editor, sess *CodeReviewSession, p SpecPalette) core.Node {
+func codeReviewFailureCardView(ed *Editor, sess *CodeReviewSession, p theme.Palette) core.Node {
 	failure := sess.Checks.PrimaryFailure()
 	title := ed.T("codeReview.checkFailed")
 	msg := sess.Checks.CheckError
@@ -1312,7 +1313,7 @@ func codeReviewFailureCardView(ed *Editor, sess *CodeReviewSession, p SpecPalett
 	}
 }
 
-func codeReviewDiffBoxView(ed *Editor, sess *CodeReviewSession, f *CodeReviewFile, p SpecPalette) core.Node {
+func codeReviewDiffBoxView(ed *Editor, sess *CodeReviewSession, f *CodeReviewFile, p theme.Palette) core.Node {
 	useSplit := f.Kind == CodeReviewFileGo && sess.Layout == CodeReviewDiffSplit
 	var rows []core.Node
 	if useSplit {
@@ -1361,7 +1362,7 @@ func codeReviewDiffBoxView(ed *Editor, sess *CodeReviewSession, f *CodeReviewFil
 	}
 }
 
-func codeReviewUnifiedRowView(ed *Editor, idx int, l CodeReviewDiffLine, p SpecPalette) core.Node {
+func codeReviewUnifiedRowView(ed *Editor, idx int, l CodeReviewDiffLine, p theme.Palette) core.Node {
 	var rowBg core.Color
 	textCol := p.TextMuted
 	signCol := p.TextFaint
@@ -1472,7 +1473,7 @@ func codeReviewUnifiedRowView(ed *Editor, idx int, l CodeReviewDiffLine, p SpecP
 	}
 }
 
-func codeReviewSplitRowView(ed *Editor, idx int, r CodeReviewSplitRow, p SpecPalette) core.Node {
+func codeReviewSplitRowView(ed *Editor, idx int, r CodeReviewSplitRow, p theme.Palette) core.Node {
 	leftBg := p.Bg
 	leftCol := p.TextMuted
 	if r.LeftKind == DiffLineDel {
@@ -1614,7 +1615,7 @@ func codeReviewLineTagLabel(ed *Editor, tag CodeReviewLineTag) string {
 	}
 }
 
-func codeReviewLineTagNode(ed *Editor, idx int, tag CodeReviewLineTag, p SpecPalette) core.Node {
+func codeReviewLineTagNode(ed *Editor, idx int, tag CodeReviewLineTag, p theme.Palette) core.Node {
 	bg := p.Raised
 	border := p.LineRaised
 	fg := p.TextMuted
@@ -1653,7 +1654,7 @@ func codeReviewLineTagNode(ed *Editor, idx int, tag CodeReviewLineTag, p SpecPal
 	}
 }
 
-func codeReviewConfirmFooterView(ed *Editor, sess *CodeReviewSession, f *CodeReviewFile, p SpecPalette) core.Node {
+func codeReviewConfirmFooterView(ed *Editor, sess *CodeReviewSession, f *CodeReviewFile, p theme.Palette) core.Node {
 	var children []core.Node
 	if f.Kind == CodeReviewFileGo {
 		canConfirm := ed.CanConfirmCodeReviewFile(f.Path)
@@ -1776,7 +1777,7 @@ func codeReviewConfirmFooterView(ed *Editor, sess *CodeReviewSession, f *CodeRev
 
 // agentCodeReviewWaitingCard renders the Agent panel card for unconfirmed Go files left waiting after Keep
 // (or a paused review after Esc), matching design/editor/Review.dc.html.
-func agentCodeReviewWaitingCard(ed *Editor, p SpecPalette) core.Node {
+func agentCodeReviewWaitingCard(ed *Editor, p theme.Palette) core.Node {
 	sess := ed.CodeReviewSession()
 	if sess == nil || sess.Open {
 		return nil

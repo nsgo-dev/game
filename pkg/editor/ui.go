@@ -3,6 +3,7 @@ package editor
 import (
 	"errors"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
@@ -136,7 +137,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		}
 	})
 
-	cx.SetTheme(SpecTheme())
+	cx.SetTheme(theme.Core())
 	colors := ui.ColorsOf(cx)
 	appearanceMemo := core.NewMemo(cx, func() core.Appearance {
 		_ = rev.Get()
@@ -573,7 +574,7 @@ func assetsWorkspaceRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []
 											Bottom:      core.Pt(0),
 											Left:        core.Pt(0),
 											BorderWidth: 2,
-											BorderColor: ed.SpecPalette(cx).Accent.Edge,
+											BorderColor: ed.Palette(cx).Accent.Edge,
 										}
 									},
 								}
@@ -635,7 +636,7 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 			return ed.Playing() && ed.PlayReplay() != nil
 		},
 		Then: func(cx *core.Scope) core.Node {
-			spec := ed.SpecPalette(cx)
+			spec := ed.Palette(cx)
 			return core.View{
 				TestID: "play-replay-banner",
 				Style: core.Style{

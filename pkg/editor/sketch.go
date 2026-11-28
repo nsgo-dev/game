@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	gamemcp "github.com/nsgo-dev/game/pkg/mcp"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
@@ -1182,7 +1183,7 @@ func (e *Editor) RenderSketchViewportPNG(scale float32) ([]byte, int, int, error
 	e.DrawViewport(&d, size)
 	e.sketch.forcePNGMarks = prevForce
 
-	res, err := gamemcp.RenderPNG(d.Ops, pw, ph, e.SpecPalette(nil).Viewport)
+	res, err := gamemcp.RenderPNG(d.Ops, pw, ph, e.Palette(nil).Viewport)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -1724,7 +1725,7 @@ func (e *Editor) drawSketchOverlay(d *core.Drawing) {
 	if e == nil || d == nil || e.playing || e.ViewMode != ViewMode2D || e.HistoryPreviewActive() {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 
 	inReview := e.SketchReviewOpen() || e.TileReviewOpen()
 	if e.SketchReviewOpen() {
@@ -1766,7 +1767,7 @@ func (e *Editor) drawSketchOverlay(d *core.Drawing) {
 	d.Restore()
 }
 
-func (e *Editor) drawSketchReviewChangeOutlines(d *core.Drawing, spec SpecPalette) {
+func (e *Editor) drawSketchReviewChangeOutlines(d *core.Drawing, spec theme.Palette) {
 	scene := e.ActiveScene()
 	if scene == nil || e.sketch.review == nil {
 		return
@@ -1815,7 +1816,7 @@ func (e *Editor) drawSketchReviewChangeOutlines(d *core.Drawing, spec SpecPalett
 	d.Restore()
 }
 
-func (e *Editor) drawSketchDraft(d *core.Drawing, spec SpecPalette, dr *sketchDraftDrag) {
+func (e *Editor) drawSketchDraft(d *core.Drawing, spec theme.Palette, dr *sketchDraftDrag) {
 	if !dr.moved {
 		return
 	}
@@ -1842,7 +1843,7 @@ func (e *Editor) drawSketchDraft(d *core.Drawing, spec SpecPalette, dr *sketchDr
 	e.drawSketchMark(d, spec, preview, true, false, 0.9)
 }
 
-func (e *Editor) drawSketchMark(d *core.Drawing, spec SpecPalette, m SketchMark, selected, reviewDotted bool, alpha float32) {
+func (e *Editor) drawSketchMark(d *core.Drawing, spec theme.Palette, m SketchMark, selected, reviewDotted bool, alpha float32) {
 	haloColor := ui.Alpha(spec.Bg, 0.65*alpha)
 	if !spec.Dark {
 		haloColor = ui.Alpha(spec.Bg, 0.72*alpha)

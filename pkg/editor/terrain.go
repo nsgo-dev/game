@@ -14,9 +14,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/world3d"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // ErrNoTerrain is returned by terrain operations when no terrain is open in the editor.
@@ -1582,18 +1584,18 @@ func (e *Editor) ClearTerrainHover() {
 	e.notify()
 }
 
-// terrainLayerPreviewColors gives distinct visual tints from spec_theme.yaml for up to 8 terrain layers
+// terrainLayerPreviewColors gives distinct visual tints from theme.yaml for up to 8 terrain layers
 // in the 3D viewport wireframe when a layer has no explicit RGB tint.
-func terrainLayerPreviewColors(spec SpecPalette) [8]core.Color {
+func terrainLayerPreviewColors(spec theme.Palette) [8]core.Color {
 	return [8]core.Color{
-		specAlpha(spec.Added.Fg, 0.85),
-		specAlpha(spec.Changed.Fg, 0.85),
-		specAlpha(spec.TextFaint, 0.85),
-		specAlpha(spec.TextPrimary, 0.90),
-		specAlpha(spec.Warning.Fg, 0.85),
-		specAlpha(spec.TextMuted, 0.85),
-		specAlpha(spec.Agent.Fg, 0.85),
-		specAlpha(spec.Accent.Fg, 0.85),
+		ui.Alpha(spec.Added.Fg, 0.85),
+		ui.Alpha(spec.Changed.Fg, 0.85),
+		ui.Alpha(spec.TextFaint, 0.85),
+		ui.Alpha(spec.TextPrimary, 0.90),
+		ui.Alpha(spec.Warning.Fg, 0.85),
+		ui.Alpha(spec.TextMuted, 0.85),
+		ui.Alpha(spec.Agent.Fg, 0.85),
+		ui.Alpha(spec.Accent.Fg, 0.85),
 	}
 }
 
@@ -1601,7 +1603,7 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 	if !e.TerrainOpen() {
 		return
 	}
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	previewColors := terrainLayerPreviewColors(spec)
 	t := e.terrain
 	hm := t.hm
@@ -1619,7 +1621,7 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 			r := uint8(clamp01f32(l.Color[0]) * 255)
 			g := uint8(clamp01f32(l.Color[1]) * 255)
 			b := uint8(clamp01f32(l.Color[2]) * 255)
-			layerColors[i] = specAlpha(colorFromRGBA8(r, g, b, 255), 0.85)
+			layerColors[i] = ui.Alpha(colorFromRGBA8(r, g, b, 255), 0.85)
 		} else {
 			layerColors[i] = previewColors[i%len(previewColors)]
 		}
@@ -1679,7 +1681,7 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 					if dens, ok := hm.FoliageDensityAt(flName, p[0], p[2]); ok && dens > 0.05 {
 						if sx, sy, _, vis := e.Camera3D.Project(p, w, h); vis {
 							rad := float32(1.5 + 2.5*dens)
-							d.Save().SetFillColor(specAlpha(spec.Added.Fg, float32(0.35+0.6*dens))).
+							d.Save().SetFillColor(ui.Alpha(spec.Added.Fg, float32(0.35+0.6*dens))).
 								BeginPath().Arc(sx, sy, rad, 0, float32(2*math.Pi), false).Fill().Restore()
 						}
 					}
@@ -1693,14 +1695,14 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 		const ringSteps = 32
 		radius := e.terrainBrush.effectiveRadius()
 		center := t.hoverPos
-		ringColor := specAlpha(spec.Accent.Fg, 0.95)
+		ringColor := ui.Alpha(spec.Accent.Fg, 0.95)
 		switch e.terrainBrush.Mode {
 		case TerrainBrushLower:
-			ringColor = specAlpha(spec.Removed.Fg, 0.95)
+			ringColor = ui.Alpha(spec.Removed.Fg, 0.95)
 		case TerrainBrushPaintFoliage:
-			ringColor = specAlpha(spec.Added.Fg, 0.95)
+			ringColor = ui.Alpha(spec.Added.Fg, 0.95)
 		case TerrainBrushPaintLayer:
-			ringColor = specAlpha(spec.Warning.Fg, 0.95)
+			ringColor = ui.Alpha(spec.Warning.Fg, 0.95)
 		}
 		ringPt := func(i int) [3]float32 {
 			a := (2 * math.Pi * float64(i)) / ringSteps

@@ -6,9 +6,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math2d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // ShapeHandleKind identifies what part of a component shape field a 2D viewport handle edits.
@@ -945,7 +947,7 @@ func normZero(v float64) float64 {
 
 // --- 2D Viewport Drawing ---
 
-func shapeBaseColor(p SpecPalette, compName string) core.Color {
+func shapeBaseColor(p theme.Palette, compName string) core.Color {
 	lc := strings.ToLower(compName)
 	switch {
 	case strings.Contains(lc, "trigger"), strings.Contains(lc, "sensor"), strings.Contains(lc, "area"):
@@ -1013,7 +1015,7 @@ func (e *Editor) drawComponentShapes2D(d *core.Drawing, scene *sceneformat.Built
 			d.Save()
 			saved = true
 		}
-		base := shapeBaseColor(e.activeSpecPalette(), s.Component)
+		base := shapeBaseColor(e.activePalette(), s.Component)
 		strokeAlpha := float32(0.55)
 		fillAlpha := float32(0.07)
 		lineW := float32(1.25)
@@ -1022,8 +1024,8 @@ func (e *Editor) drawComponentShapes2D(d *core.Drawing, scene *sceneformat.Built
 			fillAlpha = 0.15
 			lineW = 1.75
 		}
-		stroke := specAlpha(base, strokeAlpha)
-		fill := specAlpha(base, fillAlpha)
+		stroke := ui.Alpha(base, strokeAlpha)
+		fill := ui.Alpha(base, fillAlpha)
 		d.SetLineWidth(lineW)
 		switch s.Kind {
 		case sceneformat.FieldPoint:
@@ -1058,7 +1060,7 @@ func (e *Editor) drawComponentShapeHandles2D(d *core.Drawing) {
 	active, hasActive := e.ActiveShapeHandle2D()
 	d.Save()
 	d.SetLineWidth(1.5)
-	spec := e.activeSpecPalette()
+	spec := e.activePalette()
 	for _, h := range handles {
 		isActive := hasActive &&
 			h.ObjectID == active.ObjectID &&
@@ -1075,7 +1077,7 @@ func (e *Editor) drawComponentShapeHandles2D(d *core.Drawing) {
 		p := h.Pos
 		switch h.Kind {
 		case ShapeHandlePolygonMidpoint:
-			d.SetFillColor(specAlpha(spec.Bg, 0.75))
+			d.SetFillColor(ui.Alpha(spec.Bg, 0.75))
 			d.SetStrokeColor(stroke)
 			d.BeginPath().Ellipse(p.X, p.Y, shapeMidHalf, shapeMidHalf).Fill().Stroke()
 		case ShapeHandlePolygonVertex, ShapeHandlePoint, ShapeHandleCircleRadius, ShapeHandleCircleCenter:

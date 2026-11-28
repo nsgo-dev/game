@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -513,8 +514,8 @@ func (e *Editor) LayerKindLabel(layerName string) string {
 	return "layer"
 }
 
-// ObjectKindColor maps an object's kind or pending-new state to a SpecPalette token color.
-func (e *Editor) ObjectKindColor(p SpecPalette, id string) core.Color {
+// ObjectKindColor maps an object's kind or pending-new state to a theme.Palette token color.
+func (e *Editor) ObjectKindColor(p theme.Palette, id string) core.Color {
 	if e.IsObjectProposedNew(id) {
 		return p.Added.Fg
 	}
@@ -534,8 +535,8 @@ func (e *Editor) ObjectKindColor(p SpecPalette, id string) core.Color {
 	}
 }
 
-// LayerKindColor maps a layer's kind to a SpecPalette token color.
-func (e *Editor) LayerKindColor(p SpecPalette, layerName string) core.Color {
+// LayerKindColor maps a layer's kind to a theme.Palette token color.
+func (e *Editor) LayerKindColor(p theme.Palette, layerName string) core.Color {
 	switch e.LayerKindLabel(layerName) {
 	case "tiles":
 		return p.Accent.Fg
@@ -576,7 +577,7 @@ func (e *Editor) activeHeaderTool() Tool {
 // mainHeaderView renders the 44 px AI-first header matching design/editor/Main.dc.html
 // and design/editor/Spec.dc.html.
 func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *core.Memo[unsavedState], mode *core.Signal[pathMode], target *core.Signal[string]) core.Node {
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	notPlaying := func() bool {
 		_ = rev.Get()
 		return ed.Playing()
@@ -643,7 +644,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
-				cur := ed.SpecPalette(cx)
+				cur := ed.Palette(cx)
 				bg := core.Transparent
 				if ed.activeHeaderTool() == d.tool {
 					bg = cur.LineRaised
@@ -668,7 +669,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 					SVG: d.svg,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						cur := ed.SpecPalette(cx)
+						cur := ed.Palette(cx)
 						col := cur.TextFaint
 						if ed.activeHeaderTool() == d.tool {
 							col = cur.TextPrimary
@@ -700,7 +701,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
-				cur := ed.SpecPalette(cx)
+				cur := ed.Palette(cx)
 				bg := core.Transparent
 				if ed.ViewMode == vm {
 					bg = cur.LineRaised
@@ -725,7 +726,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 					MaxLines: 1,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						cur := ed.SpecPalette(cx)
+						cur := ed.Palette(cx)
 						col := cur.TextFaint
 						if ed.ViewMode == vm {
 							col = cur.TextPrimary
@@ -772,7 +773,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 			}
 		},
 		StyleFunc: func() core.Style {
-			cur := ed.SpecPalette(cx)
+			cur := ed.Palette(cx)
 			st := headerBaseStyle
 			st.Background = cur.Bg
 			st.BorderColor = cur.Line
@@ -796,7 +797,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 					core.View{
 						TestID: "header-brand-mark",
 						StyleFunc: func() core.Style {
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							return core.Style{
 								Width:          core.Pt(22),
 								Height:         core.Pt(22),
@@ -814,7 +815,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 									return core.Style{
 										Width:  core.Pt(12),
 										Height: core.Pt(12),
-										Color:  ed.SpecPalette(cx).Accent.OnFill,
+										Color:  ed.Palette(cx).Accent.OnFill,
 									}
 								},
 							},
@@ -847,7 +848,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 											return core.Style{
 												FontSize:   12.5,
 												FontWeight: core.FontWeightSemibold,
-												Color:      ed.SpecPalette(cx).TextPrimary,
+												Color:      ed.Palette(cx).TextPrimary,
 											}
 										},
 									},
@@ -856,7 +857,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 										StyleFunc: func() core.Style {
 											return core.Style{
 												FontSize: 12.5,
-												Color:    ed.SpecPalette(cx).TextFaint,
+												Color:    ed.Palette(cx).TextFaint,
 											}
 										},
 									},
@@ -998,7 +999,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 										},
 										StyleFunc: func() core.Style {
 											_ = rev.Get()
-											cur := ed.SpecPalette(cx)
+											cur := ed.Palette(cx)
 											bg := cur.Changed.Fg
 											if ed.SaveFailed() {
 												bg = cur.Problem().Fg
@@ -1032,7 +1033,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 						TestID: "header-tool-group",
 						Label:  ed.T("toolbar.group.tools"),
 						StyleFunc: func() core.Style {
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							return core.Style{
 								Direction:    core.Row,
 								AlignItems:   core.AlignCenter,
@@ -1051,7 +1052,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 						TestID: "header-view-mode-group",
 						Label:  ed.T("toolbar.group.viewMode"),
 						StyleFunc: func() core.Style {
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							return core.Style{
 								Direction:    core.Row,
 								AlignItems:   core.AlignCenter,
@@ -1103,7 +1104,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 						Disabled: notPlaying,
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							bg := cur.Raised
 							if ed.HistoryPanelOpen() {
 								bg = cur.LineRaised
@@ -1133,7 +1134,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 								SVG: mainIconHistory,
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									col := cur.TextFaint
 									if ed.HistoryPanelOpen() {
 										col = cur.TextPrimary
@@ -1153,7 +1154,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 						Label:   ed.T("toolbar.searchLabel"),
 						Tooltip: specTooltipNode(p, shortcutTip(ed.T("toolbar.search"), CmdCommandPalette)),
 						StyleFunc: func() core.Style {
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							return core.Style{
 								Direction:      core.Row,
 								AlignItems:     core.AlignCenter,
@@ -1185,7 +1186,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 									return core.Style{
 										Width:  core.Pt(specIconSize),
 										Height: core.Pt(specIconSize),
-										Color:  ed.SpecPalette(cx).TextFaint,
+										Color:  ed.Palette(cx).TextFaint,
 									}
 								},
 							},
@@ -1195,7 +1196,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 								StyleFunc: func() core.Style {
 									return core.Style{
 										FontSize: 12.5,
-										Color:    ed.SpecPalette(cx).TextFaint,
+										Color:    ed.Palette(cx).TextFaint,
 									}
 								},
 							},
@@ -1210,7 +1211,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 									return core.Style{
 										FontFamily: core.FontMonospace,
 										FontSize:   11.5,
-										Color:      ed.SpecPalette(cx).TextFaint,
+										Color:      ed.Palette(cx).TextFaint,
 									}
 								},
 							},
@@ -1235,7 +1236,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 						},
 						Tooltip: specTooltipNode(p, shortcutTip(ed.T("toolbar.play"), CmdPlayStop)),
 						StyleFunc: func() core.Style {
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							return core.Style{
 								Direction:      core.Row,
 								AlignItems:     core.AlignCenter,
@@ -1273,7 +1274,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 											return core.Style{
 												Width:  core.Pt(10),
 												Height: core.Pt(10),
-												Color:  ed.SpecPalette(cx).OnTextPrimary,
+												Color:  ed.Palette(cx).OnTextPrimary,
 											}
 										},
 									}
@@ -1285,7 +1286,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 											return core.Style{
 												Width:  core.Pt(10),
 												Height: core.Pt(10),
-												Color:  ed.SpecPalette(cx).OnTextPrimary,
+												Color:  ed.Palette(cx).OnTextPrimary,
 											}
 										},
 									}
@@ -1304,7 +1305,7 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 									return core.Style{
 										FontSize:   12.5,
 										FontWeight: core.FontWeightSemibold,
-										Color:      ed.SpecPalette(cx).OnTextPrimary,
+										Color:      ed.Palette(cx).OnTextPrimary,
 									}
 								},
 							},
@@ -1326,7 +1327,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	})
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return ed.Palette(cx).Dark
 	})
 	filesKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
@@ -1354,7 +1355,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	return core.View{
 		TestID: "editor-scene-column",
 		StyleFunc: func() core.Style {
-			cur := ed.SpecPalette(cx)
+			cur := ed.Palette(cx)
 			return dockedStyle(cx, core.Style{
 				Width:       core.Pt(232),
 				FlexShrink:  0,
@@ -1388,7 +1389,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								FontSize:      11,
 								FontWeight:    core.FontWeightSemibold,
 								LetterSpacing: 0.66,
-								Color:         ed.SpecPalette(cx).TextFaint,
+								Color:         ed.Palette(cx).TextFaint,
 								FlexShrink:    0,
 							}
 						},
@@ -1418,7 +1419,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									return core.Style{
 										FontSize:   11,
 										FontWeight: core.FontWeightMedium,
-										Color:      ed.SpecPalette(cx).TextFaint,
+										Color:      ed.Palette(cx).TextFaint,
 										Margin:     core.Edges{Right: specSpace4},
 									}
 								},
@@ -1429,7 +1430,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									return ed.WorkspaceState() == WorkspaceReady && !ed.Playing()
 								},
 								Then: func(cx *core.Scope) core.Node {
-									p := ed.SpecPalette(cx)
+									p := ed.Palette(cx)
 									return core.View{
 										Style: core.Style{
 											Direction:  core.Row,
@@ -1443,7 +1444,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 												Tooltip: specTooltipNode(p, ed.T("sceneTree.filterToggle")),
 												StyleFunc: func() core.Style {
 													_ = rev.Get()
-													cur := ed.SpecPalette(cx)
+													cur := ed.Palette(cx)
 													bg := core.Transparent
 													if ed.SceneTreeFilterOpen() || ed.SceneTreeFilter() != "" {
 														bg = cur.Raised
@@ -1470,7 +1471,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 														SVG: lucide.Search(),
 														StyleFunc: func() core.Style {
 															_ = rev.Get()
-															cur := ed.SpecPalette(cx)
+															cur := ed.Palette(cx)
 															col := cur.TextFaint
 															if ed.SceneTreeFilterOpen() || ed.SceneTreeFilter() != "" {
 																col = cur.TextPrimary
@@ -1490,7 +1491,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 													Variant:  ui.ButtonGhost,
 													Side:     specRowHeight,
 													IconSize: 13,
-													Tint:     func() core.Color { return ed.SpecPalette(cx).TextFaint },
+													Tint:     func() core.Color { return ed.Palette(cx).TextFaint },
 													Style: core.Style{
 														CornerRadius: specRadiusControl,
 														FocusVisible: p.FocusRing(-2),
@@ -1609,7 +1610,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = wsMemo.Get()
 						ws := ed.WorkspaceState()
-						p := SpecPaletteFor(darkMemo.Get())
+						p := theme.PaletteFor(darkMemo.Get())
 						switch ws {
 						case WorkspaceLoading:
 							return core.View{
@@ -1662,7 +1663,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			// Bottom FILES section: open scene, prefabs it uses, game.yaml.
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = filesKey.Get()
-				p := SpecPaletteFor(darkMemo.Get())
+				p := theme.PaletteFor(darkMemo.Get())
 				type railFileEntry struct {
 					testID string
 					path   string
@@ -1837,7 +1838,7 @@ func viewportCameraCaptionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				StyleFunc: func() core.Style {
 					_ = rev.Get()
 					_ = canvasSizeRev.Get()
-					cur := ed.SpecPalette(cx)
+					cur := ed.Palette(cx)
 					cx0, cy0 := ed.ScreenToCanvas(0, 0)
 					cw, ch := ed.CanvasSize()
 					left := core.Points(cx0)
@@ -1878,7 +1879,7 @@ func viewportWorkspaceStateOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[
 	})
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return ed.Palette(cx).Dark
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -1889,7 +1890,7 @@ func viewportWorkspaceStateOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[
 		if ws == WorkspaceReady {
 			return nil
 		}
-		p := SpecPaletteFor(darkMemo.Get())
+		p := theme.PaletteFor(darkMemo.Get())
 		var card core.Node
 		switch ws {
 		case WorkspaceLoading:
@@ -2175,7 +2176,7 @@ func inspectorWorkspaceStateView(cx *core.Scope, ed *Editor, ws WorkspaceState) 
 	if ws == WorkspaceReady {
 		return nil
 	}
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	var body core.Node
 	switch ws {
 	case WorkspaceLoading:
@@ -2243,7 +2244,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 
 	statusBtnStyle := func(active bool) core.Style {
-		cur := ed.SpecPalette(cx)
+		cur := ed.Palette(cx)
 		bg := core.Transparent
 		if active {
 			bg = cur.Raised
@@ -2287,7 +2288,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			}
 		},
 		StyleFunc: func() core.Style {
-			cur := ed.SpecPalette(cx)
+			cur := ed.Palette(cx)
 			baseStyle := core.Style{
 				Direction:   core.Row,
 				AlignItems:  core.AlignCenter,
@@ -2349,7 +2350,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								MaxLines: 1,
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									col := cur.TextFaint
 									if ed.LayersPanelOpen() {
 										col = cur.TextPrimary
@@ -2384,7 +2385,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							return core.Style{
 								FontFamily: core.FontMonospace,
 								FontSize:   11.5,
-								Color:      ed.SpecPalette(cx).TextFaint,
+								Color:      ed.Palette(cx).TextFaint,
 							}
 						},
 					},
@@ -2448,7 +2449,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						StyleFunc: func() core.Style {
 							return core.Style{
 								FontSize: 11.5,
-								Color:    ed.SpecPalette(cx).TextFaint,
+								Color:    ed.Palette(cx).TextFaint,
 							}
 						},
 					},
@@ -2475,7 +2476,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						StyleFunc: func() core.Style {
 							return core.Style{
 								FontSize: 11.5,
-								Color:    ed.SpecPalette(cx).TextFaint,
+								Color:    ed.Palette(cx).TextFaint,
 								MaxWidth: core.Pt(240),
 							}
 						},
@@ -2501,10 +2502,10 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Then: func(cx *core.Scope) core.Node {
 							darkMemo := core.NewMemo(cx, func() bool {
 								_ = rev.Get()
-								return ed.SpecPalette(cx).Dark
+								return ed.Palette(cx).Dark
 							})
 							return core.Dynamic(func(cx *core.Scope) core.Node {
-								spec := SpecPaletteFor(darkMemo.Get())
+								spec := theme.PaletteFor(darkMemo.Get())
 								return core.Text{
 									TestID: "status-plan-summary",
 									ContentFunc: func() string {
@@ -2551,7 +2552,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									core.Icon{
 										SVG: lucide.GitBranch(),
 										StyleFunc: func() core.Style {
-											return core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: ed.SpecPalette(cx).TextFaint, FlexShrink: 0}
+											return core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: ed.Palette(cx).TextFaint, FlexShrink: 0}
 										},
 									},
 									core.Text{
@@ -2560,7 +2561,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											return ed.T("status.changesCount", l10n.Param("count", ed.ChangesCount()))
 										},
 										StyleFunc: func() core.Style {
-											return core.Style{FontSize: 11.5, Color: ed.SpecPalette(cx).TextFaint}
+											return core.Style{FontSize: 11.5, Color: ed.Palette(cx).TextFaint}
 										},
 									},
 								},
@@ -2578,7 +2579,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								TestID: "status-merge-conflicts",
 								Label:  ed.T("status.mergeConflictsLabel"),
 								StyleFunc: func() core.Style {
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									st := statusBtnStyle(false)
 									st.Background = cur.Warning.Fill
 									st.BorderWidth = 1
@@ -2592,7 +2593,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									core.Icon{
 										SVG: lucide.GitMerge(),
 										StyleFunc: func() core.Style {
-											return core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: ed.SpecPalette(cx).Warning.Fg, FlexShrink: 0}
+											return core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: ed.Palette(cx).Warning.Fg, FlexShrink: 0}
 										},
 									},
 									core.Text{
@@ -2605,7 +2606,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											return ed.T("mainLayoutExtra.sceneConflictMany", l10n.Param("count", n))
 										},
 										StyleFunc: func() core.Style {
-											return core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: ed.SpecPalette(cx).Warning.Fg}
+											return core.Style{FontSize: 11.5, FontWeight: core.FontWeightMedium, Color: ed.Palette(cx).Warning.Fg}
 										},
 									},
 								},
@@ -2624,7 +2625,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								Label:  ed.T("mainLayoutExtra.playtestReportLabel"),
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									st := statusBtnStyle(false)
 									st.BorderWidth = 1
 									st.BorderColor = cur.LineRaised
@@ -2652,7 +2653,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											return ed.T("mainLayoutExtra.playtestMet")
 										},
 										StyleFunc: func() core.Style {
-											return core.Style{FontSize: 11.5, FontWeight: core.FontWeightSemibold, Color: ed.SpecPalette(cx).TextSecondary}
+											return core.Style{FontSize: 11.5, FontWeight: core.FontWeightSemibold, Color: ed.Palette(cx).TextSecondary}
 										},
 									},
 								},
@@ -2670,7 +2671,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						},
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
-							cur := ed.SpecPalette(cx)
+							cur := ed.Palette(cx)
 							st := statusBtnStyle(ed.ProblemAgentPanelOpen())
 							st.Gap = 6
 							if ed.ProblemCount() > 0 {
@@ -2693,7 +2694,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									return ed.ProblemCount() > 0
 								},
 								Then: func(cx *core.Scope) core.Node {
-									return problemAlertIconFunc(func() core.Color { return ed.SpecPalette(cx).Problem().Fg }, 12)
+									return problemAlertIconFunc(func() core.Color { return ed.Palette(cx).Problem().Fg }, 12)
 								},
 								Else: func(cx *core.Scope) core.Node {
 									return core.View{
@@ -2703,7 +2704,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 												Width:        core.Pt(6),
 												Height:       core.Pt(6),
 												CornerRadius: 3,
-												Background:   ed.SpecPalette(cx).Added.Fg,
+												Background:   ed.Palette(cx).Added.Fg,
 												FlexShrink:   0,
 											}
 										},
@@ -2722,7 +2723,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								MaxLines: 1,
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									if ed.ProblemCount() > 0 {
 										return core.Style{
 											FontSize:   11.5,
@@ -2756,7 +2757,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								MaxLines: 1,
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									col := cur.TextFaint
 									if ed.OutputPanelOpen() {
 										col = cur.TextPrimary
@@ -2787,7 +2788,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								MaxLines: 1,
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									cur := ed.SpecPalette(cx)
+									cur := ed.Palette(cx)
 									col := cur.TextFaint
 									if ed.ProfilerOpen() {
 										col = cur.TextPrimary

@@ -21,6 +21,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // ErrNoParticleEmitter is returned by particle emitter edits when no emitter is open.
@@ -1816,9 +1817,9 @@ func (e *Editor) drawParticleEmitterOverlays(d *core.Drawing, scene *sceneformat
 			}
 			p := m.TransformPoint(math2d.Vec2{X: bo.Emitter.X, Y: bo.Emitter.Y})
 			cx, cy := p.X, p.Y
-			spec := e.activeSpecPalette()
+			spec := e.activePalette()
 			d.Save()
-			d.SetStrokeColor(specAlpha(spec.Warning.Fg, 0.9)).SetLineWidth(1.5)
+			d.SetStrokeColor(ui.Alpha(spec.Warning.Fg, 0.9)).SetLineWidth(1.5)
 			// Draw small diamond origin marker.
 			const r float32 = 6
 			d.BeginPath().
@@ -1830,7 +1831,7 @@ func (e *Editor) drawParticleEmitterOverlays(d *core.Drawing, scene *sceneformat
 			// Draw spawn shape preview scaled by view zoom.
 			zoom := strokeScale(m)
 			sh := bo.Emitter.Shape
-			d.SetStrokeColor(specAlpha(spec.Warning.Fg, 0.45)).SetLineDash(4, 3).SetLineWidth(1)
+			d.SetStrokeColor(ui.Alpha(spec.Warning.Fg, 0.45)).SetLineDash(4, 3).SetLineWidth(1)
 			switch sh.Kind() {
 			case "circle", "ring":
 				if rad := sh.Radius() * zoom; rad > 1 {

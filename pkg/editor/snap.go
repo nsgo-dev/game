@@ -580,7 +580,7 @@ func (e *Editor) drawSnapGridOverlay(d *core.Drawing) {
 	startRow := int(startRowF)
 	endRow := int(endRowF)
 
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	d.Save()
 	applyAffine(d, m)
 	d.SetStrokeColor(ui.Alpha(spec.TextFaint, 0.20)).SetLineWidth(lw).BeginPath()
@@ -652,7 +652,7 @@ func (e *Editor) ToggleSnapSettingsPopover() {
 // (grid overlay, grid snap & step with auto tile-size reset, pixel snap, rotation snap & step, scale snap & step).
 func snapSettingsPopover(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], testID string, disabled func() bool) core.Node {
 	colors := ui.ColorsOf(cx)
-	p := ed.SpecPalette(cx)
+	p := ed.Palette(cx)
 	rowStyle := core.Style{
 		Direction:      core.Row,
 		AlignItems:     core.AlignCenter,

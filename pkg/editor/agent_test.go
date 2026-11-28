@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -669,8 +670,8 @@ func TestAgentSpecLightAppearanceSwitchesColors(t *testing.T) {
 		Locale: "en-US",
 	}))
 
-	light := editor.LightSpecPalette()
-	dark := editor.DarkSpecPalette()
+	light := theme.Light()
+	dark := theme.Dark()
 
 	if got := app.Find("id:agent-panel").Style.Background; got != light.Panel {
 		t.Fatalf("light mode agent-panel bg = %#x, want %#x", uint32(got), uint32(light.Panel))

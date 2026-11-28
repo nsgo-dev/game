@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/gametest"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -34,14 +35,14 @@ const (
 type overlayBoardSlot struct {
 	name string
 	x, y float32
-	draw func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds)
+	draw func(d *core.Drawing, p theme.Palette, cell core.Bounds)
 }
 
 func specOverlayBoardSlots() []overlayBoardSlot {
 	return []overlayBoardSlot{
 		{
 			name: "selection",
-			draw: func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds) {
+			draw: func(d *core.Drawing, p theme.Palette, cell core.Bounds) {
 				cx := float32(cell.Origin.X + cell.Size.Width/2)
 				fy := float32(cell.Origin.Y+cell.Size.Height) - 24
 				obj := core.Bounds{Origin: core.Point{X: core.Points(cx - 12), Y: core.Points(fy - 34)}, Size: core.Size{Width: 24, Height: 34}}
@@ -56,7 +57,7 @@ func specOverlayBoardSlots() []overlayBoardSlot {
 		},
 		{
 			name: "agent",
-			draw: func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds) {
+			draw: func(d *core.Drawing, p theme.Palette, cell core.Bounds) {
 				cx := float32(cell.Origin.X + cell.Size.Width/2)
 				fy := float32(cell.Origin.Y+cell.Size.Height) - 24
 				obj := core.Bounds{Origin: core.Point{X: core.Points(cx - 15), Y: core.Points(fy - 22)}, Size: core.Size{Width: 30, Height: 22}}
@@ -71,7 +72,7 @@ func specOverlayBoardSlots() []overlayBoardSlot {
 		},
 		{
 			name: "added",
-			draw: func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds) {
+			draw: func(d *core.Drawing, p theme.Palette, cell core.Bounds) {
 				cx := float32(cell.Origin.X + cell.Size.Width/2)
 				fy := float32(cell.Origin.Y+cell.Size.Height) - 24
 				obj := core.Bounds{Origin: core.Point{X: core.Points(cx - 15), Y: core.Points(fy - 22)}, Size: core.Size{Width: 30, Height: 22}}
@@ -86,7 +87,7 @@ func specOverlayBoardSlots() []overlayBoardSlot {
 		},
 		{
 			name: "changed",
-			draw: func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds) {
+			draw: func(d *core.Drawing, p theme.Palette, cell core.Bounds) {
 				cx := float32(cell.Origin.X + cell.Size.Width/2)
 				fy := float32(cell.Origin.Y+cell.Size.Height) - 24
 				obj := core.Bounds{Origin: core.Point{X: core.Points(cx - 12), Y: core.Points(fy - 34)}, Size: core.Size{Width: 24, Height: 34}}
@@ -101,7 +102,7 @@ func specOverlayBoardSlots() []overlayBoardSlot {
 		},
 		{
 			name: "removed",
-			draw: func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds) {
+			draw: func(d *core.Drawing, p theme.Palette, cell core.Bounds) {
 				cx := float32(cell.Origin.X + cell.Size.Width/2)
 				fy := float32(cell.Origin.Y+cell.Size.Height) - 24
 				obj := core.Bounds{Origin: core.Point{X: core.Points(cx - 10), Y: core.Points(fy - 22)}, Size: core.Size{Width: 20, Height: 20}}
@@ -115,7 +116,7 @@ func specOverlayBoardSlots() []overlayBoardSlot {
 		},
 		{
 			name: "problem",
-			draw: func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds) {
+			draw: func(d *core.Drawing, p theme.Palette, cell core.Bounds) {
 				cx := float32(cell.Origin.X + cell.Size.Width/2)
 				fy := float32(cell.Origin.Y+cell.Size.Height) - 24
 				obj := core.Bounds{Origin: core.Point{X: core.Points(cx - 14), Y: core.Points(fy - 38)}, Size: core.Size{Width: 28, Height: 38}}
@@ -130,7 +131,7 @@ func specOverlayBoardSlots() []overlayBoardSlot {
 		},
 		{
 			name: "focused",
-			draw: func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds) {
+			draw: func(d *core.Drawing, p theme.Palette, cell core.Bounds) {
 				cx := float32(cell.Origin.X + cell.Size.Width/2)
 				fy := float32(cell.Origin.Y+cell.Size.Height) - 24
 				// Unfocused peer on left + focused 2.5 px change with outlined pill on right (never accent).
@@ -154,7 +155,7 @@ func specOverlayBoardSlots() []overlayBoardSlot {
 		},
 		{
 			name: "selection_and_agent",
-			draw: func(d *core.Drawing, p editor.SpecPalette, cell core.Bounds) {
+			draw: func(d *core.Drawing, p theme.Palette, cell core.Bounds) {
 				cx := float32(cell.Origin.X + cell.Size.Width/2)
 				fy := float32(cell.Origin.Y+cell.Size.Height) - 24
 				obj := core.Bounds{Origin: core.Point{X: core.Points(cx - 12), Y: core.Points(fy - 34)}, Size: core.Size{Width: 24, Height: 34}}
@@ -179,7 +180,7 @@ func specOverlayBoardSlots() []overlayBoardSlot {
 }
 
 func renderOverlayBoard(scale int) (*image.RGBA, []image.Rectangle, []string) {
-	p := editor.DarkSpecPalette()
+	p := theme.Dark()
 	slots := specOverlayBoardSlots()
 	var d core.Drawing
 	if scale > 1 {
@@ -244,7 +245,7 @@ func toGreyscale(src *image.RGBA) *image.RGBA {
 
 // #1006 Acceptance 2: The same render in greyscale still tells every kind apart by line, handles, pill or ghost.
 func TestViewportOverlayGreyscaleDistinguishable(t *testing.T) {
-	p := editor.DarkSpecPalette()
+	p := theme.Dark()
 	// Draw every kind onto identical 180x140 cells with the SAME neutral object block
 	// (except Removed which draws its own 25% grey ghost) so hue CANNOT account for differences.
 	const w, h = 180, 140
@@ -326,7 +327,7 @@ func TestViewportOverlayGreyscaleDistinguishable(t *testing.T) {
 
 // #1006 Scope: Selection + Agent on one object keeps selection handles and places agent outline 3 px further out.
 func TestViewportOverlaySelectionAndAgentPairedOffset(t *testing.T) {
-	p := editor.DarkSpecPalette()
+	p := theme.Dark()
 	obj := core.Bounds{Origin: core.Point{X: 100, Y: 100}, Size: core.Size{Width: 40, Height: 40}}
 
 	var selDraw, agentAloneDraw, agentPairedDraw core.Drawing
@@ -428,7 +429,7 @@ func TestViewportOverlayMotionAndReduceMotion(t *testing.T) {
 		{ID: "c1", ObjectID: "knight", Kind: editor.OverlayKindAdded, Label: "knight", StartedAt: baseTime},
 	})
 
-	spec := editor.DarkSpecPalette()
+	spec := theme.Dark()
 	findStrokeColor := func(ops []core.DrawOp, rgb core.Color) (uint8, bool) {
 		wantRGB := uint32(rgb) >> 8
 		for _, op := range ops {
@@ -769,7 +770,7 @@ func TestCameraFrameBoundsAndTileGridUseNeutralSpecTokens(t *testing.T) {
 	ed.ClearSelection() // ShowingSceneSettings() == true -> highlights camera frame & bounds
 	ed.ShowGrid = true
 
-	spec := editor.DarkSpecPalette()
+	spec := theme.Dark()
 	forbiddenLegendRGBs := map[uint32]string{
 		uint32(spec.Accent.Edge) >> 8:  "accent",
 		uint32(spec.Agent.Edge) >> 8:   "agent",

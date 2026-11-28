@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 	"github.com/nsgo-dev/game/pkg/project"
 	"github.com/nsgo-dev/nsgo/core"
@@ -599,7 +600,7 @@ func TestAutomationsSettingsUIAndDraftInWordsAndAgentReview(t *testing.T) {
 	}
 
 	// Spec Light live repaint check.
-	light := editor.LightSpecPalette()
+	light := theme.Light()
 	app.SetEnvironment(core.Environment{
 		OS:     core.OSMacOS,
 		Idiom:  core.IdiomDesktop,

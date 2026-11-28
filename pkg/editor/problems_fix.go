@@ -1216,7 +1216,7 @@ func (e *Editor) drawProblemOverlays2D(d *core.Drawing, scene *sceneformat.Built
 	if len(objProbs) == 0 {
 		return
 	}
-	spec := e.SpecPalette(nil)
+	spec := e.Palette(nil)
 	canvas := core.Size{Width: core.Points(e.canvasW), Height: core.Points(e.canvasH)}
 
 	d.Save()

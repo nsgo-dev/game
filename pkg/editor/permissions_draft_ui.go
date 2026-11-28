@@ -3,13 +3,14 @@ package editor
 import (
 	"fmt"
 
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-func specYouOnlyPill(p SpecPalette, testID, text string) core.Node {
+func specYouOnlyPill(p theme.Palette, testID, text string) core.Node {
 	return core.View{
 		TestID: testID,
 		Style: core.Style{
@@ -49,15 +50,15 @@ func (e *Editor) localizedDecisionName(d PermissionDecision) string {
 	}
 }
 
-func specDecisionBadge(p SpecPalette, dec PermissionDecision, muted bool) core.Node {
+func specDecisionBadge(p theme.Palette, dec PermissionDecision, muted bool) core.Node {
 	return specDecisionBadgeWithText(p, dec, dec.DisplayName(), muted)
 }
 
-func specDecisionBadgeLocalized(p SpecPalette, ed *Editor, dec PermissionDecision, muted bool) core.Node {
+func specDecisionBadgeLocalized(p theme.Palette, ed *Editor, dec PermissionDecision, muted bool) core.Node {
 	return specDecisionBadgeWithText(p, dec, ed.localizedDecisionName(dec), muted)
 }
 
-func specDecisionBadgeWithText(p SpecPalette, dec PermissionDecision, text string, muted bool) core.Node {
+func specDecisionBadgeWithText(p theme.Palette, dec PermissionDecision, text string, muted bool) core.Node {
 	bg := p.Raised
 	fg := p.TextMuted
 	border := p.LineRaised
@@ -105,7 +106,7 @@ func specDecisionBadgeWithText(p SpecPalette, dec PermissionDecision, text strin
 // PermissionsDraftCardView renders the You-only permissions draft modal card matching
 // design/editor/Permissions.dc.html ("You only · A draft the agent cannot approve")
 // inside a real ui.Dialog / core.Modal with Tab/Shift-Tab focus trapping and opener focus restoration,
-// using strictly SpecPalette tokens in both Dark and Light appearances.
+// using strictly theme.Palette tokens in both Dark and Light appearances.
 // Nothing is ticked by default; ⌘↵, Keep all, automations, and every profile cannot apply it.
 func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type draftKey struct {
@@ -119,7 +120,7 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		return draftKey{
 			open:    ed.PermissionsDraftOpen() && !ed.Playing() && !ed.StartScreenOpen() && !ed.MergeConflictOpen(),
 			permRev: ed.permissionsStateRev(),
-			dark:    ed.SpecPalette(cx).Dark,
+			dark:    ed.Palette(cx).Dark,
 			lang:    ed.ResolvedLanguage(),
 		}
 	})
@@ -137,7 +138,7 @@ func PermissionsDraftCardView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		if draft == nil {
 			return nil
 		}
-		p := SpecPaletteFor(k.dark)
+		p := theme.PaletteFor(k.dark)
 		focusRing := p.FocusRing(2)
 		ticked := ed.PermissionsDraftTickedCount()
 		yamlLines := ed.PermissionsDraftPreviewYAML()

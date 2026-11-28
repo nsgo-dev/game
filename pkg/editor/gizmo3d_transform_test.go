@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/editor"
+	"github.com/nsgo-dev/game/pkg/editor/theme"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -962,16 +963,16 @@ func TestGizmo3DGrazingRayScaleClampFiniteAncestorAndSpecLightContrast(t *testin
 	t.Run("spec_light_and_dark_gizmo_accent_contrast", func(t *testing.T) {
 		for _, tc := range []struct {
 			name string
-			pal  editor.SpecPalette
+			pal  theme.Palette
 		}{
-			{"light", editor.LightSpecPalette()},
-			{"dark", editor.DarkSpecPalette()},
+			{"light", theme.Light()},
+			{"dark", theme.Dark()},
 		} {
-			centerRing := editor.CompositeOver(ui.Alpha(tc.pal.TextPrimary, 0.9), tc.pal.Viewport)
-			if r := editor.ContrastRatio(centerRing, tc.pal.Viewport); r < 3.0 {
+			centerRing := theme.CompositeOver(ui.Alpha(tc.pal.TextPrimary, 0.9), tc.pal.Viewport)
+			if r := theme.ContrastRatio(centerRing, tc.pal.Viewport); r < 3.0 {
 				t.Errorf("%s: center translate ring contrast %.2f:1, want >= 3.0:1", tc.name, r)
 			}
-			if r := editor.ContrastRatio(tc.pal.Warning.Fg, tc.pal.Viewport); r < 3.0 {
+			if r := theme.ContrastRatio(tc.pal.Warning.Fg, tc.pal.Viewport); r < 3.0 {
 				t.Errorf("%s: active handle highlight Warning.Fg contrast %.2f:1, want >= 3.0:1", tc.name, r)
 			}
 		}
