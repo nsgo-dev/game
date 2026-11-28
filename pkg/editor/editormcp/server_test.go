@@ -60,14 +60,16 @@ func TestServerListsToolsAndResources(t *testing.T) {
 	}
 }
 
-func TestMCPAppsWidgetsAreNegotiatedAndGated(t *testing.T) {
-	f := openFixture(t)
-	s := editormcp.New(f.ed, editormcp.Options{})
-	t.Cleanup(func() { _ = s.Close() })
-	ops := &mcp.ClientOptions{Capabilities: &mcp.ClientCapabilities{Extensions: map[string]any{
+// mcpAppsClient declares MCP Apps support as a chat client that renders HTML widgets does.
+func mcpAppsClient() *mcp.ClientOptions {
+	return &mcp.ClientOptions{Capabilities: &mcp.ClientCapabilities{Extensions: map[string]any{
 		"io.modelcontextprotocol/ui": map[string]any{"mimeTypes": []any{"text/html;profile=mcp-app"}},
 	}}}
-	cs := connect(t, s, ops)
+}
+
+// resourceURIs lists the resource URIs a client sees.
+func resourceURIs(t *testing.T, cs *mcp.ClientSession) []string {
+	t.Helper()
 	var uris []string
 	for r, err := range cs.Resources(context.Background(), nil) {
 		if err != nil {
@@ -75,16 +77,61 @@ func TestMCPAppsWidgetsAreNegotiatedAndGated(t *testing.T) {
 		}
 		uris = append(uris, r.URI)
 	}
-	if !slices.Contains(uris, editormcp.PlaytestWidgetURI) || !slices.Contains(uris, editormcp.ViewportWidgetURI) {
-		t.Fatalf("MCP Apps resources = %v", uris)
+	return uris
+}
+
+// widgetURI is the _meta.ui.resourceUri of a tool result, or "" when it has none.
+func widgetURI(res *mcp.CallToolResult) string {
+	ui, _ := res.Meta["ui"].(map[string]any)
+	uri, _ := ui["resourceUri"].(string)
+	return uri
+}
+
+// A client that declares MCP Apps sees the widget resources, reads self-contained HTML with no network access, and gets the widget URI on viewport_image; one that does not sees neither and cannot read them; a refused viewport_image points at no widget.
+func TestMCPAppsWidgetsAreNegotiatedAndGated(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+
+	apps := connect(t, s, mcpAppsClient())
+	if uris := resourceURIs(t, apps); !slices.Contains(uris, editormcp.PlaytestWidgetURI) || !slices.Contains(uris, editormcp.ViewportWidgetURI) {
+		t.Fatalf("MCP Apps client resources = %v", uris)
 	}
-	read, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: editormcp.PlaytestWidgetURI})
-	if err != nil || len(read.Contents) != 1 || !strings.Contains(read.Contents[0].Text, "Content-Security-Policy") || strings.Contains(read.Contents[0].Text, "https://") {
-		t.Fatalf("widget resource = %+v, err=%v", read, err)
+	for _, uri := range []string{editormcp.PlaytestWidgetURI, editormcp.ViewportWidgetURI} {
+		read, err := apps.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: uri})
+		if err != nil || len(read.Contents) != 1 {
+			t.Fatalf("read %s = %+v, err=%v", uri, read, err)
+		}
+		html := read.Contents[0].Text
+		if read.Contents[0].MIMEType != "text/html;profile=mcp-app" || !strings.Contains(html, `content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'"`) || strings.Contains(html, "http://") || strings.Contains(html, "https://") || strings.Contains(html, "<script") || strings.Contains(html, "connect-src") {
+			t.Fatalf("widget %s = %s %q", uri, read.Contents[0].MIMEType, html)
+		}
 	}
-	res := call(t, cs, editormcp.ToolViewportImage, map[string]any{})
-	if res.Meta == nil || res.Meta["ui"] == nil {
-		t.Fatalf("viewport result meta = %+v", res.Meta)
+	res := call(t, apps, editormcp.ToolViewportImage, map[string]any{})
+	mustOK(t, res)
+	if got := widgetURI(res); got != editormcp.ViewportWidgetURI {
+		t.Fatalf("viewport_image widget = %q, meta %+v", got, res.Meta)
+	}
+
+	plain := connect(t, s, nil)
+	if uris := resourceURIs(t, plain); slices.Contains(uris, editormcp.PlaytestWidgetURI) || slices.Contains(uris, editormcp.ViewportWidgetURI) || !slices.Contains(uris, editormcp.SceneURI) {
+		t.Fatalf("plain client resources = %v", uris)
+	}
+	if _, err := plain.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: editormcp.PlaytestWidgetURI}); err == nil || !strings.Contains(err.Error(), "io.modelcontextprotocol/ui") {
+		t.Fatalf("plain client read a widget: err=%v", err)
+	}
+	res = call(t, plain, editormcp.ToolViewportImage, map[string]any{})
+	mustOK(t, res)
+	if _, ok := res.Meta["ui"]; ok {
+		t.Fatalf("plain client viewport_image meta = %+v", res.Meta)
+	}
+
+	if err := f.ed.SetAgentPrivacy(editor.PrivacyViewportImages, false); err != nil {
+		t.Fatal(err)
+	}
+	res = call(t, apps, editormcp.ToolViewportImage, map[string]any{})
+	if !res.IsError || widgetURI(res) != "" {
+		t.Fatalf("viewport_image with viewport images off: error=%v meta=%+v", res.IsError, res.Meta)
 	}
 }
 

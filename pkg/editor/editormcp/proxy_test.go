@@ -151,3 +151,47 @@ func TestProxyForwardsTheChangeStream(t *testing.T) {
 		t.Fatalf("scene through the proxy: %v %+v", err, read)
 	}
 }
+
+// The proxy forwards its client's MCP Apps capability to the editor: a client that declares it sees the widgets and gets the widget URI through the proxy, one that does not sees neither.
+func TestProxyForwardsMCPApps(t *testing.T) {
+	endpointDir(t)
+	dir := t.TempDir()
+	writeProject(t, dir)
+	root := mustRoot(t, dir)
+	ed := newEditor(t)
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Open(); err != nil {
+		t.Fatal(err)
+	}
+
+	apps := startProxy(t, root, mcpAppsClient(), "")
+	if uris := resourceURIs(t, apps); !slices.Contains(uris, editormcp.PlaytestWidgetURI) || !slices.Contains(uris, editormcp.ViewportWidgetURI) {
+		t.Fatalf("MCP Apps client resources through the proxy = %v", uris)
+	}
+	if read, err := apps.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: editormcp.ViewportWidgetURI}); err != nil || len(read.Contents) != 1 || !strings.Contains(read.Contents[0].Text, "Content-Security-Policy") {
+		t.Fatalf("widget through the proxy = %+v, err=%v", read, err)
+	}
+	res := call(t, apps, editormcp.ToolViewportImage, map[string]any{})
+	mustOK(t, res)
+	if got := widgetURI(res); got != editormcp.ViewportWidgetURI {
+		t.Fatalf("viewport_image widget through the proxy = %q, meta %+v", got, res.Meta)
+	}
+
+	plain := startProxy(t, root, nil, "")
+	if uris := resourceURIs(t, plain); slices.Contains(uris, editormcp.PlaytestWidgetURI) || slices.Contains(uris, editormcp.ViewportWidgetURI) {
+		t.Fatalf("plain client resources through the proxy = %v", uris)
+	}
+	if _, err := plain.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: editormcp.PlaytestWidgetURI}); err == nil {
+		t.Fatal("plain client read a widget through the proxy")
+	}
+	res = call(t, plain, editormcp.ToolViewportImage, map[string]any{})
+	mustOK(t, res)
+	if widgetURI(res) != "" {
+		t.Fatalf("plain client viewport_image meta through the proxy = %+v", res.Meta)
+	}
+}

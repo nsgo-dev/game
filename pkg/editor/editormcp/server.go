@@ -24,13 +24,6 @@ import (
 // ServerName is the name the editor's server gives clients when they connect.
 const ServerName = "nsgo-game-editor"
 
-const (
-	mcpAppsExtension  = "io.modelcontextprotocol/ui"
-	mcpAppsMIME       = "text/html;profile=mcp-app"
-	PlaytestWidgetURI = "ui://nsgo-game/playtest-report"
-	ViewportWidgetURI = "ui://nsgo-game/viewport"
-)
-
 // instructions is what the server tells clients when they connect.
 const instructions = `Reads and edits the game project open in the NSGo Game Editor, as the person using the editor does: through the same editor commands as its inspector, scene tree and viewport, so every edit is one undo step the person can see and take back.
 
@@ -257,25 +250,7 @@ func New(ed *editor.Editor, opts Options) *Server {
 			Resources: &mcp.ResourceCapabilities{Subscribe: true, ListChanged: true},
 		},
 	})
-	s.sdk.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			res, err := next(ctx, method, req)
-			ss, _ := req.GetSession().(*mcp.ServerSession)
-			if method == "resources/list" && !sessionSupportsMCPApps(ss) {
-				if listed, ok := res.(*mcp.ListResourcesResult); ok {
-					listed.Resources = slices.DeleteFunc(listed.Resources, func(r *mcp.Resource) bool {
-						return r != nil && (r.URI == PlaytestWidgetURI || r.URI == ViewportWidgetURI)
-					})
-				}
-			}
-			if method == "resources/read" && !sessionSupportsMCPApps(ss) {
-				if read, ok := req.(*mcp.ReadResourceRequest); ok && read.Params != nil && strings.HasPrefix(read.Params.URI, "ui://nsgo-game/") {
-					return nil, errors.New("MCP Apps widgets require the io.modelcontextprotocol/ui extension")
-				}
-			}
-			return res, err
-		}
-	})
+	s.sdk.AddReceivingMiddleware(gateMCPApps)
 	s.sdk.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if method == "tools/call" {
@@ -962,39 +937,8 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 				})
 			})
 		}
-		return sdkResultForToolSession(t.Name, res, err, sess), nil
+		return withMCPAppsWidget(t.Name, sdkResult(res, err), sess), nil
 	}
-}
-
-func sessionSupportsMCPApps(ss *mcp.ServerSession) bool {
-	if ss == nil || ss.InitializeParams() == nil || ss.InitializeParams().Capabilities == nil {
-		return false
-	}
-	v := ss.InitializeParams().Capabilities.Extensions[mcpAppsExtension]
-	m, ok := v.(map[string]any)
-	if !ok {
-		return false
-	}
-	for _, x := range anySlice(m["mimeTypes"]) {
-		if s, ok := x.(string); ok && s == mcpAppsMIME {
-			return true
-		}
-	}
-	return false
-}
-
-func anySlice(v any) []any {
-	switch x := v.(type) {
-	case []any:
-		return x
-	case []string:
-		out := make([]any, len(x))
-		for i := range x {
-			out[i] = x[i]
-		}
-		return out
-	}
-	return nil
 }
 
 func truncateMCPSummary(s string, maxRunes int) string {
@@ -1158,10 +1102,6 @@ func sdkTool(t Tool) *mcp.Tool {
 
 // sdkResult is a tool's result or error as the SDK returns it.
 func sdkResult(res *Result, err error) *mcp.CallToolResult {
-	return sdkResultForToolSession("", res, err, nil)
-}
-
-func sdkResultForToolSession(toolName string, res *Result, err error, sess *mcp.ServerSession) *mcp.CallToolResult {
 	if err != nil {
 		var warn *SaveWarning
 		if sw, ok := errors.AsType[*saveWarningError](err); ok {
@@ -1205,16 +1145,6 @@ func sdkResultForToolSession(toolName string, res *Result, err error, sess *mcp.
 			"nsgo.dev/editsNotOnDisk": true,
 			"nsgo.dev/saveError":      res.SaveWarning.Error,
 			"nsgo.dev/saveWarning":    res.SaveWarning.Message,
-		}
-	}
-	if sessionSupportsMCPApps(sess) && (toolName == ToolGamePlaytest || toolName == ToolPlaytestReport || toolName == ToolViewportImage) {
-		if r.Meta == nil {
-			r.Meta = mcp.Meta{}
-		}
-		if toolName == ToolViewportImage {
-			r.Meta["ui"] = map[string]any{"resourceUri": ViewportWidgetURI}
-		} else {
-			r.Meta["ui"] = map[string]any{"resourceUri": PlaytestWidgetURI}
 		}
 	}
 	return r
