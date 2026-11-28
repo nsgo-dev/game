@@ -11,7 +11,8 @@ import (
 )
 
 type Field struct {
-	Name, Value string `json:"name"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 type Category interface {
 	Name() string
