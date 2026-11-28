@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuiltInProviderSettingsRoundTripAndModelOverrides(t *testing.T) {
-	settings := &editor.EditorSettings{Version: 1, Agent: &editor.AgentSettings{BuiltInFormat: editor.BuiltInFormatOpenAI, BuiltInEndpoint: "http://127.0.0.1:11434/v1", BuiltInModel: "local-main", BuiltInFastModel: "local-fast"}}
+	settings := &editor.EditorSettings{Version: 1, Language: editor.LanguageSystem, Appearance: editor.AppearanceSystem, Agent: &editor.AgentSettings{BuiltInFormat: editor.BuiltInFormatOpenAI, BuiltInEndpoint: "http://127.0.0.1:11434/v1", BuiltInModel: "local-main", BuiltInFastModel: "local-fast"}}
 	data, err := editor.EncodeEditorSettings(settings)
 	if err != nil {
 		t.Fatal(err)
