@@ -317,6 +317,8 @@ type NSGoSettings struct {
 	ID string
 	// Version is nsgo.yaml's version, used by nsgo build to name package directories.
 	Version string
+	// BuildNumber is nsgo.yaml's build_number (CFBundleVersion, versionCode) as written; empty when the file leaves it to derive from version.
+	BuildNumber string
 	// Channel is updates.channel, the channel nsgo build hands the packages out through when -channel does not say.
 	Channel string
 	// Output is build.output, the directory nsgo build writes to when neither -output nor game.yaml's export.output says, relative to the project unless absolute; empty is nsgo's default, dist.
@@ -350,10 +352,11 @@ func ReadNSGoSettings(dir string) (NSGoSettings, error) {
 
 func parseNSGoSettings(path string, data []byte) (NSGoSettings, error) {
 	var file struct {
-		Name    string `yaml:"name"`
-		ID      string `yaml:"id"`
-		Version string `yaml:"version"`
-		Updates struct {
+		Name        string `yaml:"name"`
+		ID          string `yaml:"id"`
+		Version     string `yaml:"version"`
+		BuildNumber string `yaml:"build_number"`
+		Updates     struct {
 			Channel string `yaml:"channel"`
 		} `yaml:"updates"`
 		Build struct {
@@ -388,6 +391,7 @@ func parseNSGoSettings(path string, data []byte) (NSGoSettings, error) {
 		Name:         file.Name,
 		ID:           file.ID,
 		Version:      file.Version,
+		BuildNumber:  strings.TrimSpace(file.BuildNumber),
 		Channel:      strings.TrimSpace(file.Updates.Channel),
 		Output:       strings.TrimSpace(file.Build.Output),
 		ItchProject:  strings.TrimSpace(file.Itch.Project),
