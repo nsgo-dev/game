@@ -529,7 +529,7 @@ func TestYouOnlySymlinkedNonExistentDirCaseSettingsAndBareStemRename(t *testing.
 		t.Fatalf("bare-stem PreviewSafeRename to permissions under agent actor = %v, want You-only refusal", err)
 	}
 	// MoveFile under WithAgentActor to permissions.yaml MUST also be refused!
-	err = ed.WithAgentActor(func() error {
+	err = ed.RunAsAgent(func() error {
 		return ed.MoveFile("scratch.yaml", "permissions.yaml")
 	})
 	if err == nil || !strings.Contains(err.Error(), "You only") {

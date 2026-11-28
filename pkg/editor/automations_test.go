@@ -697,9 +697,9 @@ func TestAutomationsHardeningYouOnlyPermissionsTasksAndHistoryPreview(t *testing
 		tickedAfter int
 	)
 	ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
-		ed.SetPermissionsDraftRuleTicked(0, true)
 		var aErr error
 		aErr = ed.RunAsAgent(func() error {
+			ed.SetPermissionsDraftRuleTicked(0, true)
 			_, err := ed.ApplyPermissionsDraft()
 			return err
 		})
