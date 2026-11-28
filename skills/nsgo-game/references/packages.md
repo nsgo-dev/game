@@ -162,7 +162,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/gametest` | Experimental | Testing helpers and fixtures for game-layer tests |
 | `game/pkg/editor` | Experimental | Visual scene and animation clip editor embedded behind `go tool game editor` |
 | `game/pkg/editor/editorcmd` | Experimental | The scene editor's command line, shared by `go tool game editor` and a game's own editor command from `game generate editor` |
-| `game/pkg/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest` and `playtest_define` on the open project, served on a per-project local endpoint that `go tool game mcp` forwards to |
+| `game/pkg/editor/editormcp` | Experimental | The editor's MCP server for reviewable scene and file edits, turns and reviews, history, checks, playtests and other editor workflows on the open project, served on a per-project local endpoint that `go tool game mcp` forwards to; see the [complete editor tool reference](https://game.nsgo.dev/docs/mcp/#editor-tools) |
 | `game/pkg/editor/keychain` | Experimental | The editor's OS secret storage behind `keychain.Store` (macOS Keychain, Linux Secret Service, Windows Credential Manager) and the in-memory `keychain.Memory` for tests |
 | `game/pkg/editor/theme` | Experimental | The editor's design tokens: the embedded YAML theme (`theme.Core`), the dark and light `theme.Palette`, type, spacing, shape and motion constants, and the WCAG 2.2 `theme.ContrastTable` |
 

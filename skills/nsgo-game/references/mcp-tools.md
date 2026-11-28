@@ -148,9 +148,9 @@ Stable entity references use `"entity:<index>:<generation>"` (`mcp.FormatEntityR
 | Tool | Arguments | Returns |
 | --- | --- | --- |
 | `game_replay_status` | `{}` | Current recording/playback status, frame progress and `saved_recordings` |
-| `game_replay_record_start` | `name` (opt), `seed` (opt), `step_rate` (opt), `actions` (opt), `axes` (opt), `metadata` (opt), `reset` (opt bool) | Begins recording per-step inputs via `ReplayController` |
-| `game_replay_record_stop` | `name` (opt), `save_path` (opt relative path under `ReplayConfig.SaveDir`) | Stops recording, stores it and returns deterministic YAML (`yaml`), frame/event summary and `saved_path` |
-| `game_replay_play` | `name` OR `yaml` (one required), `run_to_end` (opt bool), `steps` (opt int, exclusive with `run_to_end`), `reset` (opt bool, default `true` when `ResetFunc` is set) | Replays a stored or inline YAML recording, optionally advancing frames synchronously |
+| `game_replay_record_start` | `name` (opt), `seed` (opt), `actions` (opt), `axes` (opt), `metadata` (opt), `reset` (opt bool) | Begins recording per-step inputs via `ReplayController` |
+| `game_replay_record_stop` | `name` (opt), `save_path` (opt relative path under `ReplayConfig.SaveDir`), `overwrite` (opt bool, default `false`; required to replace an existing recording or save file) | Stops recording, stores it and returns deterministic YAML (`yaml`), frame/event summary and `saved_path` |
+| `game_replay_play` | `name` OR `yaml` (one required), `run_to_end` (opt bool), `steps` (opt int, exclusive with `run_to_end`), `reset` (opt bool, default `true` when `ResetFunc` or a seed target is configured) | Replays a stored or inline YAML recording, optionally advancing frames synchronously |
 | `game_replay_stop` | `{}` | Stops active replay playback |
 | `game_replay_list` | `{}` | Lists stored recordings with `frames`, `seed`, `step_rate`, `events`, `actions`, `axes`, `metadata` |
 
@@ -189,14 +189,11 @@ Every tool above is always registered once the Bridge is attached. A tool whose 
 
 ## The editor's own server
 
-The tools above reach a running game. The NSGo Game Editor has its own MCP server, `game/editor/editormcp`, for editing the project it has open: an agent reads and edits through the same commands as the inspector, scene tree and viewport, so each edit is an undo step the person sees. Connect it with `go tool game mcp install` (or `claude mcp add game-editor -- go tool game mcp`) in the project directory, with the editor open on the project (`go tool game editor .`). Its tools:
+The tools above reach a running game. The NSGo Game Editor has its own MCP server, `game/editor/editormcp`, for editing the project it has open: an agent reads and edits through the same commands as the inspector, scene tree and viewport, so each edit is reviewable by the person. Connect it with `go tool game mcp install` (or `claude mcp add game-editor -- go tool game mcp`) in the project directory, with the editor open on the project (`go tool game editor .`). The [complete editor tool reference](https://game.nsgo.dev/docs/mcp/#editor-tools) catalogs the tool groups:
 
-- `scene_read` `{file?, offset?, limit?}`: a scene, prefab, data or project file with line numbers; the open scene and `game.yaml` as the editor holds them while they have unsaved edits (line numbers then differ from disk), otherwise every file from disk, comments included.
-- `scene_edit` `{file?, label?, edits}`: edits of the open scene (`add`, `remove`, `move`, `set`, `add_component`, `remove_component`, `set_property`, `remove_property`, `reparent`, `move_to_layer`), applied as one undo step, or none when the editor refuses one; the error names the file, the edit, the object, the field and the fix.
-- `selection_get` `{}`: the open scene, the selected object with its YAML lines, the active layer, tool and view.
-- `viewport_image` `{scale?}`: a PNG of the viewport.
-- `game_check` `{}`: the Problems panel's problems, each with file, line and message.
-- `game_playtest` `{file?, run?, count?, seeds?, out?, recordings?}`: validates `playtest.yaml`, runs headless bot playtests with per-seed `.replay.yaml` recordings, writes the YAML report and returns metric values, goal statuses and heat-map points.
-- `playtest_define` `{metric, file?, rationale?, replace?}`: validates a proposed playtest metric and queues its canonical `playtest.yaml` diff as a pending review without modifying disk until accepted.
+- Project, scene and file reads and edits (`scene_read`, `scene_edit`, `file_edit`), object and inspector operations, selection, viewport images, references and safe renames.
+- Reviewable agent turns (`turn_start`, `turn_end`, `turn_status`), change reviews and notes, unified history and checkpoints.
+- Project checks, playtests and Play-mode replay, Go code review, tile and tileset editing, data tables, animation state machines and cutscenes.
+- Background tasks, plans, permissions, merges, releases and project context.
 
-Resources `editor://scene` and `editor://selection` carry the change stream: subscribe for a notice on each change, whose `_meta` says whether the person or the agent made it.
+Resources `editor://scene`, `editor://selection`, `editor://agent/turn`, `editor://brief`, `editor://rules` and `editor://context` carry the change stream: subscribe for a notice on each change, whose `_meta` says whether the person or the agent made it.
