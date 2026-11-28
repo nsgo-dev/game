@@ -1010,6 +1010,8 @@ All per-computer agent controls, project-level `game.yaml` settings, and editor 
 
 ### Agent pages: Models and connections, Tools, and Usage and privacy (#1028, #1030)
 
+External agent requests carry the selected `AgentRequest.Model` and `ReasoningEffort` through the CLI boundary. Claude Code receives `--model <id>`. Codex receives the same model flag and a `-c model_reasoning_effort="<level>"` override. Values are validated before `os/exec` receives them, so shell metacharacters, whitespace and overlong values are rejected while the launch policy and `--` prompt delimiter remain in force.
+
 Stored per computer in `EditorSettings` (`editor.yaml` under `agent`, never inside the project) with every mutator refused when invoked by an agent (`ErrAgentSettingsYouOnly`):
 
 - **Models and connections (`SettingsPageModels`)**: shows connected local MCP agents (such as Claude Code), the built-in API connection (`Anthropic API`, whose key is stored exclusively in NSGo's `core.Secrets` under `AgentAPIKeySecretAccount` / the host OS keychain under `AgentKeychainServiceName` via `StoreAgentAPIKey`, `HasAgentAPIKey`, `DeleteAgentAPIKey`, and `AgentAPIKey` — never written to `editor.yaml`, project files, or logs), **+ Connect another agent or model** (opening `ConnectAgentDialogView`), and **WHO DOES WHAT** task routing (`AgentTaskRoute` / `SetAgentTaskRoute` / `ResolveAgentModelRoute`). The sidebar meta reports the active connection count (`AgentActiveConnectionCount`, e.g. `2 on`).
