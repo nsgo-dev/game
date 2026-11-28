@@ -1,4 +1,4 @@
-package token
+package authtoken
 
 import (
 	"bytes"
@@ -50,7 +50,7 @@ type PublicKey struct {
 func (k PublicKey) publicKey() (ed25519.PublicKey, error) {
 	raw, err := base64.StdEncoding.Strict().DecodeString(k.Key)
 	if err != nil || len(raw) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("token: key %q is not a base64 Ed25519 public key", k.ID)
+		return nil, fmt.Errorf("authtoken: key %q is not a base64 Ed25519 public key", k.ID)
 	}
 	return ed25519.PublicKey(raw), nil
 }
@@ -58,19 +58,19 @@ func (k PublicKey) publicKey() (ed25519.PublicKey, error) {
 // Validate checks that ks is a version 1 key set with an issuer, an audience and at least one well-formed key, each under its own KeyID once.
 func (ks *KeySet) Validate() error {
 	if ks == nil {
-		return loaderr.Errorf("", "pass a non-nil *token.KeySet to Validate", "token: nil key set")
+		return loaderr.Errorf("", "pass a non-nil *authtoken.KeySet to Validate", "authtoken: nil key set")
 	}
 	if ks.Version != KeySetVersion {
-		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the key set", KeySetVersion), "token: unsupported key set version %d (want %d)", ks.Version, KeySetVersion)
+		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the key set", KeySetVersion), "authtoken: unsupported key set version %d (want %d)", ks.Version, KeySetVersion)
 	}
 	if ks.Issuer == "" {
-		return loaderr.Errorf("issuer", "set issuer to the account service identifier such as its URL", "token: key set needs an issuer and an audience")
+		return loaderr.Errorf("issuer", "set issuer to the account service identifier such as its URL", "authtoken: key set needs an issuer and an audience")
 	}
 	if ks.Audience == "" {
-		return loaderr.Errorf("audience", "set audience to the game identifier the tokens are issued for", "token: key set needs an issuer and an audience")
+		return loaderr.Errorf("audience", "set audience to the game identifier the tokens are issued for", "authtoken: key set needs an issuer and an audience")
 	}
 	if len(ks.Keys) == 0 {
-		return loaderr.Errorf("keys", "add at least one Ed25519 public key entry under keys", "token: key set has no keys")
+		return loaderr.Errorf("keys", "add at least one Ed25519 public key entry under keys", "authtoken: key set has no keys")
 	}
 	seen := make(map[string]bool, len(ks.Keys))
 	for i, k := range ks.Keys {
@@ -80,10 +80,10 @@ func (ks *KeySet) Validate() error {
 			return loaderr.Errorf(kPath+".key", "set key to a 32-byte Ed25519 public key encoded in standard base64", "%s", err.Error())
 		}
 		if id := KeyID(pub); k.ID != id {
-			return loaderr.Errorf(kPath+".id", fmt.Sprintf("set id to %q to match the public key", id), "token: key id %q does not match its key (want %q)", k.ID, id)
+			return loaderr.Errorf(kPath+".id", fmt.Sprintf("set id to %q to match the public key", id), "authtoken: key id %q does not match its key (want %q)", k.ID, id)
 		}
 		if seen[k.ID] {
-			return loaderr.Errorf(kPath+".id", "remove the duplicate public key entry", "token: key %q listed twice", k.ID)
+			return loaderr.Errorf(kPath+".id", "remove the duplicate public key entry", "authtoken: key %q listed twice", k.ID)
 		}
 		seen[k.ID] = true
 	}
@@ -94,7 +94,7 @@ func (ks *KeySet) Validate() error {
 func ParseKeySet(data []byte) (*KeySet, error) {
 	var ks KeySet
 	if err := decodeYAML(data, &ks); err != nil {
-		return nil, loaderr.Locate(fmt.Errorf("token: key set: %w", err), "", data, "check the YAML syntax and field names in the key set")
+		return nil, loaderr.Locate(fmt.Errorf("authtoken: key set: %w", err), "", data, "check the YAML syntax and field names in the key set")
 	}
 	if err := ks.Validate(); err != nil {
 		return nil, loaderr.Locate(err, "", data, "")
@@ -119,7 +119,7 @@ func (ks *KeySet) Merge(other *KeySet) (*KeySet, error) {
 		return nil, err
 	}
 	if ks.Issuer != other.Issuer || ks.Audience != other.Audience {
-		return nil, errors.New("token: key sets of different issuers or audiences")
+		return nil, errors.New("authtoken: key sets of different issuers or audiences")
 	}
 	out := &KeySet{Version: KeySetVersion, Issuer: ks.Issuer, Audience: ks.Audience, Keys: append([]PublicKey(nil), ks.Keys...)}
 	have := make(map[string]bool, len(ks.Keys))
@@ -141,7 +141,7 @@ func GenerateKey(r io.Reader) (ed25519.PrivateKey, error) {
 	}
 	_, priv, err := ed25519.GenerateKey(r)
 	if err != nil {
-		return nil, fmt.Errorf("token: generate key: %w", err)
+		return nil, fmt.Errorf("authtoken: generate key: %w", err)
 	}
 	return priv, nil
 }
@@ -149,11 +149,11 @@ func GenerateKey(r io.Reader) (ed25519.PrivateKey, error) {
 // MarshalPrivateKey encodes key as a PKCS #8 "PRIVATE KEY" PEM block, the text form the account service keeps its signing key in.
 func MarshalPrivateKey(key ed25519.PrivateKey) ([]byte, error) {
 	if len(key) != ed25519.PrivateKeySize {
-		return nil, errors.New("token: not an Ed25519 private key")
+		return nil, errors.New("authtoken: not an Ed25519 private key")
 	}
 	der, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("token: marshal key: %w", err)
+		return nil, fmt.Errorf("authtoken: marshal key: %w", err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), nil
 }
@@ -162,18 +162,18 @@ func MarshalPrivateKey(key ed25519.PrivateKey) ([]byte, error) {
 func ParsePrivateKey(data []byte) (ed25519.PrivateKey, error) {
 	block, rest := pem.Decode(data)
 	if block == nil || block.Type != "PRIVATE KEY" {
-		return nil, errors.New("token: want a PEM \"PRIVATE KEY\" block")
+		return nil, errors.New("authtoken: want a PEM \"PRIVATE KEY\" block")
 	}
 	if len(bytes.TrimSpace(rest)) != 0 {
-		return nil, errors.New("token: data after the PEM block")
+		return nil, errors.New("authtoken: data after the PEM block")
 	}
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return nil, errors.New("token: malformed PKCS #8 private key")
+		return nil, errors.New("authtoken: malformed PKCS #8 private key")
 	}
 	priv, ok := key.(ed25519.PrivateKey)
 	if !ok {
-		return nil, errors.New("token: the private key is not Ed25519")
+		return nil, errors.New("authtoken: the private key is not Ed25519")
 	}
 	return priv, nil
 }

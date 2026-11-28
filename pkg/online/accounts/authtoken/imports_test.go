@@ -1,4 +1,4 @@
-package token_test
+package authtoken_test
 
 import (
 	"go/parser"
@@ -35,7 +35,7 @@ func TestImportsStayLight(t *testing.T) {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			first, _, _ := strings.Cut(path, "/")
 			if path != "go.yaml.in/yaml/v3" && path != "github.com/nsgo-dev/game/pkg/loaderr" && strings.Contains(first, ".") {
-				t.Errorf("%s imports %s; the token package may import only the standard library, go.yaml.in/yaml/v3, and github.com/nsgo-dev/game/pkg/loaderr", name, path)
+				t.Errorf("%s imports %s; the authtoken package may import only the standard library, go.yaml.in/yaml/v3, and github.com/nsgo-dev/game/pkg/loaderr", name, path)
 			}
 		}
 	}

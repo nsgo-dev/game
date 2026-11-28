@@ -8,15 +8,15 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 // Options are what a Service needs besides its Config.
 type Options struct {
 	// Store keeps the slots. Required.
 	Store Store
-	// Tokens verifies the bearer tokens of HTTP requests: a token.Verifier built from the account service's key set (token.NewVerifier). Required. The Go methods take the account ID directly; Handler takes it from the token's subject.
-	Tokens *token.Verifier
+	// Tokens verifies the bearer tokens of HTTP requests: an authtoken.Verifier built from the account service's key set (authtoken.NewVerifier). Required. The Go methods take the account ID directly; Handler takes it from the token's subject.
+	Tokens *authtoken.Verifier
 	// Logger receives errors outside the service's contract, such as a failing database. Nil discards them.
 	Logger *slog.Logger
 	// Now returns the current time, used to stamp versions; time.Now when nil.
@@ -27,7 +27,7 @@ type Options struct {
 type Service struct {
 	cfg    Config
 	store  Store
-	tokens *token.Verifier
+	tokens *authtoken.Verifier
 	log    *slog.Logger
 	now    func() time.Time
 }

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave"
 )
 
@@ -20,21 +20,21 @@ var t0 = time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC)
 
 type fixture struct {
 	svc    *cloudsave.Service
-	signer *token.Signer
+	signer *authtoken.Signer
 	now    time.Time
 }
 
 func newFixture(t *testing.T, mutate func(*cloudsave.Config)) *fixture {
 	t.Helper()
-	key, err := token.GenerateKey(nil)
+	key, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := token.NewSigner(key, "https://accounts.example.com", "test-game", 15*time.Minute)
+	signer, err := authtoken.NewSigner(key, "https://accounts.example.com", "test-game", 15*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := token.NewVerifier(signer.KeySet())
+	verifier, err := authtoken.NewVerifier(signer.KeySet())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,9 +347,9 @@ func TestValidateSlot(t *testing.T) {
 }
 
 func BenchmarkHTTPSaveLoad(b *testing.B) {
-	key, _ := token.GenerateKey(nil)
-	signer, _ := token.NewSigner(key, "https://accounts.example.com", "bench", time.Hour)
-	verifier, _ := token.NewVerifier(signer.KeySet())
+	key, _ := authtoken.GenerateKey(nil)
+	signer, _ := authtoken.NewSigner(key, "https://accounts.example.com", "bench", time.Hour)
+	verifier, _ := authtoken.NewVerifier(signer.KeySet())
 	svc, err := cloudsave.New(cloudsave.DefaultConfig(), cloudsave.Options{Store: cloudsave.NewMemoryStore(), Tokens: verifier})
 	if err != nil {
 		b.Fatal(err)

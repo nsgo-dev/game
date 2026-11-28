@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 // Query limits.
@@ -54,7 +54,7 @@ type Options struct {
 	// Store keeps the records; required.
 	Store Store
 	// Tokens verifies the account service's tokens for Handler, which needs it; a Service used only from Go may leave it nil.
-	Tokens *token.Verifier
+	Tokens *authtoken.Verifier
 	// Logger receives resets and store errors, never tokens or proofs; nil discards them.
 	Logger *slog.Logger
 	// Now is the service's clock; nil uses time.Now.
@@ -67,7 +67,7 @@ type Options struct {
 type Service struct {
 	cfg    Config
 	store  Store
-	tokens *token.Verifier
+	tokens *authtoken.Verifier
 	keys   map[string]ed25519.PublicKey
 	boards map[string]*board
 	log    *slog.Logger

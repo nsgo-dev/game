@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/accounts/storetest"
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
 )
 
 var t0 = time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
@@ -100,17 +100,17 @@ func newFixture(t *testing.T, mutate func(*accounts.Config, *accounts.Options)) 
 }
 
 // gameServer returns the verifier a game server builds from the key set file alone.
-func (f *fixture) gameServer(t *testing.T) *token.Verifier {
+func (f *fixture) gameServer(t *testing.T) *authtoken.Verifier {
 	t.Helper()
 	data, err := f.svc.KeySet().Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ks, err := token.ParseKeySet(data)
+	ks, err := authtoken.ParseKeySet(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := token.NewVerifier(ks)
+	v, err := authtoken.NewVerifier(ks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestTokenVerifiedOfflineAndExpiresAsConfigured(t *testing.T) {
 		t.Fatalf("before expiry: %+v, %v", c, err)
 	}
 	f.clock.Advance(time.Second)
-	if _, err := server.Verify(creds.Token.Reveal()); !errors.Is(err, token.ErrExpired) {
+	if _, err := server.Verify(creds.Token.Reveal()); !errors.Is(err, authtoken.ErrExpired) {
 		t.Fatalf("at expiry: %v, want ErrExpired", err)
 	}
 	// The device's session gets a fresh token.
@@ -214,7 +214,7 @@ func TestTokenVerifiedOfflineAndExpiresAsConfigured(t *testing.T) {
 		o.Key = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, ed25519.SeedSize))
 	})
 	foreign, _ := other.svc.CreateGuest(ctx)
-	if _, err := server.Verify(foreign.Token.Reveal()); !errors.Is(err, token.ErrUnknownKey) {
+	if _, err := server.Verify(foreign.Token.Reveal()); !errors.Is(err, authtoken.ErrUnknownKey) {
 		t.Fatalf("foreign token = %v, want ErrUnknownKey", err)
 	}
 }

@@ -6,7 +6,7 @@ import "github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 
 `leaderboard/selfhost` 是可自行部署的排行榜服务，面向跨多个平台运行、或运行在没有游戏服务的平台（Web、Windows、Linux）上的游戏。[`leaderboard`](leaderboard.md) 显示的是 Game Center 和 Play 游戏服务自己的排行榜；这个服务则为所有平台维护同一张榜，以[账号服务](accounts.md)登录的账号为键，所以浏览器里的成绩和手机上的成绩落在同一张榜上。
 
-它是服务端代码，只依赖标准库、YAML 包和 `accounts/token`，不会链接账号服务的密码哈希或数据库驱动。
+它是服务端代码，只依赖标准库、YAML 包和 `accounts/authtoken`，不会链接账号服务的密码哈希或数据库驱动。
 
 | 包 | 内容 |
 | --- | --- |
@@ -65,7 +65,7 @@ allowedOrigins:
 ```go
 svc, err := selfhost.New(ctx, cfg, selfhost.Options{
 	Store:  store,      // selfhost.OpenFileStore("scores", selfhost.FileStoreOptions{})
-	Tokens: verifier,   // 针对账号服务密钥集的 token.Verifier
+	Tokens: verifier,   // 针对账号服务密钥集的 authtoken.Verifier
 	Logger: slog.Default(),
 })
 
@@ -95,7 +95,7 @@ pals, err := svc.Friends(ctx, "high-score", "", friendIDs)              // 这�
 客户端可以发送任意分数。`validation: signed` 的排行榜只接受带游戏服务器证明的成绩：服务器判定一局比赛或检查完回放后，对排行榜、账号和分数签名，把证明交给该玩家的客户端，客户端连同分数一起提交。
 
 ```go
-key, err := token.ParsePrivateKey(pemData) // 来自 leaderboardd genkey
+key, err := authtoken.ParsePrivateKey(pemData) // 来自 leaderboardd genkey
 prover, err := selfhost.NewProofSigner(key)
 proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 // 把 proof 随比赛结果发给玩家

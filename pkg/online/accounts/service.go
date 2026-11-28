@@ -20,7 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 // IdentityVerifier checks a credential a device got from an identity provider and returns the provider's stable subject for the player. A verifier for Game Center checks the signed identity against Apple's certificate, one for Play Games exchanges the server auth code, one for Steam authenticates the session ticket with the Steam Web API, and one for an OAuth provider verifies the OpenID Connect ID token.
@@ -42,10 +42,10 @@ func (f IdentityVerifierFunc) VerifyIdentity(ctx context.Context, credential str
 type Options struct {
 	// Store keeps the records; required.
 	Store Store
-	// Key signs tokens; required. Keep it in a PEM file read with token.ParsePrivateKey.
+	// Key signs tokens; required. Keep it in a PEM file read with authtoken.ParsePrivateKey.
 	Key ed25519.PrivateKey
 	// KeySet holds public keys the service still accepts besides Key's, such as the key it signed with before a rotation; nil accepts only Key's. Its issuer and audience must match the configuration. The service verifies bearer tokens with Key's public key and these, and serves them all at GET /v1/keys, so tokens signed with an old key keep working until the key is removed from the set.
-	KeySet *token.KeySet
+	KeySet *authtoken.KeySet
 	// Identities are the identity providers by name, such as "gamecenter" or "steam". A name is 1 to 32 characters of a-z, 0-9, '.', '_' and '-', starting with a letter or digit.
 	Identities map[string]IdentityVerifier
 	// Logger receives account events and store errors, never secrets; nil discards them.
@@ -62,9 +62,9 @@ type Options struct {
 type Service struct {
 	cfg       Config
 	store     Store
-	signer    *token.Signer
-	keySet    *token.KeySet
-	verifier  *token.Verifier
+	signer    *authtoken.Signer
+	keySet    *authtoken.KeySet
+	verifier  *authtoken.Verifier
 	providers map[string]IdentityVerifier
 	log       *slog.Logger
 	now       func() time.Time
@@ -107,7 +107,7 @@ func New(cfg Config, opts Options) (*Service, error) {
 	if opts.Store == nil {
 		return nil, errors.New("accounts: no store")
 	}
-	signer, err := token.NewSigner(opts.Key, cfg.Issuer, cfg.Audience, time.Duration(cfg.TokenTTL))
+	signer, err := authtoken.NewSigner(opts.Key, cfg.Issuer, cfg.Audience, time.Duration(cfg.TokenTTL))
 	if err != nil {
 		return nil, fmt.Errorf("accounts: %w", err)
 	}
@@ -146,7 +146,7 @@ func New(cfg Config, opts Options) (*Service, error) {
 			return nil, fmt.Errorf("accounts: key set: %w", err)
 		}
 	}
-	s.verifier, err = token.NewVerifier(s.keySet)
+	s.verifier, err = authtoken.NewVerifier(s.keySet)
 	if err != nil {
 		return nil, err
 	}
@@ -162,14 +162,14 @@ func (s *Service) Config() Config {
 }
 
 // KeySet returns the public key set a game server verifies the service's tokens with: the signing key's public half first, then the keys of Options.KeySet.
-func (s *Service) KeySet() *token.KeySet {
+func (s *Service) KeySet() *authtoken.KeySet {
 	ks := *s.keySet
-	ks.Keys = append([]token.PublicKey(nil), s.keySet.Keys...)
+	ks.Keys = append([]authtoken.PublicKey(nil), s.keySet.Keys...)
 	return &ks
 }
 
 // Authenticate verifies a token the service issued and returns its claims.
-func (s *Service) Authenticate(tok string) (token.Claims, error) { return s.verifier.Verify(tok) }
+func (s *Service) Authenticate(tok string) (authtoken.Claims, error) { return s.verifier.Verify(tok) }
 
 // CreateGuest creates an account with no email address or identity and signs the device in to it.
 func (s *Service) CreateGuest(ctx context.Context) (Credentials, error) {

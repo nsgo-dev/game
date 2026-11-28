@@ -2126,12 +2126,12 @@ allowedOrigins:
   - https://play.example.com
 ```
 
-<!-- format: online/accounts/token -->
+<!-- format: online/accounts/authtoken -->
 ### Token key set
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `keys.yaml`, written by `accountsd genkey` | `version: 1` | `token.ParseKeySet`, `token.KeySet.Marshal` | [accounts](accounts.md) |
+| `keys.yaml`, written by `accountsd genkey` | `version: 1` | `authtoken.ParseKeySet`, `authtoken.KeySet.Marshal` | [accounts](accounts.md) |
 
 ```yaml
 version: 1

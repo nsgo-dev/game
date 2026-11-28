@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave"
 	"github.com/nsgo-dev/game/pkg/online/liveops"
 )
@@ -27,7 +27,7 @@ type backend struct {
 
 func newBackend(t *testing.T, mutate func(*cloudsave.Config)) *backend {
 	t.Helper()
-	key, err := token.GenerateKey(nil)
+	key, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func newBackend(t *testing.T, mutate func(*cloudsave.Config)) *backend {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := token.NewVerifier(b.accounts.KeySet())
+	verifier, err := authtoken.NewVerifier(b.accounts.KeySet())
 	if err != nil {
 		t.Fatal(err)
 	}

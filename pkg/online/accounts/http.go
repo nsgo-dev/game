@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
@@ -205,7 +205,7 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 // bearer verifies the request's bearer token, writing a 401 and returning false when it is missing or invalid.
-func (s *Service) bearer(w http.ResponseWriter, r *http.Request) (token.Claims, bool) {
+func (s *Service) bearer(w http.ResponseWriter, r *http.Request) (authtoken.Claims, bool) {
 	auth := r.Header.Get("Authorization")
 	scheme, tok, ok := strings.Cut(auth, " ")
 	if ok && strings.EqualFold(scheme, "Bearer") {
@@ -215,7 +215,7 @@ func (s *Service) bearer(w http.ResponseWriter, r *http.Request) (token.Claims, 
 	}
 	w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 	writeJSON(w, http.StatusUnauthorized, errorResponse{"invalid_token"})
-	return token.Claims{}, false
+	return authtoken.Claims{}, false
 }
 
 func (s *Service) writeCredentials(w http.ResponseWriter, r *http.Request, f func(context.Context) (Credentials, error)) {

@@ -2126,12 +2126,12 @@ allowedOrigins:
   - https://play.example.com
 ```
 
-<!-- format: online/accounts/token -->
+<!-- format: online/accounts/authtoken -->
 ### 令牌密钥集
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `keys.yaml`，由 `accountsd genkey` 写出 | `version: 1` | `token.ParseKeySet`、`token.KeySet.Marshal` | [accounts](accounts.md) |
+| `keys.yaml`，由 `accountsd genkey` 写出 | `version: 1` | `authtoken.ParseKeySet`、`authtoken.KeySet.Marshal` | [accounts](accounts.md) |
 
 ```yaml
 version: 1

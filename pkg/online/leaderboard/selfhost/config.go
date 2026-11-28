@@ -12,7 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
@@ -89,7 +89,7 @@ type Config struct {
 	// Boards are the leaderboards, in the order the service lists them.
 	Boards []Board `yaml:"boards"`
 	// ServerKeys are the game servers' Ed25519 public keys that sign score proofs. A board with validation: signed needs at least one.
-	ServerKeys []token.PublicKey `yaml:"serverKeys,omitempty"`
+	ServerKeys []authtoken.PublicKey `yaml:"serverKeys,omitempty"`
 	// AllowedOrigins lists the web origins ("https://play.example.com") whose pages may call the service from a browser. The handler answers their CORS preflight requests; other origins get no CORS headers, so browsers refuse their requests. Native clients send no origin and need no entry.
 	AllowedOrigins []string `yaml:"allowedOrigins,omitempty"`
 }
@@ -199,7 +199,7 @@ func (c Config) Validate() error {
 		if err != nil {
 			return loaderr.Errorf(kPath+".key", "set key to a 32-byte Ed25519 public key encoded in standard base64", "%s", err.Error())
 		}
-		if id := token.KeyID(pub); k.ID != id {
+		if id := authtoken.KeyID(pub); k.ID != id {
 			return loaderr.Errorf(kPath+".id", fmt.Sprintf("set id to %q to match the public key", id), "selfhost: server key id %q does not match its key (want %q)", k.ID, id)
 		}
 		if ids[k.ID] {
@@ -277,7 +277,7 @@ func validName(s string) bool {
 	return true
 }
 
-func parsePublicKey(k token.PublicKey) (ed25519.PublicKey, error) {
+func parsePublicKey(k authtoken.PublicKey) (ed25519.PublicKey, error) {
 	raw, err := base64.StdEncoding.Strict().DecodeString(k.Key)
 	if err != nil || len(raw) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("selfhost: server key %q is not a base64 Ed25519 public key", k.ID)

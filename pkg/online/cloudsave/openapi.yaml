@@ -272,7 +272,7 @@ components:
       bearerFormat: Account token
       description: >-
         Signed bearer token from the account service (pkg/online/accounts),
-        verified offline with accounts/token. The token's subject is the account
+        verified offline with accounts/authtoken. The token's subject is the account
         ID.
 
   parameters:

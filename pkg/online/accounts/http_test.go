@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 type httpCreds struct {
@@ -91,11 +91,11 @@ func TestHTTPGuestUpgradeAndSecondDevice(t *testing.T) {
 	req := httptest.NewRequest("GET", "/v1/keys", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	ks, err := token.ParseKeySet(rec.Body.Bytes())
+	ks, err := authtoken.ParseKeySet(rec.Body.Bytes())
 	if err != nil || rec.Header().Get("Content-Type") != "application/yaml" {
 		t.Fatalf("keys = %v, %q", err, rec.Header().Get("Content-Type"))
 	}
-	v, _ := token.NewVerifier(ks)
+	v, _ := authtoken.NewVerifier(ks)
 	v.Now = f.clock.Now
 	if c, err := v.Verify(guest.Token); err != nil || c.Subject != guest.Account {
 		t.Fatalf("verify with published keys = %+v, %v", c, err)

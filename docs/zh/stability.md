@@ -112,11 +112,11 @@
 | `game/pkg/mcp` | 实验性 | [mcp](mcp.md) |
 | `game/pkg/modding` | 实验性 | [modding](modding.md) |
 | `game/pkg/online/accounts` | 实验性 | [accounts](accounts.md) |
+| `game/pkg/online/accounts/authtoken` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/pgstore` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/sqlitestore` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/sqlstore` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/storetest` | 实验性 | [accounts](accounts.md) |
-| `game/pkg/online/accounts/token` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/achievements` | 实验性 | [achievements](achievements.md) |
 | `game/pkg/online/audit` | 实验性 | [server](server.md) |
 | `game/pkg/online/cloudsave` | 实验性 | [cloudsave](cloudsave.md) |

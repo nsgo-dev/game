@@ -6,7 +6,7 @@ import "github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 
 `leaderboard/selfhost` is a self-hostable leaderboard service for games that run on several platforms or on platforms without a game service (the web, Windows, Linux). Where [`leaderboard`](leaderboard.md) shows Game Center's and Play Games' own boards, this service keeps one board for every platform, keyed by the account the [account service](accounts.md) signs players in to, so a score from a browser and a score from a phone land on the same board.
 
-It is server-side code. It needs only the standard library, the YAML package and `accounts/token`, so it links none of the account service's password hashing or database drivers.
+It is server-side code. It needs only the standard library, the YAML package and `accounts/authtoken`, so it links none of the account service's password hashing or database drivers.
 
 | Package | What it holds |
 | --- | --- |
@@ -65,7 +65,7 @@ Periods are in UTC. A daily or weekly board starts a new, empty period at its re
 ```go
 svc, err := selfhost.New(ctx, cfg, selfhost.Options{
 	Store:  store,      // selfhost.OpenFileStore("scores", selfhost.FileStoreOptions{})
-	Tokens: verifier,   // a token.Verifier for the account service's key set
+	Tokens: verifier,   // an authtoken.Verifier for the account service's key set
 	Logger: slog.Default(),
 })
 
@@ -95,7 +95,7 @@ Each period is an order-statistic skip list in memory, so every query costs O(lo
 A client can send any score it likes. A board with `validation: signed` accepts a score only with a proof from the game server: after the server decides a match or checks a replay, it signs the board, the account and the score, and hands the proof to that player's client, which submits it beside the score.
 
 ```go
-key, err := token.ParsePrivateKey(pemData) // from leaderboardd genkey
+key, err := authtoken.ParsePrivateKey(pemData) // from leaderboardd genkey
 prover, err := selfhost.NewProofSigner(key)
 proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 // send proof to the player with the match result
