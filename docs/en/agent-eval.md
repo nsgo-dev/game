@@ -9,3 +9,7 @@ A task may list `required_tools` under `checks` to declare the editor and runtim
 ## Tasks
 
 `editor-workflow` asks for the same menu as `add-menu` and is graded by the same rubric, with a prompt that directs the agent to inspect scenes and layers before editing, edit through `scene_edit` and validate with `game_check`.
+
+## Trials
+
+Run `go run ./tools/agenteval -mode=reference -trials 3` to repeat every task in a fresh workspace. JSON reports include `trials`, `pass_rate`, `mean_score`, and `stddev` for each task.

@@ -38,6 +38,7 @@ type RunOptions struct {
 	MinScoreOverride   int           // < 0 uses each task's min_score (or 100 in reference mode).
 	Timeout            time.Duration // grading budget per task (nsgo check and the MCP verification test)
 	AgentTimeout       time.Duration // agent budget per task in command/agent mode, separate from Timeout
+	Trials             int           // repeated independent trials per task, default 1
 }
 
 // RunSuite loads tasks, executes each selected task in an isolated temporary workspace, and returns the SuiteReport.
@@ -79,6 +80,9 @@ func RunSuite(ctx context.Context, opts RunOptions) (SuiteReport, error) {
 	if opts.AgentTimeout <= 0 {
 		opts.AgentTimeout = 15 * time.Minute
 	}
+	if opts.Trials <= 0 {
+		opts.Trials = 1
+	}
 
 	tasks, err := LoadTasksDir(opts.TasksDir)
 	if err != nil {
@@ -92,10 +96,15 @@ func RunSuite(ctx context.Context, opts RunOptions) (SuiteReport, error) {
 
 	results := make([]TaskReport, 0, len(selected))
 	for _, task := range selected {
-		rep, err := runSingleTask(ctx, opts, task)
-		if err != nil {
-			return SuiteReport{}, fmt.Errorf("task %s: %w", task.ID, err)
+		trials := make([]TaskReport, 0, opts.Trials)
+		for i := 0; i < opts.Trials; i++ {
+			rep, err := runSingleTask(ctx, opts, task)
+			if err != nil {
+				return SuiteReport{}, fmt.Errorf("task %s trial %d: %w", task.ID, i+1, err)
+			}
+			trials = append(trials, rep)
 		}
+		rep := AggregateTaskReports(trials)
 		results = append(results, rep)
 	}
 	report := BuildSuiteReport(opts.Mode, results)
