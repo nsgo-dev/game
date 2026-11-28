@@ -425,6 +425,45 @@ func (a *NavAgent) Step(dt time.Duration) {
 	a.stepMovement(dt)
 }
 
+// DesiredVelocity returns the velocity the agent would use to follow its current corridor.
+// It is suitable for passing through an avoidance solver before StepWithVelocity.
+func (a *NavAgent) DesiredVelocity() core.Point {
+	if a == nil || !a.hasTarget || a.mesh == nil || len(a.corridor) == 0 || a.state == NavAgentIdle || a.state == NavAgentUnreachable {
+		return core.Point{}
+	}
+	corner, isGoal, _ := a.mesh.nextFunnelCorner(a.pos, a.target, a.portals)
+	d := corner.sub(a.pos).len()
+	if d <= 1e-9 {
+		return core.Point{}
+	}
+	speed := float64(a.cfg.MaxSpeed)
+	if isGoal && a.cfg.ArrivalRadius > 0 && d < float64(a.cfg.ArrivalRadius) {
+		speed *= d / float64(a.cfg.ArrivalRadius)
+	}
+	return toPoint(corner.sub(a.pos).scale(speed / d))
+}
+
+// StepWithVelocity advances the agent using an externally chosen velocity, such as an ORCA result.
+func (a *NavAgent) StepWithVelocity(v core.Point, dt time.Duration) {
+	if a == nil || dt <= 0 {
+		return
+	}
+	a.tickPreStep(dt)
+	if a.hasTarget && a.needsReplan && a.replanCooldown <= 0 {
+		a.replanNow()
+	}
+	if a.mesh == nil || len(a.corridor) == 0 || a.state == NavAgentUnreachable {
+		return
+	}
+	secs := dt.Seconds()
+	vel := toVec2(v)
+	maxSpeed := float64(a.cfg.MaxSpeed)
+	if speed := vel.len(); speed > maxSpeed && speed > 0 {
+		vel = vel.scale(maxSpeed / speed)
+	}
+	a.advancePosition(a.pos.add(vel.scale(secs)), vel, dt)
+}
+
 func (a *NavAgent) tickPreStep(dt time.Duration) {
 	if a.replanCooldown > 0 {
 		a.replanCooldown -= dt

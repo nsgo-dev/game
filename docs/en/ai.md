@@ -803,6 +803,8 @@ With hundreds of agents, casting a ray for every agent and target on every step 
 
 ### 3D
 
+Navigation agents expose `DesiredVelocity()` for an avoidance pass and `StepWithVelocity(v, dt)` to apply the chosen velocity while preserving corridor repair and surface movement. The 2D and 3D APIs clamp the supplied velocity to the configured maximum speed, so an ORCA result can be handed back without reimplementing navigation movement.
+
 The experimental package `game/ai/perception3d` runs the same engine on `math3d.Vec3`, so its senses, memory, events, teams and budget behave exactly as above. Its `Perception` points the cone along `Forward` (zero faces -Z), with angles measured in 3D, and `EyeOffset` is typically head height on +Y; `System`, `Target`, `Noise`, `Memory`, `Event` and `LineOfSight` mirror the 2D types, and it reuses `ai.SightConfig`, `ai.HearingConfig`, `ai.StimulusID`, `ai.Team` and the event kinds:
 
 ```go

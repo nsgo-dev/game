@@ -413,6 +413,48 @@ func (a *NavAgent) Step(dt time.Duration) {
 	a.stepMovement(dt)
 }
 
+// DesiredVelocity returns the horizontal velocity the agent would use to follow its current corridor.
+func (a *NavAgent) DesiredVelocity() math3d.Vec3 {
+	if a == nil || !a.hasTarget || a.mesh == nil || len(a.corridor) == 0 || a.state == NavAgentIdle || a.state == NavAgentUnreachable {
+		return math3d.Vec3{}
+	}
+	corner, isGoal, _ := a.mesh.nextFunnelCorner(a.pos, a.target, a.portals)
+	dx, dz := float64(corner.X-a.pos.X), float64(corner.Z-a.pos.Z)
+	d := math.Hypot(dx, dz)
+	if d <= 1e-9 {
+		return math3d.Vec3{}
+	}
+	speed := float64(a.cfg.MaxSpeed)
+	if isGoal && a.cfg.ArrivalRadius > 0 && d < float64(a.cfg.ArrivalRadius) {
+		speed *= d / float64(a.cfg.ArrivalRadius)
+	}
+	return math3d.Vec3{X: float32(dx * speed / d), Z: float32(dz * speed / d)}
+}
+
+// StepWithVelocity advances the agent using an externally chosen horizontal velocity, such as an ORCA result.
+func (a *NavAgent) StepWithVelocity(v math3d.Vec3, dt time.Duration) {
+	if a == nil || dt <= 0 {
+		return
+	}
+	a.tickPreStep(dt)
+	if a.hasTarget && a.needsReplan && a.replanCooldown <= 0 {
+		a.replanNow()
+	}
+	if a.mesh == nil || len(a.corridor) == 0 || a.state == NavAgentUnreachable {
+		return
+	}
+	secs := float64(dt.Seconds())
+	vel := v
+	speed := math.Hypot(float64(vel.X), float64(vel.Z))
+	if maxSpeed := float64(a.cfg.MaxSpeed); speed > maxSpeed && speed > 0 {
+		scale := maxSpeed / speed
+		vel.X *= float32(scale)
+		vel.Z *= float32(scale)
+	}
+	next := a.pos.Add(math3d.Vec3{X: vel.X * float32(secs), Z: vel.Z * float32(secs)})
+	a.advancePosition(next, math3d.Vec3{X: vel.X, Z: vel.Z}, dt)
+}
+
 func (a *NavAgent) tickPreStep(dt time.Duration) {
 	if a.replanCooldown > 0 {
 		a.replanCooldown -= dt
