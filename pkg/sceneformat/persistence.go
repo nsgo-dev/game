@@ -116,13 +116,9 @@ func BuildWithPersistence(doc *SceneDoc, resolver AssetResolver, p *save.Persist
 	return Build(doc, resolver)
 }
 
-// CapturePersistence records into p the current destroyed and moved states of doc's objects from w
-// and spawned (as returned by SpawnEntities / SpawnEntitiesWith) before leaving scenePath.
+// CapturePersistence records into p the current destroyed and moved states of doc's objects from w and spawned (as returned by SpawnEntities / SpawnEntitiesWith) before leaving scenePath. Pass the scene as parsed from its file, not a copy returned by ApplyPersistence, since positions are compared against doc's values.
 //
-// Any object in doc whose entity is missing from spawned or no longer alive in w is marked destroyed;
-// any live object whose Transform2D position or rotation differs from its SceneDoc values has its
-// new position or rotation recorded. Existing component overrides, switches and vars on live objects
-// are preserved.
+// Any object in doc whose entity is missing from spawned or no longer alive in w is marked destroyed; any live object whose Transform2D position or rotation differs from its SceneDoc values has its new position or rotation recorded, and one whose position or rotation matches doc again has that override cleared. Existing component overrides, switches and vars on live objects are preserved.
 func CapturePersistence(doc *SceneDoc, w *entities.World, spawned map[string]entities.Entity, p *save.Persistence, scenePath string) {
 	if doc == nil || w == nil || p == nil || scenePath == "" {
 		return
@@ -135,12 +131,21 @@ func CapturePersistence(doc *SceneDoc, w *entities.World, spawned map[string]ent
 				return true
 			}
 			if tr, ok := entities.Get[entities.Transform2D](w, e); ok {
+				// Compare against the scene file's own values: an object returned to where the file places it drops the override recorded on an earlier visit instead of keeping the stale one.
+				st, _ := p.Object(scenePath, o.ID)
 				if tr.X != o.X || tr.Y != o.Y {
-					p.SetPosition(scenePath, o.ID, tr.X, tr.Y)
+					x, y := tr.X, tr.Y
+					st.X, st.Y = &x, &y
+				} else {
+					st.X, st.Y = nil, nil
 				}
 				if tr.Rotation != o.Rotation {
-					p.SetRotation(scenePath, o.ID, tr.Rotation)
+					rot := tr.Rotation
+					st.Rotation = &rot
+				} else {
+					st.Rotation = nil
 				}
+				p.SetObject(scenePath, o.ID, st)
 			}
 			return true
 		})

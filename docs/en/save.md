@@ -136,7 +136,7 @@ if err := saver.Load(store, "slot1"); err != nil {
 ```
 
 - **Slot layout**: `Game.Save` writes `{"parts": {"<name>": {"version": N, "data": ...}}}` inside the `Store` envelope, with part keys in deterministic order.
-- **Built-in `SavePart()` adapters**: `inventory.Container`, `inventory.Equipment`, `quest.Log`, `stats.Sheet`, `ability.Caster`, `flow.Machine[S]`, `flow.DialogueRunner`, and `entities.World` each expose `SavePart() save.Part`. `save.Persistence` implements `save.Part`, `save.StagedPart`, and `save.Resetter` directly.
+- **Built-in `SavePart()` adapters**: `inventory.Container`, `inventory.Equipment`, `quest.Log`, `stats.Sheet`, `ability.Caster`, `flow.Machine[S]`, `dialogue.Runner`, and `entities.World` each expose `SavePart() save.Part`. `save.Persistence` implements `save.Part`, `save.StagedPart`, and `save.Resetter` directly.
 - **Custom parts**: wrap a pointer with `save.ValuePart(&state)`, a save/load pair with `save.FuncPart(saveFn, loadFn, resetFn...)`, or a two-phase validate-then-apply pair with `save.StagedFuncPart(saveFn, prepareFn, resetFn...)`.
 - **All-or-nothing loads**: `Game.Load` runs through `Store.LoadChecked`, validates and migrates every part before mutating live state, and applies all parts in registration order. Every built-in adapter implements `save.StagedPart` (`PrepareLoad`), so a failure never touches any subsystem; plain `save.Part` implementations are snapshotted before commit and rolled back on failure. If the primary copy fails part validation, `Store.LoadChecked` automatically tries the backup copy.
 - **Per-part versions, migrations, and newly added parts**: bump an individual part's version and pass `save.WithPartMigration(from, fn)` (or `saver.RegisterMigration(name, from, fn)`). When an older slot omits a part added in a newer build, `Game.Load` initializes it from `save.WithPartDefault(v)` if given, calls `ResetState()` if the part implements `save.Resetter` (as all built-in adapters do), or leaves it untouched. A part with a newer version than registered returns `ErrFutureVersion`, and a missing step returns `ErrMissingMigration`, both without downgrading to an older backup.
@@ -159,6 +159,8 @@ spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptio
 // Before leaving the scene:
 sceneformat.CapturePersistence(doc, world, spawned, persistence, "scenes/cave.scene.yaml")
 ```
+
+Pass `CapturePersistence` the scene as parsed from its file: it compares each object against the file's position and rotation, records the ones that differ, and clears an earlier override once an object is back where the file places it.
 
 `sceneformat.ApplyPersistence` and `sceneformat.BuildWithPersistence` apply the same overrides to a cloned `SceneDoc` (omitting destroyed objects and pruning connections that reference them) without mutating the original parsed scene document. Integer values inside `Components` and `Vars` round-trip through JSON as Go `int` so `sceneformat.FieldInt` validation continues to pass after reload.
 

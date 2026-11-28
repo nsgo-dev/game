@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/ability"
+	"github.com/nsgo-dev/game/pkg/dialogue"
 	"github.com/nsgo-dev/game/pkg/entities"
 	"github.com/nsgo-dev/game/pkg/flow"
 	"github.com/nsgo-dev/game/pkg/inventory"
@@ -29,7 +30,7 @@ func buildFullGame(t *testing.T) (
 	*stats.Sheet,
 	*ability.Caster,
 	*flow.Machine[string],
-	*flow.DialogueRunner,
+	*dialogue.Runner,
 	*entities.World,
 	*save.Persistence,
 ) {
@@ -102,11 +103,11 @@ abilities:
 	mach.AddState("idle", flow.State{})
 	mach.AddState("walk", flow.State{})
 
-	script, err := flow.ParseYarn("title: Start\n---\nHello.\n===\n")
+	script, err := dialogue.ParseYarn("title: Start\n---\nHello.\n===\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := flow.NewDialogueRunner(script, flow.DialogueOptions{})
+	runner := dialogue.NewRunner(script, dialogue.Options{})
 
 	world := entities.NewWorld()
 	if err := entities.RegisterCodec[posComp](world, "pos"); err != nil {

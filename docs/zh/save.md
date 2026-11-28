@@ -136,7 +136,7 @@ if err := saver.Load(store, "slot1"); err != nil {
 ```
 
 - **槽位布局**：`Game.Save` 在 `Store` 信封的 `data` 内写入 `{"parts": {"<name>": {"version": N, "data": ...}}}`，各部件键按确定性顺序写出。
-- **内置 `SavePart()` 适配器**：`inventory.Container`、`inventory.Equipment`、`quest.Log`、`stats.Sheet`、`ability.Caster`、`flow.Machine[S]`、`flow.DialogueRunner` 与 `entities.World` 均提供 `SavePart() save.Part`。`save.Persistence` 直接实现了 `save.Part`、`save.StagedPart` 与 `save.Resetter`。
+- **内置 `SavePart()` 适配器**：`inventory.Container`、`inventory.Equipment`、`quest.Log`、`stats.Sheet`、`ability.Caster`、`flow.Machine[S]`、`dialogue.Runner` 与 `entities.World` 均提供 `SavePart() save.Part`。`save.Persistence` 直接实现了 `save.Part`、`save.StagedPart` 与 `save.Resetter`。
 - **自定义部件**：使用 `save.ValuePart(&state)` 包装值指针，使用 `save.FuncPart(saveFn, loadFn, resetFn...)` 包装读写回调，或使用 `save.StagedFuncPart(saveFn, prepareFn, resetFn...)` 实现先校验后提交的两阶段恢复。
 - **全有或全无读档**：`Game.Load` 通过 `Store.LoadChecked` 执行，在修改任何运行中状态前先完成所有部件的解码、迁移与校验，再按注册顺序统一提交。内置适配器都实现了 `save.StagedPart`（`PrepareLoad`），失败不会改动任何子系统；普通 `save.Part` 会在提交前拍摄快照，任一部件失败时自动回滚。若主存档在部件校验阶段失败，`Store.LoadChecked` 会自动回退到备份副本。
 - **分部件版本、迁移与新增部件**：升级单个部件的结构时，只需提高该部件版本号并传入 `save.WithPartMigration(from, fn)`（或调用 `saver.RegisterMigration(name, from, fn)`）。当旧槽位中缺少新版本才加入的部件时，`Game.Load` 会按顺序使用 `save.WithPartDefault(v)`、调用 `save.Resetter` 的 `ResetState()`（所有内置适配器均已实现），或保持原样。部件版本号高于当前注册版本返回 `ErrFutureVersion`，缺少迁移步骤返回 `ErrMissingMigration`，且均不会静默回退到旧备份。
@@ -159,6 +159,8 @@ spawned, err := sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptio
 // 离开场景前：
 sceneformat.CapturePersistence(doc, world, spawned, persistence, "scenes/cave.scene.yaml")
 ```
+
+传给 `CapturePersistence` 的应是从文件解析出的场景本身：它把每个对象与文件中的位置和旋转比较，记录不同的那些；对象回到文件所放的位置后，之前记录的覆盖会被清除。
 
 `sceneformat.ApplyPersistence` 与 `sceneformat.BuildWithPersistence` 会在克隆后的 `SceneDoc` 上应用相同的持久化变更（跳过已销毁对象并清理指向它们的信号连接），不会修改原始已解析的场景文档。`Components` 与 `Vars` 中的整数在 JSON 往返后会保持为 Go `int`，重新加载后仍能通过 `sceneformat.FieldInt` 校验。
 
