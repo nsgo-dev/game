@@ -289,15 +289,17 @@ session := netplay.NewRollbackSession(netplay.RollbackConfig{
 if err := session.Poll(); err != nil {
 	return err
 }
-if err := session.Step(netplay.InputFrame{Tick: session.Tick(), Peer: peerTx.LocalID(), Bits: buttons}); err != nil {
+err := session.Step(netplay.InputFrame{Tick: session.Tick(), Peer: peerTx.LocalID(), Bits: buttons})
+if err != nil && !errors.Is(err, netplay.ErrRollbackStalled) {
 	return err
 }
 ```
 
-- `RollbackSession` predicts missing remote inputs, saves snapshots per tick, and automatically rewinds and resimulates when a late remote input disagrees with prediction (returning `ErrRollbackWindowExceeded` if a peer falls beyond `MaxRollback`).
+- `RollbackSession` predicts missing remote inputs, saves snapshots per tick, and automatically rewinds and resimulates when a late remote input disagrees with prediction. It never runs more than `MaxRollback` ticks past the oldest tick still waiting for a remote peer's input: there `Step` simulates nothing and returns `ErrRollbackStalled`, which matches `ErrRollbackWindowExceeded` with `errors.Is`, until the input arrives or the host removes the peer, so a peer that stops sending stalls the match instead of growing its history every tick. Treat `ErrRollbackStalled` as a frame to wait, as above; any other `ErrRollbackWindowExceeded`, a late input that disagrees with a tick beyond the window, is fatal to the match.
 - `LockstepSession` (`SubmitInput`, `Poll`, `Step`) advances only when every peer's input for the current tick has arrived, ideal for RTS or turn-synchronized play. `SubmitInput` ignores an input for a tick already run or more than 256 ticks ahead.
+- Both sessions keep checksums for a bounded window only: a lockstep session ignores a peer's checksum for a tick more than 256 ticks behind or ahead of its own, and a rollback session one for a tick older than its checksum history (256 ticks, or further back while ticks there wait for confirmation) or more than 512 ticks ahead.
 - Both sessions exchange periodic checksums (use `ChecksumBytes` helper) to surface determinism bugs immediately via `OnDesync` and `Desyncs()`.
-- Both sessions compare `uint32` ticks in serial-number order (RFC 1982), including membership windows and pending joins/leaves, so long matches continue seamlessly across the 2^32 tick wraparound. `RollbackSession` keeps unconfirmed history until the first tick confirms, so a peer whose first input arrives more than `MaxRollback + 2` ticks late can still confirm and advance.
+- Both sessions compare `uint32` ticks in serial-number order (RFC 1982), including membership windows and pending joins/leaves, so long matches continue seamlessly across the 2^32 tick wraparound. `RollbackSession` keeps unconfirmed history until the first tick confirms, so a peer whose first input arrives after the session has stalled can still confirm and advance.
 
 ### Players joining and leaving mid-match
 

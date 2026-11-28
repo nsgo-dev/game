@@ -2,6 +2,7 @@ package netplay
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -530,10 +531,7 @@ func TestRollbackLeaveAcrossWrap(t *testing.T) {
 	}
 }
 
-// TestRollbackLateFirstInputBeyondMaxRollbackConfirms verifies that pruneHistory
-// never discards the first unconfirmed tick while nothing is confirmed, so a
-// peer whose first input arrives more than MaxRollback+2 ticks late still
-// allows confirmation to advance cleanly.
+// TestRollbackLateFirstInputBeyondMaxRollbackConfirms verifies that pruneHistory never discards the first unconfirmed tick while nothing is confirmed, and that a session whose peer has sent nothing stalls with ErrRollbackStalled MaxRollback ticks in, so a peer whose first input arrives later than that still allows confirmation to advance cleanly.
 func TestRollbackLateFirstInputBeyondMaxRollbackConfirms(t *testing.T) {
 	for _, start := range []uint32{0, math.MaxUint32 - 3} {
 		t.Run(fmt.Sprintf("start=%#x", start), func(t *testing.T) {
@@ -552,14 +550,18 @@ func TestRollbackLateFirstInputBeyondMaxRollbackConfirms(t *testing.T) {
 			})
 			setRollbackStart(r, start)
 
-			// Advance past MaxRollback+2 ticks while peer 2 has sent nothing at all.
-			for range lateSteps {
-				if err := r.Step(wrapInput(1, r.Tick())); err != nil {
+			// Step for more than MaxRollback+2 ticks while peer 2 has sent nothing at all: the session runs MaxRollback ticks, then stalls.
+			for i := range lateSteps {
+				err := r.Step(wrapInput(1, r.Tick()))
+				if i < maxRB && err != nil {
 					t.Fatalf("step at %#x: %v", r.Tick(), err)
 				}
+				if i >= maxRB && !errors.Is(err, ErrRollbackStalled) {
+					t.Fatalf("step at %#x = %v, want ErrRollbackStalled", r.Tick(), err)
+				}
 			}
-			if r.ConfirmedTick() != -1 {
-				t.Fatalf("ConfirmedTick = %d while peer 2 sent nothing, want -1", r.ConfirmedTick())
+			if r.ConfirmedTick() != -1 || r.Tick() != start+maxRB {
+				t.Fatalf("ConfirmedTick = %d at tick %#x while peer 2 sent nothing, want -1 at %#x", r.ConfirmedTick(), r.Tick(), start+maxRB)
 			}
 
 			// Peer 2's first inputs arrive late, matching the predicted zero input.
@@ -572,7 +574,7 @@ func TestRollbackLateFirstInputBeyondMaxRollbackConfirms(t *testing.T) {
 				t.Fatalf("Poll after late first inputs: %v", err)
 			}
 
-			wantConfirmed := int64(start + lateSteps - 1)
+			wantConfirmed := int64(start + maxRB - 1)
 			if r.ConfirmedTick() != wantConfirmed {
 				t.Fatalf("ConfirmedTick = %d, want %d (start=%#x)", r.ConfirmedTick(), wantConfirmed, start)
 			}
