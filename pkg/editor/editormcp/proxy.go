@@ -128,6 +128,10 @@ func NewProxy(root string) *Proxy {
 	for _, r := range resources {
 		p.sdk.AddResource(r, p.readResource)
 	}
+	// The skill comes from the proxy's own embedded copy, so an agent can read it before any editor has the project open.
+	for _, r := range skillResources() {
+		p.sdk.AddResource(r, readSkillResource)
+	}
 	return p
 }
 

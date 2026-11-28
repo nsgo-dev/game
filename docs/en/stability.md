@@ -223,3 +223,4 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/voxel` | Experimental | [voxel](voxel.md) |
 | `game/pkg/world3d` | Experimental | [world3d](world3d.md) |
 | `game/pkg/worldmap` | Experimental | [worldmap](worldmap.md) |
+| `game/skills` | Experimental | [Agent Skill](agent-skill.md) |

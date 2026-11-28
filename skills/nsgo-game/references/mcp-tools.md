@@ -228,3 +228,5 @@ The tools above reach a running game. The NSGo Game Editor has its own MCP serve
 - Background tasks, plans, permissions, merges, releases and project context.
 
 Resources `editor://scene`, `editor://selection`, `editor://agent/turn`, `editor://brief`, `editor://rules` and `editor://context` carry the change stream: subscribe for a notice on each change, whose `_meta` says whether the person or the agent made it.
+
+The editor's server and the `go tool game mcp` proxy also serve this skill, in the version built into the project's `go tool game`, as `skill://nsgo-game/SKILL.md` and `skill://nsgo-game/references/<file>`; that copy wins over an installed one. A client without resource support reads one section with `skill_get` (`file`, such as `references/mcp-tools.md`, and `section`, a heading as written).

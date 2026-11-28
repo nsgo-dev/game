@@ -140,6 +140,7 @@ func ExampleServer_AddTool() {
 	// selection_get read
 	// sketch_read read
 	// sketch_reading edit
+	// skill_get read
 	// states_test run
 	// states_write edit
 	// tasks_control edit

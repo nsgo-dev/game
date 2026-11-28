@@ -223,3 +223,4 @@
 | `game/pkg/voxel` | 实验性 | [voxel](voxel.md) |
 | `game/pkg/world3d` | 实验性 | [world3d](world3d.md) |
 | `game/pkg/worldmap` | 实验性 | [worldmap](worldmap.md) |
+| `game/skills` | 实验性 | [智能体技能](agent-skill.md) |
