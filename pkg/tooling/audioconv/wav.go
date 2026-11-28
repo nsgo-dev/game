@@ -14,6 +14,12 @@ import (
 // or hostile header cannot exhaust memory before the stream is known to be short.
 const maxWAVChunkSize = 256 << 20
 
+// wavChunkPrealloc is the largest buffer readWAVChunk allocates before the stream has delivered any bytes.
+const wavChunkPrealloc = 64 << 10
+
+// wavExtensibleFmtSize is the size of a WAVE_FORMAT_EXTENSIBLE fmt chunk, the longest fmt chunk the decoder reads fields from.
+const wavExtensibleFmtSize = 40
+
 const (
 	waveFormatPCM        uint16 = 1
 	waveFormatIEEEFloat  uint16 = 3
@@ -92,8 +98,16 @@ func DecodeWAV(r io.Reader) (*Buffer, error) {
 			if size < 16 {
 				return nil, fmt.Errorf("audioconv: fmt chunk too small (%d bytes)", size)
 			}
-			chunk := make([]byte, size)
+			if size > maxWAVChunkSize {
+				return nil, fmt.Errorf("audioconv: fmt chunk of %d bytes exceeds the %d-byte limit", size, maxWAVChunkSize)
+			}
+			// The decoder reads at most the 40 bytes of a WAVE_FORMAT_EXTENSIBLE header; the rest of a longer chunk is skipped rather than buffered, since its size is untrusted.
+			var fmtBuf [wavExtensibleFmtSize]byte
+			chunk := fmtBuf[:min(size, wavExtensibleFmtSize)]
 			if _, err := io.ReadFull(r, chunk); err != nil {
+				return nil, fmt.Errorf("audioconv: fmt chunk: %w", err)
+			}
+			if _, err := io.CopyN(io.Discard, r, int64(size)-int64(len(chunk))); err != nil {
 				return nil, fmt.Errorf("audioconv: fmt chunk: %w", err)
 			}
 			audioFormat = binary.LittleEndian.Uint16(chunk[0:2])
@@ -102,7 +116,7 @@ func DecodeWAV(r io.Reader) (*Buffer, error) {
 			bitsPerSample = binary.LittleEndian.Uint16(chunk[14:16])
 
 			if audioFormat == waveFormatExtensible {
-				if len(chunk) < 40 {
+				if len(chunk) < wavExtensibleFmtSize {
 					return nil, fmt.Errorf("audioconv: extensible fmt chunk too small (%d bytes)", len(chunk))
 				}
 				var subGUID [16]byte
@@ -119,13 +133,12 @@ func DecodeWAV(r io.Reader) (*Buffer, error) {
 			hasFmt = true
 
 		case "data":
-			// The chunk size is untrusted: bound it before allocating so a
-			// corrupt header cannot ask for gigabytes of memory.
+			// The chunk size is untrusted: bound it, and grow the buffer with the bytes that arrive rather than allocating the declared size, so a short or hostile stream cannot ask for hundreds of megabytes it does not hold.
 			if size > maxWAVChunkSize {
 				return nil, fmt.Errorf("audioconv: data chunk of %d bytes exceeds the %d-byte limit", size, maxWAVChunkSize)
 			}
-			rawData = make([]byte, size)
-			if _, err := io.ReadFull(r, rawData); err != nil {
+			var err error
+			if rawData, err = readWAVChunk(r, size); err != nil {
 				return nil, fmt.Errorf("audioconv: data chunk: %w", err)
 			}
 			hasData = true
@@ -186,6 +199,27 @@ func DecodeWAV(r io.Reader) (*Buffer, error) {
 		out.Loop = &loop
 	}
 	return out, nil
+}
+
+// readWAVChunk reads a chunk body of the declared size. It starts with a buffer of at most wavChunkPrealloc bytes and doubles it, never past size, only once the stream has filled it, so memory follows the bytes that arrive rather than the size a header claims. It returns io.ErrUnexpectedEOF when the stream ends first.
+func readWAVChunk(r io.Reader, size uint32) ([]byte, error) {
+	buf := make([]byte, 0, min(size, wavChunkPrealloc))
+	for uint32(len(buf)) < size {
+		if len(buf) == cap(buf) {
+			grown := make([]byte, len(buf), min(uint64(size), 2*uint64(cap(buf))))
+			copy(grown, buf)
+			buf = grown
+		}
+		n, err := io.ReadFull(r, buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+		if err == io.EOF {
+			return nil, io.ErrUnexpectedEOF
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return buf, nil
 }
 
 func decodePCMSamples(raw []byte, audioFormat, bitsPerSample uint16, channels int) ([]float64, error) {
