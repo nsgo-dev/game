@@ -150,3 +150,7 @@ When a 3D scene file is built and rendered through [`scenemodel.Renderer`](scene
 - **Direct `render3d.LightRig` without clustering** (`Built.LightRig()` / `Built.LightRigNear`): up to `4` directional, `16` point, and `8` spot lights, keeping slot 0's shadow caster and picking the nearest lights to the camera when truncating.
 
 Run `game check` to flag scenes whose unshadowed local light count exceeds the 16-light fallback cap (with file, line, and dropped count).
+
+## Virtual camera director
+
+`scene3d.Director` selects the highest-priority `VirtualCamera` with deterministic name tie-breaking, blends transitions over a configured duration, supports `Solo`, and applies decaying impulses for camera shake. Call `Step(dt)` once per fixed update and assign the returned `Camera` to the renderer.

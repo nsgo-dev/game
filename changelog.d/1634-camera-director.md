@@ -1,0 +1,1 @@
+- Add a deterministic 3D virtual-camera director with priorities, blending, solo mode and impulses.

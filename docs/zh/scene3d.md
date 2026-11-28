@@ -150,3 +150,7 @@ decalRenderer.DrawWithCamera(pass, camBuf.BindGroup())
 - **非集群 `render3d.LightRig`**（`Built.LightRig()` / `Built.LightRigNear`）：最多 `4` 个方向光、`16` 个点光与 `8` 个聚光；超出时保留 0 号阴影光源并优先选取距相机最近的光源。
 
 运行 `game check` 会在场景无阴影局部光源数量超过 16 光源回退上限时报告文件、行号与被舍弃的光源数。
+
+## 虚拟摄像机导演
+
+`scene3d.Director` 按优先级选择 `VirtualCamera`，同级按名称确定性决胜，并按配置时长混合过渡。它支持 `Solo` 和衰减冲击抖动。每个固定更新调用一次 `Step(dt)`，将返回的 `Camera` 交给渲染器。
