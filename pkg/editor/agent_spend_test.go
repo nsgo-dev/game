@@ -2,6 +2,7 @@ package editor_test
 
 import (
 	"bytes"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -130,5 +131,21 @@ func TestRecordAgentSpendWeeklyCapAndRollover(t *testing.T) {
 	ed.RecordAgentRequest(1)
 	if got := ed.AgentUsage(); got.WeeklyRequests != 1 || got.EstimatedCostUSD != 0 || got.InputTokens != 0 {
 		t.Fatalf("a request in the new week kept last week's spend: %+v", got)
+	}
+}
+
+func TestAgentSpendInvalidCostAndDisabledCap(t *testing.T) {
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.RecordAgentSpend(10, 5, 4, 0.5)
+	ed.RecordAgentSpend(1, 1, 1, 0.25)
+	if got := ed.AgentUsage(); got.InputTokens != 11 || got.CachedInputTokens != 6 || got.OutputTokens != 5 || got.EstimatedCostUSD != 0.75 {
+		t.Fatalf("usage=%+v", got)
+	}
+	ed.RecordAgentSpend(99, 99, 99, math.NaN())
+	if ed.AgentSpendCapReached() {
+		t.Fatal("disabled weekly cap reported reached")
 	}
 }
