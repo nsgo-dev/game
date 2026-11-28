@@ -441,6 +441,18 @@ func TestEvaluateFailsOnMissingBenchmarkAndEmptyBaseline(t *testing.T) {
 	}
 }
 
+func TestEvaluateStrictFailsOnUnbaselinedBenchmark(t *testing.T) {
+	b := bench.NewBaseline()
+	b.Update(map[string]bench.Metrics{"BenchmarkKnown": {NsPerOp: 1}})
+	rep := bench.EvaluateStrict(b, map[string]bench.Metrics{
+		"BenchmarkKnown": {NsPerOp: 1},
+		"BenchmarkNew":   {NsPerOp: 1},
+	})
+	if rep.Passed() || rep.Failed() != 1 || len(rep.Results) != 2 {
+		t.Fatalf("strict report = %+v", rep)
+	}
+}
+
 func TestEvaluateFailsOnMetricsThatAreNotFiniteNumbers(t *testing.T) {
 	b := bench.NewBaseline()
 	b.Update(map[string]bench.Metrics{"BenchmarkDraw": {NsPerOp: 1000, BytesPerOp: 64, AllocsPerOp: 2}})

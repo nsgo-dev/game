@@ -28,6 +28,7 @@ func defineBench(a *app, fs *flag.FlagSet) func() error {
 	benchtime := fs.String("benchtime", "200ms", "run each benchmark for this `duration`, or Nx times, as go test's -benchtime")
 	count := fs.Int("count", 3, "run the benchmarks this many `times` and compare each one's median")
 	update := fs.Bool("update", false, "write the measured medians to the baseline instead of checking them")
+	strict := fs.Bool("strict", false, "fail when a measured benchmark has no baseline entry")
 	inPath := inFlag(fs, "", "read benchmark results from this `file` of go test -bench output instead of running the benchmarks")
 
 	return func() error {
@@ -114,6 +115,9 @@ func defineBench(a *app, fs *flag.FlagSet) func() error {
 			return fmt.Errorf("%s holds no benchmarks; record them with -update", *baselinePath)
 		}
 		rep := bench.Evaluate(b, measured)
+		if *strict {
+			rep = bench.EvaluateStrict(b, measured)
+		}
 		if *inPath == "" && onlyTimingRegressions(rep) {
 			fmt.Fprint(a.stdout, rep)
 			fmt.Fprintln(a.stdout, "game bench: retrying ns/op-only regressions once with unchanged B/op and allocs/op")

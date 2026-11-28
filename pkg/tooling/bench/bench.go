@@ -548,6 +548,18 @@ func Evaluate(b *Baseline, measured map[string]Metrics) Report {
 	return rep
 }
 
+// EvaluateStrict compares a run and treats every measured benchmark that is
+// absent from the baseline as a failure. It is useful in CI jobs where adding
+// a benchmark must include its baseline in the same change.
+func EvaluateStrict(b *Baseline, measured map[string]Metrics) Report {
+	rep := Evaluate(b, measured)
+	for _, name := range rep.New {
+		rep.Results = append(rep.Results, Result{Name: name, Missing: true, Measured: measured[name]})
+	}
+	slices.SortFunc(rep.Results, func(a, b Result) int { return strings.Compare(a.Name, b.Name) })
+	return rep
+}
+
 func deltaPct(base, got float64) float64 {
 	if base == 0 {
 		if got == 0 {
