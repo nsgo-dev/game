@@ -153,6 +153,7 @@ func TestAgentSkillValid(t *testing.T) {
 		"references/packages.md",
 		"references/cli-and-formats.md",
 		"references/mcp-tools.md",
+		"references/gates.md",
 	} {
 		if !strings.Contains(body, ref) {
 			t.Errorf("SKILL.md must reference %s", ref)

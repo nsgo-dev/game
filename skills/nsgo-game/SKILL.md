@@ -129,13 +129,13 @@ When testing or debugging a game over `nsgo mcp` (or headlessly via `nsgotest.St
    - Read recent logs and any recovered panic with `game_log_read` (pass `next_cursor` back as `since` on follow-up checks).
 5. **Inspect details & performance:** read specific component values with `game_entity_inspect` / `game_component_get`, check performance with `game_perf_readout`, and draw aligned debug overlays with `game_screenshot` (`bounds: true`, `collision_shapes: true`).
 6. **Reproduce & regress:** record sequences with `game_replay_record_start` / `game_replay_record_stop` to save editable YAML recordings, then replay them deterministically with `game_replay_play` or `go tool game replay`.
+7. **Gate delivery:** decide what blocks and how to report it with [references/gates.md](references/gates.md).
 
 ## References
-
-- [`references/gates.md`](references/gates.md) defines production tracks, P0/P1/P2 severity, fix-round limits, anti-reward-hacking rules, and checked versus unchecked reporting.
 
 Load on demand for exact APIs, flags, schemas, and tool arguments:
 
 - [references/packages.md](references/packages.md) — complete catalog of `pkg/*` packages grouped by stage and domain, with import paths and stability status.
 - [references/cli-and-formats.md](references/cli-and-formats.md) — `go tool game` subcommands, companion tools, YAML file format contract, schemas, and external tool formats.
 - [references/mcp-tools.md](references/mcp-tools.md) — full `game/mcp` tool reference, `mcp.Config` wiring, component/prefab/asset registration, and `nsgotest` verification patterns.
+- [references/gates.md](references/gates.md) — production gates: Fast and Full tracks, P0/P1/P2 severity, fix-round limits, anti-reward-hacking rules, and checked versus unchecked reporting.
