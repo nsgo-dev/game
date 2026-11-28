@@ -1421,3 +1421,7 @@ terrainMesh.Draw(pass)
 - **光照、阴影、雾效与 HDR**：`NewTerrainMaterialPipeline` 按选项编译 `TerrainMaterialWGSL`、`TerrainMaterialShadowWGSL`（`ShadowLayout`）、`TerrainMaterialCSMWGSL`（`CSMLayout`）或 `TerrainMaterialFogWGSL`（`FogLayout`），并支持配合 `HDRTarget` / `ToneMapPass` 的 `LinearOutput` 变体。
 - **动态更新与 CPU 参考**：调用 `UpdateUniforms` 可原地更新变换矩阵、高度混合对比度、三平面参数或各层因子与平铺比例而不重建纹理；调用 `UpdateSplatMaps` 可原地上传重新绘制的权重图；`EvaluateTerrainMaterial` 提供与 WGSL 着色器一致的纯 Go CPU 参考求值器。
 - **直接从 `*.terrain.yaml` 加载**：`TerrainMaterialFromDoc(fsys, doc)` 自动解码打包 RGBA `splatMaps` 或逐层灰度 `weightMap` PNG，解析可选的 `resource.Material` 材质资源及显式 PBR 覆盖项，并返回可直接交给 `NewGPUTerrainMaterial` 的已校验 `TerrainMaterial`；`MeshFromTerrainMesh` 可将 `world3d.TerrainMesh` 区块直接转换为 `render3d.Mesh`。
+
+## 持久化管线缓存
+
+设备创建后调用一次 `render3d.AttachPipelineCache(cx, dev)`。原生目标把编译产物保存在 `cx.CacheDir()/pipelines`；浏览器没有应用缓存目录，因此 Web 目标使用内存缓存。GPU 缓存根据着色器和管线描述符版本化，任一描述符变化都会创建新条目并保留无关条目。排查首次使用着色器造成的卡顿时，可以查看 `cache.CacheStats()`。

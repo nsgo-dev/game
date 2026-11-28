@@ -1421,3 +1421,7 @@ terrainMesh.Draw(pass)
 - **Lighting, shadows, fog, and HDR**: `NewTerrainMaterialPipeline` compiles `TerrainMaterialWGSL`, `TerrainMaterialShadowWGSL` (`ShadowLayout`), `TerrainMaterialCSMWGSL` (`CSMLayout`), or `TerrainMaterialFogWGSL` (`FogLayout`), plus `LinearOutput` variants for `HDRTarget` / `ToneMapPass`.
 - **Live updates & CPU reference**: call `UpdateUniforms` to tweak transforms, blend contrast, triplanar settings, or per-layer factors/tiling without reallocating textures, `UpdateSplatMaps` to upload repainted splat maps in place, and `EvaluateTerrainMaterial` as the pure-Go CPU reference matching the WGSL shader.
 - **Loading directly from `*.terrain.yaml`**: `TerrainMaterialFromDoc(fsys, doc)` decodes either packed RGBA `splatMaps` or per-layer grayscale `weightMap` PNGs, resolves optional `resource.Material` files alongside explicit PBR overrides, and validates a `TerrainMaterial` ready for `NewGPUTerrainMaterial`; `MeshFromTerrainMesh` converts `world3d.TerrainMesh` chunks directly into `render3d.Mesh` geometry.
+
+## Persistent pipeline cache
+
+Call `render3d.AttachPipelineCache(cx, dev)` once after the device is created. Native targets store compiled artifacts under `cx.CacheDir()/pipelines`; web targets use an in-memory cache because browsers have no app cache directory. The GPU cache is versioned by the shader and pipeline descriptors, so changing either creates a new entry while retaining unrelated entries. Inspect `cache.CacheStats()` when diagnosing first-use shader hitches.
