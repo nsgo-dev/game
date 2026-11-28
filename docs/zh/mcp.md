@@ -334,13 +334,13 @@ claude mcp add game-editor -- go tool game mcp
 
 | 工具 | 动作 | 参数 | 作用 |
 | --- | --- | --- | --- |
-| `scene_read` | read | `file`、`offset`、`limit`、`objects`（均可选） | 以从 1 开始编号的行读取项目中的场景、预制体、数据表或其他文本文件，或 `game.yaml`。编辑器对打开的场景或 `game.yaml` 有未保存的编辑、或待确认智能体回合在内存中暂存了改动时，该文件按编辑器当前持有的内容读取，回复会注明这一点并说明其行号与磁盘上的文件不同；否则，以及其他任何文件，都从磁盘读取，保留注释，行号与 `game_check` 报告的一致。不给 `file` 时读取打开的场景。路径必须相对于项目根目录，且不能离开项目。读取打开的场景并设置 `objects` 时，结构化结果会增加 `objects`：解析后场景中的每个对象，包括场景实例和基础场景带来的对象，每项给出 `origin`（`local`、`instanced` 或 `inherited`）、`sourceScene`（定义实例化或继承对象的场景文件，或本地对象所实例化的场景），以及实例化或继承对象的 `recordsIn`：覆盖写入的文件 `file`、存放该条目的 `overrides` 所属实例 `instance`（继承对象为空，其条目在场景自身的 `overrides` 中）和 `overridesKey`。对其他文件设置 `objects` 会被拒绝。 |
-| `scene_edit` | edit | `edits`（必填）、`file`、`label`、`why`（可选；每项编辑也可单独带 `why`） | 按顺序把编辑应用到打开的场景（或在智能体回合进行中，在内存中应用到项目中的任意场景或预制体），不写入磁盘。在活跃回合内，这些编辑归入同一个待确认回合，并把 `why` 说明记录到对应的派生变更上；在回合之外则记录为一条标签为 `label` 的普通撤销步骤。改动在保留并保存前一直不落盘。 |
+| `scene_read` | read | `file`、`offset`、`limit`、`objects`（均可选） | 以从 1 开始编号的行读取项目中的场景、预制体、数据表或其他文本文件，或 `game.yaml`。编辑器对打开的场景或 `game.yaml` 有未保存的编辑、或待确认智能体回合在内存中暂存了改动时，该文件按编辑器当前持有的内容读取，回复会注明这一点并说明其行号与磁盘上的文件不同；否则，以及其他任何文件，都从磁盘读取，保留注释，行号与 `game_check` 报告的一致。不给 `file` 时读取打开的场景。路径必须相对于项目根目录，且不能离开项目。读取打开的场景并设置 `objects` 时，结构化结果会增加 `objects`：解析后场景中的每个对象，包括场景实例和基础场景带来的对象，每项给出 `origin`（`local`、`instanced` 或 `inherited`）、`sourceScene`（定义实例化或继承对象的场景文件，或本地对象所实例化的场景），以及实例化或继承对象的 `recordsIn`：覆盖写入的文件 `file`、存放该条目的 `overrides` 所属实例 `instance`（继承对象为空，其条目在场景自身的 `overrides` 中）和 `overridesKey`。对其他文件设置 `objects` 会被拒绝。读取打开的场景时，结构化结果还包含 `version`，供 `scene_edit` 和 `object_set_field` 作为 `baseVersion` 传入（见[过期写入与重试](#过期写入与重试)）。 |
+| `scene_edit` | edit | `edits`（必填）、`file`、`label`、`why`、`baseVersion`、`requestId`（可选；每项编辑也可单独带 `why`） | 按顺序把编辑应用到打开的场景（或在智能体回合进行中，在内存中应用到项目中的任意场景或预制体），不写入磁盘。在活跃回合内，这些编辑归入同一个待确认回合，并把 `why` 说明记录到对应的派生变更上；在回合之外则记录为一条标签为 `label` 的普通撤销步骤。改动在保留并保存前一直不落盘。结构化结果包含场景的新 `version`。 |
 | `turn_start` | edit | `prompt`、`step`（可选） | 开启一个待确认智能体回合，使随后的 `scene_edit`、`object_set_field` 与 `file_edit` 跨文件编辑合并为同一个可审查回合，并在用户保留时成为单个撤销步骤。 |
 | `turn_end` | edit | `summary`、`step`（可选） | 将当前进行中的回合标记为待用户审查状态，附带可选的完成摘要（以及可选的进度步骤），并返回当前派生回合快照。 |
 | `turn_status` | read | 无 | 只读返回当前智能体回合的快照：状态（`working`、`pending`、`stopped`、`kept`、`reverted`）、请求提示词、进度步骤、摘要、每个文件的增删行数（`+added`/`−removed`）以及结构化派生的变更列表（含 `kind`、`title`、`detail`、`file`、从 1 开始的 `line`、`why` 与 `reverted`）。刻意不提供用于保留或还原回合的 MCP 工具，决定权始终在用户手中。 |
 | `file_edit` | edit | `file`（必填）、`yaml`（必填）、`why`、`label`（可选） | 在活跃智能体回合内校验并在内存中编辑 `game.yaml`、数据表（`data/*.yaml` / `*.table.yaml`）、动画片段（`*.anim.yaml` / `*.clip.yaml`）、预制体（`*.prefab.yaml`）或场景（`*.scene.yaml`），在用户保留并保存前不写入磁盘（强制校验符号链接包含性、“仅限本人”边界、拒绝 `.git/**` 与 2 MiB 单文件上限）。 |
-| `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、多选时的全部选中对象列表 `selectedIds`、文件浏览器中选中的文件、当前工具和视图模式。选中的对象带有 `edit`，即它的来源和对它的编辑记录在哪里，格式与 `scene_read` 在 `objects` 中列出的相同。 |
+| `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、多选时的全部选中对象列表 `selectedIds`、文件浏览器中选中的文件、当前工具和视图模式。选中的对象带有 `edit`，即它的来源和对它的编辑记录在哪里，格式与 `scene_read` 在 `objects` 中列出的相同。结构化结果还包含 `sceneVersion`，即写入工具作为 `baseVersion` 接受的打开场景版本。 |
 | `viewport_image` | read | `scale`（可选，0.25 到 4）、`viewport_overlays`（可选字符串数组） | 视口当前样子的 PNG：通过编辑器视图看到的场景，以及相机框、瓦片网格、选择框与视口叠加层，尺寸为视口的点尺寸乘以 `scale`。省略 `viewport_overlays` 时使用编辑器当前启用的叠加层集合；传入叠加层 ID（`collision_shapes`、`triggers`、`connections`、`patrol_paths`、`navigation`、`camera_bounds`、`labels` 或已启用的插件叠加层 ID）时仅覆盖本次截图，传 `[]` 则不绘制任何叠加层。叠加层文字（如连接箭头上的 `"pulled → open"`）会渲染到 PNG 中；不在内存中的图片会被略去并给出数量。 |
 | `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`，并包含编辑器中打开且未保存的文档），返回其中的可见问题，每条带文件、从 1 开始的行号、列号（可定位时）和消息。 |
 | `problem_propose_fix` | read | `problem`（必填）、`explanation`（必填）、`edit`（必填） | 在克隆场景上校验针对实时问题的修复建议，计算精确的 `-`/`+` YAML 差异，并在编辑器的 Agent 面板展示审查卡片（含应用修复、定位查看、忽略与提问）。绝不自动应用修复或修改任何文件——没有任何 MCP 工具会直接应用修复。 |
@@ -379,7 +379,7 @@ claude mcp add game-editor -- go tool game mcp
 | `tile_review_restore_region` | edit | `id` 或 `index` | 恢复当前瓦片审查中已还原的单个区域，并立即更新 2D 视口。 |
 | `tile_review_keep` | edit | 无 | 将当前瓦片审查中所有保留区域合并提交为 `History` 中的单个可撤销步骤，并关闭审查。 |
 | `tile_review_revert_all` | edit | 无 | 丢弃当前瓦片审查中的所有待确认改动，还原到审查前的瓦片地图并关闭审查。 |
-| `object_set_field` | edit | `field`、`value`（必填），`id`、`component`、`property`、`label`、`why`（可选） | 通过检查器自身的 `Editor` 方法设置对象 `id` 的单个检查器字段、组件字段（`component`）或自定义属性（`property: true`），在回合之外作为单个撤销步骤。省略 `id` 时见[编辑目标](#编辑目标)。 |
+| `object_set_field` | edit | `field`、`value`（必填），`id`、`component`、`property`、`label`、`why`、`baseVersion`、`requestId`（可选） | 通过检查器自身的 `Editor` 方法设置对象 `id` 的单个检查器字段、组件字段（`component`）或自定义属性（`property: true`），在回合之外作为单个撤销步骤。省略 `id` 时见[编辑目标](#编辑目标)。结构化结果包含场景的新 `version`。 |
 | `object_locate_yaml` | read | `id`、`open`（均可选） | 返回对象在打开场景中从 1 开始的行号及 YAML 片段，默认使用当前选中对象；`open: true` 还会通过 `Editor.OnOpenFileAtLine` 在对应行打开场景。 |
 | `object_copy_yaml` | read | `id`（可选） | 将当前场景中的对象（本地或解析后的继承/实例对象）序列化为规范 `sceneformat` YAML，复制到编辑器剪贴板并显示复制提示。 |
 | `object_paste_yaml` | edit | `yaml`、`layer`（可选） | 解析规范 `sceneformat` 对象 YAML（省略 `yaml` 时读取编辑器当前剪贴板，最大 4 MiB），分配全新的唯一 ID 并作为一个撤销步骤放置到 `layer`，结果以 `layer` 报告所放置的图层。省略 `layer` 时见[编辑目标](#编辑目标)。 |
@@ -452,6 +452,13 @@ claude mcp add game-editor -- go tool game mcp
 - 否则，返回修复建议为 `pass layer; scene_read lists the layers` 的 `EditError`，不做任何改动。绝不回退到选中对象所在的图层或激活图层。
 
 只读的 `object_locate_yaml`、`object_copy_yaml` 与 `object_find_usages` 仍默认使用选中对象，因为它们不会写错地方。
+
+#### 过期写入与重试
+
+智能体依据一段时间前读到的内容写入，客户端也可能重试一个没收到回复的调用。`scene_edit` 和 `object_set_field` 为此接受两个可选参数，不带它们的调用行为不变：
+
+- `baseVersion` 是 `scene_read`（`version`）、`selection_get`（`sceneVersion`）或上一次写入（`version`）报告的打开场景版本：按编辑器保存时的场景内容计算的短哈希，因此选择对象、平移或缩放视图不会改变它，而对场景的任何编辑都会。场景版本不同时，调用会被拒绝，返回问题以 `changed since you read it` 开头并写明当前版本的 `EditError`，且什么都不会应用：场景、撤销历史和文件都保持原样。请重新读取场景，再用新版本重试。`scene_edit` 的 `file` 指向打开场景以外的文件时不接受 `baseVersion`。
+- `requestId` 是客户端为一次写入选定的键。以相同 `requestId` 和完全相同的参数重复调用，会返回第一次调用的结果而不再次应用，即使此时其 `baseVersion` 已经过期；相同 `requestId` 搭配不同参数会被拒绝，第一次调用仍在执行时也会被拒绝。失败的调用不保留任何记录，修正后的调用可以沿用它的 `requestId`。服务器运行期间保留最近 256 次此类调用的结果。
 
 当编辑器的自动保存处于失败状态时（例如目标目录只读或磁盘已满），`editormcp` 返回的每次工具结果都会追加一条警告，说明当前更改尚未写入磁盘并附上失败原因（同时在 `_meta` 中附带 `nsgo.dev/editsNotOnDisk`、`nsgo.dev/saveError`、`nsgo.dev/saveWarning`，并在 `Result` / `AutomationResult` 中填充 `SaveWarning`），直到保存成功为止，避免智能体基于未落盘的编辑继续构建。
 

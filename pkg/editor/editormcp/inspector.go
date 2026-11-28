@@ -23,8 +23,8 @@ const objectSetFieldSchema = `{"type":"object","additionalProperties":false,"req
 	`"property":{"type":"boolean","description":"When true, edit a custom property key on the object"},` +
 	`"field":{"type":"string","description":"Object field name (e.g. x, y, rotation, scaleX, z, alpha, sprite, material, model, gridMap, particles, occluder, light, camera), component field name, or custom property key"},` +
 	`"value":{"description":"New field value"},` +
-	`"baseRevision":{"type":"integer","minimum":0,"description":"Revision returned by the preceding read; the edit is refused if the editor changed since then"},` +
-	`"requestId":{"type":"string","description":"Unique retry key; a request ID already applied is refused"},` +
+	`"baseVersion":{"type":"string","description":"The scene version the preceding scene_read, selection_get or write reported; when given, the call is refused and nothing applies if the scene changed since then"},` +
+	`"requestId":{"type":"string","maxLength":200,"description":"A retry key: a repeated call with the same requestId and identical arguments returns the first call's result without applying again; the same requestId with different arguments is refused"},` +
 	`"label":{"type":"string","description":"Optional undo step label"},` +
 	`"why":{"type":"string","description":"Optional reason for this edit, shown in turn review"}` +
 	`}}`
@@ -45,6 +45,8 @@ type ObjectFieldResult struct {
 	Revision  uint64 `json:"revision"`
 	// Change is the field's value before and after the edit, read back from the resolved scene.
 	Change FieldChange `json:"change"`
+	// Version is the open scene's version after the edit, which a following write passes as baseVersion.
+	Version string `json:"version"`
 }
 
 // FieldChange describes the value transition made by an edit tool.
@@ -100,15 +102,15 @@ func inspectorTools() []Tool {
 
 func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	var args struct {
-		ID           string          `json:"id"`
-		Component    string          `json:"component"`
-		Property     bool            `json:"property"`
-		Field        string          `json:"field"`
-		Value        json.RawMessage `json:"value"`
-		BaseRevision *uint64         `json:"baseRevision"`
-		RequestID    string          `json:"requestId"`
-		Label        string          `json:"label"`
-		Why          string          `json:"why"`
+		ID          string          `json:"id"`
+		Component   string          `json:"component"`
+		Property    bool            `json:"property"`
+		Field       string          `json:"field"`
+		Value       json.RawMessage `json:"value"`
+		BaseVersion *string         `json:"baseVersion"`
+		RequestID   string          `json:"requestId"`
+		Label       string          `json:"label"`
+		Why         string          `json:"why"`
 	}
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_set_field: %w", err)
@@ -119,12 +121,30 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	if args.Component != "" && args.Property {
 		return nil, errors.New("object_set_field: component and property cannot both be set")
 	}
+	replay, finishRequest, err := c.s.beginWriteRequest(ToolObjectSetField, args.RequestID, args)
+	if err != nil {
+		return nil, err
+	}
+	if replay != nil {
+		return replay, nil
+	}
+	var (
+		out       *Result
+		res       ObjectFieldResult
+		committed bool
+	)
+	defer func() {
+		if out == nil && committed {
+			// The edit applied but the reply did not: a retry must not apply it again.
+			out = &Result{Text: fmt.Sprintf("The call with requestId %q already applied its edit to %s; read the scene again for its current version.", args.RequestID, res.File), Structured: res}
+		}
+		finishRequest(out)
+	}()
 	resolved, err := c.resolveObjectTarget(ctx, nonEmpty(args.ID), true)
 	if err != nil {
 		return nil, err
 	}
 	targetID := resolved.ids[0]
-	committed := false
 	if !c.onEditor {
 		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, resolved.holdIDs())
 		if err != nil {
@@ -136,11 +156,7 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 			}
 		}()
 	}
-	var (
-		res          ObjectFieldResult
-		inTurn       bool
-		releaseWrite func()
-	)
+	var inTurn bool
 	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
 		name := sceneName(ed, root)
@@ -157,10 +173,8 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		if obj, _, _ := ed.FindObject(targetID); obj == nil {
 			return &EditError{File: name, Object: targetID, Field: args.Field, Problem: "the open scene has no object " + quote(targetID), Fix: "use an object ID present in the open scene"}
 		}
-		var guardErr error
-		releaseWrite, guardErr = c.beginWriteGuard(ed, ToolObjectSetField, args.RequestID, args.BaseRevision, name)
-		if guardErr != nil {
-			return guardErr
+		if err := checkBaseVersion(ed, args.BaseVersion, name); err != nil {
+			return err
 		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
@@ -259,9 +273,6 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		return nil
 	})
 	if err != nil {
-		if releaseWrite != nil {
-			releaseWrite()
-		}
 		return nil, err
 	}
 	committed = true
@@ -273,7 +284,9 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 			res.Undo = ed.History.UndoLabel()
 		}
 		res.Revision = ed.Revision()
-		return nil
+		version, verr := sceneVersion(ed)
+		res.Version = version
+		return verr
 	}); err != nil {
 		return nil, err
 	}
@@ -287,10 +300,11 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	if inTurn {
 		text = fmt.Sprintf("Recorded update to %s in %s in the active agent turn; it stays unsaved until kept.", target, res.File)
 	}
-	return &Result{
+	out = &Result{
 		Text:       text,
 		Structured: res,
-	}, nil
+	}
+	return out, nil
 }
 
 func objectLocateYAML(ctx context.Context, c *Call) (*Result, error) {
