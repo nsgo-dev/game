@@ -62,7 +62,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'tutorial-09-ship',
     ],
   },
-  { key: 'comingFrom', slugs: ['from-godot', 'from-ebitengine', 'from-unity', 'from-unreal'] },
+  { key: 'comingFrom', slugs: ['from-godot', 'from-ebitengine', 'from-unity', 'from-unreal', 'from-gamemaker', 'from-construct', 'from-rpgmaker'] },
   {
     key: 'core2d',
     slugs: [

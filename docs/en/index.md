@@ -123,7 +123,7 @@ For a single-page summary of the core APIs, see [Packages](packages.md). Every l
 
 ## Coming from another engine
 
-Each guide maps that engine's scenes, nodes, resources, signals, input maps, physics and export to the packages above: [Godot](from-godot.md), [Ebitengine](from-ebitengine.md), [Unity](from-unity.md) and [Unreal Engine](from-unreal.md).
+Each guide maps that engine's scenes, nodes, resources, signals, input maps, physics and export to the packages above: [Godot](from-godot.md), [Ebitengine](from-ebitengine.md), [Unity](from-unity.md) and [Unreal Engine](from-unreal.md). For 2D tools, [GameMaker](from-gamemaker.md), [Construct](from-construct.md) and [RPG Maker](from-rpgmaker.md) map rooms, layouts, event sheets, behaviors and the RPG Maker database the same way.
 
 ## Install
 
