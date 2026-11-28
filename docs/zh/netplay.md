@@ -391,3 +391,9 @@ go tool game net stats session.capture.jsonl
 ### 实时网络调试浮层
 
 如需在游戏运行时以零每帧分配的方式查看实时流量，可用 `gamedebug.NewNetMonitor` 包装传输并将 `mon.Snapshot` 传入 `gamedebug.Options.Net`。浮层面板会借助复用的 `wire` 编解码缓冲区展示各通道与各对等端的字节率与包率、`InboxStats` 计数器以及最近解码的若干消息类型。详见 [gamedebug](gamedebug.md#网络检查面板)。
+
+### 拥塞节流与捎带确认
+
+`netplay.Pacer` 为可靠端点提供确定性的字节速率边界。它将不超过 MTU 的消息排队，把相邻可靠负载合并到同一数据报，并按当前速率分散发送。`Acked` 根据确认字节增加速率，`Lost` 在 `CongestionConfig.RateMin` 与 `RateMax` 范围内执行乘法减小。`QueueBytes` 和 `DrainTime` 暴露积压压力，供链路统计使用。
+
+`AckTracker` 记录可靠序号到达情况并生成 `AckHeader`，其中包含下一个序号和 64 位选择确认掩码，可捎带在每个出站数据报中。是否发送独立确认由传输层决定。该组件不创建时钟或协程，`Poll` 接受调用方固定步长提供的 `time.Time`。

@@ -391,3 +391,9 @@ go tool game net stats session.capture.jsonl
 ### Live network debug overlay
 
 For live in-game inspection without per-frame allocations, wrap your transport with `gamedebug.NewNetMonitor` and pass `mon.Snapshot` to `gamedebug.Options.Net`. The overlay panel displays bytes/s and packets/s per channel and per peer, `InboxStats` counters (queued, dropped, refused, warnings), and the most recent decoded message types using reused `wire` codec buffers. See [gamedebug](gamedebug.md#network-inspector).
+
+### Congestion pacing and piggyback acknowledgements
+
+`netplay.Pacer` provides a deterministic byte-rate boundary for reliable endpoint implementations. It queues bounded-MTU messages, coalesces adjacent reliable payloads into one datagram and spreads packets according to the current rate. `Acked` adds bytes to the rate and `Lost` applies multiplicative decrease within `CongestionConfig.RateMin` and `RateMax`. `QueueBytes` and `DrainTime` expose backlog pressure for link stats.
+
+`AckTracker` records reliable sequence arrivals and emits `AckHeader`, a next-sequence plus 64-bit selective mask suitable for piggybacking on every outgoing data datagram. Standalone acknowledgements remain a transport policy. The component has no clock or goroutine and accepts the caller's fixed-step `time.Time` in `Poll`.
