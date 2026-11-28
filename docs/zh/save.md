@@ -111,3 +111,6 @@ err := store.LoadChecked("slot1", &snap, func() error {
 - **统一范围与规范名称**：`CaptionScale` 裁剪在 `[MinCaptionScale, MaxCaptionScale]`（`0.5`–`3.0`），`GameSpeed` 裁剪在 `[MinGameSpeed, MaxGameSpeed]`（`0.25`–`2.0`），`ScreenShake` 裁剪在 `[0, 1]`。`NormalizeColorBlindMode` 同时接受 `"none"` 与 `"normal"`（统一规范为 `"none"`），以及 `"protanopia"`、`"deuteranopia"`、`"tritanopia"` 和 `"high-contrast"`（含 `"highcontrast"` / `"high_contrast"`）。
 - **辅助字段与旧文件迁移**：提供 `Captions`、`SFXCaptions`、`ReduceFlashes`、`Invincibility`、`AutoAim` 与 `HoldToToggle` 强类型字段；加载包含旧版 `Custom["reduce_flashes"]` 的设置文件时会自动迁移到 `Accessibility.ReduceFlashes`。
 - **跟随系统默认值**：未显式覆盖时，`EffectiveReduceMotion(env)`、`EffectiveHighContrast(env)` 与 `EffectiveCaptionScale(env)` 会跟随 `env.ReduceMotion()`、`env.IncreaseContrast()` 和 `env.FontScale()`；调用 `SetReduceMotion`、`SetHighContrast` 或 `SetCaptionScale` 可记录显式覆盖值（包括 `false` 或 `1.0`），调用对应的 `Clear*` 方法可恢复跟随系统。
+## 控制与相机设置
+
+`save.Settings` 包含经过验证的 `ControlSettings` 和 `CameraSettings`。旧设置文件加载时会为这些区块使用默认值。相机控制器可通过 `SettingsTargets.ApplyCamera` 使用视野、镜头摆动和运动模糊偏好。

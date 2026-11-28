@@ -37,6 +37,9 @@ func TestDefaultSettingsAndValidate(t *testing.T) {
 	if d.Accessibility.CaptionScale != 1.0 || d.Accessibility.ScreenShake != 1.0 || d.Accessibility.GameSpeed != 1.0 || d.Accessibility.ColorBlindMode != "none" {
 		t.Fatalf("default accessibility = %+v", d.Accessibility)
 	}
+	if d.Controls.StickDeadZone != 0.15 || d.Controls.Vibration != 1 || d.Camera.FieldOfView != 90 {
+		t.Fatalf("default controls/camera = %+v/%+v", d.Controls, d.Camera)
+	}
 
 	// Out-of-range, NaN, Inf, and whitespace values are cleanly clamped/normalized.
 	s := save.Settings{
@@ -115,6 +118,33 @@ func TestDefaultSettingsAndValidate(t *testing.T) {
 	hi.Validate()
 	if hi.Audio.Master != 1.0 || hi.Accessibility.CaptionScale != 0.5 || hi.Accessibility.ScreenShake != 1.0 || hi.Accessibility.GameSpeed != 2.0 {
 		t.Fatalf("clamped bounds = %+v", hi)
+	}
+}
+
+func TestControlAndCameraSettingsRoundTripAndLegacyDefaults(t *testing.T) {
+	s := save.DefaultSettings()
+	s.Controls = save.ControlSettings{MouseSensitivity: 2, StickSensitivity: 0.5, InvertY: true, Vibration: 0.25}
+	s.Camera = save.CameraSettings{FieldOfView: 110, CameraBob: 0.2, MotionBlur: true}
+	s.Validate()
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got save.Settings = save.DefaultSettings()
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	got.Validate()
+	if got.Controls != s.Controls || got.Camera != s.Camera {
+		t.Fatalf("round trip controls/camera = %+v/%+v, want %+v/%+v", got.Controls, got.Camera, s.Controls, s.Camera)
+	}
+	legacy := save.DefaultSettings()
+	if err := json.Unmarshal([]byte(`{"audio":{"muted":true}}`), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Validate()
+	if legacy.Controls.StickDeadZone != 0.15 || legacy.Camera.FieldOfView != 90 {
+		t.Fatalf("legacy defaults = %+v/%+v", legacy.Controls, legacy.Camera)
 	}
 }
 

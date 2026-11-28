@@ -486,3 +486,6 @@ _ = found
 Explicit unbindings made with `Unbind`, `UnbindAxis`, `UnbindMotionAxis`, `UnbindPointerAxis` or `UnbindGamepadAxis` (or `Bind` with no inputs) are written by `Save` (`[{"kind":"none"}]` for an action, `{}` for an opposite-action axis, and `{"axis":"none"}` for a motion, pointer or gamepad axis), so `Load` keeps them unbound rather than restoring the default. Call `LoadReplace` instead when you want to replace all bindings wholesale with the saved snapshot and drop any binding absent from it.
 
 When `key` is absent, both `Load` and `LoadReplace` return `(false, nil)` and leave existing default bindings intact. If the stored JSON is invalid, has a field they do not know or uses an unknown format, they leave bindings untouched and return `(false, err)`.
+## Player control preferences
+
+Persisted `save.ControlSettings` values describe look sensitivity per device, axis inversion, stick dead zones, trigger thresholds, and vibration strength. Call `input.ApplyControlSettings` after loading settings to update existing gamepad axis bindings. `input.Haptics.SetVibrationScale` applies the vibration preference to rumble output.
