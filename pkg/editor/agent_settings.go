@@ -476,6 +476,13 @@ func (u AgentUsageStats) KeptPercent() (int, bool) {
 type AgentSettings struct {
 	// BuiltInProvider names the built-in API connection configured in the system keychain (for example "Anthropic API"); never stores an API key.
 	BuiltInProvider string `yaml:"builtInProvider,omitempty"`
+	// BuiltInFormat selects the built-in endpoint protocol: anthropic or openai.
+	BuiltInFormat string `yaml:"builtInFormat,omitempty"`
+	// BuiltInEndpoint overrides the built-in endpoint. HTTPS is required except for loopback HTTP.
+	BuiltInEndpoint string `yaml:"builtInEndpoint,omitempty"`
+	// BuiltInModel and BuiltInFastModel override the default model IDs for the two built-in routes.
+	BuiltInModel     string `yaml:"builtInModel,omitempty"`
+	BuiltInFastModel string `yaml:"builtInFastModel,omitempty"`
 	// Routes maps task keys ("scene_edits", "playtest_analysis", "problems_fixes", "ask_in_place", "art_and_sound") to preferred model labels.
 	Routes map[string]string `yaml:"routes,omitempty"`
 	// Tools overrides per-tool MCP enabled state keyed by tool name (for example "game_delete_file": false).
@@ -599,6 +606,17 @@ func validateAgentSettings(a *AgentSettings) error {
 	if a == nil {
 		return nil
 	}
+	if a.BuiltInFormat != "" && a.BuiltInFormat != "anthropic" && a.BuiltInFormat != "openai" {
+		return loaderr.Errorf("agent.builtInFormat", "choose anthropic or openai", "editor: invalid built-in agent format %q", a.BuiltInFormat)
+	}
+	if hasControlChars(a.BuiltInEndpoint) || hasControlChars(a.BuiltInModel) || hasControlChars(a.BuiltInFastModel) {
+		return loaderr.Errorf("agent", "remove control characters from built-in agent settings", "editor: invalid built-in agent setting")
+	}
+	if strings.TrimSpace(a.BuiltInEndpoint) != "" {
+		if _, err := validateAndResolveBuiltInEndpoint(a.BuiltInEndpoint); err != nil {
+			return loaderr.Errorf("agent.builtInEndpoint", "use an https URL or loopback http URL", "editor: invalid built-in endpoint: %v", err)
+		}
+	}
 	if hasControlChars(a.BuiltInProvider) {
 		return loaderr.Errorf("agent.builtInProvider", "use a plain provider name without control characters", "editor: invalid agent.builtInProvider")
 	}
@@ -711,6 +729,10 @@ func cloneAgentSettings(a *AgentSettings) *AgentSettings {
 	}
 	out := &AgentSettings{
 		BuiltInProvider:      a.BuiltInProvider,
+		BuiltInFormat:        a.BuiltInFormat,
+		BuiltInEndpoint:      a.BuiltInEndpoint,
+		BuiltInModel:         a.BuiltInModel,
+		BuiltInFastModel:     a.BuiltInFastModel,
 		WeeklySpendLimitUSD:  cloneFloat64Ptr(a.WeeklySpendLimitUSD),
 		RequestSpendLimitUSD: cloneFloat64Ptr(a.RequestSpendLimitUSD),
 		ToolCallLimit:        cloneIntPtr(a.ToolCallLimit),
@@ -780,6 +802,10 @@ func cloneAgentSettings(a *AgentSettings) *AgentSettings {
 		})
 	}
 	if out.BuiltInProvider == "" &&
+		out.BuiltInFormat == "" &&
+		out.BuiltInEndpoint == "" &&
+		out.BuiltInModel == "" &&
+		out.BuiltInFastModel == "" &&
 		len(out.Routes) == 0 &&
 		len(out.Tools) == 0 &&
 		len(out.MCPServers) == 0 &&

@@ -21,6 +21,10 @@ import (
 )
 
 const (
+	// BuiltInFormatAnthropic selects Anthropic Messages requests.
+	BuiltInFormatAnthropic = "anthropic"
+	// BuiltInFormatOpenAI selects OpenAI-compatible Chat Completions requests.
+	BuiltInFormatOpenAI = "openai"
 	// AgentAPIKeySecretAccount is the account name under NSGo's core.Secrets where the built-in agent's API key is stored.
 	// It is never written to project files, EditorSettings YAML, or logs.
 	AgentAPIKeySecretAccount = "agent.anthropic.api_key"
@@ -351,10 +355,38 @@ func (e *Editor) agentRouteDisplayLabel(route AgentModelRoute) string {
 
 // AgentBuiltInModelForRoute returns the Anthropic model ID for route.
 func (e *Editor) AgentBuiltInModelForRoute(route AgentModelRoute) string {
+	if e != nil && e.settings.Agent != nil {
+		if route == AgentRouteBuiltInFast && strings.TrimSpace(e.settings.Agent.BuiltInFastModel) != "" {
+			return strings.TrimSpace(e.settings.Agent.BuiltInFastModel)
+		}
+		if route != AgentRouteBuiltInFast && strings.TrimSpace(e.settings.Agent.BuiltInModel) != "" {
+			return strings.TrimSpace(e.settings.Agent.BuiltInModel)
+		}
+	}
 	if route == AgentRouteBuiltInFast {
 		return DefaultBuiltInFastModel
 	}
 	return DefaultBuiltInModel
+}
+
+// AgentBuiltInEndpointForSettings returns the configured endpoint, falling back
+// to the editor field and then the Anthropic default.
+func (e *Editor) AgentBuiltInEndpointForSettings() string {
+	if e != nil && e.settings.Agent != nil && strings.TrimSpace(e.settings.Agent.BuiltInEndpoint) != "" {
+		return strings.TrimSpace(e.settings.Agent.BuiltInEndpoint)
+	}
+	if e != nil && strings.TrimSpace(e.BuiltInAgentEndpoint) != "" {
+		return strings.TrimSpace(e.BuiltInAgentEndpoint)
+	}
+	return DefaultBuiltInAgentEndpoint
+}
+
+// AgentBuiltInFormatForSettings returns the configured protocol, defaulting to Anthropic Messages.
+func (e *Editor) AgentBuiltInFormatForSettings() string {
+	if e != nil && e.settings.Agent != nil && strings.TrimSpace(e.settings.Agent.BuiltInFormat) != "" {
+		return strings.TrimSpace(e.settings.Agent.BuiltInFormat)
+	}
+	return BuiltInFormatAnthropic
 }
 
 func nextWeeklyReset(now time.Time) time.Time {
