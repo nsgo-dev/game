@@ -14,6 +14,19 @@ A task may declare `family` as `create`, `editor`, `debug`, `3d`, `data`, `code`
 
 `editor-workflow` asks for the same menu as `add-menu` and is graded by the same rubric, with a prompt that directs the agent to inspect scenes and layers before editing, edit through `scene_edit` and validate with `game_check`.
 
-## Trials
+## Repeated trials
 
-Run `go run ./tools/agenteval -mode=reference -trials 3` to repeat every task in a fresh workspace. JSON reports include `trials`, `pass_rate`, `mean_score`, and `stddev` for each task.
+A live agent does not give the same result on every run, so one run per task can turn normal variance into a pass or a failure. `-trials N` (default 1) runs every selected task N times, each in a freshly staged workspace, so no trial sees another's edits or caches:
+
+```sh
+go run ./tools/agenteval -mode=agent -trials 3 -out agent-eval-agent-report.json
+```
+
+Each task in the JSON report then carries:
+
+- `trials`: the number of trials run.
+- `pass_rate`: the fraction of trials that reached the task's passing score.
+- `mean_score`: the mean score over the trials; `score` is this value rounded.
+- `stddev`: the population standard deviation of the scores.
+
+A task passes only when every trial passes. Its `criteria`, `agent_output` and `agent_error` come from the first failing trial, or from the first trial when all pass, and `duration_ms`, `agent_turns`, `agent_tool_calls` and the token counts are summed over every trial. With more than one trial the Markdown summary prints these statistics above each task's criterion breakdown.

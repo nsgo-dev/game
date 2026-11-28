@@ -55,34 +55,52 @@ type SuiteReport struct {
 	AverageScore float64      `json:"average_score"`
 	Passed       bool         `json:"passed"`
 	Tasks        []TaskReport `json:"tasks"`
-	CommitSHA    string       `json:"commit_sha,omitempty"`
-	ContextHash  string       `json:"context_hash,omitempty"`
 }
 
-// AggregateTaskReports combines repeated independent trials for one task.
+// AggregateTaskReports combines repeated independent trials of one task into one report. The criteria, agent output and agent error come from the first failing trial (or the first trial when all pass), so a failed task shows the evidence of a failure; duration, turns, tool calls and tokens are summed over every trial. The task passes only when every trial passed.
 func AggregateTaskReports(trials []TaskReport) TaskReport {
 	if len(trials) == 0 {
 		return TaskReport{}
 	}
 	out := trials[0]
+	for _, t := range trials {
+		if !t.Passed {
+			out = t
+			break
+		}
+	}
 	out.Trials = len(trials)
+	out.DurationMS = 0
+	out.AgentTurns = 0
+	out.AgentToolCalls = 0
+	out.AgentPromptTokens = 0
+	out.AgentCompletionTokens = 0
 	var sum, pass float64
 	for _, t := range trials {
 		sum += float64(t.Score)
 		if t.Passed {
 			pass++
 		}
+		if t.AgentTimedOut {
+			out.AgentTimedOut = true
+		}
+		out.DurationMS += t.DurationMS
+		out.AgentTurns += t.AgentTurns
+		out.AgentToolCalls += t.AgentToolCalls
+		out.AgentPromptTokens += t.AgentPromptTokens
+		out.AgentCompletionTokens += t.AgentCompletionTokens
 	}
-	out.MeanScore = sum / float64(len(trials))
-	out.PassRate = pass / float64(len(trials))
+	n := float64(len(trials))
+	out.MeanScore = sum / n
+	out.PassRate = pass / n
 	var variance float64
 	for _, t := range trials {
 		d := float64(t.Score) - out.MeanScore
 		variance += d * d
 	}
-	out.StdDev = math.Sqrt(variance / float64(len(trials)))
+	out.StdDev = math.Sqrt(variance / n)
 	out.Score = int(math.Round(out.MeanScore))
-	out.Passed = out.PassRate >= 1
+	out.Passed = pass == n
 	return out
 }
 
@@ -199,6 +217,9 @@ func (r SuiteReport) RenderMarkdown() string {
 	b.WriteString("\n### Criterion Breakdown\n")
 	for _, t := range r.Tasks {
 		fmt.Fprintf(&b, "\n#### `%s` — %d/%d\n\n", t.ID, t.Score, t.MaxScore)
+		if t.Trials > 1 {
+			fmt.Fprintf(&b, "%d trials: pass rate %.0f%%, mean score %.1f, standard deviation %.1f. The criteria below are from the first failing trial, or the first trial when all passed.\n\n", t.Trials, t.PassRate*100, t.MeanScore, t.StdDev)
+		}
 		if t.AgentError != "" {
 			fmt.Fprintf(&b, "> Agent error: %s\n\n", mdCell(t.AgentError))
 		}
