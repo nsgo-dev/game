@@ -61,6 +61,9 @@ var (
 	// ErrBuiltInEndpointInsecure is returned when BuiltInAgentEndpoint is not an https:// URL (or loopback http:// URL for local testing).
 	ErrBuiltInEndpointInsecure = errors.New("editor: built-in agent endpoint must use https:// (or loopback http://)")
 
+	// ErrBuiltInFormatUnsupported is returned when agent.builtInFormat names a protocol the built-in runner cannot speak yet (currently openai); the runner refuses instead of sending Anthropic Messages requests to an OpenAI-compatible server.
+	ErrBuiltInFormatUnsupported = errors.New("editor: built-in agent format is not supported yet")
+
 	// errBuiltInNonRetryable marks client/protocol errors (oversized body, invalid JSON) that must not be retried.
 	errBuiltInNonRetryable = errors.New("non-retryable model error")
 )
@@ -353,7 +356,7 @@ func (e *Editor) agentRouteDisplayLabel(route AgentModelRoute) string {
 	}
 }
 
-// AgentBuiltInModelForRoute returns the Anthropic model ID for route.
+// AgentBuiltInModelForRoute returns the model ID for route: agent.builtInModel or agent.builtInFastModel from editor settings when set, otherwise DefaultBuiltInModel or DefaultBuiltInFastModel.
 func (e *Editor) AgentBuiltInModelForRoute(route AgentModelRoute) string {
 	if e != nil && e.settings.Agent != nil {
 		if route == AgentRouteBuiltInFast && strings.TrimSpace(e.settings.Agent.BuiltInFastModel) != "" {
@@ -369,8 +372,7 @@ func (e *Editor) AgentBuiltInModelForRoute(route AgentModelRoute) string {
 	return DefaultBuiltInModel
 }
 
-// AgentBuiltInEndpointForSettings returns the configured endpoint, falling back
-// to the editor field and then the Anthropic default.
+// AgentBuiltInEndpointForSettings returns agent.builtInEndpoint from editor settings when set, falling back to Editor.BuiltInAgentEndpoint and then DefaultBuiltInAgentEndpoint.
 func (e *Editor) AgentBuiltInEndpointForSettings() string {
 	if e != nil && e.settings.Agent != nil && strings.TrimSpace(e.settings.Agent.BuiltInEndpoint) != "" {
 		return strings.TrimSpace(e.settings.Agent.BuiltInEndpoint)
@@ -910,11 +912,10 @@ type builtInAgentRunner struct {
 }
 
 func (e *Editor) newBuiltInAgentRunner() (*builtInAgentRunner, error) {
-	rawEndpoint := strings.TrimSpace(e.BuiltInAgentEndpoint)
-	if rawEndpoint == "" {
-		rawEndpoint = DefaultBuiltInAgentEndpoint
+	if format := e.AgentBuiltInFormatForSettings(); format != BuiltInFormatAnthropic {
+		return nil, fmt.Errorf("%w: %s", ErrBuiltInFormatUnsupported, format)
 	}
-	endpoint, err := validateAndResolveBuiltInEndpoint(rawEndpoint)
+	endpoint, err := validateAndResolveBuiltInEndpoint(e.AgentBuiltInEndpointForSettings())
 	if err != nil {
 		return nil, err
 	}

@@ -1323,11 +1323,7 @@ func (e *Editor) connectStatusForAPIKey(key string) FirstRunConnectStatus {
 // defaultValidateAPIKey verifies key by sending one minimal request (max_tokens: 1 on the fast model)
 // to the built-in agent's configured endpoint.
 func (e *Editor) defaultValidateAPIKey(ctx context.Context, key string) FirstRunAPIKeyStatus {
-	rawEndpoint := strings.TrimSpace(e.BuiltInAgentEndpoint)
-	if rawEndpoint == "" {
-		rawEndpoint = DefaultBuiltInAgentEndpoint
-	}
-	endpoint, err := validateAndResolveBuiltInEndpoint(rawEndpoint)
+	endpoint, err := validateAndResolveBuiltInEndpoint(e.AgentBuiltInEndpointForSettings())
 	if err != nil {
 		return FirstRunAPIKeyNotAccepted
 	}
@@ -1339,7 +1335,7 @@ func (e *Editor) defaultValidateAPIKey(ctx context.Context, key string) FirstRun
 		}
 	}
 	payload := anthropicRequest{
-		Model:     DefaultBuiltInFastModel,
+		Model:     e.AgentBuiltInModelForRoute(AgentRouteBuiltInFast),
 		MaxTokens: 1,
 		Messages: []anthropicMessage{
 			{Role: "user", Content: "ping"},
