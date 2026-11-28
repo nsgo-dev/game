@@ -131,6 +131,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/online/gameserver` | Experimental | Headless fixed-step `Runner` for dedicated game servers with multiple match loops |
 | `game/pkg/online/liveops` | Experimental | Cloud sync interfaces (`CloudSync`), conflict handling and liveops helpers |
 | `game/pkg/online/liveops/crashreport` | Experimental | NSGo-free crash report JSON schema (`CrashReport`, `StepRecord`) shared by `liveops` and `server` |
+| `game/pkg/online/storeverify/wechatpay` | Experimental | NSGo-free server side of WeChat mini game payments: signed orders and idempotent delivery notifications |
 | `game/pkg/online/accounts` | Experimental | Self-hosted player accounts, guest upgrades, OAuth/email, argon2id passwords |
 | `game/cmd/accountsd` | Experimental | Self-hosted accounts daemon |
 | `game/pkg/online/accounts/authtoken` | Experimental | Ed25519 account tokens verified offline by game servers |

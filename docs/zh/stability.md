@@ -137,6 +137,7 @@
 | `game/pkg/online/netplay` | 实验性 | [netplay](netplay.md) |
 | `game/pkg/online/netplay/wire` | 实验性 | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | 实验性 | [presence](presence.md) |
+| `game/pkg/online/storeverify/wechatpay` | 实验性 | [liveops](liveops.md) |
 | `game/pkg/online/wsclient` | 实验性 | [wsclient](wsclient.md) |
 | `game/pkg/particles` | 实验性 | [particles](particles.md) |
 | `game/pkg/pathfind` | 稳定 | [pathfind](pathfind.md) |

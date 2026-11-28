@@ -59,6 +59,7 @@ var notJSONFormats = map[string]string{
 	"mcp":                             "decodes JSON arguments and results of MCP automation tool calls, which are RPC payloads on the wire",
 	"physics3d":                       "decodes a ConvexHull's geometry inside WorldSnapshot, an in-memory/JSON world snapshot for Save/Restore and rollback netcode rather than a standalone file format, as physics3d.SnapshotVersion explains",
 	"online/presence":                 "decodes JSON frames of Discord's local IPC protocol, which are RPC messages on the wire",
+	"online/storeverify/wechatpay":    "decodes the Payload of WeChat's goods delivery pushes, which is data on the wire",
 	"rooms":                           "reads LDtk projects, the format of the tilemap#ldtk entry",
 	"tooling/assetcheck":              "scans other formats' JSON documents for asset references",
 	"tooling/refs":                    "scans other formats' JSON documents for file references",

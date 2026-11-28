@@ -225,6 +225,15 @@ showNoAds := !shop.Owned("com.example.noads")
 
 要在 StoreKit Testing 下手动验证恢复购买：在 iOS 应用的 Xcode scheme 中加入包含一个非消耗型商品的 StoreKit 配置文件，以 `apple.purchases: true` 构建，在模拟器中购买该商品，删除并重新安装应用，然后按下游戏的“恢复购买”按钮，`Owned` 会再次报告拥有该商品。NSGo v0.3.0 在 Android 上没有商店（Google Play Billing 等待 [nsgo#1369](https://github.com/nsgo-dev/nsgo/issues/1369)）。
 
+### 微信小游戏支付
+
+微信小游戏通过虚拟支付（`wx.requestMidasPaymentGameItem`）出售道具，`Purchases` 目前还不驱动它：平台要求订单由游戏的 AppKey 签名，而 AppKey 绝不能交给客户端；发货也由平台调用游戏的服务器完成，而不是客户端。`github.com/nsgo-dev/game/pkg/online/storeverify/wechatpay` 就是这部分服务端，不依赖 NSGo：
+
+- `SignOrder(appKey, sessionKey, Order)` 返回 `signData` JSON、它的 `paySig`（以 AppKey 对 `requestMidasPaymentGameItem&` + `signData` 做 HMAC-SHA256）以及用户态 `signature`（以登录换取的玩家会话密钥做 HMAC-SHA256）。客户端把这三者原样交给平台。`GoodsPrice` 以分为单位；`OutTradeNo` 最多 32 个字母、数字或 `_-|*@`，且不能以 `_` 开头。
+- `Handler.Handle(ctx, event, payload, payEventSig)` 校验 `minigame_game_pay_goods_deliver_notify` 推送：事件名、`PayEventSig`（以 AppKey 对事件名 + `&` + `Payload` 做 HMAC-SHA256），以及负载的 `Env` 与处理器的 `Env` 一致，因此沙箱购买永远不会在正式环境发货。之后它对每个 `OutTradeNo` 只调用一次 `Deliver`，并把订单记录到 `DeliveryStore`；平台的重试（包括同一进程中首次发货尚未结束时到达的重试）返回 nil 而不再发货；`Deliver` 返回错误时不记录订单，下一次重试会重新发货。`Handle` 返回 nil 时应答 `{"ErrCode":0,"ErrMsg":"Success"}`，否则应答非零的 `ErrCode`。
+
+`MemoryStore` 在重启后会忘记已发货的订单；不使用持久存储的服务器，以及共用同一存储的多个进程，必须让 `Deliver` 自身对 `OutTradeNo` 幂等，例如在记录订单的同一个数据库事务中发放道具。HTTP 端点仍由游戏的服务器负责：推送 URL 的 token 校验和安全模式的 AES 解密尚未纳入本包，SQLite 与 Postgres 存储、用于对账的订单查询、客户端的 `Purchases` 模式以及未成年人保护错误 `-15009` 的映射也尚未提供（[#1740](https://github.com/nsgo-dev/game/issues/1740)）。
+
 ## 本地提醒
 
 `Reminders` 基于 NSGo 的 `core.Scope.ShowNotification` 调度、取消和重排本地召回通知。只要 `cx.Env().CanScheduleNotifications()` 为 true，它就能工作：在 macOS、iOS、watchOS、Android 和 Windows 上由系统原生调度（应用关闭后依然生效），在 Linux 和 Web 上于应用或页面运行期间生效。

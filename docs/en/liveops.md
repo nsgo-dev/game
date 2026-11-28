@@ -225,6 +225,15 @@ Tests drive purchases through `nsgotest`: start the app with `nsgotest.Environme
 
 To check a restore by hand under StoreKit Testing, add a StoreKit configuration file with a non-consumable to the iOS app's Xcode scheme, build with `apple.purchases: true`, buy the product in the simulator, delete and reinstall the app, then press the game's Restore Purchases button: `Owned` reports the product again. Android has no store in NSGo v0.3.0 (Google Play Billing waits on [nsgo#1369](https://github.com/nsgo-dev/nsgo/issues/1369)).
 
+### WeChat mini game payments
+
+WeChat mini games sell items through virtual payments (`wx.requestMidasPaymentGameItem`), which `Purchases` does not drive yet: the platform needs an order signed with the game's AppKey, which must never reach a client, and it delivers goods by calling the game's server, not the client. `github.com/nsgo-dev/game/pkg/online/storeverify/wechatpay` is that server side, with no NSGo dependency:
+
+- `SignOrder(appKey, sessionKey, Order)` returns the `signData` JSON with its `paySig` (HMAC-SHA256 with the AppKey over `requestMidasPaymentGameItem&` + `signData`) and the user-state `signature` (HMAC-SHA256 with the player's session key from the login exchange). The client passes all three to the platform unchanged. `GoodsPrice` is in fen; `OutTradeNo` is at most 32 letters, digits or `_-|*@` and does not start with `_`.
+- `Handler.Handle(ctx, event, payload, payEventSig)` checks a `minigame_game_pay_goods_deliver_notify` push: the event, the `PayEventSig` (HMAC-SHA256 with the AppKey over event + `&` + `Payload`), and that the payload's `Env` is the handler's `Env`, so sandbox purchases never grant goods in production. It then calls `Deliver` once per `OutTradeNo`, recording the order in a `DeliveryStore`; the platform's retries, including ones that arrive while the first delivery is still running in the same process, return nil without delivering again, and a `Deliver` error is not recorded, so the next retry delivers. Answer `{"ErrCode":0,"ErrMsg":"Success"}` when `Handle` returns nil and a non-zero `ErrCode` otherwise.
+
+`MemoryStore` forgets deliveries on restart; a server without a durable store, and several processes behind one store must make `Deliver` itself idempotent on `OutTradeNo`, for example by granting in the database transaction that records the order. The HTTP endpoint stays with the game's server: the push URL's token check and the safe-mode AES decryption are not in the package yet, nor are SQLite and Postgres stores, an order query for reconciliation, a client-side `Purchases` mode or the mapping of the minor-protection error `-15009` ([#1740](https://github.com/nsgo-dev/game/issues/1740)).
+
 ## Local reminders
 
 `Reminders` schedules, cancels and reschedules local re-engagement notifications over NSGo's `core.Scope.ShowNotification`. It works natively (including after the app closes) on macOS, iOS, watchOS, Android and Windows, and while the app or page runs on Linux and the web — anywhere `cx.Env().CanScheduleNotifications()` is true.
