@@ -153,10 +153,6 @@ go tool nsgo check -target macos,windows,linux,web,ios,android
 
 ## 构建发布包
 
-### 可复现的商店截图
-
-将商店静态图保存在 `store/capture.yaml`。每个 `version: 1` 镜头声明场景、可选的 `.replay.yaml` 录制和固定步数的 `frame` 或 `time`、输出名称，以及使用 `app_store`、`google_play`、`itch_cover`、`minigame_share` 或显式 `width` 与 `height` 的 `sizes`。未知字段和不支持的版本会被拒绝。运行 `go tool game capture` 将确定性的 PNG 写入 `store/media`，传入 `-shot name` 可只重建一个镜头。
-
 `go tool game release`（以及场景编辑器的导出面板 / 构建与发布界面）会自动以 `GOFLAGS=-tags=release` 调用 `nsgo build`，从而把仅限开发期的包（`pkg/tooling/gamedebug`、`pkg/tooling/hotreload`、`pkg/tooling/devstate` 以及物理与 AI 调试绘制）替换为零开销空实现，并在构建完成后校验桌面端二进制未链接调试符号，同时在产物旁写出 `CREDITS.md`：
 
 ```sh
@@ -354,6 +350,35 @@ go tool nsgo publish -store all -dry-run
 它会检查必填项、语言代码、URL 协议、媒体文件及数量，以及各商店的字符上限，不读取凭据，也不发起 HTTP 请求。这些上限包括：两个商店的标题均为 30 字符，Google Play 简短描述为 80，两个商店的完整描述均为 4000，Google Play 更新说明为 500。App Store Connect 还限制副标题 30、关键词 100、宣传文本 170、更新说明 4000 字符。
 
 要上传验证通过的元数据，运行 `go tool nsgo publish -store appstore,play`；在 `-store play` 后加 `-track production` 还会更新该轨道的发布说明。App Store Connect 读取 `NSGO_APP_STORE_KEY`、`NSGO_APP_STORE_KEY_ID` 和 `NSGO_APP_STORE_ISSUER`，未设置时回退到对应的 `NSGO_NOTARY_*` 变量。Google Play 读取 `NSGO_PLAY_SERVICE_ACCOUNT`。凭据只从环境变量读取，不写进列表文件。
+
+### 商店截图计划
+
+`store/capture.yaml` 记录每张商店截图和封面由哪个场景、哪段输入录像和哪一帧生成，以及各商店需要的尺寸，因此美术更新后可以重建整套图片，差异也能直接看出改了什么：
+
+```yaml
+version: 1
+shots:
+  - name: title
+    scene: scenes/title.scene.yaml
+    frame: 30
+    output: title
+    sizes:
+      - preset: itch_cover
+      - preset: minigame_share
+  - name: boss
+    scene: scenes/boss.scene.yaml
+    recording: recordings/boss.replay.yaml
+    time: 2.5
+    output: play/boss
+    sizes:
+      - preset: google_play
+      - width: 2796
+        height: 1290
+```
+
+每个镜头声明一个场景和可选的 `.replay.yaml` 输入录像（都相对项目目录）、要截取的固定步 `frame` 或以秒为单位的 `time`（至多其一，都不写表示第一帧）、`output` 名称，以及 `sizes`，每项是一个 `preset` 或显式的 `width` 和 `height`。镜头在每个尺寸下的图片是媒体目录（默认 `store/media`）下的 `<output>-<width>x<height>.png`。预设有 `app_store_iphone`（1290x2796）、`app_store_ipad`（2064x2752）、`google_play`（1920x1080）、`google_play_feature`（1024x500）、`itch_cover`（630x500）和 `minigame_share`（1280x720）；横屏的 App Store 截图写显式尺寸。计划必须包含 `version: 1`，拒绝未知字段、项目之外的路径以及写到同一文件的两张图片，并且重新编码后字节不变。
+
+`go tool game capture` 检查计划：每个场景和录像都存在，每张图片都存在且是目标尺寸的 PNG；缺失或尺寸不对的文件会逐个报告，并以 1 退出；`-shot name` 只检查一个镜头。它目前还不渲染图片：渲染需要 [#1438](https://github.com/nsgo-dev/game/issues/1438) 的固定步电影模式，在那之前请用运行时 MCP 桥的 `game_screenshot` 或手动截取。
 
 ## 发布到商店
 

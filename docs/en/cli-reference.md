@@ -123,7 +123,7 @@ go tool game release [flags] [dir]
 
 ## game capture
 
-Render reproducible store screenshots and covers from a YAML capture plan.
+Check the store screenshots and covers a YAML capture plan describes against its scenes, recordings and sizes.
 
 ```sh
 go tool game capture [flags] [project]
@@ -131,9 +131,9 @@ go tool game capture [flags] [project]
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `-out directory` | `store/media` | output directory relative to the project |
+| `-out directory` | `store/media` | media directory relative to the project |
 | `-plan file` | `store/capture.yaml` | capture plan file relative to the project |
-| `-shot shot` |  | render only the named shot |
+| `-shot shot` |  | check only the named shot |
 
 ## game replay
 

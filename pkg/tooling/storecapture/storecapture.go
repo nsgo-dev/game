@@ -1,61 +1,94 @@
-// Package storecapture describes and renders deterministic store listing media.
+// Package storecapture reads a store capture plan, the YAML file (store/capture.yaml by default) that says which scene, input recording and frame make each store screenshot and cover and at which store sizes, and checks the images it describes against it.
+//
+// The plan only describes the images: rendering its shots from the game needs the fixed-step movie mode of nsgo-dev/game#1438, which does not exist yet, so the images are captured by other means (the runtime MCP bridge's game_screenshot, or by hand) and Check verifies that every one of them is present as a PNG of its target size.
 package storecapture
 
 import (
 	"bytes"
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
-	"image"
-	"image/color"
 	"image/png"
-	"io/fs"
+	"io"
+	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
 
+// Version is the plan format version this package reads and writes.
 const Version = 1
 
+// Size is an image's pixel dimensions.
 type Size struct {
-	Width  int `yaml:"width"`
-	Height int `yaml:"height"`
+	Width  int
+	Height int
 }
+
+// Target is one size a shot is wanted at: a named preset, or an explicit width and height, never both.
 type Target struct {
+	// Preset names one of Presets.
 	Preset string `yaml:"preset,omitempty"`
-	Width  int    `yaml:"width,omitempty"`
-	Height int    `yaml:"height,omitempty"`
+	// Width and Height are an explicit size in pixels.
+	Width  int `yaml:"width,omitempty"`
+	Height int `yaml:"height,omitempty"`
 }
+
+// Shot is one store image: what to capture and the sizes to deliver it at.
 type Shot struct {
-	Name      string   `yaml:"name"`
-	Scene     string   `yaml:"scene"`
-	Recording string   `yaml:"recording,omitempty"`
-	Frame     *int     `yaml:"frame,omitempty"`
-	Time      *float64 `yaml:"time,omitempty"`
-	Output    string   `yaml:"output"`
-	Sizes     []Target `yaml:"sizes"`
+	// Name identifies the shot, unique within the plan.
+	Name string `yaml:"name"`
+	// Scene is the scene file to capture, relative to the project, in slash form.
+	Scene string `yaml:"scene"`
+	// Recording is an optional .replay.yaml input recording played before the capture, relative to the project, in slash form.
+	Recording string `yaml:"recording,omitempty"`
+	// Frame is the fixed-step frame to capture; at most one of Frame and Time is set, and neither means the first frame.
+	Frame *int `yaml:"frame,omitempty"`
+	// Time is the fixed-step time in seconds to capture.
+	Time *float64 `yaml:"time,omitempty"`
+	// Output is the image name relative to the media directory, in slash form and without the size suffix: each target is written to <output>-<width>x<height>.png.
+	Output string `yaml:"output"`
+	// Sizes are the sizes the shot is delivered at.
+	Sizes []Target `yaml:"sizes"`
 }
+
+// Plan is a store capture plan.
 type Plan struct {
-	Version int    `yaml:"version"`
-	Shots   []Shot `yaml:"shots"`
+	// Version is the format version, always Version.
+	Version int `yaml:"version"`
+	// Shots are the plan's images in the order they are captured.
+	Shots []Shot `yaml:"shots"`
 }
-type Artifact struct {
+
+// Image is one file a plan describes: a shot at one of its sizes.
+type Image struct {
+	// Shot is the shot's name.
 	Shot string
+	// Path is the file's path relative to the media directory, in slash form.
 	Path string
+	// Size is the size the file must have.
 	Size Size
 }
 
+// presets are the named store sizes a target may use.
 var presets = map[string]Size{
-	"app_store":        {1280, 720},
-	"app_store_iphone": {1280, 720},
-	"google_play":      {1920, 1080},
-	"itch_cover":       {630, 500},
-	"minigame_share":   {1280, 720},
+	// App Store iPhone 6.7" portrait screenshot, accepted for the 6.9" display slot.
+	"app_store_iphone": {1290, 2796},
+	// App Store iPad 13" portrait screenshot.
+	"app_store_ipad": {2064, 2752},
+	// Google Play 16:9 landscape phone screenshot.
+	"google_play": {1920, 1080},
+	// Google Play feature graphic.
+	"google_play_feature": {1024, 500},
+	// itch.io cover image.
+	"itch_cover": {630, 500},
+	// 16:9 mini game share image.
+	"minigame_share": {1280, 720},
 }
 
+// Presets returns a copy of the named store sizes a target may use.
 func Presets() map[string]Size {
 	out := make(map[string]Size, len(presets))
 	for k, v := range presets {
@@ -63,74 +96,123 @@ func Presets() map[string]Size {
 	}
 	return out
 }
+
+// Resolve returns the target's size.
 func (t Target) Resolve() (Size, error) {
 	if t.Preset != "" {
+		if t.Width != 0 || t.Height != 0 {
+			return Size{}, fmt.Errorf("size preset %q also sets width or height", t.Preset)
+		}
 		s, ok := presets[t.Preset]
 		if !ok {
-			return Size{}, fmt.Errorf("storecapture: unknown size preset %q", t.Preset)
+			return Size{}, fmt.Errorf("unknown size preset %q", t.Preset)
 		}
 		return s, nil
 	}
 	if t.Width <= 0 || t.Height <= 0 {
-		return Size{}, fmt.Errorf("storecapture: target size must be positive")
+		return Size{}, fmt.Errorf("size %dx%d must be a preset or a positive width and height", t.Width, t.Height)
 	}
 	return Size{t.Width, t.Height}, nil
 }
+
+// localPath reports whether p is a slash-separated path that stays inside the directory it is relative to.
+func localPath(p string) bool {
+	return p != "" && !strings.Contains(p, `\`) && filepath.IsLocal(filepath.FromSlash(p)) && path.Clean(p) == p
+}
+
+// Validate reports the first problem with the plan: an unsupported version, no shots, or a shot with a missing or duplicate name, a scene, recording or output outside the project, both a frame and a time, a negative capture point, no sizes or an invalid size, or two images with the same file.
 func (p *Plan) Validate() error {
 	if p == nil {
-		return fmt.Errorf("storecapture: nil plan")
+		return errors.New("storecapture: nil plan")
 	}
 	if p.Version != Version {
-		return fmt.Errorf("storecapture: unsupported version %d", p.Version)
+		return fmt.Errorf("storecapture: unsupported version %d, want %d", p.Version, Version)
 	}
 	if len(p.Shots) == 0 {
-		return fmt.Errorf("storecapture: plan has no shots")
+		return errors.New("storecapture: plan has no shots")
 	}
-	seen := map[string]bool{}
+	names := map[string]bool{}
+	files := map[string]string{}
 	for i, s := range p.Shots {
 		if strings.TrimSpace(s.Name) == "" {
 			return fmt.Errorf("storecapture: shots[%d].name is required", i)
 		}
-		if seen[s.Name] {
+		if names[s.Name] {
 			return fmt.Errorf("storecapture: duplicate shot %q", s.Name)
 		}
-		seen[s.Name] = true
-		if strings.TrimSpace(s.Scene) == "" {
-			return fmt.Errorf("storecapture: shot %q.scene is required", s.Name)
+		names[s.Name] = true
+		if !localPath(s.Scene) {
+			return fmt.Errorf("storecapture: shot %q: scene %q must be a slash-separated path inside the project", s.Name, s.Scene)
 		}
-		if strings.TrimSpace(s.Output) == "" {
-			return fmt.Errorf("storecapture: shot %q.output is required", s.Name)
+		if s.Recording != "" && (!localPath(s.Recording) || !strings.HasSuffix(s.Recording, ".replay.yaml")) {
+			return fmt.Errorf("storecapture: shot %q: recording %q must be a .replay.yaml file inside the project", s.Name, s.Recording)
 		}
 		if s.Frame != nil && s.Time != nil {
 			return fmt.Errorf("storecapture: shot %q sets both frame and time", s.Name)
+		}
+		if s.Frame != nil && *s.Frame < 0 {
+			return fmt.Errorf("storecapture: shot %q: frame %d is negative", s.Name, *s.Frame)
+		}
+		if s.Time != nil && (*s.Time < 0 || math.IsNaN(*s.Time) || math.IsInf(*s.Time, 0)) {
+			return fmt.Errorf("storecapture: shot %q: time %v must be a non-negative number of seconds", s.Name, *s.Time)
+		}
+		if !localPath(s.Output) {
+			return fmt.Errorf("storecapture: shot %q: output %q must be a slash-separated path inside the media directory", s.Name, s.Output)
 		}
 		if len(s.Sizes) == 0 {
 			return fmt.Errorf("storecapture: shot %q has no sizes", s.Name)
 		}
 		for _, t := range s.Sizes {
-			if _, err := t.Resolve(); err != nil {
+			size, err := t.Resolve()
+			if err != nil {
 				return fmt.Errorf("storecapture: shot %q: %w", s.Name, err)
 			}
+			file := imagePath(s.Output, size)
+			if other, ok := files[file]; ok {
+				return fmt.Errorf("storecapture: shots %q and %q both write %s", other, s.Name, file)
+			}
+			files[file] = s.Name
 		}
 	}
 	return nil
 }
+
+// imagePath is the file a shot's output is written to at size.
+func imagePath(output string, size Size) string {
+	return fmt.Sprintf("%s-%dx%d.png", output, size.Width, size.Height)
+}
+
+// Images returns the files the plan describes, shot by shot in plan order and each shot's sizes in order. The plan must be valid.
+func (p *Plan) Images() []Image {
+	var out []Image
+	for _, s := range p.Shots {
+		for _, t := range s.Sizes {
+			size, _ := t.Resolve()
+			out = append(out, Image{Shot: s.Name, Path: imagePath(s.Output, size), Size: size})
+		}
+	}
+	return out
+}
+
+// Decode parses and validates a plan, refusing unknown fields and more than one YAML document.
 func Decode(data []byte) (*Plan, error) {
 	var p Plan
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&p); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("storecapture: %w", err)
 	}
 	var extra any
-	if err := dec.Decode(&extra); err == nil {
-		return nil, fmt.Errorf("storecapture: trailing YAML document")
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return nil, errors.New("storecapture: a plan is a single YAML document")
 	}
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
 	return &p, nil
 }
+
+// LoadFile reads and decodes the plan at path.
 func LoadFile(path string) (*Plan, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -142,6 +224,8 @@ func LoadFile(path string) (*Plan, error) {
 	}
 	return p, nil
 }
+
+// Encode validates the plan and returns it as YAML with two-space indentation and fields in a fixed order, so a decoded plan encodes back to the same bytes.
 func (p *Plan) Encode() ([]byte, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
@@ -158,78 +242,43 @@ func (p *Plan) Encode() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// Render writes deterministic PNGs for every shot target. The fixed-step scene and recording
-// metadata are hashed into the background so repeated captures are byte-identical and changes
-// to the plan invalidate the image. Integrations can replace this renderer with a movie-mode
-// runner while preserving the plan and output contract.
-func Render(ctx context.Context, p Plan, out string) error {
+// Check validates the plan and verifies its inputs and images: every shot's scene and recording exist under the project directory, and every image exists under the media directory as a PNG of its target size. It returns every problem found, joined, or nil.
+func Check(p Plan, project, media string) error {
 	if err := p.Validate(); err != nil {
 		return err
 	}
-	if out == "" {
-		return fmt.Errorf("storecapture: output directory is required")
-	}
-	if err := os.MkdirAll(out, 0o755); err != nil {
-		return err
-	}
-	for _, shot := range p.Shots {
-		for _, target := range shot.Sizes {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
+	var errs []error
+	for _, s := range p.Shots {
+		for _, in := range []string{s.Scene, s.Recording} {
+			if in == "" {
+				continue
 			}
-			size, err := target.Resolve()
-			if err != nil {
-				return err
-			}
-			if filepath.IsAbs(shot.Output) || strings.Contains(filepath.Clean(shot.Output), ".."+string(filepath.Separator)) {
-				return fmt.Errorf("storecapture: shot %q output escapes output directory", shot.Name)
-			}
-			stem := strings.TrimSuffix(shot.Output, filepath.Ext(shot.Output))
-			path := filepath.Join(out, fmt.Sprintf("%s-%dx%d.png", stem, size.Width, size.Height))
-			if err := renderPNG(path, size, shot); err != nil {
-				return err
+			if _, err := os.Stat(filepath.Join(project, filepath.FromSlash(in))); err != nil {
+				errs = append(errs, fmt.Errorf("shot %q: %w", s.Name, err))
 			}
 		}
 	}
-	return nil
+	for _, img := range p.Images() {
+		if err := checkImage(filepath.Join(media, filepath.FromSlash(img.Path)), img.Size); err != nil {
+			errs = append(errs, fmt.Errorf("shot %q: %w", img.Shot, err))
+		}
+	}
+	return errors.Join(errs...)
 }
-func renderPNG(path string, size Size, shot Shot) error {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%v\x00%v", shot.Name, shot.Scene, shot.Recording, shot.Frame, shot.Time)))
-	c := color.RGBA{h[0], h[1], h[2], 255}
-	img := image.NewRGBA(image.Rect(0, 0, size.Width, size.Height))
-	for y := 0; y < size.Height; y++ {
-		for x := 0; x < size.Width; x++ {
-			img.SetRGBA(x, y, color.RGBA{uint8(int(c.R) + x*7/size.Width), uint8(int(c.G) + y*7/size.Height), c.B, 255})
-		}
-	}
-	f, err := os.Create(path)
+
+// checkImage reports whether the file at name is a PNG of size.
+func checkImage(name string, size Size) error {
+	f, err := os.Open(name)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return png.Encode(f, img)
-}
-func IsNotExist(err error) bool { return os.IsNotExist(err) || errorsIs(err, fs.ErrNotExist) }
-func errorsIs(err, target error) bool {
-	for err != nil {
-		if err == target {
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
-}
-func Digest(path string) (string, error) {
-	b, err := os.ReadFile(path)
+	cfg, err := png.DecodeConfig(f)
 	if err != nil {
-		return "", err
+		return fmt.Errorf("%s: not a PNG: %w", name, err)
 	}
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:]), nil
+	if cfg.Width != size.Width || cfg.Height != size.Height {
+		return fmt.Errorf("%s is %dx%d, want %dx%d", name, cfg.Width, cfg.Height, size.Width, size.Height)
+	}
+	return nil
 }

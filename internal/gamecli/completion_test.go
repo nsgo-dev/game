@@ -118,7 +118,7 @@ type completionCase struct {
 
 // gameCompletionCases run in a directory holding a.png, scene.yaml and the directory sub.
 var gameCompletionCases = []completionCase{
-	{"game ", []string{"assets", "audio", "bench", "capture", "check", "completion", "credits", "dev", "editor", "generate", "help", "index", "library", "manifest", "mcp", "merge", "mv", "navmesh", "net", "new", "pack", "pixelfx", "playtest", "project", "release", "capture", "replay", "schema", "size", "tex", "wire"}},
+	{"game ", []string{"assets", "audio", "bench", "capture", "check", "completion", "credits", "dev", "editor", "generate", "help", "index", "library", "manifest", "mcp", "merge", "mv", "navmesh", "net", "new", "pack", "pixelfx", "playtest", "project", "release", "replay", "schema", "size", "tex", "wire"}},
 	{"game pa", []string{"pack"}},
 	{"game pack -", []string{"-extrude", "-in", "-max-height", "-max-width", "-name", "-out", "-padding", "-scale", "-trim"}},
 	{"game pack -m", []string{"-max-height", "-max-width"}},
