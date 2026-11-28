@@ -150,6 +150,7 @@ func editorTemplatesFromRegistry() []editor.ProjectTemplate {
 		out[i] = editor.ProjectTemplate{
 			Name:    t.name,
 			Summary: t.summary,
+			Cover:   "gallery/templates/cover.svg",
 			Default: i == 0,
 		}
 	}
