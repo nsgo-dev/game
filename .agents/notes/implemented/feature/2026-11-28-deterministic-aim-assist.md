@@ -16,5 +16,5 @@ Keeping aim assist inside each game would minimize the shared API, but would dup
 
 ## Consequences
 
-Aim assist behavior is reusable and testable for both dimensions, and line-of-sight remains game-owned. Target slices are copied into a deterministic evaluation order by callers. The evaluator allocates when a game builds its target snapshot, so high-frequency games may later add a reusable target buffer.
+Aim assist behavior is reusable and testable for both dimensions, and line-of-sight remains game-owned. Callers build the target slice in a deterministic order, and on a full tie the earlier target wins. The evaluator does not allocate; it filters targets by angle and by the current best candidate before calling the line-of-sight callback, so a raycast runs only for a target that could still be chosen. Starburst reuses one target buffer across steps.
 

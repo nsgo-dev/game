@@ -1,6 +1,7 @@
 package input_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/input"
@@ -58,5 +59,39 @@ func TestAimAssist3DMagnetismAndSnap(t *testing.T) {
 	snap := input.AimAssist{Strength: 1, OuterRadius: 0.5, Snap: true, SnapAngle: 0.3}
 	if got := snap.Assist3D(math3d.Vec3{}, math3d.Vec3{Z: -1}, targets, nil); !got.ApproxEqual(targets[0].Position.Norm(), 1e-5) {
 		t.Fatalf("snap direction = %v, want %v", got, targets[0].Position.Norm())
+	}
+}
+
+func TestAimAssist2DTieKeepsInputOrderAndSkipsHopelessLineOfSight(t *testing.T) {
+	a := input.AimAssist{Strength: 1, OuterRadius: 0.5}
+	targets := []input.AimTarget2D{
+		{ID: "first", Position: math2d.Vec2{X: 5, Y: 0.5}, Priority: 1},
+		{ID: "second", Position: math2d.Vec2{X: 5, Y: 0.5}, Priority: 1},
+		{ID: "behind", Position: math2d.Vec2{X: -5}, Priority: 9},
+		{ID: "wider", Position: math2d.Vec2{X: 5, Y: 1}, Priority: 1},
+	}
+	var queried []math2d.Vec2
+	result := a.Evaluate2D(math2d.Vec2{}, math2d.Vec2{X: 1}, targets, func(_, to math2d.Vec2) bool {
+		queried = append(queried, to)
+		return true
+	})
+	if result.Target.ID != "first" {
+		t.Fatalf("target = %q, want first of two equal targets", result.Target.ID)
+	}
+	if len(queried) != 1 {
+		t.Fatalf("line of sight queried %d times (%v), want only the winning candidate", len(queried), queried)
+	}
+}
+
+func TestAimAssistNonFiniteDirectionIsUnchanged(t *testing.T) {
+	nan := float32(math.NaN())
+	a := input.AimAssist{Strength: 1}
+	r2 := a.Evaluate2D(math2d.Vec2{}, math2d.Vec2{X: nan}, []input.AimTarget2D{{Position: math2d.Vec2{X: 5}}}, nil)
+	if r2.Found || r2.Friction != 1 {
+		t.Fatalf("2D NaN direction = %#v, want no target and friction 1", r2)
+	}
+	r3 := a.Evaluate3D(math3d.Vec3{}, math3d.Vec3{Z: nan}, []input.AimTarget3D{{Position: math3d.Vec3{Z: -5}}}, nil)
+	if r3.Found || r3.Friction != 1 {
+		t.Fatalf("3D NaN direction = %#v, want no target and friction 1", r3)
 	}
 }
