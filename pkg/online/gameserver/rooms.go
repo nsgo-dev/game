@@ -3,7 +3,6 @@ package gameserver
 import (
 	"crypto/rand"
 	"errors"
-	"fmt"
 	"slices"
 	"sort"
 	"sync"
@@ -74,15 +73,16 @@ type Room struct {
 	private  bool
 	created  time.Time
 
-	mu      sync.Mutex
-	closed  bool
-	emptyAt time.Time // when the room became empty (created or last member left); zero while occupied
-	state   RoomState
-	epoch   uint64
-	tick    uint64
-	members map[netplay.PeerID]struct{}
-	order   []netplay.PeerID // members in join order
-	inbox   map[netplay.PeerID][]netplay.Packet
+	mu           sync.Mutex
+	closed       bool
+	emptyAt      time.Time // when the room became empty (created or last member left); zero while occupied
+	state        RoomState
+	epoch        uint64
+	tick         uint64
+	members      map[netplay.PeerID]struct{}
+	reservations map[string]time.Time
+	order        []netplay.PeerID // members in join order
+	inbox        map[netplay.PeerID][]netplay.Packet
 
 	perPeer  int // resolved RoomLimits.PerPeer, 0 for none
 	warning  int // resolved RoomLimits.Warning, 0 for none
@@ -91,6 +91,65 @@ type Room struct {
 	refused  uint64
 	warnings uint64
 	backlog  bool
+}
+
+// Reservation is an opaque seat claim for one account until Expires.
+type Reservation struct {
+	Room    uint64
+	Account string
+	Expires time.Time
+}
+
+// Reserve holds one room seat for account until ttl elapses.
+func (rs *Rooms) Reserve(id uint64, account string, ttl time.Duration) (Reservation, error) {
+	if account == "" {
+		return Reservation{}, errors.New("gameserver: empty reservation account")
+	}
+	if ttl <= 0 {
+		ttl = 15 * time.Second
+	}
+	rs.mu.Lock()
+	r := rs.rooms[id]
+	rs.mu.Unlock()
+	if r == nil {
+		return Reservation{}, ErrRoomNotFound
+	}
+	now := rs.now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.state == RoomEnded {
+		return Reservation{}, ErrRoomEnded
+	}
+	for a, exp := range r.reservations {
+		if !now.Before(exp) {
+			delete(r.reservations, a)
+		}
+	}
+	if _, ok := r.reservations[account]; !ok && len(r.members)+len(r.reservations) >= r.capacity {
+		return Reservation{}, ErrRoomFull
+	}
+	r.reservations[account] = now.Add(ttl)
+	return Reservation{Room: id, Account: account, Expires: now.Add(ttl)}, nil
+}
+
+// Claim converts a live reservation into a connected room member.
+func (rs *Rooms) Claim(res Reservation, peer netplay.PeerID) (Join, error) {
+	rs.mu.Lock()
+	r := rs.rooms[res.Room]
+	rs.mu.Unlock()
+	if r == nil {
+		return Join{}, ErrRoomNotFound
+	}
+	now := rs.now()
+	r.mu.Lock()
+	exp, ok := r.reservations[res.Account]
+	if !ok || !now.Before(exp) {
+		r.mu.Unlock()
+		return Join{}, ErrRoomFull
+	}
+	delete(r.reservations, res.Account)
+	r.mu.Unlock()
+	return rs.join(r, peer)
 }
 
 // ID returns the room's manager-assigned ID.
@@ -224,14 +283,15 @@ func (rs *Rooms) Create(capacity int, private bool) (*Room, error) {
 	rs.nextID++
 	now := rs.now()
 	r := &Room{
-		id:       rs.nextID,
-		capacity: capacity,
-		private:  private,
-		created:  now,
-		emptyAt:  now,
-		state:    RoomWaiting,
-		members:  make(map[netplay.PeerID]struct{}),
-		inbox:    make(map[netplay.PeerID][]netplay.Packet),
+		id:           rs.nextID,
+		capacity:     capacity,
+		private:      private,
+		created:      now,
+		emptyAt:      now,
+		state:        RoomWaiting,
+		members:      make(map[netplay.PeerID]struct{}),
+		reservations: make(map[string]time.Time),
+		inbox:        make(map[netplay.PeerID][]netplay.Packet),
 	}
 	r.applyLimits(rs.limits)
 	if private {
@@ -293,9 +353,15 @@ func (rs *Rooms) join(r *Room, peer netplay.PeerID) (Join, error) {
 		return Join{}, ErrRoomEnded
 	}
 	if _, exists := r.members[peer]; !exists {
-		if len(r.members) >= r.capacity {
+		now := rs.now()
+		for account, exp := range r.reservations {
+			if !now.Before(exp) {
+				delete(r.reservations, account)
+			}
+		}
+		if len(r.members)+len(r.reservations) >= r.capacity {
 			r.mu.Unlock()
-			return Join{}, fmt.Errorf("%w: room %d seats %d", ErrRoomFull, r.id, r.capacity)
+			return Join{}, ErrRoomFull
 		}
 		r.members[peer] = struct{}{}
 		r.order = append(r.order, peer)
