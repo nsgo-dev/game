@@ -3,6 +3,7 @@ package editormcp_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -321,18 +322,21 @@ func TestMCPTasksTools(t *testing.T) {
 		t.Fatalf("tasks_list = %+v", listed)
 	}
 
-	// Finish t1 -> Ready to review, then keep via tasks_control -> starts t2.
+	// Finish t1 -> Ready to review; the agent's keep is refused, and the person's keep starts t2.
 	if _, err := s.CompleteTaskTurn(context.Background(), t1.ID, "done"); err != nil {
 		t.Fatalf("CompleteTaskTurn: %v", err)
 	}
-	ctrlRes := call(t, cs, editormcp.ToolTasksControl, map[string]any{
-		"action":  "keep",
-		"task_id": t1.ID,
-	})
-	mustOK(t, ctrlRes)
-	var after editor.TaskSummary
-	structured(t, ctrlRes, &after)
-	if after.Running != 1 || after.Queued != 0 {
+	if res := call(t, cs, editormcp.ToolTasksControl, map[string]any{"action": "keep", "task_id": t1.ID}); !res.IsError {
+		t.Fatal("tasks_control keep succeeded for an agent, want refusal")
+	}
+	if err := ed.KeepTask(t1.ID); err != nil {
+		t.Fatalf("person KeepTask: %v", err)
+	}
+	listAfter := call(t, cs, editormcp.ToolTasksList, map[string]any{})
+	mustOK(t, listAfter)
+	var listedAfter editormcp.TasksListResult
+	structured(t, listAfter, &listedAfter)
+	if after := listedAfter.Summary; after.Running != 1 || after.Queued != 0 {
 		t.Fatalf("summary after keep = %+v, want running=1 queued=0", after)
 	}
 }
@@ -492,8 +496,13 @@ func TestParallelRevertTaskPreservesOtherTasksKeptEditsOverMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Keep t2, then revert t1 over MCP.
-	mustOK(t, call(t, c2, editormcp.ToolTasksControl, map[string]any{"action": "keep", "task_id": "t2"}))
+	// t2's own session cannot keep it; the person keeps t2, then t1's session reverts its own task over MCP.
+	if res := call(t, c2, editormcp.ToolTasksControl, map[string]any{"action": "keep", "task_id": "t2"}); !res.IsError {
+		t.Fatal("t2 session kept its own task over MCP, want refusal")
+	}
+	if err := ed.KeepTask("t2"); err != nil {
+		t.Fatalf("person KeepTask(t2): %v", err)
+	}
 	mustOK(t, call(t, c1, editormcp.ToolTasksControl, map[string]any{"action": "revert", "task_id": "t1"}))
 
 	if err := s.Editor(context.Background(), func(ed *editor.Editor) error {
@@ -753,7 +762,7 @@ func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *test
 }
 
 // #1507: tasks_submit runs through the default AgentTaskRunner (no injected AgentTaskRunner)
-// and queued tasks start after keeping the first via tasks_control.
+// and queued tasks start after the person keeps the first.
 func TestMCPTasksSubmitRunsDefaultRunnerAndAdvancesQueue(t *testing.T) {
 	ed := newSlimesEditor(t)
 	ed.AgentTaskRunner = nil // Use Editor's default AgentTaskRunner!
@@ -817,18 +826,17 @@ func TestMCPTasksSubmitRunsDefaultRunnerAndAdvancesQueue(t *testing.T) {
 		}
 	}
 
-	// Keep t1 via tasks_control -> starts t2 automatically through the default runner!
-	mustOK(t, call(t, cs, editormcp.ToolTasksControl, map[string]any{
-		"action":  "keep",
-		"task_id": t1.ID,
-	}))
+	// The person keeps t1 -> starts t2 automatically through the default runner.
+	if err := ed.KeepTask(t1.ID); err != nil {
+		t.Fatalf("person KeepTask: %v", err)
+	}
 	select {
 	case got := <-started:
 		if got != t2.ID {
 			t.Fatalf("second started = %q, want %q", got, t2.ID)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("t2 did not start after tasks_control keep")
+		t.Fatal("t2 did not start after the person kept t1")
 	}
 	deadline = time.After(3 * time.Second)
 	for {
@@ -881,5 +889,111 @@ func TestProxyBindsSessionToTaskIDFromEnv(t *testing.T) {
 	beforeYAML, changes, ok := s.TaskReviewSnapshot(task.ID)
 	if !ok || beforeYAML == "" || len(changes) != 1 || changes[0].ObjectID != "hero" {
 		t.Fatalf("TaskReviewSnapshot = (ok=%v, beforeLen=%d, changes=%+v)", ok, len(beforeYAML), changes)
+	}
+}
+
+// Keeping a task's review and answering its permission prompt are the person's decisions: tasks_control refuses keep, allow and deny from every agent session (the task's own and any other), refuses revert and Ready to review dismissal of a task the session does not own, and the person's direct calls still work.
+func TestTasksControlRefusesAgentReviewAndPermissionDecisions(t *testing.T) {
+	ed := newSlimesEditor(t)
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t1", Number: 1, Title: "Edit slime_01", StartMode: editor.TaskStartParallel})
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t2", Number: 2, Title: "Edit slime_03", StartMode: editor.TaskStartParallel})
+	c1 := connectTaskClient(t, s, "t1")
+	c2 := connectTaskClient(t, s, "t2")
+	untethered := connect(t, s, nil)
+
+	mustOK(t, call(t, c1, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{map[string]any{"op": "set", "id": "slime_01", "component": "patrol", "fields": map[string]any{"speed": 99.0}}},
+	}))
+	if _, err := s.CompleteTaskTurn(context.Background(), "t1", "slime_01 faster"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RequestTaskPermission("t2", "Edit game.yaml?", "permissions.yaml asks before editing game.yaml"); err != nil {
+		t.Fatal(err)
+	}
+
+	refused := func(cs *mcp.ClientSession, who string, args map[string]any) {
+		t.Helper()
+		res := call(t, cs, editormcp.ToolTasksControl, args)
+		if !res.IsError {
+			t.Fatalf("%s tasks_control %v succeeded, want refusal", who, args)
+		}
+	}
+	for _, cs := range []struct {
+		name string
+		cs   *mcp.ClientSession
+	}{{"t1 session", c1}, {"t2 session", c2}, {"untethered session", untethered}} {
+		refused(cs.cs, cs.name, map[string]any{"action": "keep", "task_id": "t1"})
+		refused(cs.cs, cs.name, map[string]any{"action": "allow", "task_id": "t2"})
+		refused(cs.cs, cs.name, map[string]any{"action": "deny", "task_id": "t2"})
+	}
+	refused(c2, "t2 session", map[string]any{"action": "revert", "task_id": "t1"})
+	refused(untethered, "untethered session", map[string]any{"action": "revert", "task_id": "t1"})
+	refused(c1, "t1 session", map[string]any{"action": "dismiss", "task_id": "t1"})
+	refused(c2, "t2 session", map[string]any{"action": "dismiss", "task_ids": []any{"t1"}})
+
+	if t1, _ := ed.Task("t1"); t1.State != editor.TaskReadyToReview || t1.Dismissed || (t1.Review != nil && t1.Review.Kept) {
+		t.Fatalf("t1 after agent attempts = state %s dismissed %v review %+v, want unkept Ready to review", t1.State, t1.Dismissed, t1.Review)
+	}
+	if t2, _ := ed.Task("t2"); t2.State != editor.TaskNeedsYou {
+		t.Fatalf("t2 after agent attempts = %s, want needs_you", t2.State)
+	}
+	if err := ed.WithAgentActor(func() error { return ed.KeepTask("t1") }); !errors.Is(err, editor.ErrTaskDecisionYouOnly) {
+		t.Fatalf("agent KeepTask = %v, want ErrTaskDecisionYouOnly", err)
+	}
+	if err := ed.WithAgentActor(func() error { return ed.ResolveTaskPermission("t2", true) }); !errors.Is(err, editor.ErrTaskDecisionYouOnly) {
+		t.Fatalf("agent ResolveTaskPermission = %v, want ErrTaskDecisionYouOnly", err)
+	}
+
+	// The person's decisions go through.
+	if err := ed.ResolveTaskPermission("t2", true); err != nil {
+		t.Fatalf("person ResolveTaskPermission: %v", err)
+	}
+	if err := ed.KeepTask("t1"); err != nil {
+		t.Fatalf("person KeepTask: %v", err)
+	}
+	if t1, _ := ed.Task("t1"); t1.State != editor.TaskDone {
+		t.Fatalf("t1 after person keep = %s, want done", t1.State)
+	}
+}
+
+// No registered tool may let an agent keep a review or answer a permission prompt: tasks_control is the only tool whose actions reach KeepTask or ResolveTaskPermission, and every tool whose name suggests a decision is listed here with the reason it is not a person-only gate.
+func TestNoToolLetsAgentKeepReviewOrResolveAsk(t *testing.T) {
+	ed := newSlimesEditor(t)
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	notPersonGates := map[string]string{
+		// The tile review is an opt-in grouping the agent asks for with review: true; keeping it folds the agent's own tile edits into one undo step, and the turn or task review that contains them is still the person's.
+		editormcp.ToolTileReviewKeep: "agent-owned tile edit grouping",
+		// Picks a side in a Git conflict the person started; merge_finish still runs game check and a playtest.
+		editormcp.ToolMergeResolve: "Git conflict resolution",
+	}
+	decision := []string{"keep", "approve", "accept", "allow", "confirm", "resolve", "answer"}
+	for tool, err := range cs.Tools(context.Background(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		lower := strings.ToLower(tool.Name)
+		for _, word := range decision {
+			if strings.Contains(lower, word) {
+				if _, ok := notPersonGates[tool.Name]; !ok {
+					t.Errorf("tool %s looks like a review or permission decision; refuse it for agents or list why it is not a person-only gate", tool.Name)
+				}
+			}
+		}
+	}
+
+	_, _ = ed.SubmitTask(editor.TaskRequest{ID: "t1", Number: 1, Title: "Task", StartMode: editor.TaskStartParallel})
+	if err := ed.RequestTaskPermission("t1", "Edit game.yaml?", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"keep", "allow", "deny"} {
+		if res := call(t, cs, editormcp.ToolTasksControl, map[string]any{"action": action, "task_id": "t1"}); !res.IsError {
+			t.Errorf("tasks_control %s succeeded for an agent", action)
+		}
 	}
 }
