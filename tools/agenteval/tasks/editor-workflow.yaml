@@ -18,6 +18,9 @@ context_docs:
   - docs/en/editor.md
 starter_dir: tools/agenteval/testdata/fixtures/add-menu/starter
 reference_dir: tools/agenteval/testdata/fixtures/add-menu/reference
+family: editor
+mcp_servers:
+  - nsgo
 checks:
   yaml_files:
     - game.yaml
