@@ -721,6 +721,7 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		StartedAt:           now,
 		ThreadID:            threadID,
 		SessionIDBefore:     sessionBefore,
+		Context:             e.captureAgentTurnContext(req.ScenePath),
 		turnStartHistoryIdx: startHist,
 	})
 	e.trimAgentTurnAttachments()

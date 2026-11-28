@@ -285,6 +285,7 @@ func (e *Editor) StartAgentRequest(prompt string) uint64 {
 		}},
 		CreatedAt:           now,
 		StartedAt:           now,
+		Context:             e.captureAgentTurnContext(e.effectiveScenePath()),
 		turnStartHistoryIdx: startHist,
 	})
 	e.trimAgentTurnAttachments()
