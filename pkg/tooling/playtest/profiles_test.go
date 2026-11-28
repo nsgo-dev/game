@@ -24,9 +24,23 @@ func TestAllBuiltInBotProfilesRegistered(t *testing.T) {
 		playtest.ProfilePuzzleSolver,
 		playtest.ProfileShooter,
 		playtest.ProfileTopDownExplorer,
+		playtest.ProfileIdle,
 	} {
 		if !slices.Contains(got, want) {
 			t.Errorf("BotProfiles() = %v, missing %q", got, want)
+		}
+	}
+}
+
+func TestIdleBotNeverProducesInput(t *testing.T) {
+	bot, err := playtest.NewBot(playtest.BotConfig{Profile: playtest.ProfileIdle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		state := bot.Decide(i, time.Second/60, struct{ Secret int }{Secret: 42}, random.New(9))
+		if len(state.Actions) != 0 || len(state.Axes) != 0 {
+			t.Fatalf("idle state = %+v", state)
 		}
 	}
 }
