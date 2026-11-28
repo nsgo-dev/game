@@ -197,3 +197,13 @@ _, _ = detour, obsID
 - **独立瓦片生命周期**：可通过 `pathfind3d.BakeNavTile`（或通过 `navbake3d.BakeTile` 直接从 `navbake3d.Geometry` 按区块体素烘焙）在后台线程独立烘焙瓦片，再用 `AddTile`、`ReplaceTile`、`SetTile`、`RemoveTile` 或 `RebuildTile` 安装与更新；`BuildTiledNavMesh` / `BuildTiledNavMeshWithAreas` 与 `navbake3d.Mesh.TiledNavMesh(tileSize)` 可直接从已有几何或烘焙网格构建分块网格。
 - **3D 动态障碍物**：`NavBoxObstacle`、`NavOrientedBoxObstacle`、`NavCylinderObstacle` 与 `NavPolygonObstacle` 均按 Y 轴范围判定高度重叠，地面障碍绝不会误挖上方桥面。同时支持 `NavObstacleCarve`（精确平面凸挖空）与 `NavObstacleMark`（沿轮廓切分并设置 `NavFlagDisabled` 或自定义 `Area`/`Flags`）；多障碍物同帧更新可用 `tm.Batch(func() { ... })` 合批。
 - **两级 3D 空间索引与路径失效**：`FindPolygon`、`NearestPoint`、`NearestPolygon` 与 `Raycast` 使用 O(1) XZ 瓦片查找 + 单瓦片扁平 3D BVH（无界最近点查询走粗粒度 3D 瓦片 BVH），无需扫描整张网格。通过 `tm.IsPathValid(res)`（检查 `TiledNavPathResult.Tiles`）判断路径有效性，用 `tm.WatchPath(res.TileCoords(), fn)` 仅订阅经过对应瓦片的失效回调，或用 `tm.AddTileListener` 监听所有瓦片事件。
+
+### TiledNavAgent
+
+`NewTiledNavAgent` 沿 `TiledNavMesh` 中由带盐 `NavPolyRef` 组成的走廊移动。它为路径经过的瓦片注册一次性的 `WatchPath`，所以开门挖空或流式卸载时，只会标记经过该瓦片的智能体重规划。`Step` 在固定时长上执行搜索和移动，`Corridor`、`Path`、`NeedsReplan` 与 `ReplanCount` 可用于确定性测试和重放。`Close` 会释放监听器。
+
+```go
+agent := pathfind3d.NewTiledNavAgent(tm, start, pathfind3d.TiledNavAgentConfig{MaxSpeed: 4})
+agent.SetTarget(goal)
+agent.Step(16 * time.Millisecond)
+```
