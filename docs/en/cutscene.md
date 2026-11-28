@@ -281,3 +281,5 @@ app.Progress("id:cutscene", 3*time.Second, 3*time.Second) // done gets Finished
 ## Captions for dialogue
 
 `cutscene.NewCaptionBridge(player, captions)` mirrors the timeline's active dialogue line into an `a11y.CaptionTrack`, so cutscene lines get the player's caption settings in `CaptionsView`. Call its `Update` after `Player.Step` on each fixed update. It shows each line once with its speaker, and dismisses the caption when the dialogue clip ends or the next line replaces it, so the caption lasts as long as the clip and a replayed line shows again.
+
+Signal tracks emit authored events when playback crosses their markers. Seeking never emits signals.

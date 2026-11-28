@@ -49,6 +49,8 @@ type TimelineTarget struct {
 	OnMusic func(clip Clip, group string, volume float32)
 	// OnMusicStop is called when an active music clip ends or the cutscene ends, skips or stops.
 	OnMusicStop func(clip Clip, fadeOut time.Duration)
+	// OnSignal is called when playback crosses a signal marker.
+	OnSignal func(name string, args map[string]any)
 	// OnDone is called once when the cutscene finishes, is skipped or is stopped.
 	OnDone func(Result)
 }
@@ -317,10 +319,32 @@ func (p *TimelinePlayer) Update(dt time.Duration) {
 
 	p.applyPose(p.elapsed, true)
 	p.fireAudio(prev, p.elapsed, firstStep)
+	p.fireSignals(prev, p.elapsed, firstStep)
 	p.notifyHook()
 
 	if p.elapsed >= p.length {
 		p.finish(Finished, true)
+	}
+}
+
+func (p *TimelinePlayer) fireSignals(prev, cur time.Duration, first bool) {
+	if p.target.OnSignal == nil {
+		return
+	}
+	for _, tr := range p.c.Tracks {
+		if tr.Kind != TrackSignal {
+			continue
+		}
+		for _, cl := range tr.Clips {
+			at := time.Duration(cl.Start)
+			if (first && at == 0) || (at > prev && at <= cur) {
+				args := map[string]any{}
+				for k, v := range cl.Args {
+					args[k] = v
+				}
+				p.target.OnSignal(cl.Signal, args)
+			}
+		}
 	}
 }
 
