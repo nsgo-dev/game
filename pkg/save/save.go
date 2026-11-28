@@ -9,6 +9,9 @@ package save
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,8 +32,29 @@ var (
 	// ErrMissingMigration reports that a store lacks a migration step needed to bring a save up to its current version.
 	ErrMissingMigration = errors.New("save: missing migration")
 	// ErrCorrupt reports that a save's stored payload is not a valid save envelope.
-	ErrCorrupt = errors.New("save: corrupt data")
+	ErrCorrupt  = errors.New("save: corrupt data")
+	ErrTampered = errors.New("save: tampered data")
 )
+
+// SealPolicy controls what Load does when a configured seal does not match.
+type SealPolicy int
+
+const (
+	SealRefuse SealPolicy = iota
+	SealReport
+)
+
+// SealOptions configures an HMAC-SHA256 seal over each envelope. Key must
+// return a stable per-install secret, such as one kept by the platform keychain.
+type SealOptions struct {
+	Key        func() ([]byte, error)
+	Bind       string
+	OnMismatch SealPolicy
+	Report     func(error)
+}
+
+// WithSeal enables tamper-evident envelopes.
+func WithSeal(opts SealOptions) Option { return func(s *Store) { s.seal = opts } }
 
 // Migration converts a save's raw JSON data from one schema version to the next (v to v+1).
 type Migration func(data json.RawMessage) (json.RawMessage, error)
@@ -69,6 +93,7 @@ type Store struct {
 	Migrations map[int]Migration
 
 	backend Backend
+	seal    SealOptions
 }
 
 // NewStore returns a Store backed by backend, defaulting to Version 1 before applying opts.
@@ -136,11 +161,17 @@ func (s *Store) write(slot string, header json.RawMessage, value any) error {
 	if err != nil {
 		return fmt.Errorf("save: marshal %q: %w", slot, err)
 	}
-	payload, err := json.Marshal(envelope{
+	env := envelope{
 		Version: s.version(),
 		Header:  header,
 		Data:    json.RawMessage(raw),
-	})
+	}
+	if s.seal.Key != nil {
+		if err := s.applySeal(&env); err != nil {
+			return fmt.Errorf("save: seal %q: %w", slot, err)
+		}
+	}
+	payload, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("save: encode %q: %w", slot, err)
 	}
@@ -367,14 +398,14 @@ func copyName(b any, slot string, backup bool) string {
 
 // decode decodes payload, the copy of a save named name, into dst.
 func (s *Store) decode(name string, payload []byte, dst any, check func() error) error {
-	return decodeEnvelope(name, payload, s.version(), s.Migrations, dst, check)
+	return decodeEnvelope(name, payload, s.version(), s.Migrations, dst, check, s.seal)
 }
 
 // decodeEnvelope decodes payload, the copy of a save named name, into dst. Its errors are *loaderr.Error values that name name and the line of the problem in payload, and match ErrCorrupt, ErrFutureVersion or ErrMissingMigration with errors.Is.
 //
 // When check is not nil, it runs after dst is decoded, and a *loaderr.Error it returns about a field of dst is reported at that field under "data".
-func decodeEnvelope(name string, payload []byte, target int, migrations map[int]Migration, dst any, check func() error) error {
-	return loaderr.Locate(decodeEnvelopeData(payload, target, migrations, dst, check), name, payload, fixCorrupt)
+func decodeEnvelope(name string, payload []byte, target int, migrations map[int]Migration, dst any, check func() error, seal SealOptions) error {
+	return loaderr.Locate(decodeEnvelopeData(payload, target, migrations, dst, check, seal), name, payload, fixCorrupt)
 }
 
 // futureVersion is the error for a save copy whose version, v, is newer than target, the version this build reads. It matches ErrFutureVersion with errors.Is.
@@ -385,7 +416,7 @@ func futureVersion(v, target int) error {
 // fixCorrupt is the fix for a save copy that cannot be read.
 const fixCorrupt = "the copy is damaged or was not written by this game; delete the slot to start over, or restore the file from a backup"
 
-func decodeEnvelopeData(payload []byte, target int, migrations map[int]Migration, dst any, check func() error) error {
+func decodeEnvelopeData(payload []byte, target int, migrations map[int]Migration, dst any, check func() error, seal SealOptions) error {
 	env, err := parseEnvelope(payload)
 	if err != nil {
 		// An envelope a newer build wrote may carry fields this one does not know; report it as a future version rather than as corrupt, so Load does not fall back to an older backup.
@@ -393,6 +424,16 @@ func decodeEnvelopeData(payload []byte, target int, migrations map[int]Migration
 			return futureVersion(v, target)
 		}
 		return err
+	}
+	if seal.Key != nil {
+		if err := verifySeal(env, seal); err != nil {
+			if seal.Report != nil {
+				seal.Report(err)
+			}
+			if seal.OnMismatch != SealReport {
+				return err
+			}
+		}
 	}
 	if env.Version > target {
 		return futureVersion(env.Version, target)
@@ -464,6 +505,48 @@ type envelope struct {
 	Version int             `json:"version"`
 	Header  json.RawMessage `json:"header,omitempty"`
 	Data    json.RawMessage `json:"data"`
+	Seal    string          `json:"seal,omitempty"`
+}
+
+func sealMessage(e envelope, bind string) []byte {
+	var b bytes.Buffer
+	b.WriteString(fmt.Sprintf("%d\n", e.Version))
+	b.Write(e.Data)
+	b.WriteByte('\n')
+	b.WriteString(bind)
+	return b.Bytes()
+}
+func (s *Store) applySeal(e *envelope) error {
+	key, err := s.seal.Key()
+	if err != nil {
+		return err
+	}
+	if len(key) == 0 {
+		return errors.New("empty seal key")
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write(sealMessage(*e, s.seal.Bind))
+	e.Seal = "hmac-sha256:" + hex.EncodeToString(mac.Sum(nil))
+	return nil
+}
+func verifySeal(e envelope, opts SealOptions) error {
+	key, err := opts.Key()
+	if err != nil {
+		return fmt.Errorf("%w: key unavailable", ErrTampered)
+	}
+	if len(key) == 0 || !strings.HasPrefix(e.Seal, "hmac-sha256:") {
+		return ErrTampered
+	}
+	got, err := hex.DecodeString(strings.TrimPrefix(e.Seal, "hmac-sha256:"))
+	if err != nil {
+		return ErrTampered
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write(sealMessage(e, opts.Bind))
+	if !hmac.Equal(got, mac.Sum(nil)) {
+		return ErrTampered
+	}
+	return nil
 }
 
 func parseEnvelope(payload []byte) (envelope, error) {
@@ -502,7 +585,7 @@ func checkEnvelopeKeys(payload []byte) error {
 		// json.Unmarshal, which parseEnvelope runs next, reports what is wrong and where.
 		return nil
 	}
-	var seenVersion, seenHeader, seenData bool
+	var seenVersion, seenHeader, seenData, seenSeal bool
 	for dec.More() {
 		tok, err := dec.Token()
 		if err != nil {
@@ -516,7 +599,9 @@ func checkEnvelopeKeys(payload []byte) error {
 			seenHeader = true
 		case key == "data" && !seenData:
 			seenData = true
-		case key == "version" || key == "header" || key == "data":
+		case key == "seal" && !seenSeal:
+			seenSeal = true
+		case key == "version" || key == "header" || key == "data" || key == "seal":
 			return loaderr.Errorf(key, fixCorrupt, "%w: duplicate envelope field %q", ErrCorrupt, key)
 		default:
 			return loaderr.Errorf(key, fixCorrupt, "%w: unknown envelope field %q", ErrCorrupt, key)
