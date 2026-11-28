@@ -53,7 +53,7 @@ ctl.Step(in, v, slopes, platforms, dt)
 ## 光照
 
 ```go
-lighting := &lights2d.Scene{Ambient: core.RGBA(12, 16, 30, 0.85)}
+lighting := &lights2d.Scene{Ambient: core.RGBA(0x0c101e, 0.85)}
 lighting.Occluders = v.Occluders()
 
 // 地图改变之后：

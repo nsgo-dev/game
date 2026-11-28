@@ -990,9 +990,9 @@ err = renderer.RenderFrame(frame, render3d.SurfaceDesc{HasDepth: true}, views, f
 
 ```go
 var dbg render3d.DebugDraw
-dbg.Grid(math3d.Vec3Zero(), 10, 20, core.RGBA(120, 130, 150, 0.4))
-dbg.AABB(enemyBounds, core.RGB(255, 80, 80))
-dbg.Sphere(alertCenter, 4, core.RGB(255, 200, 60), 24)
+dbg.Grid(math3d.Vec3Zero(), 10, 20, core.RGBA(0x788296, 0.4))
+dbg.AABB(enemyBounds, core.RGB(0xff5050))
+dbg.Sphere(alertCenter, 4, core.RGB(0xffc83c), 24)
 dbg.Axes(selectedPos, 1.5)
 dbg.Flush(d, cam.ViewProj(), viewportBounds)
 dbg.Clear()
@@ -1032,7 +1032,7 @@ basis, _ := render3d.NewCameraBasis(cam.ViewMatrix(), cam.ProjMatrix())
 视平面与视点两种模式在任何角度都面向相机，包括正上方和正下方俯仰；轴向四边形在轴允许的范围内面向相机，当相机沿轴向观看时呈侧面。`Pivot` 决定四边形相对 `Center` 的位置（`{Y: -0.5}` 使其立在底边上），`Rotation` 使其在屏幕上逆时针滚转。
 
 ```go
-smoke := render3d.Billboard{Center: pos, Width: 1, Height: 1, Rotation: spin, Color: core.RGBA(200, 200, 200, 0.6)}
+smoke := render3d.Billboard{Center: pos, Width: 1, Height: 1, Rotation: spin, Color: core.RGBA(0xc8c8c8, 0.6)}
 tree := render3d.Billboard{Center: base, Width: 2, Height: 4, Pivot: math3d.Vec2{Y: -0.5}, Mode: render3d.BillboardAxial, Texture: treeImage}
 
 quad, ok := smoke.Quad(basis)                                   // 角点依次为左下、右下、右上、左上，朝相机逆时针
@@ -1053,7 +1053,7 @@ sword := render3d.NewTrail(render3d.TrailConfig{
 	Width:         0.3,
 	Lifetime:      250 * time.Millisecond,
 	WidthCurve:    particles.Curve{{T: 0, Value: 1}, {T: 1, Value: 0}},
-	ColorGradient: particles.ColorCurve{{T: 0, Color: core.RGB(0xffe080)}, {T: 1, Color: core.RGBA(255, 80, 0, 0)}},
+	ColorGradient: particles.ColorCurve{{T: 0, Color: core.RGB(0xffe080)}, {T: 1, Color: core.RGBA(0xff5000, 0)}},
 })
 
 // 在 Update 中：

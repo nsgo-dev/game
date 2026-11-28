@@ -81,8 +81,8 @@ Keep screen-space HUD buttons and readouts clear of notches, rounded corners, st
 ```go
 safe := vp.SafeGameRectForEnv(cx.Env())
 // safe is clamped to the visible virtual canvas in virtual game coordinates
-scoreX := safe.X + 8
-scoreY := safe.Y + 8
+scoreX := safe.Origin.X + 8
+scoreY := safe.Origin.Y + 8
 ```
 
 Called inside a reactive computation or `core.Canvas.Draw`, `SafeGameRectForEnv` and `SafeRectForEnv` subscribe automatically to window resize and safe-area inset changes. For native NSGo overlay views in view coordinates, use `screen.SafeRect(window, insets)` or `screen.SafeRectForEnv(cx.Env())`.
