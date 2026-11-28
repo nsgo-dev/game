@@ -1,0 +1,1 @@
+- Expose a 3D camera target on cutscene timelines for game-owned camera integration.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/scene3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/audio"
@@ -31,6 +32,8 @@ type TimelineTarget struct {
 	Scene *sceneformat.BuiltScene
 	// Doc, when non-nil and Scene is nil, is a SceneDoc whose objects and camera the player drives directly.
 	Doc *sceneformat.SceneDoc
+	// Scene3D, when non-nil, is the 3D gameplay camera driven by this timeline.
+	Scene3D *scene3d.Camera
 	// Catalog, when non-nil, resolves dialogue clip line IDs into localized text for ActiveDialogue and OnDialogue.
 	Catalog *l10n.Catalog
 	// Locale is the BCP-47 locale tag passed to Catalog.T; when empty, Catalog.FallbackLocale is used.
@@ -102,6 +105,8 @@ type TimelinePlayer struct {
 	actorStates map[string]string
 	curCam      camPose
 	hasCamPose  bool
+	camera3D    scene3d.Camera
+	hasCamera3D bool
 	dialogue    DialogueLine
 
 	// Audio trigger tracking indexed by [trackIndex][clipIndex].
@@ -178,6 +183,10 @@ func NewTimelinePlayer(c Cutscene, target TimelineTarget) (*TimelinePlayer, erro
 		p.initCam = camPose{zoom: 1}
 	}
 	p.curCam = p.initCam
+	if target.Scene3D != nil {
+		p.camera3D = *target.Scene3D
+		p.hasCamera3D = true
+	}
 
 	// Validate object targets against the scene and group tracks.
 	for ti := range p.c.Tracks {
@@ -239,6 +248,26 @@ func (p *TimelinePlayer) ActorPosition(actorID string) (x, y float32, ok bool) {
 // CameraState returns the camera's current (x, y, zoom) and whether the timeline has set the camera.
 func (p *TimelinePlayer) CameraState() (x, y, zoom float32, ok bool) {
 	return p.curCam.x, p.curCam.y, p.curCam.zoom, p.hasCamPose || p.hadCam
+}
+
+// Camera3D returns the current 3D camera supplied by TimelineTarget.Scene3D.
+// The boolean is false when no 3D camera was attached.
+func (p *TimelinePlayer) Camera3D() (scene3d.Camera, bool) {
+	if p == nil || !p.hasCamera3D {
+		return scene3d.Camera{}, false
+	}
+	return p.camera3D, true
+}
+
+// SetCamera3D updates the camera pose returned by Camera3D and writes it to the attached target.
+func (p *TimelinePlayer) SetCamera3D(camera scene3d.Camera) {
+	if p == nil {
+		return
+	}
+	p.camera3D, p.hasCamera3D = camera, true
+	if p.target.Scene3D != nil {
+		*p.target.Scene3D = camera
+	}
 }
 
 // Play starts or resumes playback from the current position. A finished cutscene stays finished until Reset is called.
