@@ -1129,7 +1129,7 @@ func main() {
   - **运行**：`mod+p` / `f5`（播放 / 停止）、`alt+f`（标记运行瞬间）、`mod+l`（画面看起来不对）、`mod+r`（运行游戏）。
   - **智能体**：`mod+n`（新建智能体线程）。
   <!-- END GENERATED EDITOR SHORTCUTS -->
-- **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`、`Help`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下，`Help` 菜单包含重播提示（`Replay tips`）、键盘快捷键（`Keyboard Shortcuts`）与检查更新（`Check for Updates...`）。**检查更新...**（`CmdCheckForUpdates`，命令面板里也有）调用 `updater.Check`：发布版编辑器读取其 GitHub Release 的 appcast，发现新版本时在 macOS 上用 Sparkle 的窗口、在 Windows 上用 WinSparkle 的窗口、在 Linux 上用一个确认后安装已签名安装包的提示框提供更新；发布版每天也会自行检查一次。用 `go tool nsgo dev` 从源码运行的编辑器会提示它不会更新。
+- **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`、`Help`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下，`Help` 菜单包含重播提示（`Replay tips`）、键盘快捷键（`Keyboard Shortcuts`）与检查更新（`Check for Updates...`）。**检查更新…**（`CmdCheckForUpdates`，命令面板里也有）调用 `updater.Check`：发布版编辑器读取其 GitHub Release 的 appcast，发现新版本时在 macOS 上用 Sparkle 的窗口、在 Windows 上用 WinSparkle 的窗口、在 Linux 上用一个确认后安装已签名安装包的提示框提供更新；发布版每天也会自行检查一次。用 `go tool nsgo dev` 从源码运行的编辑器会提示它不会更新。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击顶栏的 **搜索 `⌘K`** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。
 - **插件命令**：插件可通过 `Commands []PluginCommand` 声明带可选 `Shortcut` 的命令。`RegisterPlugin` 会规范化快捷键（`NormalizeShortcut`），并在改动编辑器状态之前拒绝任何在 macOS 或 Windows/Linux 上与内置命令、自定义命令或其他已注册插件冲突的快捷键。
 ## 资源导入设置与重建（#915）
