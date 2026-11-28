@@ -30,6 +30,10 @@ type Task struct {
 	StarterDir   string     `yaml:"starter_dir"`
 	ReferenceDir string     `yaml:"reference_dir"`
 	Checks       ChecksSpec `yaml:"checks"`
+	// Family groups tasks by workflow so reports can identify editor, runtime, data, 3D and safety coverage.
+	Family string `yaml:"family,omitempty"`
+	// MCPServers lists the staged MCP server names the task expects an agent to use.
+	MCPServers []string `yaml:"mcp_servers,omitempty"`
 }
 
 // ChecksSpec declares the deterministic grading rubric for a Task.
@@ -162,6 +166,14 @@ func (t *Task) Validate() error {
 	}
 	if strings.TrimSpace(t.Prompt) == "" {
 		return fmt.Errorf("task %q: prompt is required", t.ID)
+	}
+	if t.Family != "" && !slices.Contains([]string{"create", "editor", "debug", "3d", "data", "code", "safety"}, t.Family) {
+		return fmt.Errorf("task %q: unknown family %q", t.ID, t.Family)
+	}
+	for _, server := range t.MCPServers {
+		if strings.TrimSpace(server) == "" || strings.ContainsAny(server, " \t\n") {
+			return fmt.Errorf("task %q: invalid mcp_servers entry %q", t.ID, server)
+		}
 	}
 	if t.MinScore != nil && (*t.MinScore < 0 || *t.MinScore > 100) {
 		return fmt.Errorf("task %q: min_score must be in [0, 100] (got %d)", t.ID, *t.MinScore)
