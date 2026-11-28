@@ -242,6 +242,40 @@ func TestAskInPlaceSelectTwoObjectsSendAndShowsInAgentPanel(t *testing.T) {
 	}
 }
 
+func TestAskInPlaceDraftRestoresOnlyForSameTargetAndPrivacyContext(t *testing.T) {
+	ed := newAskInPlaceProjectEditor(t)
+	ed.SelectObjects([]string{"slime_01"})
+	if err := ed.OpenAskInPlace(); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetAskInPlaceDraft("keep this multi-line instruction\nwith details")
+	ed.CloseAskInPlace()
+	if err := ed.OpenAskInPlace(); err != nil {
+		t.Fatal(err)
+	}
+	if got := ed.AskInPlaceSnapshot().Draft; got != "keep this multi-line instruction\nwith details" {
+		t.Fatalf("restored draft = %q", got)
+	}
+	ed.ClearAskInPlaceDraft()
+	ed.CloseAskInPlace()
+	ed.SelectObjects([]string{"slime_02"})
+	if err := ed.OpenAskInPlace(); err != nil {
+		t.Fatal(err)
+	}
+	if got := ed.AskInPlaceSnapshot().Draft; got != "" {
+		t.Fatalf("different target restored draft = %q", got)
+	}
+	if err := ed.SetAgentPrivacy(editor.PrivacyViewportImages, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := ed.AskInPlaceSnapshot().ContextSummary; strings.Contains(got, "viewport") {
+		t.Fatalf("privacy-off context = %q", got)
+	}
+	if _, err := ed.SubmitAskInPlace(); err == nil {
+		t.Fatal("empty draft submitted")
+	}
+}
+
 // #1037: ⌘L while typing in the inspector does NOT open the composer;
 // Esc closes the composer without sending and returns focus to where it was.
 func TestAskInPlaceInspectorTextFieldGuardAndEscapeRestoresFocus(t *testing.T) {

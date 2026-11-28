@@ -376,6 +376,8 @@ strings:
   askInPlace.announceScene: 正在询问打开的场景 {scene}
   askInPlace.announceSelection: 已选中 {count} 项：{names}
   askInPlace.close: 关闭提问框
+  askInPlace.contextWithViewport: '将发送：{count} 个对象 · {scene} · 视口图像'
+  askInPlace.contextWithoutViewport: '将发送：{count} 个对象 · {scene}'
   askInPlace.hint: '{askKey} 询问选中内容 · {searchKey} 搜索 · 右键“向智能体询问此项”'
   askInPlace.inputLabelScene: 向智能体询问 {scene}
   askInPlace.inputLabelSelection: 向智能体询问选中内容

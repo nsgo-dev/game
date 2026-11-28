@@ -376,6 +376,8 @@ strings:
   askInPlace.announceScene: Asking about open scene {scene}
   askInPlace.announceSelection: '{count} selected: {names}'
   askInPlace.close: Close ask composer
+  askInPlace.contextWithViewport: 'Sends: {count} object(s) · {scene} · viewport image'
+  askInPlace.contextWithoutViewport: 'Sends: {count} object(s) · {scene}'
   askInPlace.hint: '{askKey} asks about the selection · {searchKey} searches · right-click ''Ask the agent'''
   askInPlace.inputLabelScene: Ask the agent about {scene}
   askInPlace.inputLabelSelection: Ask the agent about the selection

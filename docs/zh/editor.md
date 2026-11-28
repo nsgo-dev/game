@@ -1604,6 +1604,8 @@ func main() {
 - **审查叠加层与保留 / 撤销行为**：确认后智能体的场景修改会打开审查卡片（`SketchReviewOpen`），内置 **Sketch overlay** 开关（`O`、`ToggleSketchReviewOverlay`，瓦片审查 `TileReview` 中同样支持）将草图以半透明点线叠加在结果之上。**Keep**（`KeepSketchReview` / `KeepTileReview`）保留修改并清空草图层；**Revert**（`RevertSketchReview` / `RevertAllTileReview`）撤销修改但保留草图标记以便再次发送。
 ## 智能体输入框中的参考图与固定到简报（#1027）
 
+锚定的 `⌘L` 编辑器在按 `Esc` 或点击外部关闭时会保留非空草稿。在同一选择和场景上重新打开会恢复草稿，切换目标则从空白开始。卡片还会显示 `Sends:` 上下文行，列出选中对象数量、场景文件，以及在 `ViewportImages` 隐私开关允许图像离开本机时列出视口图像。`ClearAskInPlaceDraft` 可明确丢弃保存的草稿，发送后草稿会清除。
+
 在智能体输入框中为单次请求附加 PNG、JPEG 或 WebP 参考图，或将其固定到项目的游戏简报，界面严格遵循 `design/editor/Spec.dc.html` 设计令牌并对应 `design/editor/Sketch.dc.html`（*Paste or drop an image*、*Pin to brief*）：
 
 - **拖放、粘贴或选取 PNG、JPEG 与 WebP**：将文件拖到智能体输入框上方时会显示符合 Spec 规范的 **“Drop to attach”** 拖放层（`SetAgentComposerDragOver`、`DropAgentReferenceFiles`）；向输入框粘贴图片或图片文件（通过 `core.Input.OnPaste` 调用 `HandleAgentComposerPaste`，或调用 `PasteAgentReferenceImage`），或点击 **附加参考图** 按钮（`PickAndAttachAgentReferenceImages` / `CmdAttachReferenceImage`）会在内存中校验真实的 PNG、JPEG 或 WebP 文件头与像素（`DecodeAgentReferenceImage`）。不支持的文件类型（如 GIF、SVG、BMP、文本或损坏的图片）会被拒绝并在无障碍提示横幅中说明具体原因（`AgentAttachError`）。
