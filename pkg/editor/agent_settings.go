@@ -436,7 +436,11 @@ type AgentUsageStats struct {
 	// KeptChanges is the number of reviewed agent changes kept by the person.
 	KeptChanges int `yaml:"keptChanges,omitempty"`
 	// PlaytestRuns is the number of local headless playtest runs recorded on this computer.
-	PlaytestRuns int `yaml:"playtestRuns,omitempty"`
+	PlaytestRuns       int     `yaml:"playtestRuns,omitempty"`
+	WeeklyInputTokens  int64   `yaml:"weeklyInputTokens,omitempty"`
+	CachedInputTokens  int64   `yaml:"cachedInputTokens,omitempty"`
+	WeeklyOutputTokens int64   `yaml:"weeklyOutputTokens,omitempty"`
+	WeeklyCostUSD      float64 `yaml:"weeklyCostUSD,omitempty"`
 }
 
 // KeptPercent returns the rounded percentage of reviewed changes kept and whether any review has been resolved.
@@ -452,7 +456,10 @@ func (u AgentUsageStats) KeptPercent() (int, bool) {
 // Secrets such as API keys are NEVER stored in this struct or any file; they live exclusively in the OS keychain.
 type AgentSettings struct {
 	// BuiltInProvider names the built-in API connection configured in the system keychain (for example "Anthropic API"); never stores an API key.
-	BuiltInProvider string `yaml:"builtInProvider,omitempty"`
+	BuiltInProvider      string  `yaml:"builtInProvider,omitempty"`
+	WeeklySpendLimitUSD  float64 `yaml:"weeklySpendLimitUSD,omitempty"`
+	RequestSpendLimitUSD float64 `yaml:"requestSpendLimitUSD,omitempty"`
+	ToolCallLimit        int     `yaml:"toolCallLimit,omitempty"`
 	// Routes maps task keys ("scene_edits", "playtest_analysis", "problems_fixes", "ask_in_place", "art_and_sound") to preferred model labels.
 	Routes map[string]string `yaml:"routes,omitempty"`
 	// Tools overrides per-tool MCP enabled state keyed by tool name (for example "game_delete_file": false).
@@ -570,6 +577,9 @@ func validateAgentSettings(a *AgentSettings) error {
 	if a == nil {
 		return nil
 	}
+	if a.WeeklySpendLimitUSD < 0 || a.RequestSpendLimitUSD < 0 || a.ToolCallLimit < 0 {
+		return loaderr.Errorf("agent", "use non-negative spend and tool limits", "editor: invalid agent spend limit")
+	}
 	if hasControlChars(a.BuiltInProvider) {
 		return loaderr.Errorf("agent.builtInProvider", "use a plain provider name without control characters", "editor: invalid agent.builtInProvider")
 	}
@@ -659,7 +669,10 @@ func cloneAgentSettings(a *AgentSettings) *AgentSettings {
 		return nil
 	}
 	out := &AgentSettings{
-		BuiltInProvider: a.BuiltInProvider,
+		BuiltInProvider:      a.BuiltInProvider,
+		WeeklySpendLimitUSD:  a.WeeklySpendLimitUSD,
+		RequestSpendLimitUSD: a.RequestSpendLimitUSD,
+		ToolCallLimit:        a.ToolCallLimit,
 	}
 	if len(a.Routes) > 0 {
 		out.Routes = maps.Clone(a.Routes)
@@ -1489,6 +1502,47 @@ func (e *Editor) RecordAgentRequest(count int) {
 	e.refreshAgentLimitStatus()
 	_ = e.persistEditorSettings()
 	e.notify()
+}
+
+// RecordAgentUsage adds token and estimated cost usage to the current week.
+func (e *Editor) RecordAgentUsage(inputTokens, cachedInputTokens, outputTokens int64, costUSD float64) {
+	if e == nil || inputTokens < 0 || cachedInputTokens < 0 || outputTokens < 0 || costUSD < 0 {
+		return
+	}
+	week := weekStartISO(e.nowTime())
+	e.settingsMu.Lock()
+	a := e.ensureAgentSettings()
+	if a.Usage == nil {
+		a.Usage = &AgentUsageStats{}
+	}
+	if a.Usage.WeekStart != week {
+		a.Usage.WeekStart = week
+		a.Usage.WeeklyRequests = 0
+		a.Usage.WeeklyInputTokens = 0
+		a.Usage.CachedInputTokens = 0
+		a.Usage.WeeklyOutputTokens = 0
+		a.Usage.WeeklyCostUSD = 0
+	}
+	a.Usage.WeeklyInputTokens += inputTokens
+	a.Usage.CachedInputTokens += cachedInputTokens
+	a.Usage.WeeklyOutputTokens += outputTokens
+	a.Usage.WeeklyCostUSD += costUSD
+	e.settingsMu.Unlock()
+	_ = e.persistEditorSettings()
+	e.notify()
+}
+
+// AgentWeeklySpendLimitReached reports whether the configured weekly spend cap is reached.
+func (e *Editor) AgentWeeklySpendLimitReached() bool {
+	if e == nil {
+		return false
+	}
+	e.settingsMu.RLock()
+	defer e.settingsMu.RUnlock()
+	if e.settings.Agent == nil || e.settings.Agent.WeeklySpendLimitUSD <= 0 || e.settings.Agent.Usage == nil {
+		return false
+	}
+	return e.settings.Agent.Usage.WeeklyCostUSD >= e.settings.Agent.WeeklySpendLimitUSD
 }
 
 // RecordAgentReviewOutcome records whether reviewed agent changes were kept or reverted.
