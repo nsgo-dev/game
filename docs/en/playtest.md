@@ -171,3 +171,4 @@ The editor's MCP server (`game/editor/editormcp`, reached via `go tool game mcp`
 
 - `game_playtest` (`run`): validates `playtest.yaml`, runs the playtest headless with replays, writes the YAML report, and returns the structured report and summary.
 - `playtest_define` (`edit`): validates a proposed metric and returns a canonical `playtest.yaml` diff queued as a pending review (`Server.PlaytestReviews`, `Server.ApplyPlaytestReview`, `Server.DismissPlaytestReview`) without modifying `playtest.yaml` on disk until reviewed.
+Reports include `briefTargets` when a project brief is available. Each entry is `pending`, `met`, or `missed`, so an unmeasured brief target is never presented as verified.

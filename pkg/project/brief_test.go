@@ -208,6 +208,22 @@ func TestBriefTargetsForScenePrecedence(t *testing.T) {
 	}
 }
 
+func TestBriefBasisAndChangesRoundTripAndRejectUnknownBasis(t *testing.T) {
+	b := &project.Brief{Version: project.BriefVersion, Basis: "assumption", Pitch: "p", Feel: &project.BriefFeel{Basis: "target", Targets: []project.BriefPlaytestTarget{{Metric: "finished", Basis: "locked", Equal: project.Float64(1)}}}, Changes: []project.BriefChange{{Date: "2026-11-28", Field: "feel.targets.finished", From: "0", To: "1", Reason: "acceptance"}}}
+	raw, err := project.EncodeBrief(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := project.ParseBrief(raw)
+	if err != nil || got.Basis != "assumption" || got.Feel.Targets[0].Basis != "locked" || len(got.Changes) != 1 {
+		t.Fatalf("round trip = %+v, err=%v", got, err)
+	}
+	_, err = project.ParseBrief([]byte("version: 1\nbasis: maybe\n"))
+	if err == nil || !strings.Contains(err.Error(), "basis") {
+		t.Fatalf("unknown basis error = %v", err)
+	}
+}
+
 func TestBriefLoadRejectsOversizedFile(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, project.BriefFileName)

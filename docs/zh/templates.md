@@ -139,3 +139,7 @@ internal/gamecli/
 ## 模板图库媒体
 
 模板卡片可以显示封面图。在编辑器的开始界面上，`editor.ProjectTemplate.Cover` 是绘制在卡片色块上的图片 URI；没有封面的模板仍显示色块。在网站的作品展示页上，`website/src/content/showcase.ts` 中的 `ShowcaseEntry` 可以带一个可选的 `cover` 图片和一个可选的 `preview` 片段：封面延迟加载，片段静音并声明为 `preload="none"`，只有在指针停在卡片上或焦点位于卡片内时才会下载和播放，离开后暂停。目前还没有模板附带封面或片段；从每个模板的确定性运行中捕获它们由 #1962 跟踪。
+
+## 模板简报
+
+每个模板都包含版本化的 `brief.yaml`，其中记录简介、平台、手感目标和目标来源。`basis` 为 `locked` 时表示人员决定，`target` 表示体验目标，`assumption` 表示可以调整的默认值。`source: brief.yaml` 的试玩目标必须解析到这些目标，尚未测量的目标会在 `playtest.report.yaml` 中保持 `pending`。

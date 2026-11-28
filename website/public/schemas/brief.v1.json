@@ -10,6 +10,15 @@
       "type": "integer",
       "const": 1
     },
+    "basis": {
+      "description": "Basis records whether the brief section is locked by the person, an experience target, or an assumption that may be revised.",
+      "type": "string",
+      "enum": [
+        "locked",
+        "target",
+        "assumption"
+      ]
+    },
     "pitch": {
       "description": "Pitch describes what the game is meant to be in a sentence or two.",
       "type": "string"
@@ -58,6 +67,13 @@
           "$ref": "#/definitions/BriefFeel"
         }
       ]
+    },
+    "changes": {
+      "description": "Changes records explicit edits to brief intent in deterministic order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BriefChange"
+      }
     }
   },
   "required": [
@@ -69,6 +85,14 @@
       "description": "BriefArt holds structured art direction notes and pinned project-relative reference images.",
       "type": "object",
       "properties": {
+        "basis": {
+          "type": "string",
+          "enum": [
+            "locked",
+            "target",
+            "assumption"
+          ]
+        },
         "direction": {
           "description": "Direction optionally describes visual direction inline under art.direction.",
           "type": "string"
@@ -102,10 +126,44 @@
       ],
       "additionalProperties": false
     },
+    "BriefChange": {
+      "description": "BriefChange records why a brief field changed.",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "date",
+        "field"
+      ],
+      "additionalProperties": false
+    },
     "BriefFeel": {
       "description": "BriefFeel describes game feel, difficulty expectations, and machine-readable playtest targets.",
       "type": "object",
       "properties": {
+        "basis": {
+          "type": "string",
+          "enum": [
+            "locked",
+            "target",
+            "assumption"
+          ]
+        },
         "summary": {
           "description": "Summary describes target game feel, controls responsiveness, and difficulty pacing in plain language.",
           "type": "string"
@@ -124,6 +182,15 @@
       "description": "BriefPlaytestTarget declares one measurable playtest target in brief.yaml's feel and difficulty section.",
       "type": "object",
       "properties": {
+        "basis": {
+          "description": "Basis identifies provenance of this target.",
+          "type": "string",
+          "enum": [
+            "locked",
+            "target",
+            "assumption"
+          ]
+        },
         "metric": {
           "description": "Metric is the playtest metric name this target constrains, such as \"median_time\", \"deaths\", or \"finished\".",
           "type": "string",

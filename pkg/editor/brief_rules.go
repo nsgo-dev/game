@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/project"
@@ -458,6 +459,9 @@ func (e *Editor) EditBrief(label string, edit func(b *project.Brief)) error {
 		next = &project.Brief{Version: project.BriefVersion}
 	}
 	edit(next)
+	if before := e.agentDocs.brief; before != nil && briefTargetFingerprint(before) != briefTargetFingerprint(next) {
+		next.Changes = append(next.Changes, project.BriefChange{Date: time.Now().UTC().Format(time.DateOnly), Field: "feel.targets", From: briefTargetFingerprint(before), To: briefTargetFingerprint(next), Reason: label})
+	}
 	if next.Version == 0 {
 		next.Version = project.BriefVersion
 	}
@@ -507,6 +511,27 @@ func (e *Editor) EditBrief(label string, edit func(b *project.Brief)) error {
 		afterBytes:    encoded,
 	}
 	return e.History.execute(cmd)
+}
+
+func briefTargetFingerprint(b *project.Brief) string {
+	if b == nil || b.Feel == nil {
+		return ""
+	}
+	var out []string
+	for _, t := range b.Feel.Targets {
+		min, max, eq := "", "", ""
+		if t.Min != nil {
+			min = fmt.Sprint(*t.Min)
+		}
+		if t.Max != nil {
+			max = fmt.Sprint(*t.Max)
+		}
+		if t.Equal != nil {
+			eq = fmt.Sprint(*t.Equal)
+		}
+		out = append(out, strings.Join([]string{t.Scene, t.Metric, t.Basis, min, max, eq, t.Unit, t.Summary}, "|"))
+	}
+	return strings.Join(out, ";")
 }
 
 // CreateBrief creates or replaces brief.yaml with b as one undoable step.

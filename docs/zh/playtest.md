@@ -171,3 +171,4 @@ go tool game playtest -check
 
 - `game_playtest`（`run`）：校验 `playtest.yaml`，无头运行机器人并录制回放，写出 YAML 报告，返回结构化报告和汇总文本。
 - `playtest_define`（`edit`）：校验提议的新指标，生成规范化的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews`、`Server.ApplyPlaytestReview`、`Server.DismissPlaytestReview`），在用户确认前不会改写磁盘上的 `playtest.yaml`。
+项目存在简报时，报告会包含 `briefTargets`。每一项状态为 `pending`、`met` 或 `missed`，因此未测量的简报目标不会被误报为已验证。
