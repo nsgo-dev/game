@@ -34,6 +34,8 @@ const (
 	ToolViewportImage = "viewport_image"
 	// ToolGameCheck runs the Problems panel's checks over the project.
 	ToolGameCheck = "game_check"
+	// ToolSkillGet reads a section of the versioned embedded agent skill.
+	ToolSkillGet = "skill_get"
 )
 
 // maxReadBytes is the largest file scene_read reads.
@@ -45,6 +47,12 @@ const defaultReadLines = 2000
 // builtinTools are the tools New adds.
 func builtinTools() []Tool {
 	return append([]Tool{
+		{
+			Name: ToolSkillGet, Title: "Read agent skill section",
+			Description: "Read a section of the versioned nsgo-game agent skill served by this editor. Pass file such as SKILL.md or references/mcp-tools.md and an exact Markdown heading.",
+			InputSchema: []byte(`{"type":"object","additionalProperties":false,"required":["file","section"],"properties":{"file":{"type":"string"},"section":{"type":"string"}}}`),
+			Action:      ActionRead, Handler: skillGet,
+		},
 		{
 			Name:        ToolSceneRead,
 			Title:       "Read a file",

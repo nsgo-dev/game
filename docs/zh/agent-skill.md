@@ -36,3 +36,5 @@ claude mcp add nsgo -- go tool nsgo mcp
 3. 通过 MCP 执行可复现验证：调用 `game_loop_pause` 暂停、`game_loop_seed` 设定随机种子、注入输入或生成实体、调用 `game_loop_step` 同步推进步数、通过 `game_entities_list` / `game_entity_inspect` / `game_component_get` 检查实体状态，并用 `game_screenshot` 截取叠加层画面。
 
 处理商店媒体时，让 `store/capture.yaml`（[商店截图计划](shipping.md#商店截图计划)）始终记录每张截图的场景、录像和帧，用 `game_screenshot` 按计划写明的尺寸截取每张图片，并运行 `go tool game capture`，直到它不再报告缺失或尺寸不对的文件。起草商店文案时只使用 `game.yaml`、输入绑定和 `changelog.d` 片段中的事实。
+
+编辑器 MCP 服务器还通过 `skill://nsgo-game/...` 提供当前版本的技能和参考文档；客户端无法读取 MCP 资源时使用 `skill_get`。服务器副本优先于本地较旧的安装副本。

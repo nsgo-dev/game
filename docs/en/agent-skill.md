@@ -36,3 +36,5 @@ claude mcp add nsgo -- go tool nsgo mcp
 3. Drive reproducible checks through MCP: pause with `game_loop_pause`, seed with `game_loop_seed`, inject inputs or spawn entities, advance synchronously with `game_loop_step`, inspect entities with `game_entities_list` / `game_entity_inspect` / `game_component_get`, and capture overlays with `game_screenshot`.
 
 For store media, keep `store/capture.yaml` ([Store screenshot plan](shipping.md#store-screenshot-plan)) up to date with the scene, recording and frame of each screenshot, capture each image at the size the plan names with `game_screenshot`, and run `go tool game capture` until it reports no missing or wrongly sized file. Draft listing text only from facts in `game.yaml`, the input bindings and the `changelog.d` fragments.
+
+The editor MCP server also serves the pinned skill and references as `skill://nsgo-game/...`; use `skill_get` when the client cannot read MCP resources. The server copy wins over an older locally installed copy.
