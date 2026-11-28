@@ -189,7 +189,7 @@ Every tool above is always registered once the Bridge is attached. A tool whose 
 
 ## The editor's own server
 
-The tools above reach a running game. The NSGo Game Editor has its own MCP server, `game/editor/editormcp`, for editing the project it has open: an agent reads and edits through the same commands as the inspector, scene tree and viewport, so each edit is reviewable by the person. Connect it with `go tool game mcp install` (or `claude mcp add game-editor -- go tool game mcp`) in the project directory, with the editor open on the project (`go tool game editor .`). The [complete editor tool reference](https://game.nsgo.dev/docs/mcp/#editor-tools) catalogs the tool groups:
+The tools above reach a running game. The NSGo Game Editor has its own MCP server, `game/pkg/editor/editormcp`, for editing the project it has open: an agent reads and edits through the same commands as the inspector, scene tree and viewport, so each edit is reviewable by the person. Connect it with `go tool game mcp install` (or `claude mcp add game-editor -- go tool game mcp`) in the project directory, with the editor open on the project (`go tool game editor .`). The [complete editor tool reference](https://game.nsgo.dev/docs/mcp/#editor-tools) catalogs the tool groups:
 
 - Project, scene and file reads and edits (`scene_read`, `scene_edit`, `file_edit`), object and inspector operations, selection, viewport images, references and safe renames.
 - Reviewable agent turns (`turn_start`, `turn_end`, `turn_status`), change reviews and notes, unified history and checkpoints.
