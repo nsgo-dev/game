@@ -93,14 +93,18 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	if args.Component != "" && args.Property {
 		return nil, errors.New("object_set_field: component and property cannot both be set")
 	}
+	if args.ID == "" {
+		id, err := resolveWriteID(ctx, c, "")
+		if err != nil {
+			return nil, &EditError{Problem: err.Error(), Fix: "pass id; selection_get shows the selected object"}
+		}
+		args.ID = id
+	}
 	committed := false
 	if !c.onEditor {
 		holdTarget := args.ID
 		if holdTarget == "" {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				holdTarget = ed.SelectedID
-				return nil
-			})
+			return nil, errWriteNeedsExplicitTarget
 		}
 		if holdTarget != "" {
 			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
@@ -129,9 +133,6 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 			return holdErr
 		}
 		targetID := args.ID
-		if targetID == "" {
-			targetID = ed.SelectedID
-		}
 		if targetID == "" {
 			return &EditError{File: name, Field: args.Field, Problem: "no object id was provided and no object is selected", Fix: "pass id or select an object first"}
 		}

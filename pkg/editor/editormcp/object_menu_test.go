@@ -138,7 +138,7 @@ func TestObjectContextMenuMCPTools(t *testing.T) {
 	}
 
 	// 6. object_group groups the selection in one undo step.
-	res = call(t, cs, editormcp.ToolObjectGroup, map[string]any{"name": "Slimes"})
+	res = call(t, cs, editormcp.ToolObjectGroup, map[string]any{"ids": []string{"slime_1", "slime_2"}, "name": "Slimes"})
 	mustOK(t, res)
 	var grpOut editormcp.ObjectGroupResult
 	structured(t, res, &grpOut)

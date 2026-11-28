@@ -295,15 +295,16 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_duplicate: %w", err)
 	}
+	if args.ID == "" {
+		id, err := resolveWriteID(ctx, c, "")
+		if err != nil {
+			return nil, err
+		}
+		args.ID = id
+	}
 	committed := false
 	if !c.onEditor {
 		holdTarget := args.ID
-		if holdTarget == "" {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				holdTarget = ed.SelectedID
-				return nil
-			})
-		}
 		if holdTarget != "" {
 			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
 			if err != nil {
@@ -327,9 +328,7 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
 		src := args.ID
-		if src == "" {
-			src = ed.SelectedID
-		}
+		// args.ID is resolved once before the hold and write.
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
 			ed.BeginAgentTurn("Agent: duplicate " + src)
@@ -378,15 +377,16 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_group: %w", err)
 	}
+	if len(args.IDs) == 0 {
+		ids, err := resolveWriteIDs(ctx, c, nil)
+		if err != nil {
+			return nil, err
+		}
+		args.IDs = ids
+	}
 	committed := false
 	if !c.onEditor {
 		holdTargets := args.IDs
-		if len(holdTargets) == 0 {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				holdTargets = ed.SelectedIDs()
-				return nil
-			})
-		}
 		if len(holdTargets) > 0 {
 			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, holdTargets)
 			if err != nil {
@@ -410,9 +410,7 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
 		ids := args.IDs
-		if len(ids) == 0 {
-			ids = ed.SelectedIDs()
-		}
+		// args.IDs is resolved once before the hold and write.
 		openedTurn := !ed.AgentTurnPending()
 		if openedTurn {
 			ed.BeginAgentTurn("Agent: group objects")
@@ -482,15 +480,16 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_move_under: %w", err)
 	}
+	if args.ID == "" && !args.ListCandidates {
+		id, err := resolveWriteID(ctx, c, "")
+		if err != nil {
+			return nil, err
+		}
+		args.ID = id
+	}
 	committed := false
 	if !c.onEditor && !args.ListCandidates {
 		targetID := args.ID
-		if targetID == "" {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				targetID = ed.SelectedID
-				return nil
-			})
-		}
 		var holdTargets []string
 		if targetID != "" {
 			holdTargets = append(holdTargets, targetID)
@@ -514,9 +513,6 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		id := args.ID
-		if id == "" {
-			id = ed.SelectedID
-		}
 		if args.ListCandidates {
 			cands := ed.MoveUnderCandidates(id)
 			out = ObjectMoveUnderResult{ID: id, Candidates: cands, Revision: ed.Revision()}
@@ -623,15 +619,16 @@ func objectVisibility(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_visibility: %w", err)
 	}
+	if args.ID == "" {
+		id, err := resolveWriteID(ctx, c, "")
+		if err != nil {
+			return nil, err
+		}
+		args.ID = id
+	}
 	committed := false
 	if !c.onEditor {
 		holdTarget := args.ID
-		if holdTarget == "" {
-			_ = c.Editor(ctx, func(ed *editor.Editor) error {
-				holdTarget = ed.SelectedID
-				return nil
-			})
-		}
 		if holdTarget != "" {
 			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
 			if err != nil {
@@ -647,9 +644,6 @@ func objectVisibility(ctx context.Context, c *Call) (*Result, error) {
 	var out ObjectVisibilityResult
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		id := args.ID
-		if id == "" {
-			id = ed.SelectedID
-		}
 		if obj, _ := ed.FindResolvedObject(id); obj == nil {
 			return fmt.Errorf("object %q not found", id)
 		}

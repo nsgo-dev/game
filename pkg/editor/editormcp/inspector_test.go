@@ -42,6 +42,7 @@ func TestObjectSetFieldAndLocateYAML(t *testing.T) {
 	// Edit object field via object_set_field (defaulting to selected object).
 	beforeIdx := f.ed.History.Index()
 	res := call(t, cs, editormcp.ToolObjectSetField, map[string]any{
+		"id":    "hero",
 		"field": "x",
 		"value": 128,
 	})
@@ -73,6 +74,7 @@ func TestObjectSetFieldAndLocateYAML(t *testing.T) {
 
 	// Edit custom property via object_set_field.
 	res = call(t, cs, editormcp.ToolObjectSetField, map[string]any{
+		"id":       "hero",
 		"property": true,
 		"field":    "tier",
 		"value":    3,
