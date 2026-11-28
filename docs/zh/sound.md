@@ -348,3 +348,6 @@ func TestMixerCrossfadeAndMute(t *testing.T) {
 	}
 }
 ```
+## 无障碍字幕
+
+位置声音成功播放后调用 `a11y.CaptionBridge.ShowSFXAt`。传入听者使用的相同声像方向，并为脚步声等重复效果设置 `minInterval`。这样方向字幕与播放保持一致，同时避免连续声音填满字幕轨道。

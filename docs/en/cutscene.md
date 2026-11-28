@@ -277,3 +277,6 @@ Drawing decoded frames into the game, with the sound in the mixer, needs a frame
 app.Play("id:cutscene", core.VideoInfo{Duration: 3 * time.Second})
 app.Progress("id:cutscene", 3*time.Second, 3*time.Second) // done gets Finished
 ```
+## Dialogue captions
+
+Call `a11y.CaptionBridge.SyncDialogue` from a timeline player's `OnDialogue` callback. Pass `active=false` when the callback reports an empty line or the player ends. The bridge keeps one caption for the current line and removes it when playback ends.
