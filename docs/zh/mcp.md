@@ -506,6 +506,7 @@ NSGo 的 `automation` 只在 `nsgo dev -automation` 和测试构建中注册应�
 ## 编辑器 MCP 的实时 Play 契约（#1743）
 
 `pkg/editor/editormcp` 预留了实时 Play 工具的名称 `play_start`、`play_stop`、`play_step`、`play_input`、`play_state`、`play_frame` 和 `output_read`（`ToolPlayStart` 等常量），并导出它们的线上类型：`PlayStartArgs`（`paused`、`seed`、`replay_file`）、`PlayStepArgs`（`count`）、`PlayInputArgs`（`action`、`event`、`value`、`x`、`y`）、带 `PlayEntity` 记录的 `PlayState`，以及 `OutputEntry`（`cursor`、`level`、`message`、`file`、`line`）。`ValidatePlayStep` 接受 1 到 3600 的 `count`；`ValidatePlayInput` 要求提供 `action`，`event` 为 `press`、`release`、`tap`、`axis` 或 `pointer` 之一，`axis` 的取值与 `game_input_action` 一样限定在 `[-1, 1]`。服务器尚未注册这些工具：在注册之前，编辑器中的 Agent 只能通过 `play_frozen_context` 和 `play_replay_step` 驱动 Play。
-# MCP Apps 小组件
 
-当客户端在 `io.modelcontextprotocol/ui` 扩展中声明 `text/html;profile=mcp-app` 时，编辑器 MCP 服务器会公布自包含的 `ui://nsgo-game/playtest-report` 和 `ui://nsgo-game/viewport` 资源。`game_playtest`、`playtest_report` 与 `viewport_image` 会在 `_meta.ui` 中附上对应的小组件 URI。不支持该能力的客户端仍收到完全相同的文本、结构化结果和图像内容。小组件 HTML 不建立网络连接，只使用内联样式以及 `data:` 或 `blob:` 图像。视口隐私设置同样约束小组件中的图像。
+## MCP Apps 小组件
+
+当客户端在 `initialize` 能力中通过 `io.modelcontextprotocol/ui` 扩展声明 `text/html;profile=mcp-app` 时，编辑器 MCP 服务器会列出自包含的 `ui://nsgo-game/playtest-report` 和 `ui://nsgo-game/viewport` 资源，成功的 `game_playtest`、`playtest_report` 与 `viewport_image` 结果会在 `_meta.ui.resourceUri` 中带上对应的 URI。不支持该能力的客户端看不到这些资源、也无法读取，收到的文本、结构化结果和图像内容与以前相同。`go tool game mcp` 只把这一扩展从它的客户端转发给编辑器。小组件 HTML 不运行脚本、不建立网络连接，只允许内联样式以及 `data:` 和 `blob:` 图像；数据仍在工具结果的文本、结构化内容和图像中。视口隐私设置照常生效：视口图像不允许离开本机时，`viewport_image` 会被拒绝，其结果不指向任何小组件。

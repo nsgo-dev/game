@@ -47,8 +47,8 @@ var resources = []*mcp.Resource{
 	{URI: BriefURI, Name: "brief", Title: "Game brief", Description: "The open project's brief.yaml (pitch, genre, platforms, art direction, feel and difficulty, and playtest targets) that the agent reads before every request.", MIMEType: "application/yaml"},
 	{URI: RulesURI, Name: "rules", Title: "Project rules", Description: "The open project's AGENTS.md plain Markdown instructions shared by Claude Code, Codex, and the built-in editor agent.", MIMEType: "text/markdown"},
 	{URI: ContextURI, Name: "context", Title: "Project agent context", Description: "Combined JSON context containing brief.yaml, AGENTS.md, missing brief sections, playtest targets, and pending document reviews.", MIMEType: "application/json"},
-	{URI: PlaytestWidgetURI, Name: "playtest-report-widget", Title: "Playtest report widget", MIMEType: mcpAppsMIME},
-	{URI: ViewportWidgetURI, Name: "viewport-widget", Title: "Viewport widget", MIMEType: mcpAppsMIME},
+	{URI: PlaytestWidgetURI, Name: "playtest-report-widget", Title: "Playtest report widget", Description: "MCP Apps widget for game_playtest and playtest_report results, listed only to clients that declare the io.modelcontextprotocol/ui extension.", MIMEType: mcpAppsMIME},
+	{URI: ViewportWidgetURI, Name: "viewport-widget", Title: "Viewport widget", Description: "MCP Apps widget for viewport_image results, listed only to clients that declare the io.modelcontextprotocol/ui extension.", MIMEType: mcpAppsMIME},
 }
 
 // changeStream is what the editor showed when the stream last looked, to tell a change from a notification that changed nothing.
@@ -79,10 +79,10 @@ func (c *changeStream) reset(ed *editor.Editor) {
 
 // addResources adds the resources and their read handlers to the SDK server.
 func (s *Server) addResources() {
-	s.sdk.AddResource(&mcp.Resource{URI: PlaytestWidgetURI, Name: "playtest-report-widget", Title: "Playtest report widget", MIMEType: mcpAppsMIME}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	s.sdk.AddResource(resources[6], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: req.Params.URI, MIMEType: mcpAppsMIME, Text: playtestWidgetHTML}}}, nil
 	})
-	s.sdk.AddResource(&mcp.Resource{URI: ViewportWidgetURI, Name: "viewport-widget", Title: "Viewport widget", MIMEType: mcpAppsMIME}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	s.sdk.AddResource(resources[7], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: req.Params.URI, MIMEType: mcpAppsMIME, Text: viewportWidgetHTML}}}, nil
 	})
 	s.sdk.AddResource(resources[0], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
