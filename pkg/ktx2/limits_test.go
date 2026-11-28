@@ -26,23 +26,37 @@ func zstdRLEFrame(n int, val byte) []byte {
 	return frame
 }
 
-// hugeZstdBC1 returns a KTX2 file of a few kilobytes holding one 16384x16384 BC1 level, 128 MiB once its Zstandard frame of RLE blocks is decoded and 1 GiB as RGBA.
-func hugeZstdBC1(t testing.TB) []byte {
+// zstdBomb returns a KTX2 file of a few kilobytes holding a w x ht texture in format with levels mip levels, each one Zstandard frame of RLE blocks without a content size that decodes to the level's full size in zero bytes.
+func zstdBomb(t testing.TB, format ktx2.Format, w, ht, levels int) []byte {
 	t.Helper()
-	const dim = 16384
-	base, err := ktx2.Encode(image.NewNRGBA(image.Rect(0, 0, 4, 4)), ktx2.Options{Format: ktx2.FormatBC1})
+	base, err := ktx2.Encode(image.NewNRGBA(image.Rect(0, 0, 4, 4)), ktx2.Options{Format: format})
 	if err != nil {
 		t.Fatal(err)
 	}
-	levelBytes := ktx2.FormatBC1.LevelByteSize(dim, dim)
-	data := repackKTX2Supercompressed(t, base, ktx2.SupercompressionZstandard, [][]byte{zstdRLEFrame(levelBytes, 0)})
-	binary.LittleEndian.PutUint32(data[20:24], dim)
-	binary.LittleEndian.PutUint32(data[24:28], dim)
-	binary.LittleEndian.PutUint64(data[ktx2.HeaderSize+16:ktx2.HeaderSize+24], uint64(levelBytes))
+	frames := make([][]byte, levels)
+	sizes := make([]int, levels)
+	for lvl := range levels {
+		lw, lh := ktx2.MipDimensions(w, ht, lvl)
+		sizes[lvl] = format.LevelByteSize(lw, lh)
+		frames[lvl] = zstdRLEFrame(sizes[lvl], 0)
+	}
+	data := repackKTX2Supercompressed(t, base, ktx2.SupercompressionZstandard, frames)
+	binary.LittleEndian.PutUint32(data[20:24], uint32(w))
+	binary.LittleEndian.PutUint32(data[24:28], uint32(ht))
+	binary.LittleEndian.PutUint32(data[40:44], uint32(levels))
+	for lvl, n := range sizes {
+		off := ktx2.HeaderSize + lvl*ktx2.LevelIndexEntrySize
+		binary.LittleEndian.PutUint64(data[off+16:off+24], uint64(n))
+	}
 	if err := ktx2.Validate(data); err != nil {
 		t.Fatalf("crafted file must be structurally valid: %v", err)
 	}
 	return data
+}
+
+// hugeZstdBC1 returns a KTX2 file of a few kilobytes holding one 16384x16384 BC1 level, 128 MiB once its Zstandard frame of RLE blocks is decoded and 1 GiB as RGBA.
+func hugeZstdBC1(t testing.TB) []byte {
+	return zstdBomb(t, ktx2.FormatBC1, 16384, 16384, 1)
 }
 
 func allocatedBytes(fn func()) uint64 {
@@ -93,21 +107,86 @@ func TestDecodeRefusesRGBAOverLimit(t *testing.T) {
 	}
 }
 
+// TestDecodeRefusesTextureOverBudget checks that a few kilobytes declaring a full 16384x16384 BC7 mip chain, 341 MiB inflated though every level is within the per-level limit, are refused by Decode, and so by render3d.LoadKTX2, from the header before anything is decompressed.
+func TestDecodeRefusesTextureOverBudget(t *testing.T) {
+	for _, format := range []ktx2.Format{ktx2.FormatBC7, ktx2.FormatUASTC} {
+		data := zstdBomb(t, format, 16384, 16384, 15)
+		if len(data) > 16*1024 {
+			t.Fatalf("%s: crafted file is %d bytes, want a few kilobytes", format, len(data))
+		}
+		var err error
+		if n := allocatedBytes(func() { _, err = ktx2.Decode(data) }); n > 1<<20 {
+			t.Errorf("%s: Decode allocated %d bytes before refusing, want under 1 MiB", format, n)
+		}
+		if err == nil {
+			t.Fatalf("%s: Decode accepted a texture that inflates to 341 MiB", format)
+		}
+	}
+}
+
+// TestDecodeAllocatesLevelsOnce checks that Decode allocates a Zstandard texture's levels once each, even when the frames declare no content size, rather than growing and copying a buffer as the RLE blocks decode.
+func TestDecodeAllocatesLevelsOnce(t *testing.T) {
+	const dim = 2048
+	data := zstdBomb(t, ktx2.FormatBC7, dim, dim, 12)
+	var want uint64
+	for lvl := range 12 {
+		w, ht := ktx2.MipDimensions(dim, dim, lvl)
+		want += uint64(ktx2.FormatBC7.LevelByteSize(w, ht))
+	}
+	var err error
+	if n := allocatedBytes(func() { _, err = ktx2.Decode(data) }); n > want+1<<20 {
+		t.Errorf("Decode allocated %d bytes for %d bytes of levels, want each level allocated once", n, want)
+	}
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+}
+
+// TestTranscodeRefusesOutputOverBudget checks that transcoding a full 8192x8192 UASTC mip chain, every level within the RGBA limit, to RGBA8 is refused before decoding a level, since its output would total 341 MiB.
+func TestTranscodeRefusesOutputOverBudget(t *testing.T) {
+	tex, err := ktx2.Decode(zstdBomb(t, ktx2.FormatUASTC, 8192, 8192, 14))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if n := allocatedBytes(func() { _, err = tex.Transcode(ktx2.FormatRGBA8) }); n > 1<<20 {
+		t.Errorf("Transcode(RGBA8) allocated %d bytes before refusing, want under 1 MiB", n)
+	}
+	if err == nil {
+		t.Fatal("Transcode(RGBA8) accepted an output of 341 MiB")
+	}
+}
+
+// TestDecodeRGBADecompressesOnlyItsLevel checks that DecodeRGBA of a small level does not inflate the larger levels of the same file.
+func TestDecodeRGBADecompressesOnlyItsLevel(t *testing.T) {
+	data := zstdBomb(t, ktx2.FormatBC1, 16384, 16384, 15)
+	for _, level := range []int{14, 1} {
+		// Level 14 is 1x1; level 1 is an 8192x8192 image, 256 MiB as RGBA plus its 32 MiB payload.
+		w, _ := ktx2.MipDimensions(16384, 16384, level)
+		limit := uint64(1 << 20)
+		if level == 1 {
+			if testing.Short() {
+				t.Skip("decodes a 256 MiB image")
+			}
+			limit += uint64(w)*uint64(w)*4 + uint64(ktx2.FormatBC1.LevelByteSize(w, w))
+		}
+		var err error
+		n := allocatedBytes(func() { _, err = ktx2.DecodeRGBA(data, level) })
+		if err != nil {
+			t.Fatalf("DecodeRGBA(%d): %v", level, err)
+		}
+		if n > limit {
+			t.Errorf("DecodeRGBA(%d) allocated %d bytes, want at most %d", level, n, limit)
+		}
+	}
+}
+
 // TestDecodeAcceptsRGBAAtLimit checks that a level whose RGBA image is exactly at the limit, 8192x8192, still decodes.
 func TestDecodeAcceptsRGBAAtLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("decodes a 256 MiB image")
 	}
 	const dim = 8192
-	base, err := ktx2.Encode(image.NewNRGBA(image.Rect(0, 0, 4, 4)), ktx2.Options{Format: ktx2.FormatBC1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	levelBytes := ktx2.FormatBC1.LevelByteSize(dim, dim)
-	data := repackKTX2Supercompressed(t, base, ktx2.SupercompressionZstandard, [][]byte{zstdRLEFrame(levelBytes, 0)})
-	binary.LittleEndian.PutUint32(data[20:24], dim)
-	binary.LittleEndian.PutUint32(data[24:28], dim)
-	binary.LittleEndian.PutUint64(data[ktx2.HeaderSize+16:ktx2.HeaderSize+24], uint64(levelBytes))
+	data := zstdBomb(t, ktx2.FormatBC1, dim, dim, 1)
 	img, err := ktx2.DecodeRGBA(data, 0)
 	if err != nil {
 		t.Fatalf("DecodeRGBA at the limit: %v", err)

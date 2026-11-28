@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/bits"
+	"slices"
 )
 
 // Pure-Go RFC 8878 Zstandard frame decoder and ZLIB supercompression helper for KTX2 level payloads (SupercompressionZstandard = 2, SupercompressionZLIB = 3).
@@ -896,6 +897,7 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 	if len(src) < 4 {
 		return nil, errors.New("ktx2/zstd: truncated frame")
 	}
+	// Every frame decodes in place at the end of one buffer sized for the whole level, so a level is allocated once instead of growing, and copied, as it decodes.
 	var out []byte
 	pos := 0
 	for pos < len(src) {
@@ -1011,15 +1013,15 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 			pos += 8
 			hasFCS = true
 		}
-		// Each frame decodes into its own buffer, so a match offset cannot reach back into an earlier frame, and its budget is what the earlier frames left.
+		// Each frame decodes into its own zero-length slice at the end of out, whose capacity is the budget the earlier frames left, so a match offset cannot reach back into an earlier frame.
 		budget := maxOut - uint64(len(out))
 		if hasFCS && fcs > budget {
 			return nil, fmt.Errorf("ktx2/zstd: declared content size %d exceeds limit %d", fcs, maxOut)
 		}
-		var frame []byte
-		if hasFCS {
-			frame = make([]byte, 0, fcs)
+		if out == nil {
+			out = make([]byte, 0, maxOut)
 		}
+		frame := out[len(out):len(out):cap(out)]
 		st := zstdFrameState{rep: [3]uint32{1, 4, 8}}
 		for {
 			if pos+3 > len(src) {
@@ -1053,8 +1055,10 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 				if uint64(len(frame))+uint64(blockSize) > budget {
 					return nil, errors.New("ktx2/zstd: decompressed output exceeds limit")
 				}
-				for range blockSize {
-					frame = append(frame, val)
+				n := len(frame)
+				frame = slices.Grow(frame, blockSize)[:n+blockSize]
+				for i := n; i < len(frame); i++ {
+					frame[i] = val
 				}
 			case 2: // Compressed block
 				if pos+blockSize > len(src) {
@@ -1088,12 +1092,8 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 		if hasFCS && uint64(len(frame)) != fcs {
 			return nil, fmt.Errorf("ktx2/zstd: decoded %d bytes, frame header declared %d", len(frame), fcs)
 		}
-		// The first frame becomes the output itself, so a single-frame level is held once rather than copied into a second buffer of the same size.
-		if out == nil {
-			out = frame
-		} else {
-			out = append(out, frame...)
-		}
+		// frame already sits at the end of out unless a block outgrew the budget's capacity, in which case append copies it.
+		out = append(out, frame...)
 	}
 	return out, nil
 }
@@ -1104,15 +1104,16 @@ func decompressZLIB(src []byte, maxOut uint64) ([]byte, error) {
 		return nil, fmt.Errorf("ktx2/zlib: %w", err)
 	}
 	defer zr.Close()
-	limited := io.LimitReader(zr, int64(maxOut)+1)
-	out, err := io.ReadAll(limited)
-	if err != nil {
+	// One buffer sized for the whole level, plus one byte to detect overflow, instead of io.ReadAll's repeated growth.
+	out := make([]byte, maxOut+1)
+	n, err := io.ReadFull(zr, out)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
 		return nil, fmt.Errorf("ktx2/zlib: %w", err)
 	}
-	if uint64(len(out)) > maxOut {
+	if uint64(n) > maxOut {
 		return nil, fmt.Errorf("ktx2/zlib: decompressed output exceeds limit %d", maxOut)
 	}
-	return out, nil
+	return out[:n], nil
 }
 
 const (

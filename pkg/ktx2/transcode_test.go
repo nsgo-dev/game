@@ -416,10 +416,15 @@ func repackKTX2Supercompressed(t testing.TB, base []byte, scheme uint32, compres
 	entries := make([]ktx2.LevelIndex, lvlCount)
 	for lvl := lvlCount - 1; lvl >= 0; lvl-- {
 		n := uint64(len(compressedLevels[lvl]))
+		// A level base does not have keeps an uncompressed length of zero for the caller to set.
+		var ubl uint64
+		if lvl < len(baseLevels) {
+			ubl = baseLevels[lvl].UncompressedByteLength
+		}
 		entries[lvl] = ktx2.LevelIndex{
 			ByteOffset:             cursor,
 			ByteLength:             n,
-			UncompressedByteLength: baseLevels[lvl].UncompressedByteLength,
+			UncompressedByteLength: ubl,
 		}
 		cursor += n
 	}
@@ -465,8 +470,8 @@ func FuzzDecodeKTX2(f *testing.F) {
 			f.Add(raw)
 		}
 	}
-	// A few kilobytes of Zstandard RLE blocks declaring a level whose RGBA image would be 1 GiB, and binary KVD values ending in zero bytes.
-	f.Add(hugeZstdBC1(f))
+	// A few kilobytes of Zstandard RLE blocks declaring a full 16384x16384 BC7 mip chain, which Decode refuses from its header, and binary KVD values ending in zero bytes.
+	f.Add(zstdBomb(f, ktx2.FormatBC7, 16384, 16384, 15))
 	if raw, err := ktx2.Encode(img, ktx2.Options{KVD: map[string]string{"KTXdxgiFormat__": "\x1c\x00\x00\x00", "Padded": "tail\x00"}}); err == nil {
 		f.Add(raw)
 	}

@@ -16,11 +16,12 @@ import (
 	"sort"
 )
 
-// Safety bounds enforced when decoding untrusted KTX2 containers. maxUncompressedLevelBytes bounds every decoded level, both its de-supercompressed payload and the RGBA image DecodeLevelRGBA builds from it, so a few kilobytes of Zstandard RLE blocks cannot make the decoder allocate gigabytes.
+// Safety bounds enforced when decoding untrusted KTX2 containers, so a few kilobytes of Zstandard RLE blocks cannot make the decoder allocate gigabytes. maxUncompressedLevelBytes bounds every decoded level, both its de-supercompressed payload and the RGBA image DecodeLevelRGBA builds from it. maxDecodedTextureBytes bounds a whole texture: the sum of the Zstandard or ZLIB payloads Decode inflates across its levels, and the sum of the levels Transcode encodes to another format.
 const (
 	maxTextureDimension       = 16384
 	maxLevelCount             = 16
 	maxUncompressedLevelBytes = 256 * 1024 * 1024
+	maxDecodedTextureBytes    = 256 * 1024 * 1024
 )
 
 // kvdBinaryKeys are the keys the KTX2 specification (§3.11) defines with binary values, which carry no NUL terminator: buildKVD writes them and DecodeKVD reads them back byte for byte, while every other value is a string whose one terminating NUL is added on write and dropped on read.
@@ -719,8 +720,13 @@ func Validate(data []byte) error {
 	return nil
 }
 
-// Decode parses, validates, and de-supercompresses a 2D KTX2 v2.0 container. Supports SupercompressionNone (0), SupercompressionBasisLZ (1), SupercompressionZstandard (2), and SupercompressionZLIB (3) across RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, Basis Universal UASTC 4x4, and BasisLZ/ETC1S.
+// Decode parses, validates, and de-supercompresses a 2D KTX2 v2.0 container. Supports SupercompressionNone (0), SupercompressionBasisLZ (1), SupercompressionZstandard (2), and SupercompressionZLIB (3) across RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, Basis Universal UASTC 4x4, and BasisLZ/ETC1S. A Zstandard or ZLIB texture whose levels inflate to more than 256 MiB in total is refused from its header, before anything is decompressed.
 func Decode(data []byte) (*Texture, error) {
+	return decode(data, -1)
+}
+
+// decode is Decode, de-supercompressing only level only when only is not negative: the other levels keep their dimensions and no data, so DecodeRGBA neither inflates nor budgets levels it does not return.
+func decode(data []byte, only int) (*Texture, error) {
 	if err := Validate(data); err != nil {
 		return nil, err
 	}
@@ -759,9 +765,28 @@ func Decode(data []byte) (*Texture, error) {
 		return nil, fmt.Errorf("ktx2: unsupported texture format (vkFormat=%d, dfdColorModel=%d)", h.VkFormat, dfd.ColorModel)
 	}
 
+	if h.SupercompressionScheme == SupercompressionZstandard || h.SupercompressionScheme == SupercompressionZLIB {
+		// Payloads copied from data are bounded by the file the caller already holds; inflated ones are bounded here, from the header, before any is decompressed.
+		var total uint64
+		for lvl := range levelEntries {
+			if only >= 0 && lvl != only {
+				continue
+			}
+			w, ht := MipDimensions(int(h.PixelWidth), int(h.PixelHeight), lvl)
+			total += uint64(format.LevelByteSize(w, ht))
+		}
+		if total > maxDecodedTextureBytes {
+			return nil, fmt.Errorf("ktx2: levels inflate to %d bytes, over the %d-byte texture limit", total, maxDecodedTextureBytes)
+		}
+	}
+
 	levels := make([]Level, len(levelEntries))
 	for lvl, entry := range levelEntries {
 		w, ht := MipDimensions(int(h.PixelWidth), int(h.PixelHeight), lvl)
+		if only >= 0 && lvl != only {
+			levels[lvl] = Level{Width: w, Height: ht}
+			continue
+		}
 		rawSlice := data[entry.ByteOffset : entry.ByteOffset+entry.ByteLength]
 
 		var payload []byte
@@ -876,7 +901,7 @@ func (t *Texture) DecodeLevelRGBA(level int) (*image.NRGBA, error) {
 	return decodeLevelToRGBA(t.Format, lvl.Data, lvl.Width, lvl.Height, t.SRGB)
 }
 
-// Transcode converts every mip level of t to target format. When t.Format already equals target (and target is a concrete GPU/pixel format), level payloads are cloned directly without pixel decoding or re-encoding.
+// Transcode converts every mip level of t to target format. When t.Format already equals target (and target is a concrete GPU/pixel format), level payloads are cloned directly without pixel decoding or re-encoding. Transcoding to another format refuses a texture whose levels would total more than 256 MiB in target, or any level larger than 8192x8192, before decoding anything.
 func (t *Texture) Transcode(target Format) ([]Level, error) {
 	if t == nil {
 		return nil, errors.New("ktx2: nil texture")
@@ -899,6 +924,16 @@ func (t *Texture) Transcode(target Format) ([]Level, error) {
 		return out, nil
 	}
 
+	var total uint64
+	for i, lvl := range t.Levels {
+		if err := checkRGBALevelSize(lvl.Width, lvl.Height); err != nil {
+			return nil, fmt.Errorf("ktx2: transcode level %d: %w", i, err)
+		}
+		total += uint64(target.LevelByteSize(lvl.Width, lvl.Height))
+	}
+	if total > maxDecodedTextureBytes {
+		return nil, fmt.Errorf("ktx2: transcode to %s produces %d bytes, over the %d-byte texture limit", target, total, maxDecodedTextureBytes)
+	}
 	out := make([]Level, len(t.Levels))
 	for i, lvl := range t.Levels {
 		rgba, err := t.DecodeLevelRGBA(i)
@@ -948,14 +983,17 @@ func decodeLevelToRGBA(format Format, raw []byte, w, ht int, srgb bool) (*image.
 
 // DecodeRGBA decodes the specified mip level (0 = base) of a KTX2 texture into *image.NRGBA. Supports RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, Basis Universal UASTC 4x4, and BasisLZ/ETC1S with uncompressed, BasisLZ, Zstandard, or ZLIB supercompression.
 func DecodeRGBA(data []byte, level int) (*image.NRGBA, error) {
-	// Refuse an oversized level from the header alone, before Decode decompresses anything.
+	if level < 0 {
+		return nil, fmt.Errorf("ktx2: level %d out of range", level)
+	}
+	// Refuse an oversized level from the header alone, before anything is decompressed, and decompress only the requested level.
 	if h, levels, err := DecodeHeader(data); err == nil && level >= 0 && level < len(levels) {
 		w, ht := MipDimensions(int(h.PixelWidth), int(h.PixelHeight), level)
 		if err := checkRGBALevelSize(w, ht); err != nil {
 			return nil, err
 		}
 	}
-	tex, err := Decode(data)
+	tex, err := decode(data, level)
 	if err != nil {
 		return nil, err
 	}
