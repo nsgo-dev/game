@@ -466,6 +466,7 @@ func (ov *ObjectOverride) applyTo(o *ObjectDoc) {
 	}
 	o.Components = mergeAnyMap(o.Components, ov.Components)
 	o.Properties = mergeAnyMap(o.Properties, ov.Properties)
+	o.Parameters = mergeAnyMap(o.Parameters, ov.Parameters)
 }
 
 // validateLayerOverrideParallax checks the parallax and repeat fields version 3 added on a LayerOverride at path.
@@ -646,6 +647,7 @@ func cloneObjectFields(o *ObjectDoc) ObjectDoc {
 	out.LightProbeGrid = o.LightProbeGrid.Clone()
 	out.Components = cloneAnyMap(o.Components)
 	out.Properties = cloneAnyMap(o.Properties)
+	out.Parameters = cloneAnyMap(o.Parameters)
 	out.Overrides = cloneOverrides(o.Overrides)
 	out.Children = nil
 	return out
@@ -692,6 +694,7 @@ func cloneOverrides(ovs map[string]ObjectOverride) map[string]ObjectOverride {
 		c.LightProbeGrid = ov.LightProbeGrid.Clone()
 		c.Components = cloneAnyMap(ov.Components)
 		c.Properties = cloneAnyMap(ov.Properties)
+		c.Parameters = cloneAnyMap(ov.Parameters)
 		out[k] = c
 	}
 	return out

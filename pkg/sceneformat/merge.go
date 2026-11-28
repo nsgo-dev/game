@@ -133,6 +133,7 @@ func (m *sceneMerger) run() *MergeResult {
 	out.AmbientColor = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "ambientColor", m.base.AmbientColor, m.ours.AmbientColor, m.theirs.AmbientColor)
 	out.Camera = m.mergeCamera(&sceneSide, m.base.Camera, m.ours.Camera, m.theirs.Camera)
 	out.Environment = m.mergeEnvironment(&sceneSide, m.base.Environment, m.ours.Environment, m.theirs.Environment)
+	out.Parameters = mergeSceneParameters(m.base.Parameters, m.ours.Parameters, m.theirs.Parameters)
 	if side := sceneSide.side(); side != "" {
 		m.addMerged("scene", "", side, "changed")
 	}
@@ -216,6 +217,16 @@ func (s *sideTracker) side() string {
 // version across base, ours and theirs (never dropping below base) and never
 // emits a field conflict on version itself. Compatibility of the combined
 // document at that version is enforced by the post-merge Validate gate.
+func mergeSceneParameters(base, ours, theirs []SceneParameter) []SceneParameter {
+	if slices.EqualFunc(ours, theirs, func(a, b SceneParameter) bool { return reflect.DeepEqual(a, b) }) {
+		return slices.Clone(ours)
+	}
+	if reflect.DeepEqual(ours, base) {
+		return slices.Clone(theirs)
+	}
+	return slices.Clone(ours)
+}
+
 func mergeVersion(st *sideTracker, base, ours, theirs int) int {
 	v := max(base, ours, theirs)
 	if v != base {
@@ -994,6 +1005,7 @@ func (m *sceneMerger) mergeObjectOverrideFields(st *sideTracker, ctx conflictCtx
 		LightProbeGrid:  m.mergeLightProbeGrid(st, ctx, fn("lightProbeGrid"), b.LightProbeGrid, o.LightProbeGrid, t.LightProbeGrid),
 		Components:      m.mergeAnyMap(st, ctx, fn("components"), b.Components, o.Components, t.Components),
 		Properties:      m.mergeAnyMap(st, ctx, fn("properties"), b.Properties, o.Properties, t.Properties),
+		Parameters:      m.mergeAnyMap(st, ctx, fn("parameters"), b.Parameters, o.Parameters, t.Parameters),
 	}
 }
 
@@ -1973,6 +1985,7 @@ func (m *sceneMerger) mergeObjectFields(st *sideTracker, ctx conflictCtx, b, o, 
 		LightProbeGrid:  m.mergeLightProbeGrid(st, ctx, "lightProbeGrid", b.LightProbeGrid, o.LightProbeGrid, t.LightProbeGrid),
 		Components:      m.mergeAnyMap(st, ctx, "components", b.Components, o.Components, t.Components),
 		Properties:      m.mergeAnyMap(st, ctx, "properties", b.Properties, o.Properties, t.Properties),
+		Parameters:      m.mergeAnyMap(st, ctx, "parameters", b.Parameters, o.Parameters, t.Parameters),
 		Scene:           mergeScalar(m, st, ctx, "scene", b.Scene, o.Scene, t.Scene),
 		Overrides:       m.mergeObjectOverrides(st, ctx, "overrides", b.Overrides, o.Overrides, t.Overrides),
 	}
@@ -2658,6 +2671,7 @@ func cloneObjectOwn(o *ObjectDoc) *ObjectDoc {
 	cp.LightProbeGrid = o.LightProbeGrid.Clone()
 	cp.Components = cloneAnyMap(o.Components)
 	cp.Properties = cloneAnyMap(o.Properties)
+	cp.Parameters = cloneAnyMap(o.Parameters)
 	if len(o.Overrides) > 0 {
 		cp.Overrides = make(map[string]ObjectOverride, len(o.Overrides))
 		for k, ov := range o.Overrides {

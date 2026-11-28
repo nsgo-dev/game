@@ -1365,6 +1365,10 @@ func main() {
 - **审查提示、问题胶囊与页脚**：处于智能体审查中的字段（`SetInspectorReviewChanges`）会显示琥珀色左侧指示条与 `"was <old> · in review"`；未通过项目检查或范围校验的字段（`SetInspectorFieldProblems` / `Editor.Problems`）会在控件下方与分区标题显示红色问题胶囊；底部页脚提示 `"Everything else about this object is in its YAML. Ask the agent, or open the file."`。
 - **配套 MCP 工具（`editormcp`）**：新增 `object_set_field`（复用 `Editor` 命令以单步撤销修改任意对象字段、组件字段或自定义属性）与 `object_locate_yaml`（返回对象的 1-based YAML 行号与代码片段，可选触发 `OnOpenFileAtLine`），并补齐 `scene_edit` `set` 对 `particles`、`model`、`gridMap`、`occluder`、`light` 与 `camera` 的全量支持。
 
+## 可复用场景参数（#1936）
+
+场景可以声明带默认值、绑定到自身对象字段的类型化参数（`SceneParameter`）。实例在对象的 `parameters` 映射中保存每次使用的值；验证会拒绝重复名称、不支持的类型、错误默认值、空绑定及绑定到不存在对象的情况。在参数解析与检查器/MCP 控件完成前，现有原始覆盖仍可使用。
+
 ## 通过 MCP 生成器服务器生成资源（#1053）
 
 通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `design/editor/Spec.dc.html` 令牌并对应 `design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
