@@ -574,3 +574,13 @@ func (s *Service) storeError(op string, err error) error {
 	s.log.Error("accounts: store failed", "op", op, "err", err)
 	return fmt.Errorf("accounts: %s: %w", op, err)
 }
+
+// AppAccountToken returns a stable UUID-shaped token suitable for App Store
+// purchase requests. It is derived from the account ID and contains no secret.
+func AppAccountToken(accountID string) string {
+	h := sha256.Sum256([]byte("nsgo.app-account-token\x00" + accountID))
+	b := h[:16]
+	b[6] = (b[6] & 0x0f) | 0x50
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
