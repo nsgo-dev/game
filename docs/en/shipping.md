@@ -1,5 +1,9 @@
 # Building and Shipping
 
+## Web portal uploads
+
+Build one self-contained web folder and connect its page adapter to `liveops.Portal`. Test loading, gameplay start and stop, commercial breaks, rewarded success and rewarded errors with each portal's local SDK mode. Keep the game paused and muted until the SDK callback, and grant opt-in rewards only after a successful result.
+
 Verify your game across every target with `nsgo check`, configure its identity and export presets in `game.yaml`, keep icons and signing in `nsgo.yaml`, and build release packages for macOS, Windows, Linux, the web, iOS and Android with `nsgo build`.
 
 ## Name, identifier and version
