@@ -148,3 +148,8 @@ got := app.GameServicesAchievements() // [{ID: "com.example.mygame.first_match",
 ```
 
 `App.SetGameServicesError` and `App.SetGameServicesAuthError` simulate an outage or a cancelled sign-in. The [SlideGem example](https://github.com/nsgo-dev/game/tree/main/examples/slidegem) unlocks its first achievement on Game Center and on Play Games this way.
+
+## Steam achievement IDs
+
+Add an optional `steam` ID under `platforms` for achievements reported through Steamworks. Existing Game Center and Play Games entries remain valid, and a missing Steam ID simply leaves that achievement unreported on Steam.
+Steam achievement IDs are accepted in the shared catalog as `platforms.steam` and are dispatched by the Steamworks adapter when configured.

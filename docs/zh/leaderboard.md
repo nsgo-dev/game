@@ -117,3 +117,8 @@ app.GameServicesShownLeaderboards() // 传给 Show 的 ID
 ## 示例
 
 [Starburst](https://github.com/nsgo-dev/game/tree/main/examples/starburst) 在 `leaderboards.yaml` 里声明 `high-score` 排行榜，一局结束时提交分数，玩家登录后在游戏结束界面显示 LEADERBOARD 按钮，未登录时显示 SIGN IN 按钮，登录后补交这一局的分数。
+
+## Steam 排行榜 ID
+
+可在排行榜目录条目中添加可选的 `steam` 名称。目录会像验证其他平台 ID 一样验证它，未填写 Steam 时现有目录保持兼容。
+共享目录支持通过 `steam` 字段声明 Steam 排行榜名称，并使用统一排行榜契约。

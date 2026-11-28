@@ -9,7 +9,7 @@ import (
 
 func TestParseLoadErrors(t *testing.T) {
 	t.Run("unknown field", func(t *testing.T) {
-		data := []byte("version: 1\nleaderboards:\n  - name: high-score\n    gameCenter: gc.score\n    steam: st.score\n")
+		data := []byte("version: 1\nleaderboards:\n  - name: high-score\n    gameCenter: gc.score\n    xbox: st.score\n")
 		_, err := leaderboard.Parse(data)
 		loaderrtest.Expect(t, err, "", 5)
 	})

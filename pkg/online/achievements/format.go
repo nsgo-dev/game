@@ -33,10 +33,12 @@ const (
 	GameCenter Service = "gameCenter"
 	// PlayGames is Google Play Games Services on Android.
 	PlayGames Service = "playGames"
+	// Steam is Valve Steamworks.
+	Steam Service = "steam"
 )
 
 // services lists every known Service in a fixed order.
-var services = [...]Service{GameCenter, PlayGames}
+var services = [...]Service{GameCenter, PlayGames, Steam}
 
 // Valid reports whether s is a known Service.
 func (s Service) Valid() bool { return slices.Contains(services[:], s) }
@@ -79,6 +81,8 @@ type Platforms struct {
 	GameCenter string `yaml:"gameCenter,omitempty"`
 	// PlayGames is the achievement ID Play Console generated.
 	PlayGames string `yaml:"playGames,omitempty"`
+	// Steam is the Steamworks achievement ID.
+	Steam string `yaml:"steam,omitempty"`
 }
 
 // ID returns the achievement's ID on service s, or "" when it has none there or s is unknown.
@@ -88,6 +92,8 @@ func (p Platforms) ID(s Service) string {
 		return p.GameCenter
 	case PlayGames:
 		return p.PlayGames
+	case Steam:
+		return p.Steam
 	default:
 		return ""
 	}

@@ -117,3 +117,8 @@ To test mini-game friend rankings in `nsgotest`, start the app with `core.Enviro
 ## Example
 
 [Starburst](https://github.com/nsgo-dev/game/tree/main/examples/starburst) declares a `high-score` board in `leaderboards.yaml`, submits the score when a run ends, and shows a LEADERBOARD button on the game-over screen once the player is signed in, or a SIGN IN button that signs the player in and submits the run while signed out.
+
+## Steam leaderboard IDs
+
+Add an optional `steam` leaderboard name to a catalog board. The catalog validates it like other platform IDs and preserves catalogs that omit Steam.
+Steam leaderboard names are accepted as `steam` IDs in the catalog and use the shared leaderboard contract.
