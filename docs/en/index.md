@@ -21,13 +21,19 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `input` | `github.com/nsgo-dev/game/pkg/input` | [input](input.md) | Named actions and axes from touch regions, mouse buttons, keyboard keys, pointer-lock mouselook and game controllers, persisted in `core.Storage` |
 | `tilemap` | `github.com/nsgo-dev/game/pkg/tilemap` | [tilemap](tilemap.md) | 2D `Camera`, culled tilemaps, Tiled `.tmj` loader, animated tiles and raycasts |
 | `scene` | `github.com/nsgo-dev/game/pkg/scene` | [scene](scene.md) | World/screen layers, hit testing, scene stacks and animated transitions |
+| `sceneformat` | `github.com/nsgo-dev/game/pkg/sceneformat` | [Scene format](formats.md#scene) | Versioned YAML scene documents: strict parsing and validation, deterministic encoding and building into sprite batches ready to draw |
+| `editor` | `github.com/nsgo-dev/game/pkg/editor` | [Scene Editor](editor.md) | The NSGo Scene Editor over `sceneformat`: undoable scene, tilemap, layer and property editing, play-in-editor, asset browser, plugins and project panels |
 | `physics` | `github.com/nsgo-dev/game/pkg/physics` | [physics](physics.md) | `Box`/`Circle` overlaps, `MoveAndSlide` tile resolution and `World` queries |
+| `physics3d` | `github.com/nsgo-dev/game/pkg/physics3d` | [physics3d](physics3d.md) | Deterministic 3D collision detection, raycasts, rigid-body dynamics and a kinematic character controller |
 | `platformer` | `github.com/nsgo-dev/game/pkg/platformer` | [platformer](platformer.md) | Platformer `Controller` on `CharacterBody`: coyote time, jump buffer, variable jump height, wall slide and wall jump from a YAML config |
 | `screen` | `github.com/nsgo-dev/game/pkg/screen` | [screen](screen.md) | Virtual resolution `Viewport` scaling, pixel snapping, safe-area rectangles and video settings |
 | `project` | `github.com/nsgo-dev/game/pkg/project` | [Project File](project.md) | `game.yaml`, the one project file: window, virtual resolution, input map, audio buses, autoloads and export presets, kept in step with `nsgo.yaml` |
 | `refs` | `github.com/nsgo-dev/game/pkg/refs` | [Stable references](project.md#stable-references) | Stable file IDs, the project index and moves that rewrite every reference to a file, behind `game mv`, `game index` and `game check` |
 | `assets` | `github.com/nsgo-dev/game/pkg/assets` | [assets](assets.md) | Async per-scene asset groups, reactive progress and `LoadingScreen` |
 | `resource` | `github.com/nsgo-dev/game/pkg/resource` | [resource](resources.md) | Shared YAML resource files (materials, curves, gradients, animation clips, UI themes, bus layouts, physics materials) and a `Library` that shares and reloads them |
+| `importsettings` | `github.com/nsgo-dev/game/pkg/importsettings` | [Import settings sidecar](formats.md#import-settings-sidecar) | `.import.yaml` sidecars beside an image, sound, font or model that say how `game assets` imports it, overriding the target's settings |
+| `ktx2` | `github.com/nsgo-dev/game/pkg/ktx2` | [tex](cli.md#tex) | KTX2 texture container encoding and decoding, mipmap chains, Basis Universal ETC1S and UASTC codecs and transcoding to BC, ETC2 and ASTC blocks |
+| `loaderr` | `github.com/nsgo-dev/game/pkg/loaderr` | [Errors](errors.md) | The error every loader returns for a file it cannot use: file, line, column, field, what was expected and how to fix it |
 | `text` | `github.com/nsgo-dev/game/pkg/text` | [text](text.md) | AngelCode BMFont bitmap fonts, signed-distance-field fonts in 2D and 3D world space, and platform text via `DrawPlatform` |
 | `placeholder` | `github.com/nsgo-dev/game/pkg/placeholder` | [Placeholder Assets](placeholder.md) | A CC0 pack of sprite sheets, a tileset and level, a pixel font, sounds and glTF models, with their import settings sidecars, to prototype with |
 | `particles` | `github.com/nsgo-dev/game/pkg/particles` | [particles](particles.md) | Seeded deterministic 2D `Emitter`, spawn shapes, bursts and lifetime curves |
@@ -39,9 +45,11 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `debug` | `github.com/nsgo-dev/game/pkg/debug` | [debug](debug.md) | Frame-time graph, wireframe shapes, scene inspector and `-tags release` stripping |
 | `mcp` | `github.com/nsgo-dev/game/pkg/mcp` | [mcp](mcp.md) | MCP tools registered through `nsgo/automation` to inspect running scenes, layers, entities and components |
 | `flow` | `github.com/nsgo-dev/game/pkg/flow` | [flow](flow.md) | Game-clock `Timers`, `Machine[S]`, `Seq`/`Parallel`/`Race` and typed event `Bus` |
+| `entities` | `github.com/nsgo-dev/game/pkg/entities` | [entities](entities.md) | Zero-reflection ECS: generational entities, typed sparse-set components, allocation-free queries, ordered systems, prefabs and JSON snapshots |
 | `stats` | `github.com/nsgo-dev/game/pkg/stats` | [stats](stats.md) | Base stats with add/mul/override modifiers from sources, recomputed on change, timed modifiers on the fixed step and a YAML stats file |
 | `tween` | `github.com/nsgo-dev/game/pkg/tween` | [tween](tween.md) | Fixed-step `Tween`, `Timeline` and camera choreography helpers |
 | `animclip` | `github.com/nsgo-dev/game/pkg/animclip` | [animclip](animclip.md) | Animation clips that key any registered property, played on scene objects through `tween.Timeline` |
+| `skeletal` | `github.com/nsgo-dev/game/pkg/skeletal` | [skeletal](skeletal.md) | 2D skeletal rigs in versioned YAML, loaded, saved, animated and drawn through `sprite.Batch` |
 | `cards` | `github.com/nsgo-dev/game/pkg/cards` | [cards](cards.md) | Drag and drop between board slots with snap and return, fanned hands, decks, piles and grids, and YAML board files |
 | `rooms` | `github.com/nsgo-dev/game/pkg/rooms` | [rooms](rooms.md) | Room maps with per-room camera bounds and cut, slide or fade transitions between them |
 | `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | Grid `AStar`, 2D `NavMesh`, steering behaviors, behavior trees and perception |
@@ -52,11 +60,13 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `replay` | `github.com/nsgo-dev/game/pkg/replay` | [replay](replay.md) | Input `Recorder`/`Player` with editable YAML recordings and deterministic test assertions |
 | `statedump` | `github.com/nsgo-dev/game/pkg/statedump` | [statedump](statedump.md) | Headless runs dumped as deterministic YAML (entities, components, scene stack, values) and a line `Diff` between runs |
 | `gametest` | `github.com/nsgo-dev/game/pkg/gametest` | [gametest](gametest.md) | Deterministic software rasterizer for `core.DrawOp`, golden PNG assertions with persistent failure diffs, and `ImageDraws` structural checks |
+| `playtest` | `github.com/nsgo-dev/game/pkg/playtest` | [playtest](playtest.md) | `playtest.yaml` bots, seeded headless runs with replay recordings, metrics against goals and deterministic YAML reports |
 | `cutscene` | `github.com/nsgo-dev/game/pkg/cutscene` | [cutscene](cutscene.md) | Skippable video cutscenes over the game's view, in a scene or between scenes, from YAML files |
 | `rhythm` | `github.com/nsgo-dev/game/pkg/rhythm` | [rhythm](rhythm.md) | YAML beat maps with tempo and meter changes, a music clock on the audio clock, and per-device audio/video latency calibration |
 | `undo` | `github.com/nsgo-dev/game/pkg/undo` | [undo](undo.md) | Reversible moves with unlimited undo, redo and `Seek`, saved as a YAML `Log` |
 | `fighting` | `github.com/nsgo-dev/game/pkg/fighting` | [fighting](fighting.md) | Per-step input buffer, numpad motion inputs, charges, double taps, chords and combos from YAML move sets |
 | `math2d` | `github.com/nsgo-dev/game/pkg/math2d` | [math2d](math2d.md) | Shared 2D `Vec2`, `Rect`, `Circle` and `Affine` types with lossless `core` conversions |
+| `random` | `github.com/nsgo-dev/game/pkg/random` | [Determinism](determinism.md#2-use-seeded-randomstream-per-purpose) | Seeded cross-platform `Stream` (Xoshiro256**), procedural noise and helpers that verify a simulation is deterministic |
 | `gameui` | `github.com/nsgo-dev/game/pkg/gameui` | [gameui](gameui.md) | In-canvas box-layout menus, virtual-resolution scaling, spatial focus nav and world-anchored views |
 | `lights2d` | `github.com/nsgo-dev/game/pkg/lights2d` | [lights2d](lights2d.md) | 2D ambient darkness, point/cone lights, visibility-polygon shadows and normal-mapped sprites |
 | `tilemap/tileshape` | `github.com/nsgo-dev/game/pkg/tilemap/tileshape` | [tileshape](tileshape.md) | Tilemap collision and lighting geometry: a physics `TileGrid` view, slopes from per-tile shapes, merged outlines and `lights2d` occluders |
@@ -77,12 +87,14 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `leaderboard` | `github.com/nsgo-dev/game/pkg/online/leaderboard` | [leaderboard](leaderboard.md) | Boards declared once in YAML, scores submitted and native boards shown through Game Center or Play Games |
 | `leaderboard/selfhost` | `github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost` | [leaderboard/selfhost](leaderboard-selfhost.md) | Self-hosted cross-platform leaderboards: all-time, daily and weekly boards with kept past periods, scores authenticated by account tokens and optionally signed by the game server, top-N, around-me and friends queries |
 | `presence` | `github.com/nsgo-dev/game/pkg/online/presence` | [presence](presence.md) | Rich presence on Steam (`ISteamFriends` via purego) and Discord (pure Go local IPC v1) behind a provider-neutral `Activity` and `Manager` |
+| `liveops` | `github.com/nsgo-dev/game/pkg/online/liveops` | [liveops](liveops.md) | Provider-agnostic crash reports, consent-gated analytics, the `CloudSync` interface and in-app purchases credited into the save |
 | `inventory` | `github.com/nsgo-dev/game/pkg/inventory` | [inventory](inventory.md) | Item definitions in YAML, stacking slot containers, typed equipment slots and save snapshots |
 | `ability` | `github.com/nsgo-dev/game/pkg/ability` | [ability](ability.md) | YAML ability sets and a per-step `Caster`: costs, cooldowns, charges, cast and channel times and conditions driven by input actions |
 | `quest` | `github.com/nsgo-dev/game/pkg/quest` | [quest](quest.md) | YAML quest books with collect/reach/defeat/talk objectives, prerequisites and rewards, advanced by bus events and saved as snapshots |
 | `loot` | `github.com/nsgo-dev/game/pkg/loot` | [loot](loot.md) | Nested weighted drop tables in YAML with guaranteed drops and hard/soft pity counters on seeded streams |
 | `vn` | `github.com/nsgo-dev/game/pkg/vn` | [vn](vn.md) | Visual novel presenter: YAML cast of portraits and expressions, name plates, typewriter text box, choices, backlog, auto/skip modes and voice lines |
 | `modding` | `github.com/nsgo-dev/game/pkg/modding` | [modding](modding.md) | Capability-sandboxed TSX `"game"` modding API and `mod.yaml` dependency/lifecycle manager |
+| `plugin` | `github.com/nsgo-dev/game/pkg/plugin` | [Plugins](plugins.md) | Runtime plugin contract and deterministic installer: API version check, conflict detection, and ordered registration of components, systems, effects, data tables and console commands |
 | `plugin/manifest` | `github.com/nsgo-dev/game/pkg/plugin/manifest` | [Plugins](plugins.md) | Strict parser, validator and deterministic YAML encoder for Go plugin `plugin.yaml` manifests |
 | `math3d` | `github.com/nsgo-dev/game/pkg/math3d` | [math3d](math3d.md) | 3D vectors, matrices, quaternions, transforms, bounds, rays, frustums and conventions |
 | `scene3d` | `github.com/nsgo-dev/game/pkg/scene3d` | [scene3d](scene3d.md) | 3D node tree, sockets/attachments, dynamic fat-AABB/SAH BVH, Orbit/FPS/ThirdPerson cameras and picking |
@@ -92,6 +104,7 @@ The loop, input actions, sound, assets and scene switching are shared by both 2D
 | `voxel` | `github.com/nsgo-dev/game/pkg/voxel` | [voxel](voxel.md) | Chunked 3D voxel worlds with greedy meshing, cross-chunk culling and AO, dirty-chunk editing, DDA raycasting and YAML saves |
 | `render3d` | `github.com/nsgo-dev/game/pkg/render3d` | [render3d](render3d.md) | GPU mesh buffers, textures and samplers, camera uniforms, CPU frustum culling, draw sorting, 0-alloc instancing, LOD hysteresis, debug draw/gizmos, billboards, 3D ribbon trails and GPU budgets |
 | `scenemodel` | `github.com/nsgo-dev/game/pkg/scenemodel` | [scenemodel](scenemodel.md) | Scene file objects drawn in 3D: built-in primitives and glTF models with material overrides, built into a `scene3d` tree with bounds and drawn by a lit, textured renderer |
+| `gltf` | `github.com/nsgo-dev/game/pkg/gltf` | [3D Models from Blender](3d-models-blender.md) | Pure-Go glTF 2.0 and GLB loader: typed accessors, node hierarchy, PBR materials, skins, morph targets, animations and Draco/meshopt compression |
 | `jsonschema` | `github.com/nsgo-dev/game/pkg/jsonschema` | [Schemas for YAML files](schemas.md) | JSON Schemas built from Go types for editors and AI tools, the published scene schema and validation with JSON Pointer paths |
 | `tooling/library` | `github.com/nsgo-dev/game/pkg/tooling/library` | [Asset and Plugin Library](library.md) | A YAML index of shared asset, editor plugin and template packs, checked by digest and installed into a project with their files and `game.yaml` references recorded |
 | `framedata` | `github.com/nsgo-dev/game/pkg/framedata` | [framedata](framedata.md) | Fighting game hitboxes, hurtboxes, hitstun and cancel windows per frame in YAML, resolved deterministically each step |

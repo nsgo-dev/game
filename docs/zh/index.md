@@ -21,13 +21,19 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `input` | `github.com/nsgo-dev/game/pkg/input` | [input](input.md) | 基于触摸区域、鼠标按键、键盘按键、指针锁定鼠标视角和游戏手柄的命名动作与轴，支持 `core.Storage` 持久化 |
 | `tilemap` | `github.com/nsgo-dev/game/pkg/tilemap` | [tilemap](tilemap.md) | 2D 相机、视锥裁剪瓦片地图、Tiled `.tmj` 加载、动画瓦片与射线查询 |
 | `scene` | `github.com/nsgo-dev/game/pkg/scene` | [scene](scene.md) | 世界/屏幕图层、命中测试、场景栈与过渡动画 |
+| `sceneformat` | `github.com/nsgo-dev/game/pkg/sceneformat` | [场景格式](formats.md#场景) | 带版本的 YAML 场景文档：严格解析与校验、确定性编码，以及构建成可直接绘制的精灵批次 |
+| `editor` | `github.com/nsgo-dev/game/pkg/editor` | [场景编辑器](editor.md) | 基于 `sceneformat` 的 NSGo 场景编辑器：可撤销的场景、瓦片地图、图层与属性编辑，编辑器内试玩、资源浏览器、插件和项目面板 |
 | `physics` | `github.com/nsgo-dev/game/pkg/physics` | [physics](physics.md) | `Box`/`Circle` 重叠检测、`MoveAndSlide` 瓦片滑动解析与 `World` 空间查询 |
+| `physics3d` | `github.com/nsgo-dev/game/pkg/physics3d` | [physics3d](physics3d.md) | 确定性的 3D 碰撞检测、射线检测、刚体动力学与运动学角色控制器 |
 | `platformer` | `github.com/nsgo-dev/game/pkg/platformer` | [platformer](platformer.md) | 基于 `CharacterBody` 的平台跳跃 `Controller`：土狼时间、跳跃缓冲、可变跳跃高度、贴墙下滑与蹬墙跳，参数来自 YAML 配置 |
 | `screen` | `github.com/nsgo-dev/game/pkg/screen` | [screen](screen.md) | 虚拟分辨率 `Viewport` 缩放、像素对齐、移动端安全区与视频设置 |
 | `project` | `github.com/nsgo-dev/game/pkg/project` | [项目文件](project.md) | 唯一的项目文件 `game.yaml`：窗口、虚拟分辨率、输入映射、音频总线、自动加载和导出预设，并与 `nsgo.yaml` 保持一致 |
 | `refs` | `github.com/nsgo-dev/game/pkg/refs` | [稳定引用](project.md#稳定引用) | 稳定文件 ID、项目索引，以及改写所有引用的文件移动，供 `game mv`、`game index` 和 `game check` 使用 |
 | `assets` | `github.com/nsgo-dev/game/pkg/assets` | [assets](assets.md) | 按场景异步加载的资源组、响应式进度与 `LoadingScreen` |
 | `resource` | `github.com/nsgo-dev/game/pkg/resource` | [resource](resources.md) | 共享 YAML 资源文件（材质、曲线、渐变、动画片段、UI 主题、总线布局、物理材质），以及共享并重载它们的 `Library` |
+| `importsettings` | `github.com/nsgo-dev/game/pkg/importsettings` | [导入设置旁注文件](formats.md#导入设置旁注文件) | 图片、声音、字体或模型旁边的 `.import.yaml` 旁注文件，说明 `game assets` 如何导入它，并覆盖目标的设置 |
+| `ktx2` | `github.com/nsgo-dev/game/pkg/ktx2` | [tex](cli.md#tex) | KTX2 纹理容器的编码与解码、mipmap 链、Basis Universal ETC1S 与 UASTC 编解码，以及转码为 BC、ETC2 和 ASTC 块 |
+| `loaderr` | `github.com/nsgo-dev/game/pkg/loaderr` | [可据以行动的错误](errors.md) | 每个加载器在文件无法使用时返回的错误：文件、行、列、字段、期望的内容以及修复方法 |
 | `text` | `github.com/nsgo-dev/game/pkg/text` | [text](text.md) | AngelCode BMFont 位图字体、2D 与 3D 世界空间中的有向距离场字体，以及 `DrawPlatform` 平台矢量文本 |
 | `placeholder` | `github.com/nsgo-dev/game/pkg/placeholder` | [占位素材](placeholder.md) | 用于原型制作的 CC0 素材包：精灵表、图块集与关卡、像素字体、声音和 glTF 模型，附带导入设置旁车文件 |
 | `particles` | `github.com/nsgo-dev/game/pkg/particles` | [particles](particles.md) | 确定性 2D 粒子发射器 `Emitter`、发射形状、爆发与生命周期曲线 |
@@ -39,9 +45,11 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `debug` | `github.com/nsgo-dev/game/pkg/debug` | [debug](debug.md) | 帧耗时图、碰撞线框、场景检查器及 `-tags release` 零开销裁剪 |
 | `mcp` | `github.com/nsgo-dev/game/pkg/mcp` | [mcp](mcp.md) | 通过 `nsgo/automation` 注册的 MCP 工具，用于检查运行中的场景、图层、实体与组件 |
 | `flow` | `github.com/nsgo-dev/game/pkg/flow` | [flow](flow.md) | 游戏时钟 `Timers`、`Machine[S]`、`Seq`/`Parallel`/`Race` 与类型化事件 `Bus` |
+| `entities` | `github.com/nsgo-dev/game/pkg/entities` | [实体（entities）](entities.md) | 零反射 ECS：带代数的实体、类型化稀疏集组件、零分配查询、有序系统、预制体与 JSON 快照 |
 | `stats` | `github.com/nsgo-dev/game/pkg/stats` | [stats](stats.md) | 基础属性与来自各来源的 add/mul/override 修饰符，改动即重算，按固定步长计时的修饰符与 YAML 属性文件 |
 | `tween` | `github.com/nsgo-dev/game/pkg/tween` | [tween](tween.md) | 固定步长 `Tween`、`Timeline` 与相机运镜补间 |
 | `animclip` | `github.com/nsgo-dev/game/pkg/animclip` | [animclip](animclip.md) | 为任何已注册属性打关键帧的动画片段，通过 `tween.Timeline` 在场景对象上播放 |
+| `skeletal` | `github.com/nsgo-dev/game/pkg/skeletal` | [skeletal](skeletal.md) | 带版本 YAML 格式的 2D 骨骼绑定，可加载、保存、播放动画并通过 `sprite.Batch` 绘制 |
 | `cards` | `github.com/nsgo-dev/game/pkg/cards` | [cards](cards.md) | 在牌桌槽位间拖放并吸附或弹回，扇形手牌、牌堆、叠放牌列与网格布局，以及 YAML 牌桌文件 |
 | `rooms` | `github.com/nsgo-dev/game/pkg/rooms` | [rooms](rooms.md) | 房间地图：每个房间独立的相机边界，以及房间之间的切换、滑动或淡入淡出过渡 |
 | `ai` | `github.com/nsgo-dev/game/pkg/ai` | [ai](ai.md) | 网格 `AStar`、2D `NavMesh`、转向行为、行为树与感知 |
@@ -52,11 +60,13 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `replay` | `github.com/nsgo-dev/game/pkg/replay` | [replay](replay.md) | 输入录制/回放（`Recorder`/`Player`）、可编辑的 YAML 录像与确定性测试断言 |
 | `statedump` | `github.com/nsgo-dev/game/pkg/statedump` | [statedump](statedump.md) | 无窗口运行并转储为确定性 YAML（实体、组件、场景栈、全局值），以及两次运行之间的行 `Diff` |
 | `gametest` | `github.com/nsgo-dev/game/pkg/gametest` | [gametest](gametest.md) | `core.DrawOp` 确定性软件光栅化、带持久化差异图的黄金 PNG 断言以及 `ImageDraws` 结构化图像校验 |
+| `playtest` | `github.com/nsgo-dev/game/pkg/playtest` | [自动化试玩](playtest.md) | `playtest.yaml` 机器人、带回放录制的种子化无头运行、按目标评估的指标，以及确定性的 YAML 报告 |
 | `cutscene` | `github.com/nsgo-dev/game/pkg/cutscene` | [cutscene](cutscene.md) | 覆盖在游戏视图上、可跳过的视频过场动画，可放在场景中或场景之间，以 YAML 文件描述 |
 | `rhythm` | `github.com/nsgo-dev/game/pkg/rhythm` | [rhythm](rhythm.md) | 支持速度与拍号变化的 YAML 节拍图、基于音频时钟的音乐时钟，以及按设备的音频/画面延迟校准 |
 | `undo` | `github.com/nsgo-dev/game/pkg/undo` | [undo](undo.md) | 可撤销操作，支持无限撤销、重做与 `Seek`，可保存为 YAML `Log` |
 | `fighting` | `github.com/nsgo-dev/game/pkg/fighting` | [fighting](fighting.md) | 逐步输入缓冲、小键盘指令输入、蓄力、双击、同时按键与连招，由 YAML 招式表定义 |
 | `math2d` | `github.com/nsgo-dev/game/pkg/math2d` | [math2d](math2d.md) | 共享 2D `Vec2`、`Rect`、`Circle` 与 `Affine` 值类型及无损 `core` 互转 |
+| `random` | `github.com/nsgo-dev/game/pkg/random` | [确定性指南](determinism.md#2-按用途使用带种子的-randomstream) | 带种子的跨平台 `Stream`（Xoshiro256**）、程序化噪声，以及验证模拟确定性的辅助函数 |
 | `gameui` | `github.com/nsgo-dev/game/pkg/gameui` | [gameui](gameui.md) | 画布内盒式布局菜单、虚拟分辨率缩放、空间焦点导航与世界坐标锚定原生视图 |
 | `lights2d` | `github.com/nsgo-dev/game/pkg/lights2d` | [lights2d](lights2d.md) | 2D 环境暗场、点光源与聚光灯、可见性多边形阴影及法线贴图精灵 |
 | `tilemap/tileshape` | `github.com/nsgo-dev/game/pkg/tilemap/tileshape` | [tileshape](tileshape.md) | 瓦片地图的碰撞与光照几何：物理 `TileGrid` 视图、由逐瓦片形状生成的斜坡、合并轮廓与 `lights2d` 遮挡体 |
@@ -77,12 +87,14 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `leaderboard` | `github.com/nsgo-dev/game/pkg/online/leaderboard` | [leaderboard](leaderboard.md) | 在 YAML 里一次性声明排行榜，通过 Game Center 或 Play 游戏服务提交分数并显示原生排行榜 |
 | `leaderboard/selfhost` | `github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost` | [leaderboard/selfhost](leaderboard-selfhost.md) | 可自行部署的跨平台排行榜：总榜、日榜和周榜并保留往期，成绩由账号令牌认证、可选由游戏服务器签名，支持前 N 名、我附近和好友查询 |
 | `presence` | `github.com/nsgo-dev/game/pkg/online/presence` | [presence](presence.md) | 通过与平台无关的 `Activity` 与 `Manager` 在 Steam（经 purego 调用 `ISteamFriends`）和 Discord（纯 Go 本地 IPC v1）好友列表显示丰富状态 |
+| `liveops` | `github.com/nsgo-dev/game/pkg/online/liveops` | [线上运营](liveops.md) | 与服务商无关的崩溃报告、经同意才收集的分析、`CloudSync` 接口，以及计入存档的应用内购买 |
 | `inventory` | `github.com/nsgo-dev/game/pkg/inventory` | [inventory](inventory.md) | YAML 道具定义、可堆叠的格子容器、带类型的装备槽与存档快照 |
 | `ability` | `github.com/nsgo-dev/game/pkg/ability` | [ability](ability.md) | YAML 技能集与逐步推进的 `Caster`：由输入动作触发的消耗、冷却、充能、施法与引导时间以及条件 |
 | `quest` | `github.com/nsgo-dev/game/pkg/quest` | [quest](quest.md) | YAML 任务书：收集/到达/击败/对话目标、前置任务与奖励，由总线事件推进并以快照存档 |
 | `loot` | `github.com/nsgo-dev/game/pkg/loot` | [loot](loot.md) | YAML 编写的可嵌套加权掉落表，支持保底掉落与基于种子随机流的硬/软保底计数 |
 | `vn` | `github.com/nsgo-dev/game/pkg/vn` | [vn](vn.md) | 视觉小说演出：YAML 角色表的立绘与表情、名牌、打字机文本框、选项、回看记录、自动/快进模式与语音 |
 | `modding` | `github.com/nsgo-dev/game/pkg/modding` | [modding](modding.md) | 能力沙箱隔离的 TSX `"game"` 模组 API 与 `mod.yaml` 依赖/生命周期管理器 |
+| `plugin` | `github.com/nsgo-dev/game/pkg/plugin` | [插件](plugins.md) | 运行时插件契约与确定性安装器：API 版本校验、冲突检测，以及组件、系统、效果、数据表与控制台命令的有序注册 |
 | `plugin/manifest` | `github.com/nsgo-dev/game/pkg/plugin/manifest` | [插件](plugins.md) | Go 插件 `plugin.yaml` 清单的严格解析器、校验器与确定性 YAML 编码器 |
 | `math3d` | `github.com/nsgo-dev/game/pkg/math3d` | [math3d](math3d.md) | 3D 向量、矩阵、四元数、变换、包围体、射线、视锥体与统一数学约定 |
 | `scene3d` | `github.com/nsgo-dev/game/pkg/scene3d` | [scene3d](scene3d.md) | 3D 节点树、插槽/附件、动态胖 AABB/SAH BVH、轨道/FPS/第三人称相机与 3D 拾取 |
@@ -92,6 +104,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `voxel` | `github.com/nsgo-dev/game/pkg/voxel` | [voxel](voxel.md) | 分块 3D 体素世界：贪婪网格合并、跨区块剔除与 AO、脏区块局部重建、DDA 射线拾取与 YAML 存档 |
 | `render3d` | `github.com/nsgo-dev/game/pkg/render3d` | [render3d](render3d.md) | GPU 网格缓冲、纹理与采样器、相机 uniform、CPU 视锥裁剪、绘制排序、零分配实例化、LOD 滞回、调试线框/手柄、公告板、3D 条带拖尾与 GPU 预算 |
 | `scenemodel` | `github.com/nsgo-dev/game/pkg/scenemodel` | [scenemodel](scenemodel.md) | 在 3D 中绘制场景文件的对象：内置基本形体和可替换材质的 glTF 模型，构建成带包围盒的 `scene3d` 节点树，并由带光照和纹理的渲染器绘制 |
+| `gltf` | `github.com/nsgo-dev/game/pkg/gltf` | [从 Blender 导入 3D 模型](3d-models-blender.md) | 纯 Go 的 glTF 2.0 与 GLB 加载器：类型化访问器、节点层级、PBR 材质、蒙皮、变形目标、动画以及 Draco/meshopt 压缩 |
 | `jsonschema` | `github.com/nsgo-dev/game/pkg/jsonschema` | [YAML 文件的 Schema](schemas.md) | 由 Go 类型生成供编辑器和 AI 工具使用的 JSON Schema、已发布的场景 Schema，以及带 JSON Pointer 路径的校验 |
 | `tooling/library` | `github.com/nsgo-dev/game/pkg/tooling/library` | [资源与插件库](library.md) | 共享资源、编辑器插件和模板包的 YAML 索引，按摘要校验后安装到项目中，并记录其文件和 `game.yaml` 引用 |
 | `framedata` | `github.com/nsgo-dev/game/pkg/framedata` | [framedata](framedata.md) | 以 YAML 编写的格斗游戏逐帧攻击框、受击框、硬直与取消窗口，每步确定性解析 |
