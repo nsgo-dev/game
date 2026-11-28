@@ -141,3 +141,9 @@ leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -ad
 ```
 
 `init` 写出一份只有一个总榜 `high-score` 且不含 `allowedOrigins` 的配置供修改；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `leaderboards.yaml` 的 `allowedOrigins`。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，只接受配置中 `audience` 的令牌，如果它等于密钥集的受众（即游戏服务器的受众）就拒绝启动，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。`-sync` 在确认每条成绩之前先把它刷到磁盘，适用于可能断电的机器。
+
+## SQL 持久化
+
+`selfhost/sqlitestore.Open` 打开纯 Go 的 SQLite 数据库，`selfhost/pgstore.Open` 打开 Postgres。两者都会创建并迁移带版本号的 `leaderboard_records` 模式。每次成绩写入都在事务中只保留账号的更好成绩，因此重试和并发写入不会用较差成绩覆盖最佳成绩。将任一存储传给 `selfhost.New` 即可使用。
+
+`leaderboardd serve` 必须在 `-data`、`-sqlite`、`-postgres` 中选择一个。Postgres DSN 可以通过 `LEADERBOARD_POSTGRES_DSN` 提供。SQLite 使用单写连接和 WAL 模式。Postgres 使用事务级 advisory lock 串行化迁移和每条记录的写入。

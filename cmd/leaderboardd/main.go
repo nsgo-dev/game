@@ -25,6 +25,8 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
+	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost/pgstore"
+	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost/sqlitestore"
 )
 
 func main() {
@@ -107,6 +109,24 @@ func runGenkey(args []string, stdout, stderr io.Writer) error {
 
 // service builds the service serve runs from its files.
 func service(ctx context.Context, configPath, keySetPath, dataDir string, syncWrites bool, log *slog.Logger) (*selfhost.Service, *selfhost.FileStore, error) {
+	if dataDir == "" {
+		return nil, nil, errors.New("-data is required: the directory scores are kept in")
+	}
+	svc, store, err := serviceWithStore(ctx, configPath, keySetPath, func(cfg selfhost.Config) (selfhost.Store, io.Closer, error) {
+		f, err := selfhost.OpenFileStore(dataDir, selfhost.FileStoreOptions{Sync: syncWrites})
+		return f, f, err
+	}, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	f, ok := store.(*selfhost.FileStore)
+	if !ok {
+		return nil, nil, errors.New("leaderboardd: internal file store type")
+	}
+	return svc, f, nil
+}
+
+func serviceWithStore(ctx context.Context, configPath, keySetPath string, open func(selfhost.Config) (selfhost.Store, io.Closer, error), log *slog.Logger) (*selfhost.Service, io.Closer, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, nil, err
@@ -135,19 +155,16 @@ func service(ctx context.Context, configPath, keySetPath, dataDir string, syncWr
 		return nil, nil, err
 	}
 	verifier.Leeway = 5 * time.Second
-	if dataDir == "" {
-		return nil, nil, errors.New("-data is required: the directory scores are kept in")
-	}
-	store, err := selfhost.OpenFileStore(dataDir, selfhost.FileStoreOptions{Sync: syncWrites})
+	store, closer, err := open(cfg)
 	if err != nil {
 		return nil, nil, err
 	}
 	svc, err := selfhost.New(ctx, cfg, selfhost.Options{Store: store, Tokens: verifier, Logger: log, Leeway: 5 * time.Second})
 	if err != nil {
-		_ = store.Close()
+		_ = closer.Close()
 		return nil, nil, err
 	}
-	return svc, store, nil
+	return svc, closer, nil
 }
 
 func runServe(ctx context.Context, args []string, stderr io.Writer) error {
@@ -155,13 +172,50 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	configPath := fl.String("config", "leaderboards.yaml", "configuration file")
 	keySetPath := fl.String("keyset", "", "the account service's key set file, to verify player tokens with")
 	dataDir := fl.String("data", "", "directory to keep scores in")
+	sqlitePath := fl.String("sqlite", "", "SQLite database file for scores")
+	postgresDSN := fl.String("postgres", "", "Postgres DSN for scores (defaults to LEADERBOARD_POSTGRES_DSN)")
 	addr := fl.String("addr", ":8081", "address to listen on")
 	syncWrites := fl.Bool("sync", false, "flush every score to the disk before acknowledging it, for a machine that may lose power")
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
 	log := slog.New(slog.NewJSONHandler(stderr, nil))
-	svc, store, err := service(ctx, *configPath, *keySetPath, *dataDir, *syncWrites, log)
+	if *postgresDSN == "" {
+		*postgresDSN = os.Getenv("LEADERBOARD_POSTGRES_DSN")
+	}
+	selected := 0
+	if *dataDir != "" {
+		selected++
+	}
+	if *sqlitePath != "" {
+		selected++
+	}
+	if *postgresDSN != "" {
+		selected++
+	}
+	if selected != 1 {
+		return errors.New("choose exactly one of -data, -sqlite or -postgres (LEADERBOARD_POSTGRES_DSN may supply -postgres)")
+	}
+	var svc *selfhost.Service
+	var store io.Closer
+	var err error
+	switch {
+	case *dataDir != "":
+		svc, store, err = serviceWithStore(ctx, *configPath, *keySetPath, func(cfg selfhost.Config) (selfhost.Store, io.Closer, error) {
+			f, e := selfhost.OpenFileStore(*dataDir, selfhost.FileStoreOptions{Sync: *syncWrites})
+			return f, f, e
+		}, log)
+	case *sqlitePath != "":
+		svc, store, err = serviceWithStore(ctx, *configPath, *keySetPath, func(cfg selfhost.Config) (selfhost.Store, io.Closer, error) {
+			s, e := sqlitestore.Open(ctx, *sqlitePath)
+			return s, s, e
+		}, log)
+	default:
+		svc, store, err = serviceWithStore(ctx, *configPath, *keySetPath, func(cfg selfhost.Config) (selfhost.Store, io.Closer, error) {
+			s, e := pgstore.Open(ctx, *postgresDSN)
+			return s, s, e
+		}, log)
+	}
 	if err != nil {
 		return err
 	}
