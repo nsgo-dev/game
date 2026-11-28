@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"strconv"
 	"sync"
 )
 
@@ -79,7 +79,7 @@ func (h *Handler) Handle(d Delivery, sig string) error {
 	if !hmac.Equal([]byte(DeliverySignature(h.SignatureKey, d)), []byte(sig)) {
 		return ErrInvalid
 	}
-	if h.Env != 0 && d.Env != h.Env {
+	if h.Env != 0 && d.Env != strconv.Itoa(h.Env) {
 		return ErrInvalid
 	}
 	if _, ok, err := h.Store.Get(d.OutTradeNo); err != nil {
