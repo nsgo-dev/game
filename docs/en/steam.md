@@ -85,7 +85,7 @@ Why pass `-target macos_universal,windows_x64,linux_x64` explicitly:
 - `macos_universal` requires a macOS host. On Linux or Windows hosts, build `-target windows_x64,linux_x64` there and build `macos_universal` on macOS.
 - If Steam is the project's only distribution channel, you can also set `updates: { channel: steam }` in `nsgo.yaml` so `-channel steam` becomes the default.
 
-`go tool game release` runs `nsgo build` with `GOFLAGS=-tags=release` (compiling out `pkg/debug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing), verifies the built desktop binaries against leaked debug symbols, checks asset license credits (writing `CREDITS.md` beside the depots; run `go tool game credits -out resources/CREDITS.md` before building to include it inside every depot), and reminds you if `compliance.steam.content_survey` in `nsgo.yaml` is still `false`.
+`go tool game release` runs `nsgo build` with `GOFLAGS=-tags=release` (compiling out `pkg/tooling/gamedebug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing), verifies the built desktop binaries against leaked debug symbols, checks asset license credits (writing `CREDITS.md` beside the depots; run `go tool game credits -out resources/CREDITS.md` before building to include it inside every depot), and reminds you if `compliance.steam.content_survey` in `nsgo.yaml` is still `false`.
 
 Each depot is written to `<output>/<name>-<version>-<target>/` with no installers, no self-updater and no `steam_appid.txt`:
 
