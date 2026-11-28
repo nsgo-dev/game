@@ -9,7 +9,9 @@ import (
 	"github.com/nsgo-dev/game"
 	"github.com/nsgo-dev/game/pkg/cutscene"
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/scene"
+	"github.com/nsgo-dev/game/pkg/scene3d"
 	"github.com/nsgo-dev/game/pkg/sceneformat"
 	"github.com/nsgo-dev/game/pkg/sound"
 	"github.com/nsgo-dev/nsgo/core"
@@ -524,5 +526,22 @@ func TestTimelineEdgeCasesSeekPauseStopResetAndPatrol(t *testing.T) {
 		if len(order) != len(want) || order[0] != want[0] || order[1] != want[1] || order[2] != want[2] {
 			t.Fatalf("run %d: Reset OnActorState clear order = %v, want %v", run, order, want)
 		}
+	}
+}
+
+func TestTimelineCamera3DTarget(t *testing.T) {
+	camera := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 2}, 1, 1, .1, 100)
+	p, err := cutscene.NewTimelinePlayer(cutscene.Cutscene{Version: 2, Kind: cutscene.KindTimeline, Length: cutscene.Duration(time.Second)}, cutscene.TimelineTarget{Scene3D: camera})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := p.Camera3D()
+	if !ok || got.Pos.X != 2 {
+		t.Fatalf("camera = %+v, %v", got, ok)
+	}
+	got.Pos.X = 8
+	p.SetCamera3D(got)
+	if camera.Pos.X != 8 {
+		t.Fatalf("target camera = %+v", camera.Pos)
 	}
 }
