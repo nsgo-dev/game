@@ -717,6 +717,13 @@ func TestBuildReleasePublishSecurityLifecycleFocusAndSpecLight(t *testing.T) {
 	}
 	ed.ReleaseMeasureRunner = func(ctx context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
 		name := "game-0.4.0-" + platform + ".zip"
+		// A real artifact on disk lets the upload below write a publish record with its digest.
+		if err := os.MkdirAll(plan.OutputDir, 0o755); err != nil {
+			return editor.BuildArtifactResult{}, err
+		}
+		if err := os.WriteFile(filepath.Join(plan.OutputDir, name), []byte("artifact"), 0o644); err != nil {
+			return editor.BuildArtifactResult{}, err
+		}
 		return editor.BuildArtifactResult{
 			ArtifactPath: filepath.Join(plan.OutputDir, name),
 			ArtifactName: name,
@@ -773,6 +780,14 @@ func TestBuildReleasePublishSecurityLifecycleFocusAndSpecLight(t *testing.T) {
 	}
 	if err := ed.WaitReleaseUpload(); err != nil {
 		t.Fatalf("WaitReleaseUpload with NaN/Inf progress: %v", err)
+	}
+	// A successful upload leaves a publish record with the version and the artifact's SHA-256.
+	itchRec, err := editor.LoadPublishRecord(dir, editor.PublishDestItchIO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if itchRec.LastUpload == nil || itchRec.LastUpload.Version != "1.0.0" || itchRec.LastUpload.ArtifactSHA != "c7c5c1d70c5dec4416ab6158afd0b223ef40c29b1dc1f97ed9428b94d4cadb1c" {
+		t.Fatalf("itch.io publish record = %+v", itchRec.LastUpload)
 	}
 	for _, it := range ed.BuildReleaseSnapshot().UploadReview.Items {
 		if math.IsNaN(it.Progress) || math.IsInf(it.Progress, 0) || it.Progress < 0 || it.Progress > 1 {

@@ -1647,16 +1647,10 @@ func (e *Editor) executeConfirmedReleaseUploads(
 		if msg == "" {
 			msg = "Uploaded"
 		}
+		// The upload itself succeeded, so a publish record that cannot be read or written is reported on the item rather than turning the upload into a failure.
 		if projectDir != "" {
-			rec, recErr := LoadPublishRecord(projectDir, item.Destination)
-			if recErr == nil {
-				recErr = rec.RecordUpload(item.Version, item.BuildNumber, item.ArtifactName, item.ArtifactPath, res.URL, item.SizeBytes, time.Now())
-			}
-			if recErr == nil {
-				recErr = SavePublishRecord(projectDir, rec)
-			}
-			if recErr != nil && firstErr == nil {
-				firstErr = fmt.Errorf("editor: save publish record: %w", recErr)
+			if recErr := recordPublishUpload(projectDir, item, res.URL, time.Now()); recErr != nil {
+				msg += " (publish record not saved: " + recErr.Error() + ")"
 			}
 		}
 		e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
@@ -1687,6 +1681,18 @@ func (e *Editor) executeConfirmedReleaseUploads(
 	}
 	e.buildRelease.mu.Unlock()
 	notifyUI()
+}
+
+// recordPublishUpload writes a successful upload into the destination's publish record.
+func recordPublishUpload(projectDir string, item ReleaseUploadItem, resultURL string, at time.Time) error {
+	rec, err := LoadPublishRecord(projectDir, item.Destination)
+	if err != nil {
+		return err
+	}
+	if err := rec.RecordUpload(item.Version, item.BuildNumber, item.ArtifactName, item.ArtifactPath, resultURL, item.SizeBytes, at); err != nil {
+		return err
+	}
+	return SavePublishRecord(projectDir, rec)
 }
 
 func clampUploadFraction(frac float64) float64 {

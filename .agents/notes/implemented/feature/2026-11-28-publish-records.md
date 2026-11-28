@@ -15,7 +15,7 @@ The editor writes one strict, versioned YAML record per project and destination 
 - `DefaultPublishSteps` lists the ordered steps: `account` (confirmed, per app), `upload` (checked, per version), `testers`, `review` and `release` (confirmed, per version).
 - `RecordUpload` streams the artifact through SHA-256, replaces `lastUpload` and drops every per-version confirmation; per-app ones stay. `ConfirmPublishStep` refuses a checked or unknown step and a per-version step before any upload, and scopes a per-version confirmation to the last uploaded version.
 - `PublishRecord.Status` derives `done` or `todo` per step, the current step, and proposes the next version and build number as a bump of the last component of the last upload's; with no upload it proposes nothing rather than a guessed `1.0.0`.
-- `executeConfirmedReleaseUploads` updates the record after each successful upload. A record that cannot be read or written does not undo the upload; it becomes the run's first error so the screen reports the run as finished with errors.
+- `executeConfirmedReleaseUploads` updates the record after each successful upload. A record that cannot be read or written does not turn the successful upload into a failure; the item's status message says the record was not saved.
 
 ## Scope
 
