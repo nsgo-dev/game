@@ -608,6 +608,12 @@ func (s *Effect) playInternal(v audio.Voice, dist float32, spatial3D *Playback3D
 		scopeOwner := any(nil)
 		if cState.cfg.Scope == ScopeOwner {
 			scopeOwner = ownerKey
+			// Drop owners whose cooldown has expired so a group played by many short-lived emitters does not keep one entry per emitter forever.
+			for k, t := range cState.lastTrigger {
+				if now.Sub(t) >= cState.cfg.Retrigger {
+					delete(cState.lastTrigger, k)
+				}
+			}
 		}
 		cState.lastTrigger[scopeOwner] = now
 	}

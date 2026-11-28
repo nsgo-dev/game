@@ -106,7 +106,7 @@ hit.PlayWith(audio.Voice{Volume: 0.9}, sound.PlayOptions{Owner: enemyID})
 - **Bus ducking**: `SetBusDucking` / `AddBusDucking` lowers `Bus` by `Amount` (in `[0, 1]`, where `0.4` yields `0.6x` gain and `1` silences while keeping `Music` playheads advancing) whenever any `Effect` or `Music` plays on bus `By` (or in concurrency group `By`), with smooth `Attack` and `Release` envelopes. Multiple rules targeting the same bus stack multiplicatively.
 - **Global voice budget and priority**: `Mixer` caps total active voices at `MaxVoices()` (`DefaultMaxVoices`, `30`, by default) and steals the lowest-priority active voice across all groups (ties broken by oldest), refusing strictly lower-priority sounds so bursts of minor effects never cut important dialogue or player cues.
 - **Project configuration and validation**: declare `audio.maxVoices`, `audio.concurrency`, and `audio.duck` in [`game.yaml`](project.md) and install them with `File.ConfigureMixer(mixer)`. `go tool game check` validates `concurrency:` names referenced by `*.sound.yaml` files against `game.yaml`.
-- **Debug readout**: call `mixer.DebugSnapshot()` — or pass `Sound: mixer` to [`debug.Options`](debug.md) and [`mcp.Config`](mcp.md) (`game_sound_readout`) — to inspect active and fading voice counts, global budget, per-group counts and counters (`refused`, `stolen`, `retriggered`), and live bus duck gains.
+- **Debug readout**: call `mixer.DebugSnapshot()` — or pass `Sound: mixer` to [`gamedebug.Options`](gamedebug.md) and [`mcp.Config`](mcp.md) (`game_sound_readout`) — to inspect active and fading voice counts, global budget, per-group counts and counters (`refused`, `stolen`, `retriggered`), and live bus duck gains.
 
 ## Bus effect chains
 

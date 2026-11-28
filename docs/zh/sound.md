@@ -106,7 +106,7 @@ hit.PlayWith(audio.Voice{Volume: 0.9}, sound.PlayOptions{Owner: enemyID})
 - **总线闪避**：`SetBusDucking` / `AddBusDucking` 在 `By` 总线（或并发分组）上有任意 `Effect` 或 `Music` 活跃时，将 `Bus` 的音量压低 `Amount`（范围 `[0, 1]`，`0.4` 对应 `0.6x` 增益，`1` 会静音但保持 `Music` 播放进度继续推进），并按 `Attack` 与 `Release` 平滑过渡。作用于同一总线的多条规则按乘法叠加。
 - **全局发声预算与优先级**：`Mixer` 将全局活跃发声数限制在 `MaxVoices()`（默认为 `DefaultMaxVoices` 即 `30`），超限时跨所有分组抢占优先级最低的活跃声音（同优先级抢占最早者），并拒绝优先级严格更低的新声音，避免大量次要音效打断重要对白或主角音效。
 - **项目配置与检查**：在 [`game.yaml`](project.md) 中声明 `audio.maxVoices`、`audio.concurrency` 与 `audio.duck`，并通过 `File.ConfigureMixer(mixer)` 安装。`go tool game check` 会校验 `*.sound.yaml` 文件引用的 `concurrency:` 分组名是否已在 `game.yaml` 中声明。
-- **调试读数**：调用 `mixer.DebugSnapshot()`，或将 `Sound: mixer` 传入 [`debug.Options`](debug.md) 与 [`mcp.Config`](mcp.md)（`game_sound_readout`），即可查看活跃与淡出中的发声数、全局预算、各并发分组计数与统计（`refused`、`stolen`、`retriggered`）以及总线实时闪避增益。
+- **调试读数**：调用 `mixer.DebugSnapshot()`，或将 `Sound: mixer` 传入 [`gamedebug.Options`](gamedebug.md) 与 [`mcp.Config`](mcp.md)（`game_sound_readout`），即可查看活跃与淡出中的发声数、全局预算、各并发分组计数与统计（`refused`、`stolen`、`retriggered`）以及总线实时闪避增益。
 
 ## 总线效果链
 
