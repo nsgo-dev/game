@@ -29,7 +29,7 @@ The biggest change is where a game lives. In Godot you assemble scenes in the ed
 | `CharacterBody3D`, `RigidBody3D` | `physics3d.CharacterController`, `physics3d.World` | [physics3d](physics3d.md) |
 | `UndoRedo` (`MergeMode`, `max_steps`, `get_version`, saved version) | `undo.History` with `DoMerge` and `EndMerge`, `Limit`, `Version`, `MarkSaved` and `Dirty` | [undo](undo.md) |
 | Export presets, export templates | `nsgo.yaml` and `go tool nsgo build` | [Building and Shipping](shipping.md) |
-| `EditorPlugin`, editor addons | An `editor.Plugin` compiled into the game's own editor command | [Editor plugins](editor.md#editor-plugins-492) |
+| `EditorPlugin`, editor addons | An `editor.Plugin` compiled into the game's own editor command | [Editor plugins](editor.md#editor-plugins-492-898) |
 
 ## Scenes
 
