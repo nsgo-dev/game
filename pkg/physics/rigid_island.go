@@ -164,7 +164,9 @@ func (w *RigidWorld) broadphase() []uint64 {
 		proxies = append(proxies, rigidProxy{minX: minX, minY: minY, maxX: maxX, maxY: maxY, index: i})
 	}
 	// Ties on minX fall back to the body index, so the order is total and the sort gives the same result on every run.
-	slices.SortFunc(proxies, func(p, q rigidProxy) int {
+	// Most fixed-step scenes keep bodies in nearly the same X order. Avoid invoking the
+	// comparison sort when the proxy order is already monotonic.
+	proxyCompare := func(p, q rigidProxy) int {
 		switch {
 		case p.minX < q.minX:
 			return -1
@@ -172,7 +174,10 @@ func (w *RigidWorld) broadphase() []uint64 {
 			return 1
 		}
 		return p.index - q.index
-	})
+	}
+	if !slices.IsSortedFunc(proxies, proxyCompare) {
+		slices.SortFunc(proxies, proxyCompare)
+	}
 
 	pairs := w.scratch.pairs[:0]
 	addPair := func(i, j int) {
