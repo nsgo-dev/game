@@ -1365,6 +1365,10 @@ The object Inspector (`InspectorView`), styled with `design/editor/Spec.dc.html`
 - **Review and problem indicators plus footer**: fields with active agent review changes (`SetInspectorReviewChanges`) show an amber accent bar and `"was <old> · in review"`; fields failing a project check or schema bound (`SetInspectorFieldProblems` / `Editor.Problems`) show a problem pill beside the control and on the section header. The footer reminds authors: `"Everything else about this object is in its YAML. Ask the agent, or open the file."`
 - **Matching MCP tools (`editormcp`)**: `object_set_field` edits any single object field, component field, or custom property through the same `Editor` commands as one undo step; `object_locate_yaml` returns an object's 1-based YAML line and snippet (optionally triggering `OnOpenFileAtLine`); and `scene_edit` `set` supports all 2D/3D inspector fields including `particles`, `model`, `gridMap`, `occluder`, `light`, and `camera`.
 
+## Reusable scene parameters (#1936)
+
+Scenes may declare typed parameters (`SceneParameter`) with defaults and bindings to fields on their own objects. An instance stores per-use values in its object `parameters` map, while validation rejects duplicate names, unsupported types, wrong defaults, empty bindings, and bindings to missing objects. Existing raw overrides remain available until parameter resolution and inspector/MCP controls are added.
+
 ## Generated assets through MCP generator servers (#1053)
 
 Open the full-window **Generated Assets** screen (`AssetGeneratorView`) from `Project > Generated Assets` or the Command Palette (`CmdGeneratedAssets` / `SetAssetGeneratorOpen`). Styled strictly with `design/editor/Spec.dc.html` tokens matching Screen 2 of `design/editor/Assets.dc.html`, it connects to external MCP image and sound generator servers, checks returned candidates against the game's `brief.yaml`, and keeps generated output off disk until a person explicitly picks a candidate:

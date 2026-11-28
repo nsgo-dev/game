@@ -677,7 +677,7 @@ func TestMergeInvalidInputsReturnError(t *testing.T) {
 // SceneDoc or its sub-structs without updating Merge.
 func TestMergeCoversAllDocumentFields(t *testing.T) {
 	wantCounts := map[reflect.Type]int{
-		reflect.TypeFor[sceneformat.SceneDoc]():           16,
+		reflect.TypeFor[sceneformat.SceneDoc]():           17,
 		reflect.TypeFor[sceneformat.CameraDoc]():          5,
 		reflect.TypeFor[sceneformat.BoundsDoc]():          4,
 		reflect.TypeFor[sceneformat.EnvironmentDoc]():     7,
@@ -686,7 +686,7 @@ func TestMergeCoversAllDocumentFields(t *testing.T) {
 		reflect.TypeFor[sceneformat.LayerDoc]():           12,
 		reflect.TypeFor[sceneformat.TilemapDoc]():         13,
 		reflect.TypeFor[sceneformat.TileLayerDoc]():       4,
-		reflect.TypeFor[sceneformat.ObjectDoc]():          38,
+		reflect.TypeFor[sceneformat.ObjectDoc]():          39,
 		reflect.TypeFor[sceneformat.OccluderDoc]():        4,
 		reflect.TypeFor[sceneformat.SpriteRef]():          2,
 		reflect.TypeFor[sceneformat.ParticlesRef]():       2,
@@ -695,7 +695,7 @@ func TestMergeCoversAllDocumentFields(t *testing.T) {
 		reflect.TypeFor[sceneformat.ReflectionProbeDoc](): 8,
 		reflect.TypeFor[sceneformat.LightProbeGridDoc]():  5,
 		reflect.TypeFor[sceneformat.LayerOverride]():      10,
-		reflect.TypeFor[sceneformat.ObjectOverride]():     34,
+		reflect.TypeFor[sceneformat.ObjectOverride]():     35,
 		reflect.TypeFor[sceneformat.ConnectionDoc]():      6,
 	}
 	for typ, want := range wantCounts {

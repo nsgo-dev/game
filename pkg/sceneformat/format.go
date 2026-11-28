@@ -105,6 +105,8 @@ type SceneDoc struct {
 	LayerOverrides map[string]LayerOverride `yaml:"layerOverrides,omitempty"`
 	// Overrides changes the inherited objects whose IDs are its keys, nested children and the objects of instanced scenes (such as "enemy_1/body") included; it requires Inherits. Version 2.
 	Overrides map[string]ObjectOverride `yaml:"overrides,omitempty"`
+	// Parameters declares the typed values exposed by this reusable scene.
+	Parameters []SceneParameter `yaml:"parameters,omitempty"`
 	// Layers are the scene's layers, drawn lowest Order first and in slice order for equal Order. In a scene that inherits another, a layer named like one of the base's adds its objects to that layer and may set nothing else (LayerOverrides changes the layer itself), and any other layer is added after the base's layers.
 	Layers []LayerDoc `yaml:"layers,omitempty"`
 	// Connections connect events of the scene's objects to handlers of its objects, as Godot's connections in a .tscn file do, so a button can open a door with no Go code that wires the two. Connect binds them to the handlers a ComponentRegistry declares, and Resolve carries the connections of instanced and inherited scenes into the scene that uses them.
@@ -500,6 +502,8 @@ type ObjectDoc struct {
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties holds arbitrary custom metadata for gameplay scripts or editors. Encode writes a whole-number float with a decimal point (2.0), so that every value reads back with the kind it was written with.
 	Properties map[string]any `yaml:"properties,omitempty"`
+	// Parameters supplies values for the reusable scene's declarations.
+	Parameters map[string]any `yaml:"parameters,omitempty"`
 	// Scene optionally instances another scene file, named by its slash-separated path from the project root such as "scenes/enemy.scene.yaml". Resolve makes the top-level objects of every layer of that scene, in document order, this object's first children, ahead of the ones in Children, with each instanced object's ID prefixed by this object's ID and a slash ("enemy_1/body"). The instanced scene's layer settings, camera, background and virtual size do not carry over, and a scene whose layers hold a tilemap cannot be instanced. Version 2.
 	Scene string `yaml:"scene,omitempty"`
 	// Overrides changes objects of the instanced Scene, keyed by their IDs inside that scene ("body", or "gun/barrel" for an object of a scene it instances in turn); it requires Scene. Version 2.
@@ -578,6 +582,8 @@ type ObjectOverride struct {
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties replaces the object's custom properties key by key, keeping the others.
 	Properties map[string]any `yaml:"properties,omitempty"`
+	// Parameters replaces per-instance values for an object's nested scene.
+	Parameters map[string]any `yaml:"parameters,omitempty"`
 }
 
 // EffectiveScaleX returns ScaleX, defaulting to 1 when nil.
@@ -1027,6 +1033,9 @@ func Validate(doc *SceneDoc) error {
 	}
 	if doc.Version < MinVersion || doc.Version > CurrentVersion {
 		return fieldErr([]string{"version"}, "sceneformat: unsupported version %d (want %d to %d)", doc.Version, MinVersion, CurrentVersion)
+	}
+	if err := validateSceneParameters(doc); err != nil {
+		return err
 	}
 	if doc.UID != "" && !resource.ValidUID(doc.UID) {
 		return fieldErr([]string{"uid"}, "sceneformat: uid %q must be %d characters of 0-9 and a-z without i, l, o and u", doc.UID, resource.UIDLength)
