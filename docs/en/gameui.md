@@ -118,6 +118,18 @@ nav.Step(dt)
 
 `SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, configurable bus volumes, mono audio, and left/right balance), **Video** (window mode, desktop windowed resolution, scale mode, integer scale, quality preset, and frame cap; VSync is hidden by default until NSGo exposes swap-interval control and can be enabled with `ShowVSync`), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, SFX captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, game speed, invincibility, auto-aim, and hold-to-toggle).
 
+Templates can gate the first launch with `gameui.FirstLaunchSettings`. It renders a one-action accessibility prompt before the first sound, enables captions by default, and persists the completion marker through the same `save.DefaultSettingsStore` used by `SettingsMenu`:
+
+```go
+first := gameui.NewFirstLaunchSettings(gameui.FirstLaunchSettingsConfig{
+	Store: save.NewStorageSettingsStore(cx.Storage(), "game"),
+	OnMoreOptions: func() { openSettingsAccessibility() },
+})
+// Include first.View(cx) in the root overlay while first.Required() is true.
+```
+
+The prompt is skippable in one action and can be localized with `FirstLaunchSettingsConfig.Text`. Existing custom settings are preserved.
+
 It persists through `save.DefaultSettingsStore` (shared directly with `a11y.NewAssistFromSettings(cx, store)`) and dispatches validated updates through `save.SettingsTargets` (`save.Apply`) and `SettingsMenuConfig.Video` (`screen.Video.ApplyResolution`):
 
 ```go

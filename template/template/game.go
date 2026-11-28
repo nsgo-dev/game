@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game"
+	"github.com/nsgo-dev/game/pkg/gameui"
+	"github.com/nsgo-dev/game/pkg/save"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -28,7 +30,15 @@ func Root(cx *core.Scope) core.Node {
 	desktop.SetTitle(cx, Project.Title())
 	score := core.NewSignal(cx, 0)
 	frame := core.NewSignal(cx, uint64(0))
+	firstLaunchTick := core.NewSignal(cx, 0)
 	g := newStarterGame(score)
+	firstLaunch := gameui.NewFirstLaunchSettings(gameui.FirstLaunchSettingsConfig{
+		Store: save.NewStorageSettingsStore(cx.Storage(), "starter"),
+		OnComplete: func(save.Settings) error {
+			firstLaunchTick.Update(func(n int) int { return n + 1 })
+			return nil
+		},
+	})
 
 	loop := &game.Loop{
 		Rate:   60,
@@ -64,6 +74,10 @@ func Root(cx *core.Scope) core.Node {
 				},
 			},
 			hudOverlay(score, g.reset),
+			func() core.Node {
+				_ = firstLaunchTick.Get()
+				return firstLaunch.View(cx)
+			}(),
 		},
 	}
 }
