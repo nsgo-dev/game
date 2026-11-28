@@ -530,6 +530,9 @@ func TestParallelRevertTaskPreservesOtherTasksKeptEditsOverMCP(t *testing.T) {
 	}
 }
 
+// taskRunnerWait bounds each wait on the default task runner's goroutines, which only guards against a hang: 5 seconds timed out on loaded macOS CI runners while the holds were still being acquired.
+const taskRunnerWait = 30 * time.Second
+
 // #1507: Built-in agent tasks run through the default AgentTaskRunner (AgentTaskRunner == nil)
 // with editormcp per-object holds, Needs you permission prompts, and separate TaskReviews/AgentTurns.
 func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *testing.T) {
@@ -690,7 +693,7 @@ func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *test
 	}
 	select {
 	case <-task1Held:
-	case <-time.After(5 * time.Second):
+	case <-time.After(taskRunnerWait):
 		t.Fatal("timed out waiting for b1 to acquire slime_02")
 	}
 
@@ -709,13 +712,13 @@ func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *test
 	}
 	select {
 	case <-task2Blocked:
-	case <-time.After(5 * time.Second):
+	case <-time.After(taskRunnerWait):
 		t.Fatal("timed out waiting for b2 to block on slime_02")
 	}
 
 	// Release task 1 -> both finish as separate Ready to review tasks with distinct reviews and turns.
 	close(releaseTask1)
-	app.WaitUntil(5*time.Second, func() bool {
+	app.WaitUntil(taskRunnerWait, func() bool {
 		t1, _ := ed.Task("b1")
 		t2, _ := ed.Task("b2")
 		return t1.State == editor.TaskReadyToReview && t2.State == editor.TaskReadyToReview
@@ -748,14 +751,14 @@ func TestDefaultTaskRunnerBuiltInAgentHoldsPermissionsAndSeparateReviews(t *test
 	if submitErr != nil {
 		t.Fatalf("SubmitTask b-perm: %v", submitErr)
 	}
-	app.WaitUntil(5*time.Second, func() bool {
+	app.WaitUntil(taskRunnerWait, func() bool {
 		tp, _ := ed.Task("b-perm")
 		return tp.State == editor.TaskNeedsYou
 	})
 	app.Post(func() {
 		_ = ed.ResolveTaskPermission("b-perm", true)
 	})
-	app.WaitUntil(5*time.Second, func() bool {
+	app.WaitUntil(taskRunnerWait, func() bool {
 		tp, _ := ed.Task("b-perm")
 		return tp.State == editor.TaskReadyToReview
 	})
