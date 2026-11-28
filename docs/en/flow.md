@@ -259,3 +259,7 @@ opened := vars.Self("chest_01").Bool("opened")
 - **Save and restore**: `snap := vars.Snapshot()` returns a plain `flow.VarsSnapshot` (`Version`, `Vars`, `Self`) that marshals cleanly to JSON or YAML for `save.Store`. `vars.Restore(snap)` validates versions, names, kinds, and bounds atomically without invoking `OnChange` listeners, leaving the store unchanged on error (`flow.ErrInvalidSnapshot`). Variables added to `vars.yaml` after an older save keep their declared defaults on restore, and a zero `VarsSnapshot` resets to defaults and clears self variables.
 - **Static validation**: `go tool game check` validates every `vars.yaml` / `*.vars.yaml` file and checks every `$name` and `{name}` variable reference in `.yarn` dialogue scripts against the project's declarations, reporting undeclared names with their exact file and line.
 - **Live remote inspection**: pass `Vars: vars` (or `VarsFunc`) to `mcp.Config` to expose `game_vars_list`, `game_var_get`, and `game_var_set`; the editor's Remote Inspector lists declared variables with live editable controls alongside active per-object self variables.
+
+## YAML map events
+
+`flow.ParseEvent` loads version-1 map-event files with ordered pages. Pages support `action`, `touch`, `autorun`, and `parallel` triggers, optional self-switch conditions, and the validated `say`, `give`, `wait`, and `self` command vocabulary. `Event.SelectPage` chooses the last matching page so an opened-state page overrides the default page. Unknown fields, triggers, commands, and trailing YAML documents are refused.

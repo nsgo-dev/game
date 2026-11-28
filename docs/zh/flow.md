@@ -259,3 +259,7 @@ opened := vars.Self("chest_01").Bool("opened")
 - **保存与恢复**：`snap := vars.Snapshot()` 返回可直接序列化为 JSON 或 YAML 的 `flow.VarsSnapshot`（`Version`、`Vars`、`Self`），可直接存入 `save.Store`。`vars.Restore(snap)` 会先原子校验版本号、变量名、类型和范围，校验失败时返回 `flow.ErrInvalidSnapshot` 且不改动原状态，并在恢复期间不触发 `OnChange` 回调。后续版本新增的变量在读取旧存档时自动保持声明默认值，零值 `VarsSnapshot` 会重置为默认值并清空对象独立变量。
 - **静态检查**：`go tool game check` 会校验每个 `vars.yaml` / `*.vars.yaml` 文件，并核对 `.yarn` 对话脚本中的每个 `$name` 和 `{name}` 变量引用，对未声明名称报告精确的文件路径与行号。
 - **实时远程检查**：将 `Vars: vars`（或 `VarsFunc`）配置到 `mcp.Config` 即可注册 `game_vars_list`、`game_var_get` 与 `game_var_set`；编辑器的远程检查器会实时列出并允许编辑所有已声明变量，同时展示当前活跃的对象独立变量。
+
+## YAML 地图事件
+
+`flow.ParseEvent` 读取带顺序页面的版本 1 地图事件文件。页面支持 `action`、`touch`、`autorun`、`parallel` 触发器，可选自开关条件，以及经过验证的 `say`、`give`、`wait`、`self` 命令。`Event.SelectPage` 选择最后一个匹配页面，因此打开状态页面会覆盖默认页面。未知字段、触发器、命令和尾随 YAML 文档都会被拒绝。
