@@ -27,11 +27,11 @@ func originTemplate(o *project.Origin) (projectTemplate, bool) {
 	return projectTemplate{}, false
 }
 
-// residueKind returns the origin.keep category a template file counts toward, "rules" or "data", or "" for a file the comparison leaves out: the files game new renders from the project's name and module, the project and build settings, tests, playtest recordings and touch layouts.
+// residueKind returns the origin.keep category a template file counts toward, "rules" or "data", or "" for a file the comparison leaves out: the files game new renders from the project's name and module, the project and build settings, the game brief, tests, playtest recordings and touch layouts.
 func residueKind(name string) string {
 	base := path.Base(name)
 	switch {
-	case strings.HasSuffix(base, ".tmpl"), base == "main.go", base == project.FileName, base == project.NSGoFileName, base == "game.index.yaml", base == "playtest.yaml", strings.HasSuffix(base, ".touch.yaml"):
+	case strings.HasSuffix(base, ".tmpl"), base == "main.go", base == project.FileName, base == project.NSGoFileName, base == "game.index.yaml", base == "playtest.yaml", base == project.BriefFileName, strings.HasSuffix(base, ".touch.yaml"):
 		return ""
 	case strings.HasSuffix(base, ".go"):
 		if strings.HasSuffix(base, "_test.go") {
