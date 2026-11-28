@@ -475,7 +475,8 @@ func isDrivenJoint(j Joint3D) bool {
 // updateSleep advances each awake dynamic body's rest timer and puts to sleep
 // every contact/joint island whose bodies all allow sleep and have rested under
 // the sleep thresholds for TimeToSleep seconds.
-func (w *World) updateSleep(contacts []solverContact, prevPos []Vec3, dtSec float32) {
+// updateSleep advances sleep timers from each body's displacement since prevPos over dtSec. velSlack widens the instantaneous linear speed check for a substepped step, whose end-of-step velocity can differ from the step's mean velocity by up to |Gravity| * dt.
+func (w *World) updateSleep(contacts []solverContact, prevPos []Vec3, dtSec, velSlack float32) {
 	if w.DisableSleep {
 		for _, pid := range w.bp.dynamicList {
 			b := w.bp.proxies[pid].body
@@ -488,6 +489,8 @@ func (w *World) updateSleep(contacts []solverContact, prevPos []Vec3, dtSec floa
 
 	linTol, angTol, timeToSleep := w.effectiveSleepThresholds()
 	linTolSq := float32(linTol * linTol)
+	velTol := float32(linTol) + velSlack
+	velTolSq := velTol * velTol
 	angTolSq := float32(angTol * angTol)
 	invDtSq := 1 / (dtSec * dtSec)
 
@@ -504,7 +507,7 @@ func (w *World) updateSleep(contacts []solverContact, prevPos []Vec3, dtSec floa
 		dispSq := b.Pos.Sub(prevPos[di]).LenSq() * invDtSq
 		// A body still sunk into a neighbor stays awake: asleep, the solver
 		// would skip the pair and freeze that penetration in place.
-		if b.Vel.LenSq() <= linTolSq && dispSq <= linTolSq && b.AngVel.LenSq() <= angTolSq && b.residualDepth <= sleepMaxDepth {
+		if b.Vel.LenSq() <= velTolSq && dispSq <= linTolSq && b.AngVel.LenSq() <= angTolSq && b.residualDepth <= sleepMaxDepth {
 			b.sleepTimer += dtSec
 			if b.sleepTimer >= timeToSleep {
 				candidate = true

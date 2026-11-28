@@ -8,8 +8,8 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// SnapshotVersion is the schema version stored in WorldSnapshot and RigidWorldSnapshot. Version 2 added the kinematic and sensor flags, kinematic targets, Tiles and their settings, the contact and sensor overlap state, tile entries in the contact cache and a grid's origin; version 3 added InternalID on bodies, triggers and joints so Restore matches handles strictly by identity instead of slice index; version 4 added Substeps on RigidWorldSnapshot for the substepped soft-constraint solver. Restore still reads version 1 through 3 snapshots and refuses any other version, so an older build refuses a newer snapshot instead of dropping what it cannot read.
-const SnapshotVersion = 4
+// SnapshotVersion is the schema version stored in WorldSnapshot and RigidWorldSnapshot. Version 2 added the kinematic and sensor flags, kinematic targets, Tiles and their settings, the contact and sensor overlap state, tile entries in the contact cache and a grid's origin; version 3 added InternalID on bodies, triggers and joints so Restore matches handles strictly by identity instead of slice index; version 4 added Substeps on RigidWorldSnapshot for the substepped soft-constraint solver; version 5 added EnablePositionCleanup on RigidWorldSnapshot and Softness on distance and revolute joints. Restore still reads version 1 through 4 snapshots and refuses any other version, so an older build refuses a newer snapshot instead of dropping what it cannot read.
+const SnapshotVersion = 5
 
 // oldestSnapshotVersion is the oldest snapshot version Restore reads.
 const oldestSnapshotVersion = 1
@@ -245,6 +245,7 @@ type RigidJointSnapshot struct {
 	DampingRatio     float32            `json:"dampingRatio,omitempty"`
 	Stiffness        float32            `json:"stiffness,omitempty"`
 	Compliance       float32            `json:"compliance,omitempty"`
+	Softness         JointSoftness      `json:"softness,omitzero"`
 	Damping          float32            `json:"damping,omitempty"`
 	BreakForce       float32            `json:"breakForce,omitempty"`
 	BreakTorque      float32            `json:"breakTorque,omitempty"`
@@ -325,6 +326,7 @@ type RigidWorldSnapshot struct {
 	GravityY              float32                        `json:"gravityY"`
 	SolverIterations      int                            `json:"solverIterations"`
 	Substeps              int                            `json:"substeps,omitempty"`
+	EnablePositionCleanup bool                           `json:"enablePositionCleanup,omitempty"`
 	DisableSleep          bool                           `json:"disableSleep,omitempty"`
 	SleepLinearThreshold  float32                        `json:"sleepLinearThreshold,omitempty"`
 	SleepAngularThreshold float32                        `json:"sleepAngularThreshold,omitempty"`
@@ -866,6 +868,7 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		GravityY:              w.GravityY,
 		SolverIterations:      w.SolverIterations,
 		Substeps:              w.Substeps,
+		EnablePositionCleanup: w.EnablePositionCleanup,
 		DisableSleep:          w.DisableSleep,
 		SleepLinearThreshold:  w.SleepLinearThreshold,
 		SleepAngularThreshold: w.SleepAngularThreshold,
@@ -1025,6 +1028,7 @@ func snapshotRigidJoint(j Joint, resolveBodyRef func(*RigidBody) (int, *RigidBod
 			MaxOnly:          jt.MaxOnly,
 			Stiffness:        jt.Stiffness,
 			Compliance:       jt.Compliance,
+			Softness:         jt.Softness,
 			Damping:          jt.Damping,
 			BreakForce:       jt.BreakForce,
 			BreakTorque:      jt.BreakTorque,
@@ -1073,6 +1077,7 @@ func snapshotRigidJoint(j Joint, resolveBodyRef func(*RigidBody) (int, *RigidBod
 		idxB, detB := resolveBodyRef(jt.B)
 		js := RigidJointSnapshot{
 			Kind:             "revolute",
+			Softness:         jt.Softness,
 			BodyAIndex:       idxA,
 			BodyBIndex:       idxB,
 			DetachedA:        detA,
@@ -1327,6 +1332,7 @@ func restoreRigidJoint(js RigidJointSnapshot, existing Joint, resolveRestoredBod
 			MaxOnly:          js.MaxOnly,
 			Stiffness:        js.Stiffness,
 			Compliance:       js.Compliance,
+			Softness:         js.Softness,
 			Damping:          js.Damping,
 			BreakForce:       js.BreakForce,
 			BreakTorque:      js.BreakTorque,
@@ -1378,6 +1384,7 @@ func restoreRigidJoint(js RigidJointSnapshot, existing Joint, resolveRestoredBod
 			AnchorA:          anchorA,
 			AnchorB:          anchorB,
 			ReferenceAngle:   js.ReferenceAngle,
+			Softness:         js.Softness,
 			EnableLimit:      js.EnableLimit,
 			LowerAngle:       js.LowerAngle,
 			UpperAngle:       js.UpperAngle,
@@ -1803,6 +1810,7 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	w.GravityY = snap.GravityY
 	w.SolverIterations = snap.SolverIterations
 	w.Substeps = snap.Substeps
+	w.EnablePositionCleanup = snap.EnablePositionCleanup
 	w.DisableSleep = snap.DisableSleep
 	w.SleepLinearThreshold = snap.SleepLinearThreshold
 	w.SleepAngularThreshold = snap.SleepAngularThreshold
@@ -1849,6 +1857,10 @@ func (w *RigidWorld) Checksum() uint64 {
 	h.WriteFloat32(w.GravityY)
 	h.WriteInt(w.SolverIterations)
 	h.WriteInt(w.Substeps)
+	// Hashed only when set, so checksums of worlds that never use the setting match older builds.
+	if w.EnablePositionCleanup {
+		h.WriteBool(true)
+	}
 	h.WriteBool(w.DisableSleep)
 	h.WriteFloat32(w.SleepLinearThreshold)
 	h.WriteFloat32(w.SleepAngularThreshold)
@@ -2037,6 +2049,7 @@ func hashRigidJoint(h *detmath.Hasher, j Joint, hashBodyRef func(*RigidBody)) {
 		h.WriteFloat32(jt.Stiffness)
 		h.WriteFloat32(jt.Compliance)
 		h.WriteFloat32(jt.Damping)
+		hashJointSoftness(h, jt.Softness)
 		h.WriteFloat32(jt.BreakForce)
 		h.WriteFloat32(jt.BreakTorque)
 		h.WriteBool(jt.CollideConnected)
@@ -2079,6 +2092,7 @@ func hashRigidJoint(h *detmath.Hasher, j Joint, hashBodyRef func(*RigidBody)) {
 		h.WriteFloat32(float32(jt.AnchorB.X))
 		h.WriteFloat32(float32(jt.AnchorB.Y))
 		h.WriteFloat32(jt.ReferenceAngle)
+		hashJointSoftness(h, jt.Softness)
 		h.WriteBool(jt.EnableLimit)
 		h.WriteFloat32(jt.LowerAngle)
 		h.WriteFloat32(jt.UpperAngle)
@@ -2438,4 +2452,13 @@ func hashAreaEffect(h *detmath.Hasher, e AreaEffect) {
 	h.WriteFloat32(e.FluidAngularDrag)
 	h.WriteFloat32(e.FluidVelX)
 	h.WriteFloat32(e.FluidVelY)
+}
+
+// hashJointSoftness adds a joint's Softness to a checksum only when it is set, so checksums of rigid joints match older builds.
+func hashJointSoftness(h *detmath.Hasher, s JointSoftness) {
+	if s == (JointSoftness{}) {
+		return
+	}
+	h.WriteFloat32(s.Hertz)
+	h.WriteFloat32(s.DampingRatio)
 }

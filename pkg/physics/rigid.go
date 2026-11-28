@@ -485,9 +485,7 @@ type RigidWorld struct {
 	SolverIterations int
 	// Substeps is the number of solver substeps per Step; zero or negative means DefaultSubsteps.
 	Substeps int
-	// EnablePositionCleanup runs an optional post-step non-linear Gauss-Seidel
-	// joint positional cleanup pass after all substeps finish; off by default
-	// because the substepped solver resolves joint error via soft push-out.
+	// EnablePositionCleanup runs four extra non-linear Gauss-Seidel position passes over the awake joints after all substeps finish; off by default because the substepped solver resolves joint error through soft push-out.
 	EnablePositionCleanup bool
 	// DisableSleep keeps every body awake. Step wakes bodies that were sleeping when it is set.
 	DisableSleep bool
@@ -753,7 +751,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 			rj.resetStepReaction(h)
 		}
 	}
-	w.scratch.jointTree.build(w, joints)
+	w.scratch.jointTree.build(w, joints, subH)
 	pinchPairs := w.findPinchPairs(manifolds)
 
 	// 4. Solve in substeps: integrate velocities, warm-start contacts, solve velocity constraints without penetration bias, solve soft contact and joint push-out into pseudo-velocities, integrate positions, then relax velocities without bias.
@@ -944,12 +942,11 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		joints = w.awakeJoints()
 	}
 
+	// Only awake joints were prepared this step; a sleeping island's joints keep stale solver state and must not move its bodies.
 	if w.EnablePositionCleanup {
 		for range 4 {
-			for _, j := range w.Joints {
-				if j != nil {
-					j.solvePosition()
-				}
+			for _, j := range joints {
+				j.solvePosition()
 			}
 		}
 	}

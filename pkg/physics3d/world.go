@@ -369,30 +369,29 @@ type solverContact struct {
 	depth          float32
 	point          Vec3
 	// rA and rB are the contact point relative to each body's center of mass, so impulses also apply torque (#546).
-	rA, rB          Vec3
-	localA, localB  Vec3
-	featureID       uint32
-	hasPlane        bool
-	refIsA          bool
-	localRefPoint   Vec3
-	localRefNormal  Vec3
-	localIncPoint   Vec3
-	incRadius       float32
-	restitution     float32
-	friction        float32
-	bias            float32
-	restitutionBias float32
-	normalImpulse   float32
-	tangentImpulse  Vec3
-	isStaticTri     bool
-	isHeightfield   bool
-	isVoxel         bool
-	tri             Triangle
-	voxel           *VoxelCollider
-	voxelX          int
-	voxelY          int
-	voxelZ          int
-	staticID        int
+	rA, rB         Vec3
+	localA, localB Vec3
+	featureID      uint32
+	hasPlane       bool
+	refIsA         bool
+	localRefPoint  Vec3
+	localRefNormal Vec3
+	localIncPoint  Vec3
+	incRadius      float32
+	restitution    float32
+	friction       float32
+	bias           float32
+	normalImpulse  float32
+	tangentImpulse Vec3
+	isStaticTri    bool
+	isHeightfield  bool
+	isVoxel        bool
+	tri            Triangle
+	voxel          *VoxelCollider
+	voxelX         int
+	voxelY         int
+	voxelZ         int
+	staticID       int
 }
 
 // World holds static, kinematic, and dynamic bodies, static triangle meshes,
@@ -401,15 +400,11 @@ type World struct {
 	// Gravity is the constant acceleration applied to dynamic bodies each step.
 	// NewWorld initializes it to (0, -9.81, 0).
 	Gravity Vec3
-	// SolverIterations is the total budget of velocity and positional solver
-	// passes per Step, distributed across substeps; values <= 0 default to 8.
+	// SolverIterations is the number of velocity and positional solver passes per substep; values <= 0 default to 8.
 	SolverIterations int
-	// Substeps is the number of dynamics substeps per Step; values <= 0 default
-	// to DefaultSubsteps.
+	// Substeps is the number of dynamics substeps per Step; values <= 0 default to DefaultSubsteps.
 	Substeps int
-	// EnablePositionCleanup runs optional final non-linear joint correction
-	// after all substeps. It is off by default because soft substep constraints
-	// correct drift without injecting energy into body velocities.
+	// EnablePositionCleanup runs four extra non-linear Gauss-Seidel joint position passes after all substeps. It is off by default because the substepped solver keeps joints together without moving bodies outside the velocity solve.
 	EnablePositionCleanup bool
 	// DisableSleep keeps every body awake. Step wakes bodies that were sleeping
 	// when it is set.
@@ -473,8 +468,11 @@ type World struct {
 	islandAwake           []uint8
 	ccd                   ccdScratch3D
 	substepBatch          bool
+	substepFirst          bool
 	substepFinal          bool
 	substepCount          int
+	// stepStartPos holds each dynamic body's position at the start of a substepped World.Step, in w.bp.dynamicList order, so sleep checks see the whole step's displacement.
+	stepStartPos []Vec3
 }
 
 // NewWorld returns a World with standard Y-up gravity (0, -9.81, 0), 8
@@ -725,6 +723,11 @@ func (w *World) Step(dt time.Duration) {
 	if substeps <= 0 {
 		substeps = DefaultSubsteps
 	}
+	for _, j := range w.joints {
+		if r, ok := j.(interface{ beginStepReaction(bool) }); ok {
+			r.beginStepReaction(substeps > 1)
+		}
+	}
 	if substeps <= 1 {
 		w.stepSubstep(dt)
 		if w.EnablePositionCleanup {
@@ -732,8 +735,6 @@ func (w *World) Step(dt time.Duration) {
 		}
 		return
 	}
-	previous := w.Substeps
-	w.Substeps = 1
 	w.substepBatch = true
 	w.substepCount = substeps
 	if w.nextActiveContacts == nil {
@@ -741,22 +742,14 @@ func (w *World) Step(dt time.Duration) {
 	} else {
 		clear(w.nextActiveContacts)
 	}
-	defer func() { w.Substeps = previous; w.substepBatch = false; w.substepFinal = false; w.substepCount = 0 }()
+	defer func() { w.substepBatch = false; w.substepFirst = false; w.substepFinal = false; w.substepCount = 0 }()
+	w.stepStartPos = w.stepStartPos[:0]
 	for sub := range substeps {
-		if sub > 0 {
-			for _, j := range w.joints {
-				if r, ok := j.(interface{ preserveStepReaction(float32) }); ok {
-					r.preserveStepReaction(float32(dt.Seconds()))
-				}
-			}
-		}
+		w.substepFirst = sub == 0
 		w.substepFinal = sub == substeps-1
 		w.stepSubstep(dt / time.Duration(substeps))
 	}
 	for _, j := range w.joints {
-		if r, ok := j.(interface{ setReactionBatchScale(float32) }); ok {
-			r.setReactionBatchScale(float32(substeps))
-		}
 		if r, ok := j.(interface{ finishStepReaction(float32) }); ok {
 			r.finishStepReaction(float32((dt / time.Duration(substeps)).Seconds()))
 		}
@@ -839,6 +832,9 @@ func (w *World) stepSubstep(dt time.Duration) {
 		prevPos[di] = b.Pos
 		p.prevPos = b.Pos
 		p.prevRot = b.Rot
+		if w.substepBatch && w.substepFirst {
+			w.stepStartPos = append(w.stepStartPos, b.Pos)
+		}
 		if b.Static || b.Kinematic || b.Sleeping {
 			continue
 		}
@@ -1632,12 +1628,16 @@ func (w *World) stepSubstep(dt time.Duration) {
 	w.bp.syncDynamicBodies(w, prevPos)
 
 	// 6. Put settled islands to sleep so resting stacks have zero drift.
-	if !w.substepBatch || w.substepFinal {
-		sleepDt := dtSec
-		if w.substepBatch && w.substepCount > 0 {
-			sleepDt *= float32(w.substepCount)
+	if !w.substepBatch {
+		w.updateSleep(contacts, prevPos, dtSec, 0)
+	} else if w.substepFinal {
+		// Judge rest over the whole step: an impulse applied once per step (a vehicle's suspension, a buoyancy force) against gravity integrated per substep leaves an end-of-step velocity of up to |Gravity| * dt even when the body does not move.
+		stepDt := dtSec * float32(w.substepCount)
+		startPos := prevPos
+		if len(w.stepStartPos) == len(prevPos) {
+			startPos = w.stepStartPos
 		}
-		w.updateSleep(contacts, prevPos, sleepDt)
+		w.updateSleep(contacts, startPos, stepDt, w.Gravity.Len()*stepDt)
 	}
 	clear(contacts)
 	w.contactsBuf = contacts[:0]

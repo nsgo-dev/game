@@ -110,8 +110,8 @@ func TestVehicleSaveRestoreBitIdentical(t *testing.T) {
 func TestVehicleGoldenTrajectory(t *testing.T) {
 	// Cross-architecture golden trajectory hashes (must match identically on amd64 and arm64).
 	const (
-		wantCarGolden   uint64 = 0xb5b26bc2ed06e4b4
-		wantWorldGolden uint64 = 0x6c0ed563b420b085
+		wantCarGolden   uint64 = 0xafac4445d8180189
+		wantWorldGolden uint64 = 0xbd3e2be45138eaf4
 	)
 
 	world, car := buildDeterministicVehicleScene(t)

@@ -857,6 +857,11 @@ func (j *RevoluteJoint) anchorSoftness2D() (biasRate, gammaScale float64, soft b
 	return j.softBiasRate, j.softGammaScale, j.soft
 }
 
+func (j *RevoluteJoint) anchorSoftAt2D(dt float64) bool {
+	_, _, soft := makeJointSoftness(j.Softness, dt)
+	return soft
+}
+
 func (j *RevoluteJoint) anchorAccImpulse2D() (ix, iy float64) {
 	return j.impulseX, j.impulseY
 }
