@@ -1183,10 +1183,12 @@ func (s *BuiltScene) Free(id string) bool {
 	}
 
 	// Free descendants first so bottom-up cleanup is deterministic.
-	for len(bo.Children) > 0 {
-		child := bo.Children[len(bo.Children)-1]
-		s.Free(child.ID)
+	// Iterate over a copy: a child Free cannot find (already freed, or missing from Objects) would otherwise never leave bo.Children and loop forever.
+	children := append([]*BuiltObject(nil), bo.Children...)
+	for i := len(children) - 1; i >= 0; i-- {
+		s.Free(children[i].ID)
 	}
+	bo.Children = nil
 
 	bo.freed = true
 	delete(s.Objects, id)
