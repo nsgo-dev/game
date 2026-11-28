@@ -44,6 +44,11 @@ const (
 // ErrTaskDecisionYouOnly is returned when an agent tries to keep a task's review, dismiss a task that is Ready to review, or answer a task's permission prompt: those decisions are the person's.
 var ErrTaskDecisionYouOnly = errors.New("editor: keeping a task's review or answering its permission prompt is You only and cannot be done by an agent")
 
+// taskDecisionByAgent reports whether the current call on the editor goroutine is an agent's MCP tool call, which is refused the person-only task decisions. It reads the per-call agentMutating flag set by RunAsAgent rather than AgentActorActive: agentActorDepth is one process-wide counter that a running automation holds for its whole run on a background goroutine, so it would also refuse the person's own clicks while any automation runs.
+func (e *Editor) taskDecisionByAgent() bool {
+	return e.AgentMutating()
+}
+
 // TaskState identifies where a background agent task sits in its lifecycle.
 type TaskState string
 
@@ -2400,7 +2405,7 @@ func (e *Editor) ResolveTaskPermission(id string, allow bool) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
-	if e.AgentActorActive() {
+	if e.taskDecisionByAgent() {
 		return ErrTaskDecisionYouOnly
 	}
 	e.tasks.mu.Lock()
@@ -2564,7 +2569,7 @@ func (e *Editor) FailTask(id, errMsg string) error {
 	return nil
 }
 
-// StopTask cancels a running, waiting, or queued task, releases any object holds, and advances the queue.
+// StopTask cancels a running, waiting, or queued task, releases any object holds, and advances the queue. A task that is Ready to review is refused, for every caller: stopping it would end its review without reverting its edits, which is a keep that bypasses KeepTask; the person keeps or reverts it instead.
 func (e *Editor) StopTask(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
@@ -2575,6 +2580,13 @@ func (e *Editor) StopTask(id string) error {
 	if idx < 0 {
 		e.tasks.mu.Unlock()
 		return fmt.Errorf("editor: task %q not found", id)
+	}
+	if e.tasks.tasks[idx].State == TaskReadyToReview {
+		e.tasks.mu.Unlock()
+		if e.taskDecisionByAgent() {
+			return fmt.Errorf("editor: task %q is ready to review and cannot be stopped: %w", id, ErrTaskDecisionYouOnly)
+		}
+		return fmt.Errorf("editor: task %q is ready to review and cannot be stopped; keep or revert it", id)
 	}
 	cancel := e.tasks.cancels[id]
 	delete(e.tasks.cancels, id)
@@ -2685,7 +2697,11 @@ func (e *Editor) KeepTask(id string) error {
 		return fmt.Errorf("editor: task %q not found", id)
 	}
 	t := &e.tasks.tasks[idx]
-	if e.AgentActorActive() {
+	if t.Source == TaskSourceAutomation && e.AgentActorActive() {
+		e.tasks.mu.Unlock()
+		return ErrAutomationYouOnly
+	}
+	if e.taskDecisionByAgent() {
 		e.tasks.mu.Unlock()
 		if t.Source == TaskSourceAutomation {
 			return ErrAutomationYouOnly
@@ -3097,7 +3113,7 @@ func (e *Editor) DismissTasks(ids []string) int {
 			continue
 		}
 		// Dismissing a Ready to review task hides its unkept changes from review, so only the person may do it.
-		if t.State == TaskReadyToReview && e.AgentActorActive() {
+		if t.State == TaskReadyToReview && e.taskDecisionByAgent() {
 			continue
 		}
 		t.Dismissed = true
