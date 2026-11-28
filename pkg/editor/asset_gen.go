@@ -723,21 +723,25 @@ func (e *Editor) ConnectAssetGenerator(ctx context.Context, cfg GeneratorServerC
 		return fmt.Errorf("editor: connect MCP generator %q: %w", cfg.Name, err)
 	}
 
-	res, listErr := cs.ListTools(ctx, nil)
-	if listErr != nil {
-		_ = cs.Close()
-		return fmt.Errorf("editor: list tools on MCP generator %q: %w", cfg.Name, listErr)
+	var tools []*sdkmcp.Tool
+	if cfg.Tool == "" || len(cfg.Params) > 0 {
+		res, listErr := cs.ListTools(ctx, nil)
+		if listErr != nil {
+			_ = cs.Close()
+			return fmt.Errorf("editor: list tools on MCP generator %q: %w", cfg.Name, listErr)
+		}
+		tools = res.Tools
 	}
 	toolName := strings.TrimSpace(cfg.Tool)
 	if toolName == "" {
-		toolName = pickGeneratorTool(res.Tools, cfg.Kind)
+		toolName = pickGeneratorTool(tools, cfg.Kind)
 		if toolName == "" {
 			_ = cs.Close()
 			return fmt.Errorf("editor: MCP generator %q advertises no tools", cfg.Name)
 		}
 	}
 	var toolSchema GeneratorParameterSchema
-	for _, tool := range res.Tools {
+	for _, tool := range tools {
 		if tool == nil || tool.Name != toolName || tool.InputSchema == nil {
 			continue
 		}
