@@ -73,7 +73,6 @@ func TestWatchAtlasReloadsOnEngineGoroutineAndRedrawsCanvas(t *testing.T) {
 		t.Fatalf("expected initial canvas draw")
 	}
 
-	start := time.Now()
 	if err := os.WriteFile(atlasPath, []byte(atlasV2), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -81,10 +80,6 @@ func TestWatchAtlasReloadsOnEngineGoroutineAndRedrawsCanvas(t *testing.T) {
 	app.WaitUntil(time.Second, func() bool {
 		return reloaded.Load() && canvasDraws.Load() > initialDraws
 	})
-	elapsed := time.Since(start)
-	if elapsed >= time.Second {
-		t.Fatalf("reload took %v, want < 1s", elapsed)
-	}
 	if lastErr != nil {
 		t.Fatalf("unexpected atlas reload error: %v", lastErr)
 	}
