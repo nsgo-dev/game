@@ -10,10 +10,11 @@
 //   - Local reminders (#1310): Reminders over NSGo's core.Scope.ShowNotification, declared in versioned YAML (RemindersConfig), asking permission only on first Schedule or explicit RequestPermission, honoring a persisted player setting and local-time QuietHours, and cancelling or rescheduling active reminders when the app comes to the front.
 //   - Store review prompts (#1767): ReviewPrompt over core.Storage and core.Scope.RequestReview, gating in-app rating prompts on minimum sessions, days since first launch, positive moments, cooldown and once-per-version rules, suppressing prompts after negative moments, and failing closed on corrupt state or unsupported platforms.
 //   - Share cards and invites (#1738): Invites over a small ShareHost interface (PlatformShareHost for mobile, desktop and web via core.Scope.Share, core.Scope.OnOpenLinks and core.Scope.AppURL, plus MiniGameShareHost ready for NSGo's mini-game share cards in nsgo-dev/nsgo#2672), with bounded canonical key=value payloads, optional HMAC-SHA256 signing and verification, at-most-once cold-launch and warm-resume delivery, and a 5:4 frame snapshot helper.
+//   - Mini-game ads (#1739): Ads over a small AdHost interface, reporting a reward only for a rewarded video watched to the end and at most once per show, no-fill and failure results, one ad at a time, an interstitial per-session cap, minimum interval and Disabled predicate, and Pause and ResetInput hooks around each show. The mini-game AdHost waits on NSGo's mini-game ad API (nsgo-dev/nsgo#2672).
 //
 // Pending upstream:
 //   - Remote push (#1310): a thin Push wrapper for device-token registration and remote payload routing waits on NSGo shipping remote push (nsgo-dev/nsgo#59) and settling its design decisions (nsgo-dev/nsgo#1323). Until then, remote push is unavailable everywhere.
 //
 // Out of scope for the core game module:
-//   - Ads (#199): ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with store-policy and privacy obligations that do not belong in the core game layer. Games that show ads embed native SDK views directly through NSGo.
+//   - Native ad SDKs (#199): ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with store-policy and privacy obligations that do not belong in the core game layer. Games that use them embed native SDK views directly through NSGo.
 package liveops

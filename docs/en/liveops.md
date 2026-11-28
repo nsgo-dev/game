@@ -18,7 +18,8 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 | **Review prompts** ([#1767](https://github.com/nsgo-dev/game/issues/1767)) | In scope | `ReviewPrompt` over `core.Storage` and `core.Scope.RequestReview`: gates store rating requests on sessions, elapsed days, positive moments, cooldown and once-per-version rules, suppresses prompts after negative moments, and fails closed on corrupt state or unsupported platforms. |
 | **Share cards and invites** ([#1738](https://github.com/nsgo-dev/game/issues/1738)) | In scope | `Invites` over `ShareHost`: bounded canonical `key=value&…` payloads with optional HMAC-SHA256 signing, at-most-once cold-launch and warm-resume delivery, native/web `PlatformShareHost`, mini-game `MiniGameShareHost` (ready for [nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)), and 5:4 frame snapshot helpers. |
 | **Remote push** ([#1310](https://github.com/nsgo-dev/game/issues/1310)) | Pending upstream | Waiting on NSGo remote push ([nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)) and its design decisions ([nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)). Remote push is currently unavailable everywhere. |
-| **Ads** ([#199](https://github.com/nsgo-dev/game/issues/199)) | Out of scope | Ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with heavy store-policy and privacy obligations. Keep them out of the core `game` module; games that need ads embed native SDK views directly via NSGo. |
+| **Mini-game ads** ([#1739](https://github.com/nsgo-dev/game/issues/1739)) | In scope | `Ads` over a host `AdHost`: rewards only for a video watched to the end and at most once per show, no-fill and failure results, one ad at a time, interstitial cap, interval and `Disabled` predicate, and pause and input-reset hooks. The mini-game host waits on [nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672). |
+| **Native ad SDKs** ([#199](https://github.com/nsgo-dev/game/issues/199)) | Out of scope | Ad networks (AdMob, AppLovin and similar) require proprietary native SDKs with heavy store-policy and privacy obligations. Keep them out of the core `game` module; games that need them embed native SDK views directly via NSGo. |
 
 ## Crash reports
 
@@ -372,6 +373,30 @@ liveops.CaptureCardSnapshot(cx, gameCanvasRef, liveops.CardSnapshotOptions{}, fu
 ```
 
 Tests cover fake `ShareHost` round-trips, size boundaries, malformed-input rejection, HMAC verification, at-most-once launch/resume delivery, `MiniGameShareHost`, `PlatformShareHost` (native & web via `nsgotest`), and 5:4 snapshots in `liveops/invites_test.go`.
-# Mini-game ads
 
-`liveops.Ads` wraps a host `AdHost`. Rewarded callbacks return `rewarded` only when playback ends. Interstitials honor a per-session cap, a minimum interval and a `Disabled` predicate. Pause and input-reset hooks cover the ad interval.
+## Mini-game ads
+
+Mini games (WeChat, Douyin) show ads through the host's own API rather than an embedded SDK. `Ads` holds the rules every game otherwise writes for itself, over an `AdHost` that asks the platform to show one ad and calls `done(ended, err)` when it closes.
+
+```go
+ads := &liveops.Ads{
+	Host:                 host,
+	InterstitialCap:      3,
+	InterstitialInterval: 2 * time.Minute,
+	Disabled:             func() bool { return shop.Owned("noads") },
+	Pause:                func(p bool) { loop.Paused = p },
+	ResetInput:           resetHeldInput,
+}
+ads.ShowRewarded("revive", func(r liveops.AdResult) {
+	if r == liveops.AdRewarded {
+		revive()
+	}
+})
+```
+
+- `ShowRewarded` reports `AdRewarded` only when the host says the video played to the end, `AdSkipped` when it closed early, `AdNoFill` when the host's error wraps `ErrAdNoFill`, and `AdFailed` for any other error. The callback runs once per show even if the host calls `done` twice.
+- `ShowInterstitial` reports `AdCapped` without asking the host when `Disabled` returns true, `InterstitialCap` shows have already been made this session, or less than `InterstitialInterval` has passed since the last one, and `AdShown` when the interstitial closes. `Disabled` leaves rewarded ads alone, since the player chooses to watch them.
+- Only one ad shows at a time: a show requested while another is active reports `AdFailed` and returns `ErrAdBusy`.
+- `Pause(true)` and `ResetInput` run before the ad shows and `Pause(false)` before the result is reported, so the loop and the mixer stay paused and no key stays held while the ad covers the game.
+
+Not yet available: an `ads.yaml` declaring unit IDs and placements, banner ads, and the mini-game `AdHost`, which waits on NSGo's mini-game ad API ([nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)). Grant currency rewards on the server, keyed by your own show ID, so a reward is not granted twice.

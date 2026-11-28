@@ -18,7 +18,8 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 | **商店评分提示**（[#1767](https://github.com/nsgo-dev/game/issues/1767)） | 纳入范围 | 基于 `core.Storage` 与 `core.Scope.RequestReview` 的 `ReviewPrompt`：按会话数、距首次启动天数、正向时刻、冷却期和每个版本最多一次的策略控制商店评分请求，负向时刻后在本会话内抑制提示，状态损坏或平台不支持时默认关闭。 |
 | **分享卡片与邀请**（[#1738](https://github.com/nsgo-dev/game/issues/1738)） | 纳入范围 | 基于 `ShareHost` 接口的 `Invites`：有界规范 `key=value&…` 负载、可选 HMAC-SHA256 签名校验、冷启动与运行期重入各至多一次投递、原生/Web 适配器 `PlatformShareHost`、小游戏适配器 `MiniGameShareHost`（等待 [nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)）以及 5:4 画面截图助手。 |
 | **远程推送**（[#1310](https://github.com/nsgo-dev/game/issues/1310)） | 等待上游 | 等待 NSGo 落地远程推送（[nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)）并确定开放设计决策（[nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)）。在此之前，远程推送在所有平台上均不可用。 |
-| **广告**（[#199](https://github.com/nsgo-dev/game/issues/199)） | 不纳入核心层 | 广告网络（AdMob、AppLovin 等）依赖专有原生 SDK，并伴随繁重的商店政策与隐私合规义务，不放入核心 `game` 模块；需要广告的游戏可直接通过 NSGo 嵌入原生 SDK 视图。 |
+| **小游戏广告**（[#1739](https://github.com/nsgo-dev/game/issues/1739)） | 纳入 | 基于宿主 `AdHost` 的 `Ads`：仅在视频完整播放时发放奖励且每次展示至多一次，区分无填充与失败结果，同一时间只展示一个广告，插屏广告遵守会话上限、最小间隔与 `Disabled` 条件，并提供暂停与输入重置钩子。小游戏宿主实现等待 [nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)。 |
+| **原生广告 SDK**（[#199](https://github.com/nsgo-dev/game/issues/199)） | 不纳入核心层 | 广告网络（AdMob、AppLovin 等）依赖专有原生 SDK，并伴随繁重的商店政策与隐私合规义务，不放入核心 `game` 模块；需要的游戏可直接通过 NSGo 嵌入原生 SDK 视图。 |
 
 ## 崩溃报告
 
@@ -372,6 +373,30 @@ liveops.CaptureCardSnapshot(cx, gameCanvasRef, liveops.CardSnapshotOptions{}, fu
 ```
 
 `liveops/invites_test.go` 覆盖了假 `ShareHost` 往返编解码、字节上限、畸形负载拒绝、HMAC 校验、冷启动与重入各一次投递、`MiniGameShareHost`、基于 `nsgotest` 的原生与 Web `PlatformShareHost` 以及 5:4 截图裁剪测试。
-# 小程序广告
 
-`liveops.Ads` 通过 `AdHost` 封装平台广告。只有视频完整播放结束时 rewarded 回调才返回 `rewarded`。插屏广告遵守会话上限、最小间隔和 `Disabled` 条件，广告期间可暂停游戏并重置输入。
+## 小游戏广告
+
+微信、抖音等小游戏通过宿主自身的 API 展示广告，无需嵌入 SDK。`Ads` 承担每个游戏本来要各自实现的规则，底层是一个 `AdHost`：它请求平台展示一个广告，并在广告关闭时调用 `done(ended, err)`。
+
+```go
+ads := &liveops.Ads{
+	Host:                 host,
+	InterstitialCap:      3,
+	InterstitialInterval: 2 * time.Minute,
+	Disabled:             func() bool { return shop.Owned("noads") },
+	Pause:                func(p bool) { loop.Paused = p },
+	ResetInput:           resetHeldInput,
+}
+ads.ShowRewarded("revive", func(r liveops.AdResult) {
+	if r == liveops.AdRewarded {
+		revive()
+	}
+})
+```
+
+- `ShowRewarded` 仅在宿主报告视频完整播放时返回 `AdRewarded`；提前关闭返回 `AdSkipped`；宿主错误包装了 `ErrAdNoFill` 时返回 `AdNoFill`；其他错误返回 `AdFailed`。即使宿主调用两次 `done`，回调每次展示也只执行一次。
+- `ShowInterstitial` 在 `Disabled` 返回 true、本次会话已展示 `InterstitialCap` 次，或距上次展示不足 `InterstitialInterval` 时直接返回 `AdCapped`，不会请求宿主；插屏关闭时返回 `AdShown`。`Disabled` 不影响激励视频，因为是否观看由玩家自己选择。
+- 同一时间只展示一个广告：已有广告展示时再次请求会返回 `AdFailed`，并返回错误 `ErrAdBusy`。
+- 广告展示前调用 `Pause(true)` 与 `ResetInput`，报告结果前调用 `Pause(false)`，因此广告遮住游戏期间循环与混音器保持暂停，也不会有按键一直处于按下状态。
+
+尚未提供：声明广告单元 ID 与广告位的 `ads.yaml`、横幅广告，以及小游戏 `AdHost`（等待 NSGo 的小游戏广告 API，[nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)）。发放货币类奖励请在服务端进行，并以你自己的展示 ID 作为幂等键，避免重复发放。
