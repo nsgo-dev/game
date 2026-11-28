@@ -1,6 +1,7 @@
 package postfx
 
 import (
+	"math"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -47,6 +48,44 @@ type FlashConfig struct {
 	Color core.Color
 	// ReduceMotion, when set, is asked at each Trigger, and the flash does not run while it reports true: pass an a11y.Assist's ReduceMotion, which follows the player's choice and else the platform's. When nil, the platform's reduced motion setting is asked.
 	ReduceMotion func() bool
+	// ReduceFlashes, when set, applies the photosensitivity-safe low-contrast mode.
+	ReduceFlashes func() bool
+	// Limiter shares a rolling flash budget with other full-screen flashes.
+	Limiter *FlashLimiter
+}
+
+// FlashLimiter limits full-screen flashes to MaxPerSecond in any rolling
+// one-second window. A zero limit uses the recommended maximum of three.
+type FlashLimiter struct {
+	MaxPerSecond int
+	now          func() time.Time
+	times        []time.Time
+}
+
+// Allow records a flash if the rolling budget allows it.
+func (l *FlashLimiter) Allow() bool {
+	if l == nil {
+		return true
+	}
+	max := l.MaxPerSecond
+	if max <= 0 {
+		max = 3
+	}
+	now := time.Now()
+	if l.now != nil {
+		now = l.now()
+	}
+	cut := now.Add(-time.Second)
+	first := 0
+	for first < len(l.times) && l.times[first].Before(cut) {
+		first++
+	}
+	l.times = l.times[first:]
+	if len(l.times) >= max {
+		return false
+	}
+	l.times = append(l.times, now)
+	return true
 }
 
 // Flash is a full-screen flash a game triggers: FlashEffect's Amount jumps to a peak and fades to 0 on the platform's frame clock, with no commit per frame.
@@ -59,6 +98,7 @@ type Flash struct {
 
 // NewFlash returns a flash for FlashEffect, at rest, that lasts as long as cx's owner.
 func NewFlash(cx *core.Scope, cfg FlashConfig) *Flash {
+	cfg.Color = safeFlashColor(cfg.Color)
 	return &Flash{cx: cx, cfg: cfg, amount: core.NewAnimatedValue(cx, 0)}
 }
 
@@ -75,10 +115,30 @@ func (f *Flash) Trigger(peak float64, fade time.Duration) bool {
 	if !(peak > 0) || fade <= 0 || reduced(f.cx, f.cfg.ReduceMotion) {
 		return false
 	}
+	if f.cfg.Limiter != nil && !f.cfg.Limiter.Allow() {
+		return false
+	}
+	if f.cfg.ReduceFlashes != nil && reduced(f.cx, f.cfg.ReduceFlashes) {
+		peak = min(peak, 0.2)
+		fade = max(fade, 100*time.Millisecond)
+	}
 	f.Stop()
 	f.amount.Set(min(peak, 1))
 	f.run = f.cx.StartAnimation(core.Timing(f.amount, 0, core.TimingConfig{Duration: fade, Easing: core.BezierEasing(core.EaseOut)}), nil)
 	return true
+}
+
+func safeFlashColor(c core.Color) core.Color {
+	r, g, b, a := c.Components()
+	if r/(r+g+b+1e-9) < 0.8 {
+		return c
+	}
+	luma := 0.2126*r + 0.7152*g + 0.0722*b
+	if math.IsNaN(luma) {
+		luma = 0
+	}
+	v := uint32(min(max(luma, 0), 1)*255 + 0.5)
+	return core.RGBA(v<<16|v<<8|v, float32(a))
 }
 
 // Stop ends a running flash at once, with Amount at 0.

@@ -35,3 +35,6 @@ On a later passing or `-update-golden` run, `AssertGoldenAt` removes any stale `
 ## Comparing image draws
 
 When a test checks where sprites land rather than exact pixels, `ImageDraws(ops)` replays transforms, alpha, composite modes and clips to return each drawn image rectangle regardless of whether it was recorded as individual `DrawImageFrom` ops or packed into a `DrawAtlas`. `AssertSameImages(t, got, want)` asserts that two op recordings produce the same sequence of image draws within floating-point tolerance (`1e-3`).
+# Photosensitivity checks
+
+Use the flash limiter tests as a regression guard when recording accessibility scenarios. A recorded run should exercise repeated full-screen flashes with the player's Reduce Flashes setting enabled.
