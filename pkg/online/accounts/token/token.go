@@ -2,6 +2,8 @@
 //
 // A token is a compact JWT (RFC 7519) signed with Ed25519 ("alg": "EdDSA"). The account service holds the private key and issues tokens with a Signer; a game server holds only the public keys, as a KeySet loaded from a YAML file, and checks tokens with a Verifier. Verifying makes no network call: it decodes the token, checks the signature against a known key, then the issuer, audience and expiry.
 //
+// The audience names the one consumer a token is for. A key set's audience is the game's servers, which a player sends a token to when joining a match; a service that acts on the player's behalf, such as cloud save or a leaderboard, verifies tokens for its own audience with NewVerifierFor, so a token handed to a game server cannot be replayed against it.
+//
 // The package depends on the standard library and go.yaml.in/yaml/v3 only, so a game server that verifies tokens links none of the account service's password hashing or database drivers.
 package token
 
@@ -50,7 +52,7 @@ type Claims struct {
 	Issuer string
 	// Subject is the account ID the token stands for.
 	Subject string
-	// Audience is the game the token is meant for.
+	// Audience is the consumer the token is meant for: the game's servers (the key set's audience) or a service such as cloud save.
 	Audience string
 	// IssuedAt is when the token was issued, to the second.
 	IssuedAt time.Time
@@ -130,10 +132,18 @@ func (s *Signer) KeySet() *KeySet {
 	}
 }
 
-// Issue returns a token for subject, valid from now for the signer's TTL, and its claims.
+// Issue returns a token for subject and the signer's audience, valid from now for the signer's TTL, and its claims.
 func (s *Signer) Issue(subject string) (string, Claims, error) {
+	return s.IssueFor(subject, s.audience)
+}
+
+// IssueFor returns a token for subject meant for audience instead of the signer's own, valid from now for the signer's TTL, and its claims. Only a verifier built for that audience (NewVerifierFor) accepts it.
+func (s *Signer) IssueFor(subject, audience string) (string, Claims, error) {
 	if subject == "" {
 		return "", Claims{}, errors.New("token: empty subject")
+	}
+	if audience == "" {
+		return "", Claims{}, errors.New("token: empty audience")
 	}
 	now := time.Now
 	if s.Now != nil {
@@ -148,7 +158,7 @@ func (s *Signer) Issue(subject string) (string, Claims, error) {
 		return "", Claims{}, fmt.Errorf("token: id: %w", err)
 	}
 	iat := now().Unix()
-	c := claims{Iss: s.issuer, Sub: subject, Aud: s.audience, Iat: iat, Exp: iat + int64(s.ttl/time.Second), Jti: b64.EncodeToString(id[:])}
+	c := claims{Iss: s.issuer, Sub: subject, Aud: audience, Iat: iat, Exp: iat + int64(s.ttl/time.Second), Jti: b64.EncodeToString(id[:])}
 	h, err := json.Marshal(header{Alg: "EdDSA", Kid: s.keyID, Typ: "JWT"})
 	if err != nil {
 		return "", Claims{}, err
@@ -181,18 +191,32 @@ type Verifier struct {
 	Now func() time.Time
 }
 
-// NewVerifier returns a verifier for the keys, issuer and audience of ks.
+// NewVerifier returns a verifier for the keys, issuer and audience of ks: the one a game server uses.
 func NewVerifier(ks *KeySet) (*Verifier, error) {
 	if err := ks.Validate(); err != nil {
 		return nil, err
 	}
-	v := &Verifier{keys: make(map[string]ed25519.PublicKey, len(ks.Keys)), issuer: ks.Issuer, audience: ks.Audience}
+	return NewVerifierFor(ks, ks.Audience)
+}
+
+// NewVerifierFor returns a verifier for the keys and issuer of ks that accepts only tokens for audience, such as the one a cloud save service verifies. It refuses tokens for the key set's own audience unless audience is that one.
+func NewVerifierFor(ks *KeySet, audience string) (*Verifier, error) {
+	if err := ks.Validate(); err != nil {
+		return nil, err
+	}
+	if audience == "" {
+		return nil, errors.New("token: verifier needs an audience")
+	}
+	v := &Verifier{keys: make(map[string]ed25519.PublicKey, len(ks.Keys)), issuer: ks.Issuer, audience: audience}
 	for _, k := range ks.Keys {
 		pub, _ := k.publicKey() // Validate checked it.
 		v.keys[k.ID] = pub
 	}
 	return v, nil
 }
+
+// Audience is the audience the verifier accepts.
+func (v *Verifier) Audience() string { return v.audience }
 
 // Verify checks tok and returns its claims. Errors wrap ErrMalformed, ErrUnknownKey, ErrSignature, ErrIssuer, ErrAudience, ErrExpired or ErrNotYetValid.
 func (v *Verifier) Verify(tok string) (Claims, error) {

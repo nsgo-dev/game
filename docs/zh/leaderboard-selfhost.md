@@ -19,6 +19,7 @@ import "github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 
 ```yaml
 version: 1
+audience: leaderboard
 proofTTL: 10m
 boards:
   - name: high-score
@@ -42,6 +43,7 @@ allowedOrigins:
 | 字段 | 含义 |
 | --- | --- |
 | `version` | 模式版本，`1` |
+| `audience` | 处理器接受的令牌受众，缺省为 `leaderboard`；账号服务必须在 `audiences` 中列出它，而且它必须与密钥集的受众不同 |
 | `proofTTL` | 游戏服务器的成绩证明最长有效多久，`1s` 到 `24h`；缺省为 `10m` |
 | `boards` | 排行榜，按服务列出它们的顺序 |
 | `name` | 排行榜在 URL 和数据目录里的键：`a-z`、`0-9`、`.`、`_` 和 `-`，最多 64 个字符，以字母或数字开头 |
@@ -65,7 +67,7 @@ allowedOrigins:
 ```go
 svc, err := selfhost.New(ctx, cfg, selfhost.Options{
 	Store:  store,      // selfhost.OpenFileStore("scores", selfhost.FileStoreOptions{})
-	Tokens: verifier,   // 针对账号服务密钥集的 token.Verifier
+	Tokens: verifier,   // token.NewVerifierFor(keySet, cfg.TokenAudience())，不要用 token.NewVerifier
 	Logger: slog.Default(),
 })
 
@@ -105,7 +107,7 @@ proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 
 ## HTTP
 
-`Service.Handler` 以 JSON 提供服务。除 `GET /v1/openapi.yaml` 外，每个请求都在 `Authorization: Bearer <token>` 里携带玩家的账号令牌；处理器用 `Options.Tokens` 离线校验，令牌的主体就是提交成绩的账号，所以玩家只能提交自己的成绩。完整的机器可读契约以 [OpenAPI 3.1 描述文件](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) 发布，也通过 `GET /v1/openapi.yaml` 在线提供。
+`Service.Handler` 以 JSON 提供服务。除 `GET /v1/openapi.yaml` 外，每个请求都在 `Authorization: Bearer <token>` 里携带玩家的账号令牌；处理器用 `Options.Tokens` 离线校验，只接受签给配置中受众的令牌（见[令牌受众](accounts.md#令牌受众)），所以玩家发给游戏服务器的令牌无法替玩家提交成绩；`New` 拒绝其他受众的校验器。令牌的主体就是提交成绩的账号，所以玩家只能提交自己的成绩。完整的机器可读契约以 [OpenAPI 3.1 描述文件](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) 发布，也通过 `GET /v1/openapi.yaml` 在线提供。
 
 | 请求 | 响应 |
 | --- | --- |
@@ -138,4 +140,4 @@ leaderboardd genkey -key server.pem
 leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
 ```
 
-`init` 写出一份只有一个总榜 `high-score` 且不含 `allowedOrigins` 的配置供修改；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `leaderboards.yaml` 的 `allowedOrigins`。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。`-sync` 在确认每条成绩之前先把它刷到磁盘，适用于可能断电的机器。
+`init` 写出一份只有一个总榜 `high-score` 且不含 `allowedOrigins` 的配置供修改；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `leaderboards.yaml` 的 `allowedOrigins`。`genkey` 写出一个游戏服务器签名密钥，并打印要粘贴进配置的 `serverKeys` 条目。`serve` 用账号服务的密钥集文件（由 `accountsd genkey` 写出）校验玩家令牌，只接受配置中 `audience` 的令牌，如果它等于密钥集的受众（即游戏服务器的受众）就拒绝启动，把成绩保存在 `-data` 下，收到 SIGINT 或 SIGTERM 时停止。`-sync` 在确认每条成绩之前先把它刷到磁盘，适用于可能断电的机器。

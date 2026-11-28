@@ -2,7 +2,7 @@
 //
 // # Accounts
 //
-// The service does not keep accounts. Each request carries a bearer token from the account service (package accounts), which the service verifies offline with a token.Verifier; the token's subject is the account ID its slots are filed under. A player signed in to the same account on the web and on a phone reads and writes the same slots.
+// The service does not keep accounts. Each request carries a bearer token from the account service (package accounts), which the service verifies offline with a token.Verifier for its own audience (Config.TokenAudience, built with token.NewVerifierFor), so a token a player sent a game server is refused; the token's subject is the account ID its slots are filed under. A player signed in to the same account on the web and on a phone reads and writes the same slots.
 //
 // # Versions and conflicts
 //

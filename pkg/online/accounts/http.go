@@ -23,14 +23,14 @@ const maxRequestBytes = 32 << 10
 //	POST /v1/register          {"email", "password"}       -> credentials
 //	POST /v1/signin/email      {"email", "password"}       -> credentials
 //	POST /v1/signin/identity   {"provider", "credential"}  -> credentials
-//	POST /v1/refresh           {"session"}                 -> credentials
+//	POST /v1/refresh           {"session", "audience"}     -> credentials
 //	POST /v1/signout           {"session"}                 -> 204
-//	POST /v1/link/email        {"email", "password"}       -> 204, with a bearer token
-//	POST /v1/link/identity     {"provider", "credential"}  -> 204, with a bearer token
-//	GET  /v1/me                                            -> profile, with a bearer token
+//	POST /v1/link/email        {"email", "password"}       -> 204, with a bearer token for "accounts"
+//	POST /v1/link/identity     {"provider", "credential"}  -> 204, with a bearer token for "accounts"
+//	GET  /v1/me                                            -> profile, with a bearer token for "accounts"
 //	GET  /v1/keys                                          -> the key set as YAML
 //
-// Credentials are {"account", "session", "token", "expires", "created"}, expires in RFC 3339. A bearer token goes in "Authorization: Bearer <token>". Errors are {"error": code} with the status the code implies: invalid_credentials and invalid_token 401, guests_disabled 403, not_found 404, taken and already_linked 409, request_too_large 413, bad_request, invalid_email, weak_password and unknown_provider 400, unavailable 503 when the request was cancelled or timed out (for example waiting for a password hash slot under load), and internal 500.
+// Credentials are {"account", "session", "token", "expires", "created"}, expires in RFC 3339. The token of a sign-in is for the game's servers (Config.Audience); refresh's optional "audience" asks for one for another audience instead, ServiceAudience ("accounts") or one of Config.Audiences. A bearer token goes in "Authorization: Bearer <token>"; the endpoints that take one accept only a token for ServiceAudience, so the token a game server receives cannot read or change the account. Errors are {"error": code} with the status the code implies: invalid_credentials and invalid_token 401, guests_disabled 403, not_found 404, taken and already_linked 409, request_too_large 413, bad_request, invalid_email, weak_password, unknown_provider and unknown_audience 400, unavailable 503 when the request was cancelled or timed out (for example waiting for a password hash slot under load), and internal 500.
 //
 // Browsers may call the handler from Config.AllowedOrigins: it answers their CORS preflight requests and allows Authorization and Content-Type.
 //
@@ -67,11 +67,13 @@ func (s *Service) Handler() http.Handler {
 		})
 	})
 	mux.HandleFunc("POST /v1/refresh", func(w http.ResponseWriter, r *http.Request) {
-		var req sessionRequest
+		var req refreshRequest
 		if !readBody(w, r, &req) {
 			return
 		}
-		s.writeCredentials(w, r, func(ctx context.Context) (Credentials, error) { return s.Refresh(ctx, NewSecret(req.Session)) })
+		s.writeCredentials(w, r, func(ctx context.Context) (Credentials, error) {
+			return s.RefreshFor(ctx, NewSecret(req.Session), req.Audience)
+		})
 	})
 	mux.HandleFunc("POST /v1/signout", func(w http.ResponseWriter, r *http.Request) {
 		var req sessionRequest
@@ -149,6 +151,11 @@ type sessionRequest struct {
 	Session string `json:"session"`
 }
 
+type refreshRequest struct {
+	Session  string `json:"session"`
+	Audience string `json:"audience"`
+}
+
 type credentialsResponse struct {
 	Account string `json:"account"`
 	Session string `json:"session"`
@@ -204,12 +211,12 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-// bearer verifies the request's bearer token, writing a 401 and returning false when it is missing or invalid.
+// bearer verifies the request's bearer token, which must be for ServiceAudience, writing a 401 and returning false when it is missing or invalid.
 func (s *Service) bearer(w http.ResponseWriter, r *http.Request) (token.Claims, bool) {
 	auth := r.Header.Get("Authorization")
 	scheme, tok, ok := strings.Cut(auth, " ")
 	if ok && strings.EqualFold(scheme, "Bearer") {
-		if claims, err := s.Authenticate(strings.TrimSpace(tok)); err == nil {
+		if claims, err := s.authenticateSelf(strings.TrimSpace(tok)); err == nil {
 			return claims, true
 		}
 	}
@@ -261,6 +268,7 @@ func writeError(w http.ResponseWriter, err error) {
 		{ErrInvalidEmail, http.StatusBadRequest, "invalid_email"},
 		{ErrWeakPassword, http.StatusBadRequest, "weak_password"},
 		{ErrUnknownProvider, http.StatusBadRequest, "unknown_provider"},
+		{ErrUnknownAudience, http.StatusBadRequest, "unknown_audience"},
 		{context.DeadlineExceeded, http.StatusServiceUnavailable, "unavailable"},
 		{context.Canceled, http.StatusServiceUnavailable, "unavailable"},
 	}

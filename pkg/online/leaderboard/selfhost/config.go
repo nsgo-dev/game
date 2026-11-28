@@ -19,6 +19,9 @@ import (
 // ConfigVersion is the configuration file schema version this package reads and writes.
 const ConfigVersion = 1
 
+// DefaultAudience is the token audience the service accepts when Config.Audience is empty. The account service issues tokens for it on request (accounts.Service.RefreshFor), never at sign-in, so the token a player sends a game server cannot submit scores for the player.
+const DefaultAudience = "leaderboard"
+
 // MaxSafeScore is the largest score magnitude a board accepts, 2^53-1, so a score survives a JSON number in every client, JavaScript's included.
 const MaxSafeScore = 1<<53 - 1
 
@@ -61,6 +64,7 @@ const SignedByServer Validation = "signed"
 // Config is the leaderboard service's settings, kept in a YAML file:
 //
 //	version: 1
+//	audience: leaderboard
 //	proofTTL: 10m
 //	boards:
 //	  - name: high-score
@@ -84,6 +88,8 @@ const SignedByServer Validation = "signed"
 type Config struct {
 	// Version is the schema version; it must be ConfigVersion.
 	Version int `yaml:"version"`
+	// Audience is the token audience Handler accepts, which the account service must list in its audiences; empty means DefaultAudience. It must differ from the audience of the key set, which names the game's servers.
+	Audience string `yaml:"audience,omitempty"`
 	// ProofTTL is how old a game server's score proof may be, from 1s to 24h; zero means DefaultProofTTL.
 	ProofTTL Duration `yaml:"proofTTL,omitempty"`
 	// Boards are the leaderboards, in the order the service lists them.
@@ -92,6 +98,14 @@ type Config struct {
 	ServerKeys []token.PublicKey `yaml:"serverKeys,omitempty"`
 	// AllowedOrigins lists the web origins ("https://play.example.com") whose pages may call the service from a browser. The handler answers their CORS preflight requests; other origins get no CORS headers, so browsers refuse their requests. Native clients send no origin and need no entry.
 	AllowedOrigins []string `yaml:"allowedOrigins,omitempty"`
+}
+
+// TokenAudience is the token audience Handler accepts: Audience, or DefaultAudience when it is empty.
+func (c Config) TokenAudience() string {
+	if c.Audience == "" {
+		return DefaultAudience
+	}
+	return c.Audience
 }
 
 // Board declares one leaderboard.

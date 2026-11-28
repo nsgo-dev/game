@@ -6,7 +6,7 @@
 //	leaderboardd genkey -key server.pem
 //	leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
 //
-// init writes a configuration with one all-time high-score board to edit. genkey writes a new game server signing key for score proofs and prints the serverKeys entry to add to the configuration; the game server reads the key with token.ParsePrivateKey and signs with selfhost.NewProofSigner. serve runs the service until SIGINT or SIGTERM, verifying player tokens with the account service's key set file (accountsd genkey writes it).
+// init writes a configuration with one all-time high-score board to edit. genkey writes a new game server signing key for score proofs and prints the serverKeys entry to add to the configuration; the game server reads the key with token.ParsePrivateKey and signs with selfhost.NewProofSigner. serve runs the service until SIGINT or SIGTERM, verifying player tokens with the account service's key set file (accountsd genkey writes it). It accepts only tokens for the configuration's audience ("leaderboard" by default), which devices get from the account service's refresh, and refuses to start when that audience is the key set's, which names the game's servers.
 package main
 
 import (
@@ -60,8 +60,9 @@ func newFlags(name string, stderr io.Writer) *flag.FlagSet {
 // starterConfig is the configuration init writes.
 func starterConfig() selfhost.Config {
 	return selfhost.Config{
-		Version: selfhost.ConfigVersion,
-		Boards:  []selfhost.Board{{Name: "high-score", Order: selfhost.Descending, Reset: selfhost.AllTime}},
+		Version:  selfhost.ConfigVersion,
+		Audience: selfhost.DefaultAudience,
+		Boards:   []selfhost.Board{{Name: "high-score", Order: selfhost.Descending, Reset: selfhost.AllTime}},
 	}
 }
 
@@ -125,7 +126,11 @@ func service(ctx context.Context, configPath, keySetPath, dataDir string, syncWr
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", keySetPath, err)
 	}
-	verifier, err := token.NewVerifier(ks)
+	audience := cfg.TokenAudience()
+	if audience == ks.Audience {
+		return nil, nil, fmt.Errorf("%s: audience %q is the game servers' audience in %s; set audience to one the account service lists in its audiences, such as %q", configPath, audience, keySetPath, selfhost.DefaultAudience)
+	}
+	verifier, err := token.NewVerifierFor(ks, audience)
 	if err != nil {
 		return nil, nil, err
 	}

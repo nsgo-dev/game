@@ -15,7 +15,7 @@ import (
 type Options struct {
 	// Store keeps the slots. Required.
 	Store Store
-	// Tokens verifies the bearer tokens of HTTP requests: a token.Verifier built from the account service's key set (token.NewVerifier). Required. The Go methods take the account ID directly; Handler takes it from the token's subject.
+	// Tokens verifies the bearer tokens of HTTP requests: a token.Verifier built from the account service's key set for Config.TokenAudience (token.NewVerifierFor). Required, and New refuses a verifier for any other audience, such as the game servers' one token.NewVerifier gives. The Go methods take the account ID directly; Handler takes it from the token's subject.
 	Tokens *token.Verifier
 	// Logger receives errors outside the service's contract, such as a failing database. Nil discards them.
 	Logger *slog.Logger
@@ -39,6 +39,9 @@ func New(cfg Config, opts Options) (*Service, error) {
 	}
 	if opts.Store == nil || opts.Tokens == nil {
 		return nil, errors.New("cloudsave: need a Store and a token verifier")
+	}
+	if got, want := opts.Tokens.Audience(), cfg.TokenAudience(); got != want {
+		return nil, fmt.Errorf("cloudsave: token verifier accepts audience %q, want %q: build it with token.NewVerifierFor(keySet, %q)", got, want, want)
 	}
 	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	s := &Service{cfg: cfg, store: opts.Store, tokens: opts.Tokens, log: opts.Logger, now: opts.Now}

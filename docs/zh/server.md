@@ -270,3 +270,5 @@ ks, err := token.ParseKeySet(keysYAML)
 v, err := token.NewVerifier(ks)
 claims, err := v.Verify(tok) // claims.Subject 是账号 ID
 ```
+
+玩家发来的令牌属于游戏服务器，即密钥集的受众；运营服务器的人在它过期前都可以重放它。云存档、排行榜和账号服务都拒绝这种令牌，所以服务器无法用它触及玩家的存档、成绩或账号（见[令牌受众](accounts.md#令牌受众)）。不要把玩家的令牌转发给其他服务，也不要向玩家索要其他受众的令牌或会话。

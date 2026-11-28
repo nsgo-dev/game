@@ -36,13 +36,13 @@ func newBackend(t *testing.T, mutate func(*cloudsave.Config)) *backend {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := token.NewVerifier(b.accounts.KeySet())
-	if err != nil {
-		t.Fatal(err)
-	}
 	cfg := cloudsave.DefaultConfig()
 	if mutate != nil {
 		mutate(&cfg)
+	}
+	verifier, err := token.NewVerifierFor(b.accounts.KeySet(), cfg.TokenAudience())
+	if err != nil {
+		t.Fatal(err)
 	}
 	b.saves, err = cloudsave.New(cfg, cloudsave.Options{Store: cloudsave.NewMemoryStore(), Tokens: verifier, Now: func() time.Time { return b.now }})
 	if err != nil {
@@ -69,12 +69,23 @@ func (b *backend) RoundTrip(r *http.Request) (*http.Response, error) {
 	return rec.Result(), nil
 }
 
+// savesToken returns a token source that refreshes creds' session for the cloud save audience, as a game does; the token a sign-in returns is for game servers and the service refuses it.
+func (b *backend) savesToken(creds accounts.Credentials) func(context.Context) (string, error) {
+	return func(ctx context.Context) (string, error) {
+		c, err := b.accounts.RefreshFor(ctx, creds.Session, cloudsave.DefaultAudience)
+		if err != nil {
+			return "", err
+		}
+		return c.Token.Reveal(), nil
+	}
+}
+
 // client returns a CloudClient signed in with creds.
 func (b *backend) client(t *testing.T, creds accounts.Credentials) *liveops.CloudClient {
 	t.Helper()
 	c, err := liveops.NewCloudClient(liveops.CloudClientOptions{
 		URL:        "https://saves.example.com/",
-		Token:      func(context.Context) (string, error) { return creds.Token.Reveal(), nil },
+		Token:      b.savesToken(creds),
 		HTTPClient: &http.Client{Transport: b},
 		Now:        func() time.Time { return b.now },
 	})
@@ -493,7 +504,7 @@ func TestCloudClientOverTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, err := liveops.NewCloudClient(liveops.CloudClientOptions{URL: srv.URL + "/saves", HTTPClient: srv.Client(),
-		Token: func(context.Context) (string, error) { return creds.Token.Reveal(), nil }})
+		Token: b.savesToken(creds)})
 	if err != nil {
 		t.Fatal(err)
 	}

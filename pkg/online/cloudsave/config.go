@@ -14,6 +14,9 @@ import (
 // ConfigVersion is the configuration file schema version this package reads and writes.
 const ConfigVersion = 1
 
+// DefaultAudience is the token audience the service accepts when Config.Audience is empty. The account service issues tokens for it on request (accounts.Service.RefreshFor), never at sign-in, so the token a player sends a game server does not reach the player's saves.
+const DefaultAudience = "cloudsave"
+
 // Bounds of the configuration's limits.
 const (
 	// MaxSlotBytesLimit is the largest Config.MaxSlotBytes: 64 MiB.
@@ -27,16 +30,19 @@ const (
 // Config is the cloud save service's settings, kept in a YAML file:
 //
 //	version: 1
+//	audience: cloudsave
 //	maxSlotBytes: 1048576
 //	maxSlots: 32
 //	keepVersions: 5
 //	allowedOrigins:
 //	  - https://play.example.com
 //
-// Unknown fields are refused. Marshal writes the canonical form: the fields in this order and allowedOrigins only when it has entries. A file in that form, such as one Marshal wrote, reads back and writes again unchanged.
+// Unknown fields are refused. Marshal writes the canonical form: the fields in this order, audience only when set and allowedOrigins only when it has entries. A file in that form, such as one Marshal wrote, reads back and writes again unchanged.
 type Config struct {
 	// Version is the schema version; it must be ConfigVersion.
 	Version int `yaml:"version"`
+	// Audience is the token audience the service accepts, which the account service must list in its audiences; empty means DefaultAudience. It must differ from the audience of the key set, which names the game's servers.
+	Audience string `yaml:"audience,omitempty"`
 	// MaxSlotBytes is the largest payload a slot may hold, in bytes, from 1 to MaxSlotBytesLimit. A liveops.CloudSyncer payload is the save inside a JSON envelope: about 250 bytes more, with the save's quotes and backslashes escaped, or base64, a third larger, for data that is not UTF-8.
 	MaxSlotBytes int `yaml:"maxSlotBytes"`
 	// MaxSlots is how many live slots an account may have, from 1 to MaxSlotsLimit.
@@ -47,9 +53,17 @@ type Config struct {
 	AllowedOrigins []string `yaml:"allowedOrigins,omitempty"`
 }
 
-// DefaultConfig returns a configuration with 1 MiB slots, 32 slots per account and 5 versions kept per slot, and no web origins.
+// DefaultConfig returns a configuration for DefaultAudience with 1 MiB slots, 32 slots per account and 5 versions kept per slot, and no web origins.
 func DefaultConfig() Config {
-	return Config{Version: ConfigVersion, MaxSlotBytes: 1 << 20, MaxSlots: 32, KeepVersions: 5}
+	return Config{Version: ConfigVersion, Audience: DefaultAudience, MaxSlotBytes: 1 << 20, MaxSlots: 32, KeepVersions: 5}
+}
+
+// TokenAudience is the token audience the service accepts: Audience, or DefaultAudience when it is empty.
+func (c Config) TokenAudience() string {
+	if c.Audience == "" {
+		return DefaultAudience
+	}
+	return c.Audience
 }
 
 // Validate checks that c is a complete version 1 configuration.

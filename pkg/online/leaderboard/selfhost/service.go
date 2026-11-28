@@ -53,7 +53,7 @@ var (
 type Options struct {
 	// Store keeps the records; required.
 	Store Store
-	// Tokens verifies the account service's tokens for Handler, which needs it; a Service used only from Go may leave it nil.
+	// Tokens verifies the account service's tokens for Handler, which needs it; a Service used only from Go may leave it nil. Build it for Config.TokenAudience with token.NewVerifierFor: New refuses a verifier for any other audience, such as the game servers' one token.NewVerifier gives.
 	Tokens *token.Verifier
 	// Logger receives resets and store errors, never tokens or proofs; nil discards them.
 	Logger *slog.Logger
@@ -155,6 +155,11 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 	}
 	if opts.Leeway < 0 {
 		return nil, errors.New("selfhost: negative leeway")
+	}
+	if opts.Tokens != nil {
+		if got, want := opts.Tokens.Audience(), cfg.TokenAudience(); got != want {
+			return nil, fmt.Errorf("selfhost: token verifier accepts audience %q, want %q: build it with token.NewVerifierFor(keySet, %q)", got, want, want)
+		}
 	}
 	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	s := &Service{cfg: cfg, store: opts.Store, tokens: opts.Tokens, keys: map[string]ed25519.PublicKey{}, boards: map[string]*board{}, log: opts.Logger, now: opts.Now, leeway: opts.Leeway}

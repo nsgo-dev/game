@@ -401,3 +401,38 @@ func BenchmarkVerify(b *testing.B) {
 		}
 	}
 }
+
+func TestVerifierForAnotherAudience(t *testing.T) {
+	s, game, c := newPair(t, 15*time.Minute)
+	saves, err := token.NewVerifierFor(s.KeySet(), "cloudsave")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saves.Now = c.Now
+	if saves.Audience() != "cloudsave" || game.Audience() != "my-game" {
+		t.Fatalf("audiences = %q, %q", saves.Audience(), game.Audience())
+	}
+	gameTok, _, err := s.Issue("acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	savesTok, claims, err := s.IssueFor("acct-1", "cloudsave")
+	if err != nil || claims.Audience != "cloudsave" {
+		t.Fatalf("IssueFor = %+v, %v", claims, err)
+	}
+	if _, err := saves.Verify(gameTok); !errors.Is(err, token.ErrAudience) {
+		t.Errorf("cloudsave verifier on a game token = %v, want ErrAudience", err)
+	}
+	if _, err := game.Verify(savesTok); !errors.Is(err, token.ErrAudience) {
+		t.Errorf("game verifier on a cloudsave token = %v, want ErrAudience", err)
+	}
+	if got, err := saves.Verify(savesTok); err != nil || got.Subject != "acct-1" || got.Audience != "cloudsave" {
+		t.Errorf("cloudsave verifier on a cloudsave token = %+v, %v", got, err)
+	}
+	if _, _, err := s.IssueFor("acct-1", ""); err == nil {
+		t.Error("IssueFor accepted an empty audience")
+	}
+	if _, err := token.NewVerifierFor(s.KeySet(), ""); err == nil {
+		t.Error("NewVerifierFor accepted an empty audience")
+	}
+}

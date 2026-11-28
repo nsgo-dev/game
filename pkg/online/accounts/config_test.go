@@ -15,6 +15,7 @@ func configsEqual(a, b accounts.Config) bool {
 	return a.Version == b.Version &&
 		a.Issuer == b.Issuer &&
 		a.Audience == b.Audience &&
+		slices.Equal(a.Audiences, b.Audiences) &&
 		a.TokenTTL == b.TokenTTL &&
 		a.DisableGuests == b.DisableGuests &&
 		a.Password == b.Password &&
@@ -47,6 +48,9 @@ func TestConfigRoundTripIsLossless(t *testing.T) {
 	want := `version: 1
 issuer: https://accounts.example.com
 audience: my-game
+audiences:
+  - cloudsave
+  - leaderboard
 tokenTTL: 1h30m30s
 disableGuests: true
 password:
@@ -152,6 +156,11 @@ func TestParseConfigRefuses(t *testing.T) {
 		"origin empty host":         testConfig + "allowedOrigins: ['http://:8080']\n",
 		"origin twice":              testConfig + "allowedOrigins: [https://a.example, https://a.example]\n",
 		"trailing doc":              testConfig + "---\nversion: 1\n",
+		"reserved audience":         strings.Replace(testConfig, "audience: my-game", "audience: accounts", 1),
+		"game audience listed":      testConfig + "audiences: [cloudsave, my-game]\n",
+		"service audience listed":   testConfig + "audiences: [accounts]\n",
+		"empty audience listed":     testConfig + "audiences: ['']\n",
+		"audience listed twice":     testConfig + "audiences: [cloudsave, cloudsave]\n",
 		"not a map":                 "- version\n",
 	}
 	for name, data := range cases {

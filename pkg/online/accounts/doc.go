@@ -6,7 +6,7 @@
 //
 // Every sign-in (CreateGuest, Register, SignInEmail, SignInIdentity) opens a session on the device and returns Credentials:
 //   - Session is a long-lived secret the device stores to get new tokens with Refresh, revoked by SignOut. It is the only credential a guest has.
-//   - Token is a short-lived signed token (package token) the game sends to its server, which verifies it with a token.Verifier and no network call. It expires after the configured TTL.
+//   - Token is a short-lived signed token (package token) the game sends to its server, which verifies it with a token.Verifier and no network call. It expires after the configured TTL. A token is good only for the audience it names: sign-ins return one for the game's servers, and RefreshFor returns one for the service itself (ServiceAudience) or for another service in Config.Audiences, such as cloud save, so a game server cannot replay a player's token against those.
 //
 // # Identities
 //

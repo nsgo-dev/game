@@ -2,7 +2,7 @@
 
 `github.com/nsgo-dev/game/pkg/online/cloudsave` is a self-hostable cloud save service: each player account has save slots over HTTPS, kept in versions. Two devices writing the same slot at once cannot overwrite each other, a slot over the size limit is refused with a clear error, and the last few versions of each slot can be listed and restored. Games talk to it through `liveops.CloudClient`, a `liveops.CloudSync`, so a `liveops.CloudSyncer` keeps local saves in step with it and resolves conflicts by its policy.
 
-The service is server-side code in its own packages; a game client imports only `liveops`. It keeps no accounts of its own: it verifies the tokens of the [account service](accounts.md) offline with `accounts/token`, and files each player's slots under the token's subject, the account ID. A player signed in to the same account on the web and on an Android phone reads and writes the same slots.
+The service is server-side code in its own packages; a game client imports only `liveops`. It keeps no accounts of its own: it verifies the tokens of the [account service](accounts.md) offline with `accounts/token`, accepting only those for its own audience (`cloudsave` by default, see [Token audiences](accounts.md#token-audiences)), and files each player's slots under the token's subject, the account ID. A player signed in to the same account on the web and on an Android phone reads and writes the same slots.
 
 | Package | What it holds |
 | --- | --- |
@@ -18,7 +18,7 @@ The service is server-side code in its own packages; a game client imports only 
 cloud, err := liveops.NewCloudClient(liveops.CloudClientOptions{
 	URL: "https://saves.example.com",
 	Token: func(ctx context.Context) (string, error) {
-		return session.Token(ctx) // the account service's token, refreshed when it expires
+		return session.TokenFor(ctx, "cloudsave") // POST /v1/refresh {"session", "audience": "cloudsave"}, refreshed when it expires
 	},
 })
 if err != nil {
@@ -97,6 +97,7 @@ err = cloud.Purge(ctx, "main") // the slot and its history, for good
 
 ```yaml
 version: 1
+audience: cloudsave
 maxSlotBytes: 1048576
 maxSlots: 32
 keepVersions: 5
@@ -107,12 +108,13 @@ allowedOrigins:
 | Field | Meaning |
 | --- | --- |
 | `version` | The schema version, `1` |
+| `audience` | The token audience the service accepts, `cloudsave` when omitted; the account service must list it in its `audiences`, and it must differ from the key set's audience |
 | `maxSlotBytes` | The largest payload, from 1 byte to 64 MiB |
 | `maxSlots` | Live slots per account, from 1 to 10000 |
 | `keepVersions` | Versions kept per slot, the current one included, from 1 to 100 |
 | `allowedOrigins` | Web origins whose pages may call the service; omitted when empty |
 
-`ParseConfig` refuses unknown fields, trailing documents, out-of-range values and an origin with a path, a wildcard, a port outside 1 to 65535 or a scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above and `allowedOrigins` only when it has entries. A file in that form, such as one `Marshal` or `cloudsaved init` wrote, reads back and writes again unchanged. `DefaultConfig` returns the settings shown, without origins.
+`ParseConfig` refuses unknown fields, trailing documents, out-of-range values and an origin with a path, a wildcard, a port outside 1 to 65535 or a scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above, `audience` only when set and `allowedOrigins` only when it has entries. A file in that form, such as one `Marshal` or `cloudsaved init` wrote, reads back and writes again unchanged. `DefaultConfig` returns the settings shown, without origins.
 
 ## Storage
 
@@ -121,14 +123,17 @@ allowedOrigins:
 ```go
 store, err := sqlstore.OpenSQLite(ctx, "saves.db")                     // one service process
 store, err := sqlstore.OpenPostgres(ctx, os.Getenv("CLOUDSAVE_POSTGRES_DSN")) // several processes
+verifier, err := token.NewVerifierFor(keySet, cfg.TokenAudience())   // not token.NewVerifier, which accepts game server tokens
 svc, err := cloudsave.New(cfg, cloudsave.Options{Store: store, Tokens: verifier, Logger: slog.Default()})
 ```
+
+`New` refuses a verifier for any audience other than `Config.TokenAudience`.
 
 The SQL store keeps two tables, `cloudsave_slots` (each slot's newest version) and `cloudsave_versions` (the kept versions with their payloads), and versions its schema in `cloudsave_schema`. Each write compares and sets the slot's newest version number in one transaction; on Postgres it also takes an advisory lock on the account, so the slot count and pruning see every concurrent write. SQLite uses the pure-Go `modernc.org/sqlite` driver with write-ahead logging and one connection; Postgres uses `github.com/jackc/pgx/v5`. Both create their tables when missing and refuse a schema newer than they know. `NewMemoryStore` keeps everything in memory for tests and prototypes, and a store of your own passes `storetest.Run`.
 
 ## HTTP
 
-`Service.Handler` serves the service. Every request except `GET /v1/openapi.yaml` carries `Authorization: Bearer <token>` with a token from the account service, and every response carries `Cache-Control: no-store`. Payloads are `application/octet-stream`; a version is `{"slot", "version", "deleted", "hash", "size", "created"}`, `created` in RFC 3339 with milliseconds and `deleted` and `hash` only when set. The full machine-readable contract is published as an [OpenAPI 3.1 description](https://game.nsgo.dev/schemas/cloudsave-openapi.v1.yaml) and served live at `GET /v1/openapi.yaml`.
+`Service.Handler` serves the service. Every request except `GET /v1/openapi.yaml` carries `Authorization: Bearer <token>` with a token from the account service for the service's audience; a token for any other audience, such as the one a player sends a game server, is `invalid_token`. Every response carries `Cache-Control: no-store`. Payloads are `application/octet-stream`; a version is `{"slot", "version", "deleted", "hash", "size", "created"}`, `created` in RFC 3339 with milliseconds and `deleted` and `hash` only when set. The full machine-readable contract is published as an [OpenAPI 3.1 description](https://game.nsgo.dev/schemas/cloudsave-openapi.v1.yaml) and served live at `GET /v1/openapi.yaml`.
 
 | Request | Answer |
 | --- | --- |
@@ -153,4 +158,4 @@ cloudsaved serve -config cloudsave.yaml -keyset keys.yaml -sqlite saves.db -addr
 CLOUDSAVE_POSTGRES_DSN=postgres://... cloudsaved serve -config cloudsave.yaml -keyset keys.yaml -postgres
 ```
 
-`init` never overwrites a configuration. `-keyset` is the key set file `accountsd genkey` keeps; `serve` reads it once at start, so restart it after a key rotation adds a key. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM.
+`init` never overwrites a configuration. `-keyset` is the key set file `accountsd genkey` keeps; `serve` reads it once at start, so restart it after a key rotation adds a key. `serve` accepts only tokens for the configuration's `audience` and refuses to start when that is the key set's audience, which names the game's servers. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM.

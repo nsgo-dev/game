@@ -2,6 +2,7 @@ package accounts_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -38,6 +39,16 @@ func call(t *testing.T, h http.Handler, method, path, bearer, body string, out a
 	return rec.Code, rec.Header()
 }
 
+// accountsToken refreshes session for a token the account service's own bearer endpoints accept.
+func accountsToken(t *testing.T, h http.Handler, session string) string {
+	t.Helper()
+	var c httpCreds
+	if code, _ := call(t, h, "POST", "/v1/refresh", "", `{"session":"`+session+`","audience":"accounts"}`, &c); code != http.StatusOK || c.Token == "" {
+		t.Fatalf("refresh for accounts = %d %+v", code, c)
+	}
+	return c.Token
+}
+
 func TestHTTPGuestUpgradeAndSecondDevice(t *testing.T) {
 	f := newFixture(t, nil)
 	h := f.svc.Handler()
@@ -50,10 +61,11 @@ func TestHTTPGuestUpgradeAndSecondDevice(t *testing.T) {
 	if hdr.Get("Cache-Control") != "no-store" {
 		t.Fatalf("Cache-Control = %q", hdr.Get("Cache-Control"))
 	}
-	if code, _ := call(t, h, "POST", "/v1/link/email", guest.Token, `{"email":"ada@example.com","password":"correct horse battery"}`, nil); code != http.StatusNoContent {
+	self := accountsToken(t, h, guest.Session)
+	if code, _ := call(t, h, "POST", "/v1/link/email", self, `{"email":"ada@example.com","password":"correct horse battery"}`, nil); code != http.StatusNoContent {
 		t.Fatalf("link email = %d", code)
 	}
-	if code, _ := call(t, h, "POST", "/v1/link/identity", guest.Token, `{"provider":"gamecenter","credential":"gc-signature-device-1"}`, nil); code != http.StatusNoContent {
+	if code, _ := call(t, h, "POST", "/v1/link/identity", self, `{"provider":"gamecenter","credential":"gc-signature-device-1"}`, nil); code != http.StatusNoContent {
 		t.Fatalf("link identity = %d", code)
 	}
 	var byEmail, byIdentity httpCreds
@@ -72,7 +84,7 @@ func TestHTTPGuestUpgradeAndSecondDevice(t *testing.T) {
 			Subject  string `json:"subject"`
 		} `json:"identities"`
 	}
-	if code, _ := call(t, h, "GET", "/v1/me", byIdentity.Token, "", &me); code != http.StatusOK || me.Account != guest.Account || me.Email != "ada@example.com" || me.Guest || len(me.Identities) != 1 || me.Identities[0].Subject != "G:1234" {
+	if code, _ := call(t, h, "GET", "/v1/me", accountsToken(t, h, byIdentity.Session), "", &me); code != http.StatusOK || me.Account != guest.Account || me.Email != "ada@example.com" || me.Guest || len(me.Identities) != 1 || me.Identities[0].Subject != "G:1234" {
 		t.Fatalf("me = %d %+v", code, me)
 	}
 	var refreshed httpCreds
@@ -125,7 +137,10 @@ func TestHTTPErrors(t *testing.T) {
 		{"unknown provider", "POST", "/v1/signin/identity", "", `{"provider":"steam","credential":"t"}`, 400, "unknown_provider"},
 		{"no bearer", "GET", "/v1/me", "", "", 401, "invalid_token"},
 		{"bad bearer", "POST", "/v1/link/email", "not-a-token", `{}`, 401, "invalid_token"},
-		{"link identity", "POST", "/v1/link/identity", guest.Token, `{"provider":"gamecenter","credential":"gc-signature-device-1"}`, 204, ""},
+		{"game server token", "POST", "/v1/link/identity", guest.Token, `{"provider":"gamecenter","credential":"gc-signature-device-1"}`, 401, "invalid_token"},
+		{"link identity", "POST", "/v1/link/identity", accountsToken(t, h, guest.Session), `{"provider":"gamecenter","credential":"gc-signature-device-1"}`, 204, ""},
+		{"unknown audience", "POST", "/v1/refresh", "", `{"session":"` + guest.Session + `","audience":"bank"}`, 400, "unknown_audience"},
+		{"audience on signout", "POST", "/v1/signout", "", `{"session":"` + guest.Session + `","audience":"accounts"}`, 400, "bad_request"},
 		{"forged identity", "POST", "/v1/signin/identity", "", `{"provider":"gamecenter","credential":"forged"}`, 401, "invalid_credentials"},
 	}
 	for _, tc := range cases {
@@ -203,10 +218,11 @@ func TestHTTPCORS(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &guest); err != nil {
 		t.Fatal(err)
 	}
+	self := accountsToken(t, h, guest.Session)
 
 	req = httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 	req.Header.Set("Origin", "https://play.example.com")
-	req.Header.Set("Authorization", "Bearer "+guest.Token)
+	req.Header.Set("Authorization", "Bearer "+self)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "https://play.example.com" || rec.Header().Get("Vary") != "Origin" {
@@ -225,7 +241,7 @@ func TestHTTPCORS(t *testing.T) {
 	// Real request from an unlisted origin gets Vary: Origin and no Access-Control-Allow-Origin.
 	req = httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 	req.Header.Set("Origin", "https://evil.example.com")
-	req.Header.Set("Authorization", "Bearer "+guest.Token)
+	req.Header.Set("Authorization", "Bearer "+self)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "Origin" {
@@ -234,10 +250,53 @@ func TestHTTPCORS(t *testing.T) {
 
 	// Native request without Origin gets no CORS or Vary headers.
 	req = httptest.NewRequest(http.MethodGet, "/v1/me", nil)
-	req.Header.Set("Authorization", "Bearer "+guest.Token)
+	req.Header.Set("Authorization", "Bearer "+self)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "" {
 		t.Fatalf("native GET /v1/me = %d %v", rec.Code, rec.Header())
+	}
+}
+
+// TestHTTPAccountEndpointsRefuseGameServerToken checks that the token a device sends its game server cannot change or read the account: linking and the profile need a token issued for the account service itself.
+func TestHTTPAccountEndpointsRefuseGameServerToken(t *testing.T) {
+	f := newFixture(t, func(c *accounts.Config, _ *accounts.Options) { c.Audiences = []string{"cloudsave"} })
+	h := f.svc.Handler()
+	var guest httpCreds
+	if code, _ := call(t, h, "POST", "/v1/guest", "", "", &guest); code != http.StatusCreated {
+		t.Fatalf("guest = %d", code)
+	}
+	for _, r := range []struct{ method, path, body string }{
+		{"POST", "/v1/link/email", `{"email":"mallory@example.com","password":"correct horse battery"}`},
+		{"POST", "/v1/link/identity", `{"provider":"gamecenter","credential":"gc-signature-device-1"}`},
+		{"GET", "/v1/me", ""},
+	} {
+		if code, _ := call(t, h, r.method, r.path, guest.Token, r.body, nil); code != http.StatusUnauthorized {
+			t.Errorf("%s %s with a game server token = %d, want 401", r.method, r.path, code)
+		}
+	}
+	if code, _ := call(t, h, "POST", "/v1/signin/email", "", `{"email":"mallory@example.com","password":"correct horse battery"}`, nil); code != http.StatusUnauthorized {
+		t.Fatalf("sign in with the linked email = %d, want 401", code)
+	}
+
+	// A token for another service is no good here either, and the service's own token is no good to a game server.
+	var saves httpCreds
+	if code, _ := call(t, h, "POST", "/v1/refresh", "", `{"session":"`+guest.Session+`","audience":"cloudsave"}`, &saves); code != http.StatusOK {
+		t.Fatalf("refresh for cloudsave = %d", code)
+	}
+	if code, _ := call(t, h, "GET", "/v1/me", saves.Token, "", nil); code != http.StatusUnauthorized {
+		t.Errorf("GET /v1/me with a cloudsave token = %d, want 401", code)
+	}
+	self := accountsToken(t, h, guest.Session)
+	for _, tok := range []string{self, saves.Token} {
+		if _, err := f.svc.Authenticate(tok); !errors.Is(err, token.ErrAudience) {
+			t.Errorf("Authenticate(token for another audience) = %v, want ErrAudience", err)
+		}
+		if _, err := f.gameServer(t).Verify(tok); !errors.Is(err, token.ErrAudience) {
+			t.Errorf("game server Verify(token for another audience) = %v, want ErrAudience", err)
+		}
+	}
+	if code, _ := call(t, h, "GET", "/v1/me", self, "", nil); code != http.StatusOK {
+		t.Errorf("GET /v1/me with an accounts token = %d", code)
 	}
 }
