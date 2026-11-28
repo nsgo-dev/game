@@ -36,8 +36,7 @@ const (
 // (models, tool switches, external MCP servers, weekly usage limit, or privacy switches).
 var ErrAgentSettingsYouOnly = errors.New("editor: agent settings are You only and cannot be changed by an agent")
 
-// PrivacyContentKind identifies one of the four outbound content categories controlled
-// under Settings › Usage and privacy ("WHAT MAY LEAVE THIS COMPUTER").
+// PrivacyContentKind identifies one of the four outbound content categories controlled under Settings › Usage and privacy ("WHAT MAY LEAVE THIS COMPUTER"), or PrivacySecrets, which no switch allows.
 type PrivacyContentKind string
 
 const (
@@ -49,6 +48,8 @@ const (
 	PrivacyGoSource PrivacyContentKind = "go_source"
 	// PrivacyArtAndAudio covers images, audio files, 3D models, fonts, atlases, materials, particles, rigs, and import sidecars.
 	PrivacyArtAndAudio PrivacyContentKind = "art_and_audio"
+	// PrivacySecrets covers files that commonly hold credentials or the editor's private state (.env files, private keys and keystores, .netrc and .npmrc, SSH keys, .git/ and .nsgo/); it is always refused and has no switch.
+	PrivacySecrets PrivacyContentKind = "secrets"
 )
 
 // DisplayName returns the human-readable Settings label for k.
@@ -62,6 +63,8 @@ func (k PrivacyContentKind) DisplayName() string {
 		return "Go source code"
 	case PrivacyArtAndAudio:
 		return "Art and audio files"
+	case PrivacySecrets:
+		return "Credentials and editor state"
 	default:
 		return string(k)
 	}
@@ -97,6 +100,8 @@ func (p AgentPrivacyPolicy) Allows(kind PrivacyContentKind) bool {
 		return p.GoSource
 	case PrivacyArtAndAudio:
 		return p.ArtAndAudio
+	case PrivacySecrets:
+		return false
 	default:
 		return false
 	}
@@ -105,6 +110,12 @@ func (p AgentPrivacyPolicy) Allows(kind PrivacyContentKind) bool {
 // PrivacyRefusalError builds an actionable error message explaining why an MCP call was refused
 // because kind is switched off in Settings › Usage and privacy.
 func PrivacyRefusalError(kind PrivacyContentKind, subject string) error {
+	if kind == PrivacySecrets {
+		if strings.TrimSpace(subject) != "" {
+			return fmt.Errorf("privacy: %s looks like a credential or the editor's private state; the editor never sends it to an agent", subject)
+		}
+		return errors.New("privacy: this looks like a credential or the editor's private state; the editor never sends it to an agent")
+	}
 	label := kind.DisplayName()
 	if strings.TrimSpace(subject) != "" {
 		return fmt.Errorf("privacy: %s is switched off in Settings › Usage and privacy; refusing %s — turn on %q under WHAT MAY LEAVE THIS COMPUTER to allow it", label, subject, label)
@@ -112,13 +123,17 @@ func PrivacyRefusalError(kind PrivacyContentKind, subject string) error {
 	return fmt.Errorf("privacy: %s is switched off in Settings › Usage and privacy — turn on %q under WHAT MAY LEAVE THIS COMPUTER to allow it", label, label)
 }
 
-// ClassifyProjectFilePrivacy classifies a project-relative file path into one of the four outbound
-// privacy content categories controlled under Settings › Usage and privacy.
+// ClassifyProjectFilePrivacy classifies a project-relative file path into one of the four outbound privacy content categories controlled under Settings › Usage and privacy, or PrivacySecrets for a file that looks like a credential or the editor's private state, which is checked first and always refused.
 func ClassifyProjectFilePrivacy(relPath string) PrivacyContentKind {
 	clean := strings.ToLower(path.Clean(strings.ReplaceAll(strings.TrimSpace(relPath), `\`, "/")))
 	clean = strings.TrimPrefix(clean, "./")
 	clean = strings.TrimPrefix(clean, "/")
 	base := path.Base(clean)
+
+	// 0. Credentials and private editor or VCS state, whatever the switches say.
+	if isSecretProjectPath(clean, base) {
+		return PrivacySecrets
+	}
 
 	// 1. Go source code and Go module/workspace manifests.
 	switch base {
@@ -179,6 +194,41 @@ func ClassifyProjectFilePrivacy(relPath string) PrivacyContentKind {
 
 	// 4. Default to scene and data files for remaining project text/data files.
 	return PrivacySceneAndData
+}
+
+// isSecretProjectPath reports whether the lower-cased, slash-separated project path clean (with base name base) looks like a credential file or lies in a .git or .nsgo directory.
+func isSecretProjectPath(clean, base string) bool {
+	for _, dir := range strings.Split(clean, "/") {
+		dir = windowsPathComponent(dir)
+		if dir == ".git" || dir == ".nsgo" {
+			return true
+		}
+	}
+	base = windowsPathComponent(base)
+	switch base {
+	case ".env", ".envrc", ".netrc", "_netrc", ".npmrc", "keystore.properties":
+		return true
+	}
+	if strings.HasPrefix(base, ".env.") {
+		return true
+	}
+	switch path.Ext(base) {
+	case ".pem", ".key", ".p8", ".p12", ".pfx", ".jks", ".keystore":
+		return true
+	}
+	// SSH keys such as id_rsa, id_ed25519 and id_ecdsa.pub; a dotted name such as id_table.data.yaml is game data.
+	if key := strings.TrimSuffix(base, ".pub"); strings.HasPrefix(key, "id_") && !strings.Contains(key, ".") {
+		return true
+	}
+	return false
+}
+
+// windowsPathComponent returns the name Windows opens for the path component c, without an NTFS stream suffix (":stream") and without the trailing dots and spaces Windows drops, so ".env::$data" and ".git." are still recognized.
+func windowsPathComponent(c string) string {
+	if i := strings.IndexByte(c, ':'); i >= 0 {
+		c = c[:i]
+	}
+	return strings.TrimRight(c, ". ")
 }
 
 // AgentPrivacySettings is the YAML representation of WHAT MAY LEAVE THIS COMPUTER in EditorSettings.
