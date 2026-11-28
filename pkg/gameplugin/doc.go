@@ -1,4 +1,4 @@
-// Package plugin defines the runtime plugin contract and deterministic installer for Go plugins.
+// Package gameplugin defines the runtime plugin contract and deterministic installer for Go plugins.
 //
 // Because iOS and web targets link all native code at compile time, Go plugins are ordinary Go packages wired into a game project via go.mod. A plugin's runtime package exposes a constructor returning a [Plugin] value (conventionally func Plugin() gameplugin.Plugin), and the game installs every active plugin onto a [Host] with [Install].
 //
