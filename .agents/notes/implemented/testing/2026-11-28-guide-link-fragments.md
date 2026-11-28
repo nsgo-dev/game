@@ -8,7 +8,7 @@ Guide links to `editor.md` retained heading fragments from before issue numbers 
 
 ## Decision
 
-- `apps/website/scripts/check-guide-links.ts` parses Markdown with the website's existing `unified`, `remark-parse`, `remark-gfm`, `remark-rehype` and `rehype-slug` pipeline. Target heading IDs therefore come from `rehype-slug` itself, including punctuation removal, non-Latin text and duplicate-heading suffixes, rather than a second implementation of GitHub's slug rules.
+- `website/scripts/check-guide-links.ts` parses Markdown with the website's existing `unified`, `remark-parse`, `remark-gfm`, `remark-rehype` and `rehype-slug` pipeline. Target heading IDs therefore come from `rehype-slug` itself, including punctuation removal, non-Latin text and duplicate-heading suffixes, rather than a second implementation of GitHub's slug rules.
 - `bun run test` runs focused fixture tests and a repository-wide test. The checked source files are every Markdown file under `docs/en`, `docs/zh` and `skills`, each direct `examples/*/README.md`, and every `template/**/README.md`.
 - Every relative link whose target path ends in `.md` and has a non-empty fragment must resolve to an existing file containing that heading ID. External URLs, absolute paths, same-page fragments and links without fragments are outside this cross-page check. Percent-encoded paths and fragments are decoded before resolution, matching the URLs emitted by the Markdown pipeline.
 - Failures identify the source file and line, original target and missing heading or file. Parsing and heading results are cached so repeated links do not parse the same target repeatedly.

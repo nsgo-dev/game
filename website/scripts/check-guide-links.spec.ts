@@ -1,6 +1,7 @@
 // Tests for relative Markdown fragment links in the guides and repository documentation.
 
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -83,7 +84,8 @@ describe('checkGuideLinks', () => {
   })
 
   test('checks the repository documentation', { timeout: 60_000 }, async () => {
-    const root = path.resolve(import.meta.dirname, '../../..')
+    const root = path.resolve(import.meta.dirname, '../..')
+    assert.ok(existsSync(path.join(root, 'docs', 'en', 'editor.md')), `${root} is not the repository root`)
     assert.deepEqual(await checkGuideLinks(root), [])
   })
 })
