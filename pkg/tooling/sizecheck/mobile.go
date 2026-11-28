@@ -250,6 +250,7 @@ type BudgetExceededError struct {
 	Report MobilePackageReport
 }
 
+// Error lists every budget violation followed by the Markdown space breakdown of the package.
 func (e *BudgetExceededError) Error() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s size budget exceeded for %s (%d violation(s)):\n",
