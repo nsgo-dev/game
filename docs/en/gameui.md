@@ -105,6 +105,15 @@ nav.StepActions(func(a gameui.NavAction) bool {
 
 Customize focus outlines with `FocusRingStyle` on `Root.FocusRing`, `Theme.FocusRing`, or `SpatialNavigator.FocusRing` (including dashed outlines or a custom `Draw` callback).
 
+For one-switch access, enable deterministic scanning and advance it from the fixed loop. The selected action activates the focused widget.
+
+```go
+nav.SetScanOptions(gameui.ScanOptions{Enabled: true, Interval: 1200 * time.Millisecond, Select: gameui.NavConfirm})
+nav.Step(dt)
+```
+
+`Loops` pauses scanning after that many passes. `ScanSelect` can be called from a single switch input, and the focus ring remains the scan highlight.
+
 ## Ready settings menu (`SettingsMenu`)
 
 `SettingsMenu` provides a drop-in five-tab settings screen covering **Audio** (mute, master, configurable bus volumes, mono audio, and left/right balance), **Video** (window mode, desktop windowed resolution, scale mode, integer scale, quality preset, and frame cap; VSync is hidden by default until NSGo exposes swap-interval control and can be enabled with `ShowVSync`), **Controls** (keyboard and gamepad action rebinding with capture and reset), **Language** (locale picker), and **Accessibility** (subtitles/captions, SFX captions, text scale, high contrast, reduced motion, screen shake, flash reduction, color-blind mode, game speed, invincibility, auto-aim, and hold-to-toggle).

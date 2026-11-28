@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -61,6 +62,12 @@ type MenuProps struct {
 	Text MenuText
 	// InitialIndex selects the starting focused item (clamped to the first enabled item).
 	InitialIndex int
+	// ScanEnabled enables one-switch scanning. The menu advances every
+	// ScanInterval and activates the focused item on ScanSelectKey.
+	ScanEnabled   bool
+	ScanInterval  time.Duration
+	ScanLoops     int
+	ScanSelectKey string
 	// SuppressOpenAnnouncement disables the automatic cx.Announce call on menu mount.
 	SuppressOpenAnnouncement bool
 	// OnClose runs when Escape or screen-reader ActionEscape is triggered.
@@ -186,6 +193,12 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 
 	initial := findEnabled(props.InitialIndex, 1)
 	activeIdx := core.NewSignal(cx, initial)
+	if props.ScanInterval <= 0 {
+		props.ScanInterval = 1200 * time.Millisecond
+	}
+	if props.ScanSelectKey == "" {
+		props.ScanSelectKey = "space"
+	}
 
 	if !props.SuppressOpenAnnouncement {
 		itemsText := text.formatItems(len(items))
@@ -292,8 +305,43 @@ func AccessibleMenu(cx *core.Scope, props MenuProps) core.Node {
 		case "escape":
 			return closeMenu()
 		default:
+			if props.ScanEnabled && ev.Key == props.ScanSelectKey {
+				cur := activeIdx.Get()
+				if cur >= 0 {
+					activateItem(cur)
+					return true
+				}
+			}
 			return false
 		}
+	}
+
+	if props.ScanEnabled && initial >= 0 {
+		var scanStop func() bool
+		scanLoops := 0
+		var scheduleScan func()
+		scheduleScan = func() {
+			scanStop = cx.AfterFunc(props.ScanInterval, func() {
+				cur := activeIdx.Get()
+				next := findEnabled(cur+1, 1)
+				if next >= 0 {
+					focusItem(next, true)
+					if next <= cur {
+						scanLoops++
+					}
+				}
+				if props.ScanLoops > 0 && scanLoops >= props.ScanLoops {
+					return
+				}
+				scheduleScan()
+			})
+		}
+		scheduleScan()
+		cx.Cleanup(func() {
+			if scanStop != nil {
+				scanStop()
+			}
+		})
 	}
 
 	resolvePalette := func() Palette {
