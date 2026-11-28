@@ -273,6 +273,9 @@ connections:
 ## 将场景组件生成到 ECS
 
 `sceneformat.ComponentType` 可以声明可选的 `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` 工厂函数，将 YAML 组件转换为 `game/entities` 中的强类型 ECS 组件状态（[实体](entities.md#从-yaml-场景生成实体)）。将组件注册表传入 `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})`（或传入 `sceneformat.SpawnConnected`，它会自动转发注册表）即可启用。在生成第一个实体之前，所有组件都会先按注册表校验并填充默认值；随后实体按深度优先的文档顺序生成，同一对象上的组件按组件名升序执行 `Spawn`。若任一 `Spawn` 返回错误，已生成的实体会全部销毁回滚，并返回包含图层名、对象 ID 与组件名的错误。`SpawnEntities(doc, world)` 仍等价于 `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`。
-# 场景分区
 
-`sceneformat.Partition` 将大型场景划分为确定性的网格单元。对象按边界分配，`Needed` 根据流式来源及加载、卸载半径计算排序后的单元列表。
+## 将大型场景划分为网格单元
+
+`sceneformat.Partition` 是按网格单元流式加载大型场景所用的单元计算：`CellSize` 为每个正方形单元的世界单位边长，`LoadRadius` 与 `UnloadRadius` 以单元数计；`Validate` 要求单元边长为有限正数且 `0 <= LoadRadius <= UnloadRadius`，使位于单元边界上的来源不会每帧反复加载、卸载同一单元。`Cells(sceneformat.CellObject{...})` 把对象分配到其边界触及的每个单元，而不只是原点所在单元，因此一座长桥属于它跨越的每个单元；恰好落在边界上的边不会延伸到下一个单元，`AlwaysLoaded` 对象不属于任何单元。`Needed(sources)` 返回距任一 `StreamingSource` 不超过 `LoadRadius` 的单元（每个来源的 `RadiusScale` 会乘到半径上），`Retained(sources)` 返回不超过 `UnloadRadius` 的单元；已加载但不在 `Retained` 中的单元即可卸载。三者返回的单元都按 Y、再按 X 排序，与输入顺序无关。
+
+这里只提供单元计算：场景文件目前还没有 `partition:` 段，单元的加载、实例化与卸载由游戏自行完成。

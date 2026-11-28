@@ -273,6 +273,9 @@ Games that do not use scene files get the same behavior from `scene.ScreenNotifi
 ## Spawning scene components into ECS
 
 A `sceneformat.ComponentType` can declare an optional `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` factory that turns a YAML component into typed ECS state in `game/entities` ([Entities](entities.md#spawning-from-yaml-scenes)). Pass the registry to `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})` (or to `sceneformat.SpawnConnected`, which forwards its registry automatically). Every component is validated and resolved with its registered defaults before the first entity is spawned; entities spawn in depth-first document order and each object's components run in sorted component-name order. If any `Spawn` returns an error, all entities created so far are destroyed and the error names the layer, object ID and component. `SpawnEntities(doc, world)` remains equivalent to `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`.
-# Scene partitioning
 
-`sceneformat.Partition` divides large scenes into deterministic cells. Objects are assigned by bounds, and `Needed` computes sorted cells around streaming sources with load and unload radii.
+## Partitioning a large scene into cells
+
+`sceneformat.Partition` is the grid math for streaming a large scene in cells: `CellSize` world units per square cell, `LoadRadius` and `UnloadRadius` in cells, and `Validate` requiring a positive finite cell size and `0 <= LoadRadius <= UnloadRadius` so a source on a cell boundary does not load and unload the same cell every frame. `Cells(sceneformat.CellObject{...})` assigns an object to every cell its bounds touch, not only the cell of its origin, so a long bridge belongs to each cell it crosses; an edge exactly on a boundary does not reach the next cell, and an `AlwaysLoaded` object belongs to no cell. `Needed(sources)` returns the cells within `LoadRadius` of any `StreamingSource` (each source's `RadiusScale` multiplies the radius), and `Retained(sources)` the cells within `UnloadRadius`; a loaded cell missing from `Retained` can be unloaded. All three return cells sorted by Y, then X, whatever the order of their input.
+
+This is the cell math only: scene files have no `partition:` section yet, and loading, instancing and unloading cells is up to the game.
