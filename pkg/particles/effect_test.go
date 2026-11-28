@@ -6,7 +6,7 @@ import (
 )
 
 func TestEffectRoundTripAndParams(t *testing.T) {
-	e, err := particles.ParseEffect([]byte("version: 1\nemitters:\n  - config:\n      version: 1\nparams:\n  speed: {type: float, float: 1}\n"))
+	e, err := particles.ParseEffect([]byte("version: 1\nemitters:\n  - config: {}\nparams:\n  speed: {type: float, float: 1}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
