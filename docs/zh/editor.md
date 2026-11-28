@@ -485,8 +485,11 @@ connections:
 | `handler` | `string` | 必填，处理函数名，如 `open`，或 `door.open`。 |
 | `args` | 映射 | 可选，按名称给处理函数的参数赋值，每个值是布尔、数字或字符串；没写的参数取默认值。 |
 | `once` | `bool` | 事件第一次触发后断开连接，相当于 Godot 的一次性连接。 |
+| `when` | `string` | 可选的条件，只有条件成立时处理函数才运行；留空或不写时连接总是运行。 |
 
 事件和处理函数来自组件注册表：`ComponentType` 列出带有该组件的对象会发出的 `Events` 和能运行的 `Handlers`，每个处理函数有带类型的 `Params`（声明与检查方式同字段）以及运行它的 `Func`。游戏只需为每种组件注册一次它做什么，哪些对象连在一起由场景文件决定。
+
+`when` 条件可以是 `true`、`false`、一个单独的名称（如 `has_key`），或用空格隔开的名称、运算符和值（如 `score >= 10`、`mode == combat`）：数字可用 `<`、`<=`、`>`、`>=`、`==`、`!=` 比较，字符串和布尔值只能用 `==`、`!=`，值可以加引号但不能含空格。名称由游戏提供：游戏把由 `Numbers`、`Strings`、`Bools` 三个映射组成的 `sceneformat.RuleContext` 传给 `Signals.SetRuleContext`，改映射里的值即可改变条件，因为每次事件触发时都会按当时的映射求值。条件不成立时跳过处理函数，`once` 连接要等到条件成立的那次触发后才断开。加载场景时会拒绝无法解析的 `when`；规则上下文里没有该名称的值，或值的类型与比较不符时，跳过该处理函数，并在其余处理函数运行完后由 `Emit` 和 `Flush` 返回错误。工具可以用 `sceneformat.EvaluateWhen` 以同样的方式对表达式求值。
 
 ```go
 reg.MustRegister(sceneformat.ComponentType{
@@ -1746,6 +1749,3 @@ func main() {
   - 圆角与几何：控件 `6`（`theme.RadiusControl`）、按钮 `8`（`theme.RadiusButton`）、卡片与轻提示 `12`（`theme.RadiusCard`）、对话框 `18`（`theme.RadiusDialog`）；行与工具按钮高 `28`（`theme.RowHeight`，最小命中热区 `theme.MinHitSize = 28`）、按钮高 `30`–`32`（`theme.ButtonHeight`、`theme.ButtonTallHeight`）、顶栏高 `44`（`theme.HeaderHeight`）；`1` px 内描边（`theme.BorderWidth`）。
   - 动效：悬停与按压 `120 ms`（`theme.MotionHover`）、面板/浮层/轻提示 `180 ms`（`theme.MotionPanel`）、智能体叠加层淡入 `240 ms`（`theme.MotionOverlay`）、智能体脉冲 `1.6 s`（`theme.MotionAgentPulse`，透明度 `100%` ↔ `45%`）。开启 `Env.ReduceMotion` 时，`theme.MotionDuration` 返回 `0`，`theme.AgentPulseOpacity` 保持 `1.0` 不闪烁。
 - **禁止硬编码 UI 颜色字面量与仅深色包级别名**：`pkg/editor` 中除 `theme/theme.go` 外的所有非测试 `.go` 文件在绘制界面元素、操纵杆、叠加层与调试视图时仅使用响应式的 `theme.Palette` 令牌（`ed.Palette(cx)` / `e.activePalette()`，场景内容数据如 `scene.BackgroundColor` 保留为场景数据）。`TestSpecNoHardcodedColorLiteralsInEditor` 拒绝在 `theme/theme.go` 之外出现任何 `core.RGB`/`core.RGBA` 调用或硬编码 UI 十六进制颜色，`TestSpecNoDarkOnlyPackageColorVarsInEditor` 拒绝由 `theme.Dark()`/`theme.Light()` 初始化的包级颜色变量，确保所有编辑器页面在深色与浅色外观下均可实时重绘。
-# 场景规则条件
-
-连接项可包含 `when`，例如 `when: "score >= 10"`，使场景规则仅在表达式为真时执行。省略或留空 `when` 时连接保持无条件。

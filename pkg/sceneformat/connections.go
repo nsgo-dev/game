@@ -85,7 +85,7 @@ type ConnectionError struct {
 	Index int
 	// From, Event, To and Handler are the connection's fields as written.
 	From, Event, To, Handler string
-	// Field is the connection's key at fault: "from", "event", "to", "handler" or "args".
+	// Field is the connection's key at fault: "from", "event", "to", "handler", "args" or "when".
 	Field string
 	// Arg is the argument at fault when Field is "args", or empty.
 	Arg string
@@ -158,6 +158,15 @@ type Signals struct {
 	objectOf map[entities.Entity]string
 	// animators binds object IDs to their runtime AnimatorController for the built-in "animator" component's setState and trigger handlers.
 	animators map[string]AnimatorController
+	// rules holds the values the connections' When expressions read (SetRuleContext).
+	rules RuleContext
+}
+
+// SetRuleContext sets the values the connections' When expressions read (ConnectionDoc.When). Signals keeps ctx's maps, not copies, so a game changes a value by changing its map, and each event's conditions read the values as they are when it fires. Until it is called, every When expression other than "true" and "false" fails.
+func (s *Signals) SetRuleContext(ctx RuleContext) {
+	if s != nil {
+		s.rules = ctx
+	}
 }
 
 // queued is an event Enqueue added, or a deferred listener's run Listen scheduled: the object's ID and event as written, for errors, the binding key they name, the payload and, for a listener's run, the entry to call.
@@ -187,6 +196,8 @@ type binding struct {
 	fn             HandlerFunc
 	args           map[string]any
 	once, done     bool
+	// when is the connection's parsed When expression, or nil when the connection always runs.
+	when *whenExpr
 }
 
 // Connect checks doc's components and connections against reg and returns the Signals that run them; ctx is passed to every handler as Call.Context. doc must be valid, must not instance or inherit other scene files (pass it through Resolve first, or use BuiltScene.Doc), and every connected handler must have a Func. Calls point into doc, so handlers see and may change its objects. The Signals is a snapshot of doc's objects as Connect finds them: after adding or removing objects in doc, which may also move the others in memory, call Connect again, since the old Signals would hand handlers stale objects and refuse events of the new ones.
@@ -280,7 +291,7 @@ func eventNames(o *ObjectDoc, reg *ComponentRegistry) map[string]memberRef {
 
 // Emit fires the event named event of the object with ID from, passing payload, and calls the handler of every connection from that event, in the order the scene lists them, and then the listeners Listen added for it, in the order they were added. event is a bare name, such as "pressed", or "button.pressed" to say which component when several of the object's components declare it. A once connection or listener runs the first time only. An event no connection or listener names does nothing. Handlers run before Emit returns, so a handler that emits runs the next handlers inside the first; use Enqueue to run them after the current step instead.
 //
-// Emit returns an error, and calls nothing, when the scene has no object from, when none of its registered components declares the event or two declare a bare name, when the object's entity has been destroyed (SpawnConnected), and when handlers that emit events have nested more than MaxEmitDepth levels.
+// Emit returns an error, and calls nothing, when the scene has no object from, when none of its registered components declares the event or two declare a bare name, when the object's entity has been destroyed (SpawnConnected), and when handlers that emit events have nested more than MaxEmitDepth levels. It also returns the errors of the connections' When expressions it could not evaluate (Signals.SetRuleContext), after running the rest: each such connection is skipped, as one whose condition is false is.
 func (s *Signals) Emit(from, event string, payload any) error {
 	if s == nil {
 		return errors.New("sceneformat: emit on nil Signals")
@@ -292,8 +303,7 @@ func (s *Signals) Emit(from, event string, payload any) error {
 	if s.depth >= MaxEmitDepth {
 		return fmt.Errorf("sceneformat: emit %q of object %q: handlers emitting events nest deeper than %d levels", event, from, MaxEmitDepth)
 	}
-	s.dispatch(k, payload)
-	return nil
+	return s.dispatch(k, payload)
 }
 
 // Enqueue checks the event as Emit does and holds it, with payload, until the next Flush, which runs its handlers in the order the events were enqueued. A handler may enqueue events, its own included, without re-entering the handlers that are running: they wait for the Flush after the one that runs it.
@@ -321,7 +331,7 @@ func (s *Signals) Pending() int {
 
 // Flush runs the events enqueued before it began, in enqueue order, each as Emit would run it, with the runs of deferred listeners in their place in the order. Events their handlers enqueue, and the runs deferred listeners schedule, are held for the next Flush, so one Flush always ends, even when handlers keep enqueueing each other. An event whose object's entity was destroyed after it was enqueued is dropped (SpawnConnected). Call it once per update step, such as at the end of game.Loop's Update, to run what the step raised after it.
 //
-// Flush returns an error, and runs nothing, when a handler calls it: events then run only from the update, never inside another event's handlers. A handler's panic passes through Flush; the events after the one whose handler panicked stay queued, ahead of those enqueued since, for the next Flush.
+// Flush returns an error, and runs nothing, when a handler calls it: events then run only from the update, never inside another event's handlers. A handler's panic passes through Flush; the events after the one whose handler panicked stay queued, ahead of those enqueued since, for the next Flush. Otherwise it runs every event and returns the When expression errors Emit would have returned for them, joined.
 func (s *Signals) Flush() error {
 	if s == nil {
 		return errors.New("sceneformat: flush on nil Signals")
@@ -337,6 +347,7 @@ func (s *Signals) Flush() error {
 	s.spare = nil
 	s.flushing = true
 	next := 0
+	var errs []error
 	defer func() {
 		if next < len(batch) {
 			// A handler panicked: the events after its own stay queued, ahead of those enqueued since.
@@ -370,9 +381,11 @@ func (s *Signals) Flush() error {
 			})
 			continue
 		}
-		s.dispatch(q.key, q.payload)
+		if err := s.dispatch(q.key, q.payload); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Entity returns the entity the object with ID id was spawned as, and whether there is one: false when Connect made s, or the scene has no object id.
@@ -473,7 +486,9 @@ func (s *Signals) resolveEvent(verb, from, event string) (*ObjectDoc, memberRef,
 }
 
 // dispatch calls the handlers of the connections from the event k names and then the listeners on it, one level deeper. A connection whose target's entity has been destroyed is skipped, and a once connection it skips stays connected.
-func (s *Signals) dispatch(k bindKey, payload any) {
+// dispatch runs the connections and listeners of k and returns the errors of the When expressions it could not evaluate; the connection of each is skipped and the others still run.
+func (s *Signals) dispatch(k bindKey, payload any) error {
+	var errs []error
 	s.depth++
 	defer func() { s.depth-- }()
 	var src entities.Entity
@@ -489,6 +504,16 @@ func (s *Signals) dispatch(k bindKey, payload any) {
 			dst = s.entityOf[b.target.ID]
 			if !s.world.Alive(dst) {
 				continue
+			}
+		}
+		if b.when != nil {
+			ok, err := b.when.eval(s.rules)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("connection %d (%q %s -> %q %s): %w", b.index, b.source.ID, b.event.key(), b.target.ID, b.handler.key(), err))
+				continue
+			}
+			if !ok {
+				continue // a once connection whose condition is false stays connected
 			}
 		}
 		if b.once {
@@ -530,6 +555,7 @@ func (s *Signals) dispatch(k bindKey, payload any) {
 			SourceEntity:    src,
 		})
 	}
+	return errors.Join(errs...)
 }
 
 // bindConnections checks the connections of doc, a valid scene that refers to no other scene file, against reg and returns them ready to call, in document order.
@@ -587,7 +613,11 @@ func bindConnections(doc *SceneDoc, reg *ComponentRegistry) ([]*binding, error) 
 				args[p.Name] = p.Default
 			}
 		}
-		out = append(out, &binding{index: i, source: src, target: dst, event: ev, handler: hm, fn: h.Func, args: args, once: c.Once})
+		when, err := parseWhen(c.When)
+		if err != nil {
+			return nil, fail("when", "", err.Error())
+		}
+		out = append(out, &binding{index: i, source: src, target: dst, event: ev, handler: hm, fn: h.Func, args: args, once: c.Once, when: when})
 	}
 	return out, nil
 }
@@ -754,6 +784,9 @@ func validateConnections(doc *SceneDoc, ids map[string]struct{}) error {
 			if _, ok := ids[c.To]; !ok {
 				return fieldErr(at(cp, "to"), "sceneformat: connection %d to %q names no object of the scene", i, c.To)
 			}
+		}
+		if _, err := parseWhen(c.When); err != nil {
+			return fieldErr(at(cp, "when"), "sceneformat: connection %d: %v", i, err)
 		}
 		for _, name := range slices.Sorted(maps.Keys(c.Args)) {
 			if name == "" {

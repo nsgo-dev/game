@@ -2673,6 +2673,8 @@ func applyNonObjectResolution(doc, mineDoc, theirsDoc *sceneformat.SceneDoc, ite
 				doc.Connections[foundIdx] = cloneConnectionDoc(*srcConn)
 			case c.Field == "once":
 				doc.Connections[foundIdx].Once = srcConn.Once
+			case c.Field == "when":
+				doc.Connections[foundIdx].When = srcConn.When
 			case c.Field == "args":
 				doc.Connections[foundIdx].Args = cloneMap(srcConn.Args)
 			case strings.HasPrefix(c.Field, "args."):
