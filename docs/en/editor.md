@@ -264,6 +264,8 @@ Both the 2D and 3D viewports and the scene tree (`SceneTreeView`) let you select
 
 ### Example
 
+Editor MCP `selection_get` includes the selected object's `edit` metadata. `scene_read` includes an `objects` array for scene files. Each item reports whether the object is local, instanced, or inherited, its source scene, the file and override path where an edit is recorded, and whether the edit is allowed with a reason when it is not.
+
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
 version: 2

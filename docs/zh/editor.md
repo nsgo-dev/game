@@ -264,6 +264,8 @@ built, err := sceneformat.Build(level, assets{atlases, sceneformat.FSScenes{FS: 
 
 ### 示例
 
+编辑器 MCP 的 `selection_get` 会在选中对象的 `edit` 字段中返回编辑元数据。读取场景文件时，`scene_read` 的结构化结果包含 `objects` 数组。每项说明对象是本地、实例化还是继承而来，来源场景，编辑会记录到的文件和覆盖路径，以及是否允许编辑和拒绝原因。
+
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
 version: 2
