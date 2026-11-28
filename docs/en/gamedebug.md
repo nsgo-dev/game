@@ -141,6 +141,24 @@ overlay.DrawSteering(d, gamedebug.SteeringDebug{
 
 All AI panel views and steering draw helpers compile to zero-cost no-ops under `-tags release`, so none of the inspection UI or drawing code is linked into release binaries.
 
+## Visual log
+
+A `*VLog` keeps a history of what gameplay systems decided, so the reason an enemy took a path several seconds ago is still there after the frame that drew it. Every record carries the fixed step it was made at and the entity it is about:
+
+```go
+vlog := gamedebug.NewVLog(4096) // entries and shapes kept; the oldest is dropped once full
+
+vlog.Log(step, "enemy-3", "ai", gamedebug.VLogWarn, "path blocked, repathing")
+vlog.Shape(step, "enemy-3", "path", [][3]float32{{0, 0, 0}, {4, 0, 2}, {6, 0, 8}})
+vlog.Snapshot(step, "enemy-3", statsCategory) // any gamedebug.Category
+```
+
+- **`Category`** is the interface a system implements to describe one entity: `Name()` and `Snapshot(entity) []Field`. `Snapshot` records the fields as an `info` entry under the category's name.
+- **`Entries(entity, category, from, to)`** and **`Shapes(entity, from, to)`** return records in recorded order; an empty entity or category matches any, and `to == 0` means no upper bound.
+- **`WriteJSONL(w)`** saves the log as JSON Lines: a header `{"format":"gamedebug.vlog","version":1}`, then one `{"type":"entry",...}` line per entry and one `{"type":"shape",...}` line per shape. The output is deterministic, so saving a log read back from a file gives the same bytes. **`ReadVLog(r)`** reads it back and refuses a missing or unknown header, an unknown record type or level, and unknown fields.
+
+A `VLog` is safe for concurrent use. Under `-tags release` every `VLog` method is a no-op, `Snapshot` does not call the category, and `ReadVLog` returns an error. The overlay does not draw the log or show categories yet.
+
 ## Stripping debug code in release builds
 
 Release builds strip `pkg/tooling/gamedebug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing when built with the `release` Go build tag:

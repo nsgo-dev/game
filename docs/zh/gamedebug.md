@@ -141,6 +141,24 @@ overlay.DrawSteering(d, gamedebug.SteeringDebug{
 
 在 `-tags release` 构建下，所有 AI 检查面板与转向绘制辅助函数都会编译为零开销空操作，不会链接进发布包。
 
+## 可视化日志
+
+`*VLog` 保存玩法系统做出的决策历史：敌人几秒前为什么选了那条路径，在绘制它的那一帧过去之后依然可查。每条记录都带有产生时的固定步与所属实体：
+
+```go
+vlog := gamedebug.NewVLog(4096) // 条目与形状各保留的数量；写满后丢弃最旧的
+
+vlog.Log(step, "enemy-3", "ai", gamedebug.VLogWarn, "path blocked, repathing")
+vlog.Shape(step, "enemy-3", "path", [][3]float32{{0, 0, 0}, {4, 0, 2}, {6, 0, 8}})
+vlog.Snapshot(step, "enemy-3", statsCategory) // 任意 gamedebug.Category
+```
+
+- **`Category`** 是系统用来描述单个实体的接口：`Name()` 与 `Snapshot(entity) []Field`。`Snapshot` 把这些字段记成该分类名下的一条 `info` 条目。
+- **`Entries(entity, category, from, to)`** 与 **`Shapes(entity, from, to)`** 按记录顺序返回结果；实体或分类为空时匹配全部，`to == 0` 表示没有上界。
+- **`WriteJSONL(w)`** 把日志存为 JSON Lines：先是表头 `{"format":"gamedebug.vlog","version":1}`，随后每个条目一行 `{"type":"entry",...}`、每个形状一行 `{"type":"shape",...}`。输出是确定的，从文件读回的日志再保存一次，字节完全相同。**`ReadVLog(r)`** 负责读回，缺少或无法识别的表头、未知的记录类型或级别、未知字段都会被拒绝。
+
+`VLog` 可以并发使用。在 `-tags release` 下，`VLog` 的所有方法都是空实现，`Snapshot` 不会调用分类，`ReadVLog` 返回错误。调试浮层目前还不会绘制日志或展示分类。
+
 ## 在发布构建中彻底裁剪
 
 使用 `release` 构建标签时，发布包会裁剪掉 `pkg/tooling/gamedebug`、`pkg/tooling/hotreload`、`pkg/tooling/devstate` 以及物理与 AI 的调试绘制代码：

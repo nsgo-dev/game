@@ -2791,6 +2791,22 @@ runs:
 
 参数名是游戏用 `RegisterFloat`、`RegisterInt`、`RegisterBool` 和 `RegisterString` 注册的名称；`LoadTunables` 跳过没有注册的名称，拒绝超出范围或 JSON 类型不符的值，且只要拒绝其中一个值，就一个值也不应用。
 
+<!-- format: tooling/gamedebug#vlog -->
+### 可视化日志
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 游戏或工具保存 `gamedebug.VLog` 的任意 `.jsonl` 文件 | 表头行的 `version: 1` | `gamedebug.VLog.WriteJSONL`、`gamedebug.ReadVLog` | [gamedebug](gamedebug.md#可视化日志) |
+
+```json
+{"format":"gamedebug.vlog","version":1}
+{"type":"entry","step":120,"entity":"enemy-3","category":"ai","level":"warn","message":"path blocked, repathing"}
+{"type":"entry","step":120,"entity":"enemy-3","category":"stats","level":"info","fields":[{"name":"health","value":"40"}]}
+{"type":"shape","step":120,"entity":"enemy-3","kind":"path","points":[[0,0,0],[4,0,2],[6,0,8]]}
+```
+
+第一行是表头；随后按记录顺序列出所有条目，再列出所有形状。`step` 是记录产生时的固定步，`level` 为 `info`、`warn` 或 `error`，条目带有 `message`、分类快照的 `fields`，或两者都有，`points` 是世界空间中的 `[x, y, z]`。`ReadVLog` 拒绝缺少或无法识别的表头、未知的 `type` 或 `level`，以及未知字段。
+
 <!-- format: tooling/devstate -->
 ### 开发会话快照
 
