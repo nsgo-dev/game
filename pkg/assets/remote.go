@@ -256,6 +256,10 @@ func (r *remoteLoader) fetchBytes(ctx context.Context, uri string) ([]byte, erro
 		r.mu.Lock()
 		call.waiters--
 		shouldCancel := call.waiters == 0
+		if shouldCancel && r.inFlight[entry.SHA256] == call {
+			// Detach the abandoned call so a load that starts after this cancellation begins a fresh fetch instead of joining one that is about to fail with context.Canceled.
+			delete(r.inFlight, entry.SHA256)
+		}
 		r.mu.Unlock()
 		if shouldCancel {
 			call.cancel()
