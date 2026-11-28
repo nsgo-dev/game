@@ -66,6 +66,10 @@ jobs:
       - name: Check targets
         working-directory: examples/${{ matrix.example }}
         run: go tool nsgo check -target macos,windows,linux,android,web
+      - name: Validate tutorial store listings
+        if: matrix.example == 'tutorial'
+        working-directory: examples/tutorial/ch09-ship
+        run: go tool nsgo publish -store all -dry-run
 
   apple:
     name: Test and check ${{ matrix.example }} (macOS, iOS)

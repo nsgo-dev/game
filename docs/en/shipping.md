@@ -1,11 +1,45 @@
 # Building and Shipping
 
-Verify your game across every target with `nsgo check`, configure metadata, icons and signing in `nsgo.yaml`, and build release packages for macOS, Windows, Linux, the web, iOS and Android with `nsgo build`.
+Verify your game across every target with `nsgo check`, configure its identity and export presets in `game.yaml`, keep icons and signing in `nsgo.yaml`, and build release packages for macOS, Windows, Linux, the web, iOS and Android with `nsgo build`.
 
-## Configure nsgo.yaml
+## Name, identifier and version
 
-`nsgo build` reads app identity, icons, signing and target defaults from `nsgo.yaml` at your project root. Every flag on `nsgo build` (`-name`, `-id`, `-version`, `-build-number`, `-output`, `-target`, `-channel`) overrides the matching setting in `nsgo.yaml` for one build.
+In a project made with `game new`, `game.yaml` owns the name, identifier, player-facing version, appearance and export settings. Replace the generated `dev.nsgo.<name>` identifier with a reverse-DNS name of a domain you own before the first store upload, and keep it stable across releases: the App Store, Google Play and Microsoft Store identify the app by it.
 
+<!-- shipping-project: game.yaml -->
+```yaml
+version: 1
+name: My Game
+id: com.example.mygame
+appVersion: 1.0.0
+window:
+  width: 1280
+  height: 720
+export:
+  output: dist
+  presets:
+    - platform: macos
+      targets: [macos_arm64, macos_x64]
+    - platform: windows
+      targets: [windows_x64, windows_arm64]
+    - platform: linux
+      targets: [linux_x64, linux_arm64]
+    - platform: web
+    - platform: ios
+    - platform: android
+      targets: [android_arm64]
+```
+
+After editing `game.yaml`, synchronize the fields NSGo reads instead of editing them in `nsgo.yaml` yourself:
+
+```sh
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
+```
+
+`sync` keeps the other `nsgo.yaml` settings and comments. `build_number` is not part of `game.yaml`: leave it in `nsgo.yaml` and increment it for every store upload. `nsgo build` reads the synchronized files; its `-name`, `-id`, `-version`, `-build-number`, `-output`, `-target` and `-channel` flags override the corresponding values for one build without rewriting either file.
+
+<!-- shipping-project: nsgo.yaml -->
 ```yaml
 name: My Game
 id: com.example.mygame
@@ -32,9 +66,8 @@ build:
     - android_arm64
 ```
 
-- **`id`**: reverse-DNS bundle identifier / application ID (for example `com.example.mygame`). Keep it stable across releases; Apple App Store, Google Play and Microsoft Store key your app on it.
-- **`version`**: user-facing semantic version (`CFBundleShortVersionString`, Android `versionName`).
-- **`build_number`**: monotonically increasing integer for every store upload (`CFBundleVersion` on Apple platforms, `versionCode` on Android). When omitted, it derives from `version`.
+- **`appVersion` / `version`**: the user-facing semantic version (`CFBundleShortVersionString`, Android `versionName`).
+- **`build_number`**: a monotonically increasing integer for every store upload (`CFBundleVersion` on Apple platforms, `versionCode` on Android). When omitted, it derives from `version`.
 - **`resources/` vs `assets/`**: every runtime file loaded as `"asset:..."` — images, sounds, atlas JSON, tilemaps, models, data tables and raw bytes read by `assets.Manager` — lives in `resources/` and ships inside every package (fetched on demand on the web through `core.Scope.ReadAsset`). Build-time inputs such as app icons, or small startup files embedded with `//go:embed`, live in `assets/`. Use `mobile.exclude_resources` in `nsgo.yaml` to omit desktop-only files from iOS and Android packages.
 
 ## App icons
@@ -47,6 +80,50 @@ Place default icons in `assets/` and `nsgo build` picks them up automatically wi
 To distinguish development builds from releases, add `-dev` variants (`assets/AppIcon-dev.icon`, `assets/Icon-dev.png`) or set `dev.icon`; `nsgo dev` uses them automatically.
 
 For desktop installers, you can also set `macos.dmg_icon`, `macos.dmg_background` (PNG with optional `@2x` twin), `windows.installer_icon` and `windows.uninstaller_icon` in `nsgo.yaml`.
+
+Android launchers can mask and move an adaptive icon instead of putting the shared PNG on their own background. Configure its foreground and background, and add a monochrome shape for Android 13's themed icons:
+
+```yaml
+icon:
+  android:
+    foreground: assets/IconForeground.png
+    background: "#1F1F1F"  # a color or a square PNG
+    monochrome: assets/IconMonochrome.png
+```
+
+Each layer is a 108 dp square, with PNGs scaled to 432 pixels. Keep the logo inside the center 66 dp (264 pixels) and let the background fill the whole square. Only the monochrome shape's alpha matters. `icon.android.png` can still select a plain Android bitmap; without one, NSGo uses `icon.png` or draws it from the adaptive layers. See [NSGo's building guide](https://nsgo.dev/docs/building/) for the fallback rules.
+
+## Launch screen
+
+Set `launch_screen` in `nsgo.yaml` to show an opaque background, a centered PNG, or both on iOS and Android 12 or later:
+
+```yaml
+launch_screen:
+  background: "#F5F1EA"
+  image: assets/Launch.png
+  dark:
+    background: "#201C26"
+    image: assets/LaunchDark.png
+```
+
+Image paths are relative to `nsgo.yaml`. The image fits proportionally inside 128 × 128 points or dp; use a transparent PNG whose longest side is at least 512 pixels. The system selects light or dark unless `window.appearance` in `game.yaml` pins the appearance. An omitted dark field reuses its light value; omit the image or background entirely to keep the platform default.
+
+## Apple privacy manifest and export compliance
+
+Every Apple bundle NSGo builds contains `PrivacyInfo.xcprivacy`, declaring the required-reason APIs used by NSGo and the Go runtime. Add your game's own declarations with `apple.privacy`; a `PrivacyInfo.xcprivacy` in `resources/` is merged with them rather than replaced. Record the app's answer to Apple's encryption export-compliance question under `apple.info`:
+
+```yaml
+apple:
+  privacy:
+    accessed_apis:
+      NSPrivacyAccessedAPICategoryDiskSpace: [E174.1]  # example only: declare the APIs and reasons your game actually uses
+    tracking: false
+  info:
+    ITSAppUsesNonExemptEncryption: false  # example answer; use your app's actual answer
+    # ITSEncryptionExportComplianceCode: "Apple's approval code, if you have one"
+```
+
+`accessed_apis` also supports the other Apple required-reason categories, and `privacy` accepts `tracking_domains` and `collected_data`. The export-compliance value must be a YAML boolean and the approval code a string. You can omit both keys and answer the questionnaire at upload instead. See [NSGo's building guide](https://nsgo.dev/docs/building/) and Apple's current App Store Connect guidance for the complete declarations.
 
 ## Verify all targets before building
 
@@ -143,7 +220,7 @@ go tool nsgo build -target macos
   ```sh
   go tool nsgo build -channel store -target macos
   ```
-  `nsgo build` signs the app in the App Sandbox and packages a `.pkg` installer ready to upload via Transporter.
+  `nsgo build` signs the app in the App Sandbox and packages a `.pkg` installer ready for `go tool nsgo publish macos`, as [Publish to the stores](#publish-to-the-stores) describes.
 
 ### Windows
 
@@ -211,7 +288,7 @@ go tool nsgo build -target ios_simulator
 
 - **Signing**: provide an App Store, Ad Hoc or Development provisioning profile matching `id` via `sign.profile` (or `-profile`). `nsgo build` automatically selects the matching signing identity from your keychain, or you can specify it explicitly with `sign.identity` (or `-sign`).
 - **Store submission**:
-  - Upload `<name>.ipa` to App Store Connect / TestFlight with Apple's Transporter app or Xcode.
+  - Upload the signed store `.ipa` to App Store Connect / TestFlight with `go tool nsgo publish ios`, as [Publish to the stores](#publish-to-the-stores) describes.
   - Increment `build_number` (`CFBundleVersion`) for every upload.
   - Configure iPad multitasking and screen orientations with `apple.requires_full_screen` and `apple.orientations` (`portrait`, `portrait_upside_down`, `landscape_left`, `landscape_right`), and add any required `Info.plist` entries under `apple.info`. `apple.orientations` declares the orientations a full-screen iPad allows, while the runtime request from `cx.RequestOrientation` applies on both the iPhone and the iPad (see [Orientation on phones](screen.md#orientation-on-phones)). On an iPad, UIKit allows only the orientations both lists share, so list every orientation the game requests, such as `landscape_left` and `landscape_right` for a landscape game; a request with nothing in common with `apple.orientations` leaves the iPad no valid orientation.
 
@@ -225,12 +302,88 @@ go tool nsgo build -target android_arm64
 
 To also build `android_x64` (for x86_64 emulators or Chromebooks), install an Android NDK and pass `-target android_arm64,android_x64`.
 
-- **Signing**: configure a PKCS#12 or JKS keystore via `sign.keystore` (or `-keystore`) and `sign.key_alias` (or `-key-alias`). Never commit passwords to `nsgo.yaml`; pass them via environment variables:
+- **Create an upload key**: use the JDK's `keytool` to create a PKCS#12 upload keystore, answer its identity prompts, and choose strong passwords when prompted. Keep the file and passwords out of version control and back them up securely:
+  ```sh
+  mkdir -p certs
+  keytool -genkeypair -v -keystore certs/upload.p12 -storetype PKCS12 -alias upload -keyalg RSA -keysize 2048 -validity 10000
+  ```
+- **Signing**: configure the PKCS#12 or JKS keystore via `sign.keystore` (or `-keystore`) and `sign.key_alias` (or `-key-alias`). Never commit passwords to `nsgo.yaml`; pass them via environment variables:
   ```sh
   NSGO_KEYSTORE_PASSWORD="$STORE_PW" NSGO_KEY_PASSWORD="$KEY_PW" \
     go tool nsgo build -channel store -target android_arm64 \
     -keystore certs/upload.p12 -key-alias upload
   ```
   Without a keystore, `nsgo build` signs APKs with the project's debug key (for sideloading only, rejected by Google Play).
-- **Google Play**: build with `-channel store` to produce a signed `.aab` (Android App Bundle) for Google Play Console. Increment `build_number` (`versionCode`) on every upload, set `android.target_sdk` to Google Play's current required API level (`minSdkVersion` is 28), and declare any extra permissions under `android.permissions`.
+- **Google Play**: build with `-channel store` to produce a signed `.aab` (Android App Bundle), then upload it with `go tool nsgo publish -target android`, as [Publish to the stores](#publish-to-the-stores) describes. Increment `build_number` (`versionCode`) on every upload, set `android.target_sdk` to Google Play's current required API level (`minSdkVersion` is 28), and declare any extra permissions under `android.permissions`.
 - **Orientation**: the manifest does not fix an orientation; the game requests the one it plays in at runtime with `cx.RequestOrientation` (see [Orientation on phones](screen.md#orientation-on-phones)).
+
+## Store listings
+
+Keep store metadata in version control as YAML and Markdown under `store/`, or change the directory with `store.dir` in `nsgo.yaml`:
+
+```text
+store/
+  listing.yaml              # version: 1, default_locale, app_store and google_play settings
+  en-US/
+    listing.yaml            # version: 1, title, subtitle, short_description, keywords and URLs
+    description.md          # full description; can instead be the YAML description field
+    release_notes.md        # what's new; can instead be the YAML release_notes field
+    promotional_text.md     # optional App Store promotional text
+    screenshots/
+  zh-Hans/
+    listing.yaml
+    description.md
+    release_notes.md
+    screenshots/
+```
+
+Both levels of `listing.yaml` require `version: 1` and refuse unknown fields. Canonical locale directories map to each store's locale automatically; `app_store.locale` and `google_play.locale` can override the mapping. `app_store.bundle_id`, `app_store.version` and `google_play.package_name` default to the identity synchronized from `game.yaml`. See [NSGo's building guide](https://nsgo.dev/docs/building/#store-listings) for every field, media type and store-specific override.
+
+Validate every locale before a release:
+
+```sh
+go tool nsgo publish -store all -dry-run
+```
+
+This checks required fields, locale codes, URL schemes, media files and counts, and each store's character limits without reading credentials or making HTTP requests. The limits include 30 characters for either store's title, 80 for a Google Play short description, 4000 for either full description, and 500 for Google Play release notes. App Store Connect also limits subtitles to 30, keywords to 100, promotional text to 170 and release notes to 4000 characters.
+
+To upload the validated metadata, run `go tool nsgo publish -store appstore,play`; add `-track production` with `-store play` to update that track's release notes. App Store Connect reads `NSGO_APP_STORE_KEY`, `NSGO_APP_STORE_KEY_ID` and `NSGO_APP_STORE_ISSUER`, falling back to the corresponding `NSGO_NOTARY_*` variables. Google Play reads `NSGO_PLAY_SERVICE_ACCOUNT`. Credentials come from the environment, never the listing files.
+
+## Publish to the stores
+
+Create the app records in App Store Connect and Google Play Console before uploading. NSGo uploads builds and store metadata, but you still submit the processed build for review in each store.
+
+For App Store Connect and TestFlight, sign an iOS `.ipa` with an App Store distribution profile or a macOS store `.pkg` with the team's installer identity. On a Mac with Xcode, set `NSGO_APP_STORE_KEY` to an App Store Connect `.p8` key's path or contents, and set `NSGO_APP_STORE_KEY_ID` and `NSGO_APP_STORE_ISSUER`; give the key access to the app and permission to upload builds. Then pass the signed package to the matching command:
+
+```sh
+go tool nsgo publish ios path/to/MyGame.ipa
+go tool nsgo publish macos path/to/MyGame.pkg
+```
+
+The command checks the bundle's build number, uploads the package and reports Apple's processing result. Increment `build_number` before the next upload. macOS build numbers increase across all app versions; iOS can restart the sequence for a new version.
+
+For Google Play, enable the Google Play Developer API and give a service account permission to release the app to the chosen track. Set `NSGO_PLAY_SERVICE_ACCOUNT` to the service-account JSON key's contents or file path, build a signed App Bundle, and publish it:
+
+```sh
+GOFLAGS=-tags=release go tool nsgo build -channel store -target android
+go tool nsgo publish -target android -track internal
+```
+
+`publish` finds the current project version's `.aab` in `build.output/releases`. If more than one matches, pass the desired `.aab` path after the flags. The track can be `internal`, `production` or a closed track's ID. NSGo reads the package name and version code from the bundle, requires a version code higher than every release on that track, uploads the bundle and commits the release.
+
+## Store compliance
+
+Use `nsgo.yaml` to track the release questionnaires that remain outside the package:
+
+```yaml
+compliance:
+  app_store: { age_rating: false }
+  google_play: { data_safety: false }
+  steam: { content_survey: false }
+```
+
+Set an entry to `true` after completing its questionnaire. A matching `-channel store` or `-channel steam` build reminds you about entries still set to `false`; omit entries you do not want to track.
+
+- Complete the [age rating questionnaire](https://developer.apple.com/help/app-store-connect/manage-app-information/set-an-app-age-rating) and [App Privacy details](https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy) in App Store Connect. Answer the encryption export-compliance question as [Apple privacy manifest and export compliance](#apple-privacy-manifest-and-export-compliance) describes.
+- Complete [Data safety](https://support.google.com/googleplay/android-developer/answer/10787469) in Play Console. Apps distributed exclusively on the internal testing track are exempt.
+- Complete the [Content Survey](https://partner.steamgames.com/doc/gettingstarted/contentsurvey) in Steamworks before submitting the game for review.

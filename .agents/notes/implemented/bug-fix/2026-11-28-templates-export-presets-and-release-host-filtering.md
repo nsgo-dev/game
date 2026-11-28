@@ -40,3 +40,4 @@ Separate full release presets (`game.yaml`, built by `game release` with host ca
 - **Costs**:
   - `SyncNSGo` no longer mirrors Apple targets into `nsgo.yaml` when portable targets exist, so users running plain `go tool nsgo build` on macOS pass `-target macos,ios` or use `go tool game release` (which also sets `GOFLAGS=-tags=release`; see [release build tag](2026-11-28-release-build-tag.md)).
   - Once templates bump their pinned `github.com/nsgo-dev/game` version past `v0.1.0`, the `Project.Clone()` Apple-preset filter in `template/*/template/project_test.go` can be simplified back to `Project.CheckNSGo(nsgoYAML)`.
+  - The user-facing ownership and synchronization workflow, its documentation test, and the checked-in store-listing validation are recorded in [Shipping guide follows game.yaml and validates store listings](../process/2026-11-28-shipping-guide-gameyaml-store-workflow.md).
