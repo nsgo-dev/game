@@ -138,6 +138,10 @@ By default an `Actions` reads every connected controller: a button is pressed wh
 
 Controllers are polled once per step, so a press and release that both happen between two steps are not seen. Tests and replays can skip the live controllers and feed `[]gamepad.Pad` snapshots with `OnGamepads`, which latches presses between steps like touches; `Gamepads()` returns the state last read.
 
+### Steam Deck
+
+`DetectGamepadKind` and `DeviceTracker.OnGamepadActivity` report a controller whose name contains `Steam Deck`, `SteamDeck` or `Valve Handheld` as `DeviceGamepadSteamDeck` (`steam_deck`), which `IsGamepad` counts as a gamepad. A `PromptTable` resolves it through `DeviceGamepadSteamDeck`, then `DeviceGamepadXbox`, `DeviceGamepadGeneric` and `DeviceKeyboard`, since the Deck's face buttons follow the Xbox layout; register Deck glyphs with `Set(action, input.DeviceGamepadSteamDeck, prompt)`. Detection uses the controller's name only: when Steam Input presents the Deck as a virtual Xbox pad, it is reported as Xbox.
+
 ## Deterministic aim assist
 
 `AimAssist` applies the same target selection and correction on every fixed simulation step for mouse, stick, and touch aim. Supply an ordered snapshot of `AimTarget2D` or `AimTarget3D` values, each with a world position, radius, and priority. `Evaluate2D` and `Evaluate3D` select the highest-priority visible target inside `OuterRadius`, reduce look input inside `InnerRadius`, and pull the direction toward the target by `Magnetism`. Set `Snap` to snap inside `SnapAngle`; `Strength` in `[0, 1]` scales all effects and zero leaves the direction unchanged.

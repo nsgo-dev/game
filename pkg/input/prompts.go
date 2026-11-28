@@ -18,6 +18,8 @@ const (
 	DeviceGamepadPlayStation
 	DeviceGamepadNintendo
 	DeviceGamepadGeneric
+	// DeviceGamepadSteamDeck identifies Steam Deck's built-in controls. Prompts fall back to the Xbox ones when a table has no Deck entry.
+	DeviceGamepadSteamDeck
 )
 
 // String returns a short canonical name for d.
@@ -39,6 +41,8 @@ func (d DeviceKind) String() string {
 		return "nintendo"
 	case DeviceGamepadGeneric:
 		return "gamepad"
+	case DeviceGamepadSteamDeck:
+		return "steam_deck"
 	default:
 		return "unknown"
 	}
@@ -47,7 +51,7 @@ func (d DeviceKind) String() string {
 // IsGamepad reports whether d is one of the gamepad device kinds.
 func (d DeviceKind) IsGamepad() bool {
 	switch d {
-	case DeviceGamepadXbox, DeviceGamepadPlayStation, DeviceGamepadNintendo, DeviceGamepadGeneric:
+	case DeviceGamepadXbox, DeviceGamepadPlayStation, DeviceGamepadNintendo, DeviceGamepadGeneric, DeviceGamepadSteamDeck:
 		return true
 	default:
 		return false
@@ -58,6 +62,8 @@ func (d DeviceKind) IsGamepad() bool {
 func DetectGamepadKind(name string) DeviceKind {
 	s := strings.ToLower(name)
 	switch {
+	case strings.Contains(s, "steam deck"), strings.Contains(s, "steamdeck"), strings.Contains(s, "valve handheld"):
+		return DeviceGamepadSteamDeck
 	case strings.Contains(s, "dualsense"),
 		strings.Contains(s, "dualshock"),
 		strings.Contains(s, "playstation"),
@@ -429,6 +435,9 @@ func deviceFallbackChain(d DeviceKind) []DeviceKind {
 		return []DeviceKind{DeviceGamepadXbox, DeviceGamepadGeneric, DeviceKeyboard}
 	case DeviceGamepadNintendo:
 		return []DeviceKind{DeviceGamepadNintendo, DeviceGamepadGeneric, DeviceKeyboard}
+	case DeviceGamepadSteamDeck:
+		// The Deck's face buttons follow the Xbox layout (A south, B east), so Xbox prompts are the closest match when a table has no Deck entry.
+		return []DeviceKind{DeviceGamepadSteamDeck, DeviceGamepadXbox, DeviceGamepadGeneric, DeviceKeyboard}
 	case DeviceGamepadGeneric:
 		return []DeviceKind{DeviceGamepadGeneric, DeviceKeyboard}
 	case DeviceMouse:

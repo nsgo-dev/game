@@ -138,6 +138,10 @@ actions.WatchGamepads(cx)
 
 手柄每个步长轮询一次，因此在两个步长之间完成的按下和松开不会被察觉。测试和回放可以不读取实际手柄，改用 `OnGamepads` 传入 `[]gamepad.Pad` 快照，它会像触摸一样锁存步长之间的按下；`Gamepads()` 返回最近一次读取的状态。
 
+### Steam Deck
+
+`DetectGamepadKind` 和 `DeviceTracker.OnGamepadActivity` 会把名称包含 `Steam Deck`、`SteamDeck` 或 `Valve Handheld` 的手柄报告为 `DeviceGamepadSteamDeck`（`steam_deck`），`IsGamepad` 把它算作手柄。`PromptTable` 依次按 `DeviceGamepadSteamDeck`、`DeviceGamepadXbox`、`DeviceGamepadGeneric`、`DeviceKeyboard` 查找它的提示，因为 Deck 的正面按键沿用 Xbox 布局；用 `Set(action, input.DeviceGamepadSteamDeck, prompt)` 注册 Deck 专用图标。识别只看手柄名称：Steam Input 把 Deck 呈现为虚拟 Xbox 手柄时，报告的是 Xbox。
+
 ## 确定性瞄准辅助
 
 `AimAssist` 在每个固定模拟步为鼠标、摇杆和触摸瞄准执行相同的目标选择和修正。传入按稳定顺序排列的 `AimTarget2D` 或 `AimTarget3D`，每个目标包含世界坐标、半径和优先级。`Evaluate2D` 与 `Evaluate3D` 会从 `OuterRadius` 内的可见目标选择最高优先级目标，在 `InnerRadius` 内降低瞄准输入，并按 `Magnetism` 将方向拉向目标。设置 `Snap` 后，误差小于 `SnapAngle` 会直接吸附；`Strength` 在 `[0, 1]` 范围缩放所有效果，设为 0 时方向保持不变。
