@@ -1757,3 +1757,5 @@ func main() {
 `editor.yaml` 可以设置 `agent.builtInEndpoint`、`agent.builtInModel` 与 `agent.builtInFastModel`，让内置 Agent 改连另一个 Anthropic Messages 服务（网关，或回环地址上的本地服务），并为默认与快速两条路由选择模型 ID（`AgentBuiltInEndpointForSettings`、`AgentBuiltInModelForRoute`）。端点与 `Editor.BuiltInAgentEndpoint` 遵循同一策略，且优先于它：必须是 `https://`，`http://` 只允许回环主机。字段留空时沿用 `DefaultBuiltInAgentEndpoint`、`DefaultBuiltInModel` 与 `DefaultBuiltInFastModel`。在开始界面粘贴 API key 时，会用已配置的端点与快速模型来验证。
 
 `agent.builtInFormat` 接受 `anthropic`（默认）或 `openai`，其他值在加载 `editor.yaml` 时被拒绝。OpenAI 兼容的 Chat Completions 适配器尚未实现，因此设为 `openai` 时，内置运行器会以 `ErrBuiltInFormatUnsupported` 拒绝每个请求，而不是把 Anthropic 请求发给该服务。这些是仅限本人的设置：代表 Agent 发起的 `ApplySettings` 修改会被拒绝。API key 保存在系统钥匙串中，不会写入 `editor.yaml`。
+
+- **编辑器 MCP Play 契约（#1743）**：保留的 Play 控制请求会在分发前验证步数与输入事件。`play_start` 接受的回放文件必须是项目相对的 `.replay.yaml` 路径，在集成实时处理器前先阻止路径穿越与不支持的文件类型。

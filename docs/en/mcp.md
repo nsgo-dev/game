@@ -517,3 +517,7 @@ In `pkg/editor/editormcp`, the editor's MCP server enforces two non-bypassable t
 ## MCP Apps widgets
 
 When a client declares the `io.modelcontextprotocol/ui` extension with `text/html;profile=mcp-app` in its `initialize` capabilities, the editor MCP server lists the self-contained `ui://nsgo-game/playtest-report` and `ui://nsgo-game/viewport` resources, and successful `game_playtest`, `playtest_report`, and `viewport_image` results carry the matching URI in `_meta.ui.resourceUri`. Clients without that capability do not see the resources, cannot read them, and receive the same text, structured result, and image content as before. `go tool game mcp` forwards only this extension from its client to the editor. The widget HTML runs no script, makes no network connections, and allows only inline styles plus `data:` and `blob:` images; the data stays in the tool result's text, structured, and image content. Viewport privacy settings still apply: when viewport images may not leave the computer, `viewport_image` is refused and its result points at no widget.
+
+### Editor Play control contract
+
+The reserved `play_start`, `play_stop`, `play_step`, `play_input`, `play_state`, `play_frame`, and `output_read` names describe the forthcoming editor Play loop. `ValidatePlayStart` confines optional replay files to project-relative `.replay.yaml` paths, while `ValidatePlayStep` and `ValidatePlayInput` bound steps, actions, events, and axis values before dispatch.

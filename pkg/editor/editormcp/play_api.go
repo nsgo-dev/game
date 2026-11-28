@@ -1,6 +1,10 @@
 package editormcp
 
-import "fmt"
+import (
+	"fmt"
+	"path"
+	"strings"
+)
 
 // Names reserved for the live Play tools (#1743). Server does not register them yet; the argument and result types below are the wire contract their handlers will use.
 const (
@@ -110,4 +114,20 @@ func ValidatePlayInput(a PlayInputArgs) error {
 	default:
 		return fmt.Errorf("editormcp: unknown play_input event %q", a.Event)
 	}
+}
+
+// ValidatePlayStart checks replay_file containment and mutually valid start options.
+func ValidatePlayStart(a PlayStartArgs) error {
+	p := strings.TrimSpace(a.ReplayFile)
+	if p == "" {
+		return nil
+	}
+	clean := path.Clean(strings.ReplaceAll(p, "\\", "/"))
+	if clean != p || clean == "." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
+		return fmt.Errorf("editormcp: play_start replay_file must be a project-relative path")
+	}
+	if !strings.HasSuffix(clean, ".replay.yaml") {
+		return fmt.Errorf("editormcp: play_start replay_file must end in .replay.yaml")
+	}
+	return nil
 }

@@ -517,3 +517,7 @@ NSGo 的 `automation` 只在 `nsgo dev -automation` 和测试构建中注册应�
 ## MCP Apps 小组件
 
 当客户端在 `initialize` 能力中通过 `io.modelcontextprotocol/ui` 扩展声明 `text/html;profile=mcp-app` 时，编辑器 MCP 服务器会列出自包含的 `ui://nsgo-game/playtest-report` 和 `ui://nsgo-game/viewport` 资源，成功的 `game_playtest`、`playtest_report` 与 `viewport_image` 结果会在 `_meta.ui.resourceUri` 中带上对应的 URI。不支持该能力的客户端看不到这些资源、也无法读取，收到的文本、结构化结果和图像内容与以前相同。`go tool game mcp` 只把这一扩展从它的客户端转发给编辑器。小组件 HTML 不运行脚本、不建立网络连接，只允许内联样式以及 `data:` 和 `blob:` 图像；数据仍在工具结果的文本、结构化内容和图像中。视口隐私设置照常生效：视口图像不允许离开本机时，`viewport_image` 会被拒绝，其结果不指向任何小组件。
+
+### 编辑器 Play 控制契约
+
+保留的 `play_start`、`play_stop`、`play_step`、`play_input`、`play_state`、`play_frame` 与 `output_read` 名称描述即将提供的编辑器 Play 循环。`ValidatePlayStart` 将可选回放文件限制为项目相对的 `.replay.yaml` 路径，`ValidatePlayStep` 与 `ValidatePlayInput` 会在分发前限制步数、动作、事件和轴值。
