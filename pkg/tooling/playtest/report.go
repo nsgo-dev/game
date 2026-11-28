@@ -50,7 +50,16 @@ type Report struct {
 	// Matrices holds labeled row-vs-column numeric matrices (such as deck-pair win rates in percent).
 	Matrices []MatrixChart `yaml:"matrices,omitempty"`
 	// Runs holds per-seed outcomes, durations, counters, timers, positioned events, perf readouts and recording paths.
-	Runs []RunReport `yaml:"runs"`
+	Runs      []RunReport      `yaml:"runs"`
+	Baselines []BaselineReport `yaml:"baselines,omitempty"`
+}
+
+type BaselineReport struct {
+	Name    string  `yaml:"name"`
+	Passed  bool    `yaml:"passed"`
+	Outcome string  `yaml:"outcome,omitempty"`
+	WinRate float64 `yaml:"winRate,omitempty"`
+	Note    string  `yaml:"note,omitempty"`
 }
 
 // SeriesChart holds labeled numeric bars or per-bucket aggregates across runs (such as hits per wave or shortest solution moves per level).
