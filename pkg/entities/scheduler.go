@@ -32,8 +32,15 @@ func Before(other string) SystemOption {
 
 // After constrains the system to run after the system named other.
 func After(other string) SystemOption {
+	return func(s *systemEntry) { s.after = append(s.after, other) }
+}
+
+// Every runs a system once every n scheduler steps. n<=1 runs every step.
+func Every(n int) SystemOption {
 	return func(s *systemEntry) {
-		s.after = append(s.after, other)
+		if n > 1 {
+			s.every = n
+		}
 	}
 }
 
@@ -42,6 +49,8 @@ type systemEntry struct {
 	fn     func(w *World, dt time.Duration)
 	before []string
 	after  []string
+	every  int
+	step   int
 }
 
 // Scheduler runs named systems over a World in a deterministic topological order derived from Before and After constraints.
@@ -217,7 +226,12 @@ func (s *Scheduler) Step(w *World, dt time.Duration) error {
 		}
 	}
 	for _, idx := range s.order {
-		s.systems[idx].fn(w, dt)
+		sys := &s.systems[idx]
+		sys.step++
+		if sys.every > 1 && (sys.step-1)%sys.every != 0 {
+			continue
+		}
+		sys.fn(w, dt)
 	}
 	return nil
 }
