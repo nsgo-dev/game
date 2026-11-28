@@ -14,6 +14,7 @@ use (
 	./examples/tutorial
 	./template
 	./template/action3d
+	./template/coop2d
 	./template/cards2d
 	./template/fighting2d
 	./template/fps3d
