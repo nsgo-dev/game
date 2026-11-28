@@ -1,5 +1,9 @@
 # Live operations
 
+## Web portal breaks
+
+`liveops.Portal` provides a provider-neutral seam for Poki and CrazyGames web SDKs. Call `LoadingFinished` after the first playable scene and bracket active play with `GameplayStart` and `GameplayStop`. `Break` and `Rewarded` pause the game, mute audio and reset input before invoking the SDK, then restore audio and play state on success, error or timeout. A rewarded result is granted only when the provider returns `true`; `PortalNone` is a no-op for native builds and tests.
+
 ```go
 import "github.com/nsgo-dev/game/pkg/online/liveops"
 ```

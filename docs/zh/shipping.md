@@ -1,5 +1,9 @@
 # 构建与发布
 
+## Web 门户上传
+
+构建一个自包含的 Web 目录，并让页面适配器连接 `liveops.Portal`。使用每个门户的本地 SDK 模式测试加载、开始和停止游玩、普通广告间隔、奖励成功与奖励错误。必须一直暂停游戏并静音到 SDK 回调完成，只有成功结果才能发放自选奖励。
+
 用 `nsgo check` 验证全部目标平台，在 `game.yaml` 中配置应用身份和导出预设，在 `nsgo.yaml` 中保留图标和签名设置，并用 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android 构建发布包。
 
 ## 名称、标识符和版本

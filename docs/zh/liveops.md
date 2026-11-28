@@ -1,5 +1,9 @@
 # 线上运营（Live operations）
 
+## Web 门户广告间隔
+
+`liveops.Portal` 为 Poki 和 CrazyGames Web SDK 提供与供应商无关的接口。首个可玩的场景准备好后调用 `LoadingFinished`，并使用 `GameplayStart` 与 `GameplayStop` 包围实际游玩。`Break` 和 `Rewarded` 会在调用 SDK 前暂停游戏、静音并重置输入，在成功、错误或超时后恢复音频与游玩状态。只有供应商返回 `true` 时才发放奖励；原生构建和测试中的 `PortalNone` 是空操作。
+
 ```go
 import "github.com/nsgo-dev/game/pkg/online/liveops"
 ```
