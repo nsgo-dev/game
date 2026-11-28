@@ -13,14 +13,14 @@ type StateTree struct {
 	States     []State           `yaml:"states"`
 }
 type State struct {
-	ID           string       `yaml:"id"`
-	Enter        []Condition  `yaml:"enter,omitempty"`
-	Tasks        []Task       `yaml:"tasks,omitempty"`
-	CompleteWhen string       `yaml:"completeWhen,omitempty"`
-	Transitions  []Transition `yaml:"transitions,omitempty"`
-	Children     []State      `yaml:"children,omitempty"`
+	ID           string           `yaml:"id"`
+	Enter        []StateCondition `yaml:"enter,omitempty"`
+	Tasks        []Task           `yaml:"tasks,omitempty"`
+	CompleteWhen string           `yaml:"completeWhen,omitempty"`
+	Transitions  []Transition     `yaml:"transitions,omitempty"`
+	Children     []State          `yaml:"children,omitempty"`
 }
-type Condition struct {
+type StateCondition struct {
 	Key, Op string
 	Value   any `yaml:"value,omitempty"`
 }
