@@ -1381,6 +1381,7 @@ func (e *Editor) resumeTurnFromFirstNotDone(turn *AgentTurn) error {
 		ResumeFromStep: resumeFrom,
 		CompletedSteps: completed,
 		RemainingSteps: remaining,
+		MCPServers:     e.AgentMCPServers(),
 	}
 
 	turnID := turn.ID
@@ -1449,6 +1450,7 @@ func (e *Editor) continueExistingTurn(turn *AgentTurn, prompt, stepTitle string,
 		AgentKind:   agentKind,
 		Permissions: e.agent.permissions,
 	}
+	req.MCPServers = e.AgentMCPServers()
 	if configure != nil {
 		configure(&req)
 	}

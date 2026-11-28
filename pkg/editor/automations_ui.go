@@ -97,6 +97,48 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 			},
 		}
 
+		heldBanner := core.Show{
+			When: func() bool {
+				_ = rev.Get()
+				return ed.AutomationsHeld()
+			},
+			Then: func(cx *core.Scope) core.Node {
+				return core.View{
+					TestID: "automations-held-banner",
+					Role:   core.RoleStatus,
+					Style: core.Style{
+						Direction:      core.Row,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifySpaceBetween,
+						Gap:            12,
+						CornerRadius:   10,
+						Background:     p.Warning.Fill,
+						BorderWidth:    1,
+						BorderColor:    p.Warning.Edge,
+						Padding:        core.Symmetric(10, 14),
+					},
+					Children: []core.Node{
+						core.View{
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
+							Children: []core.Node{
+								core.Text{
+									Content: ed.T("settings.automations.heldTitle"),
+									Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.Warning.Fg},
+								},
+								core.Text{
+									Content: ed.T("settings.automations.heldHelp"),
+									Style:   core.Style{FontSize: 11.5, Color: p.TextSecondary},
+								},
+							},
+						},
+						settingsSpecButton(p, "automations-banner-allow", ed.T("settings.automations.allow"), ed.T("settings.automations.allow"), false, nil, func() {
+							ed.report(ed.AllowProjectAutomations())
+						}),
+					},
+				}
+			},
+		}
+
 		pausedBanner := core.Show{
 			When: func() bool {
 				_ = rev.Get()
@@ -615,6 +657,7 @@ func automationsSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[ui
 							},
 							Children: []core.Node{
 								loadErrBanner,
+								heldBanner,
 								pausedBanner,
 								rowsList,
 								actionsRow,
