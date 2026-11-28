@@ -3400,6 +3400,34 @@ pre {
   padding: 20px 22px 18px;
 }
 
+.showcase-card__media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  margin: -20px -22px 18px;
+  overflow: hidden;
+  background: var(--soft);
+}
+
+.showcase-card__media img,
+.showcase-card__preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.showcase-card__preview {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.showcase-card:hover .showcase-card__preview,
+.showcase-card:focus-within .showcase-card__preview {
+  opacity: 1;
+}
+
 .showcase-card__top {
   display: flex;
   align-items: center;

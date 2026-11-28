@@ -836,6 +836,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							ed.SelectProjectTemplate(tmpl.Name)
 						},
 						Children: []core.Node{
+							core.Image{Source: core.ImageSource{URI: tmpl.Cover}, ResizeMode: core.Cover, Style: core.Style{Width: core.Pt(220), Height: core.Pt(56)}},
 							core.View{
 								Style: core.Style{
 									Height:         core.Pt(56),

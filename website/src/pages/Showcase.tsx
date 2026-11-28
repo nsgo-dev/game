@@ -2,7 +2,7 @@ import { Eyebrow, SpeedLines } from '../components/Brand'
 import { Icon } from '../components/Icon'
 import { LocaleLink } from '../components/LocaleLink'
 import { isPlaygroundId } from '../content/playground'
-import { SHOWCASE_ENTRIES, type ShowcaseEntry } from '../content/showcase'
+import { galleryCover, SHOWCASE_ENTRIES, type ShowcaseEntry } from '../content/showcase'
 import { type Copy, copies } from '../copy'
 import { type Lang, pageHead, useLang } from '../i18n'
 import { CONTRIBUTING_URL, SHOWCASE_SUBMIT_URL } from '../links'
@@ -53,6 +53,10 @@ function ShowcaseCard({ entry, index, lang, copy }: { entry: ShowcaseEntry; inde
   const playground = isPlaygroundId(entry.id) ? entry.id : undefined
   return (
     <li className="showcase-card hud">
+      <div className="showcase-card__media">
+        <img src={galleryCover(entry)} alt="" loading="lazy" width={864} height={486} />
+        {entry.preview && <video className="showcase-card__preview" src={entry.preview} muted playsInline preload="none" loop aria-hidden="true" />}
+      </div>
       <div className="showcase-card__top">
         <span className="hud-label">{copy.entry(index)}</span>
         <span className={chipClass}>{copy.kinds[entry.kind]}</span>

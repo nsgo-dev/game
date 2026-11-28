@@ -13,9 +13,13 @@ export interface ShowcaseEntry {
   tags: string[]
   targets: ShowcaseTarget[]
   sourceUrl: string
+  cover?: string
+  preview?: string
   playUrl?: string
   license: string
 }
+
+export const galleryCover = (entry: ShowcaseEntry): string => entry.cover ?? '/gallery/templates/cover.svg'
 
 const ALL_TARGETS: ShowcaseTarget[] = ['macOS', 'iOS', 'Windows', 'Linux', 'Android', 'Web']
 
