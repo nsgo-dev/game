@@ -8,7 +8,7 @@
 
 ## 任务类别
 
-任务可以用 `family` 声明 `create`、`editor`、`debug`、`3d`、`data`、`code` 或 `safety`，并用 `mcp_servers` 列出它期望智能体使用的 MCP 服务名称，例如 `[nsgo]`。未知的类别、为空或含空白字符的服务名称、重复的服务名称都会使任务加载失败。两个字段都是可选的；`platformer-level`、`add-enemy-type` 和 `add-menu` 是使用 `[nsgo]` 的 `create` 任务，`nsgo` 也是目前暂存的 `mcp.json` 唯一配置的服务。这两个字段是元数据，评分和报告暂未使用。
+任务可以用 `family` 声明 `create`、`editor`、`debug`、`3d`、`data`、`code` 或 `safety`，并用 `mcp_servers` 列出它期望智能体使用的 MCP 服务名称，例如 `[nsgo]`。未知的类别、为空或含空白字符的服务名称、重复的服务名称都会使任务加载失败。两个字段都是可选的；`platformer-level`、`add-enemy-type` 和 `add-menu` 是 `create` 任务，`editor-workflow` 是 `editor` 任务，都使用 `[nsgo]`，`nsgo` 也是目前暂存的 `mcp.json` 唯一配置的服务。这两个字段是元数据，评分和报告暂未使用。
 
 ## 任务
 

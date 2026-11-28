@@ -8,7 +8,7 @@ The evaluation catalog had only create-task metadata, so reports could not disti
 
 ## Decision
 
-Tasks may declare a constrained `family` and an `mcp_servers` list of distinct names. Both fields stay optional, so a task without them still loads; the three existing tasks are tagged `create` with `[nsgo]`, the one server the staged `mcp.json` configures. The metadata is intentionally independent of grading so new families can be added without changing old rubrics.
+Tasks may declare a constrained `family` and an `mcp_servers` list of distinct names. Both fields stay optional, so a task without them still loads; the existing menu, level and enemy tasks are tagged `create` and `editor-workflow` is tagged `editor`, all with `[nsgo]`, the one server the staged `mcp.json` configures. The metadata is intentionally independent of grading so new families can be added without changing old rubrics.
 
 ## Alternatives considered
 

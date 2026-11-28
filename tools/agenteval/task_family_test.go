@@ -13,6 +13,9 @@ func TestTaskFamilyMetadataValidation(t *testing.T) {
 			t.Fatalf("task %s: family %q, mcp_servers %q; want create, [nsgo]", id, task.Family, task.MCPServers)
 		}
 	}
+	if task := loadTask(t, root, "editor-workflow"); task.Family != "editor" || len(task.MCPServers) != 1 || task.MCPServers[0] != "nsgo" {
+		t.Fatalf("task editor-workflow: family %q, mcp_servers %q; want editor, [nsgo]", task.Family, task.MCPServers)
+	}
 
 	base := loadTask(t, root, "add-menu")
 	cases := []struct {
