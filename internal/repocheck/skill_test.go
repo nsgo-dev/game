@@ -34,10 +34,11 @@ type skillFrontmatter struct {
 }
 
 var (
-	skillNamePattern      = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-	markdownLinkPattern   = regexp.MustCompile(`!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
-	skillPackageRowRegexp = regexp.MustCompile("^\\| `(game(?:/[a-z0-9_.-]+)*)` \\| (Stable|Experimental) \\|")
-	skillToolRowRegexp    = regexp.MustCompile("^\\| `(game_[a-z0-9_]+)` \\|")
+	skillNamePattern       = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	markdownLinkPattern    = regexp.MustCompile(`!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
+	skillPackageRowRegexp  = regexp.MustCompile("^\\| `(game(?:/[a-z0-9_.-]+)*)` \\| (Stable|Experimental) \\|")
+	skillToolRowRegexp     = regexp.MustCompile("^\\| `(game_[a-z0-9_]+)` \\| (.*?) \\|")
+	skillArgumentNameRegex = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 )
 
 func parseSkillFrontmatter(t *testing.T, data []byte) (skillFrontmatter, string) {
@@ -77,7 +78,54 @@ func stripFencedCodeBlocks(md string) string {
 	return out.String()
 }
 
-// TestAgentSkillValid verifies that skills/nsgo-game conforms to the Agent Skills layout (installable via `bunx skills add`), has valid relative links, lists every package of the module with the status docs/en/stability.md gives it, and catalogs exactly the tools pkg/mcp registers. internal/gamecli's TestAgentSkillDocumentsEveryCommand checks the CLI subcommands.
+// skillToolArguments reads the argument names at the start of each top-level comma-separated clause in a tool table's Arguments cell. A slash or OR joins alternative names in one clause; descriptions and enum values stay inside parentheses.
+func skillToolArguments(cell string) []string {
+	var clauses []string
+	start, depth := 0, 0
+	for i, r := range cell {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				clauses = append(clauses, cell[start:i])
+				start = i + 1
+			}
+		}
+	}
+	clauses = append(clauses, cell[start:])
+
+	var args []string
+	for _, clause := range clauses {
+		rest := strings.TrimSpace(clause)
+		for strings.HasPrefix(rest, "`") {
+			end := strings.Index(rest[1:], "`")
+			if end < 0 {
+				break
+			}
+			name := rest[1 : end+1]
+			if skillArgumentNameRegex.MatchString(name) {
+				args = append(args, name)
+			}
+			rest = strings.TrimSpace(rest[end+2:])
+			switch {
+			case strings.HasPrefix(rest, "/"):
+				rest = strings.TrimSpace(rest[1:])
+			case strings.HasPrefix(rest, "OR "):
+				rest = strings.TrimSpace(rest[len("OR"):])
+			default:
+				rest = ""
+			}
+		}
+	}
+	return args
+}
+
+// TestAgentSkillValid verifies that skills/nsgo-game conforms to the Agent Skills layout (installable via `bunx skills add`), has valid relative links, lists every package of the module with the status docs/en/stability.md gives it, and catalogs exactly the tools pkg/mcp registers with arguments their input schemas accept. internal/gamecli's TestAgentSkillDocumentsEveryCommand checks the CLI subcommands.
 func TestAgentSkillValid(t *testing.T) {
 	skillDir := filepath.Join("skills", "nsgo-game")
 	skillPath := filepath.Join(skillDir, "SKILL.md")
@@ -195,12 +243,13 @@ func TestAgentSkillValid(t *testing.T) {
 		t.Errorf("skills/nsgo-game/references/packages.md is missing package %q", pkg)
 	}
 
-	// Verify the tool catalog in references/mcp-tools.md names exactly the tools game/mcp registers.
+	// Verify the tool catalog in references/mcp-tools.md names exactly the tools game/mcp registers and only arguments their input schemas accept.
 	mcpDoc, err := os.ReadFile(filepath.Join(skillDir, "references", "mcp-tools.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	documentedTools := map[string]bool{}
+	documentedArgs := map[string][]string{}
 	for i, line := range strings.Split(string(mcpDoc), "\n") {
 		m := skillToolRowRegexp.FindStringSubmatch(line)
 		if m == nil {
@@ -210,6 +259,7 @@ func TestAgentSkillValid(t *testing.T) {
 			t.Errorf("skills/nsgo-game/references/mcp-tools.md:%d: duplicate tool %q", i+1, m[1])
 		}
 		documentedTools[m[1]] = true
+		documentedArgs[m[1]] = skillToolArguments(m[2])
 	}
 	tools := mcp.New(mcp.Config{}).Tools()
 	if len(tools) == 0 {
@@ -220,6 +270,18 @@ func TestAgentSkillValid(t *testing.T) {
 		registered[tool.Name] = true
 		if !documentedTools[tool.Name] {
 			t.Errorf("skills/nsgo-game/references/mcp-tools.md is missing registered MCP tool %q", tool.Name)
+		}
+		var schema struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+			t.Errorf("decode input schema for %s: %v", tool.Name, err)
+			continue
+		}
+		for _, arg := range documentedArgs[tool.Name] {
+			if _, ok := schema.Properties[arg]; !ok {
+				t.Errorf("skills/nsgo-game/references/mcp-tools.md documents argument %q for %s, which its input schema does not accept", arg, tool.Name)
+			}
 		}
 	}
 	for name := range documentedTools {
