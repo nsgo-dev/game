@@ -17,6 +17,8 @@ var (
 	ErrRoomNotFound = errors.New("gameserver: room not found")
 	// ErrRoomFull reports a join to a room already at capacity.
 	ErrRoomFull = errors.New("gameserver: room full")
+	// ErrServerBusy reports that admission is capped or the server is overloaded.
+	ErrServerBusy = errors.New("gameserver: server busy")
 	// ErrRoomEnded reports an action on a room whose match has ended.
 	ErrRoomEnded = errors.New("gameserver: room match ended")
 	// ErrNotInRoom reports a packet from a peer that is not a room member.
@@ -197,11 +199,25 @@ type Rooms struct {
 	// beforeJoin is a test-only hook invoked between lookup and locking r.mu.
 	beforeJoin func(*Room)
 
-	mu     sync.Mutex
-	nextID uint64
-	limits RoomLimits
-	rooms  map[uint64]*Room
-	codes  map[string]*Room
+	mu       sync.Mutex
+	nextID   uint64
+	limits   RoomLimits
+	rooms    map[uint64]*Room
+	codes    map[string]*Room
+	capacity Capacity
+	load     func() bool
+	members  int
+}
+
+// Capacity limits process-wide room and member admission. Zero leaves a limit
+// disabled. Load, when set, reports whether the server is currently busy.
+type Capacity struct{ MaxRooms, MaxMembers int }
+
+// SetCapacity updates admission limits and the optional busy callback.
+func (rs *Rooms) SetCapacity(c Capacity, load func() bool) {
+	rs.mu.Lock()
+	rs.capacity, rs.load = c, load
+	rs.mu.Unlock()
 }
 
 // NewRooms returns an empty room manager.
@@ -217,6 +233,12 @@ func (rs *Rooms) Create(capacity int, private bool) (*Room, error) {
 	}
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
+	if rs.load != nil && rs.load() {
+		return nil, ErrServerBusy
+	}
+	if rs.capacity.MaxRooms > 0 && len(rs.rooms) >= rs.capacity.MaxRooms {
+		return nil, ErrServerBusy
+	}
 	if rs.rooms == nil {
 		rs.rooms = make(map[uint64]*Room)
 		rs.codes = make(map[string]*Room)
@@ -293,12 +315,25 @@ func (rs *Rooms) join(r *Room, peer netplay.PeerID) (Join, error) {
 		return Join{}, ErrRoomEnded
 	}
 	if _, exists := r.members[peer]; !exists {
+		rs.mu.Lock()
+		busy := rs.load != nil && rs.load()
+		if !busy && rs.capacity.MaxMembers > 0 {
+			busy = rs.members >= rs.capacity.MaxMembers
+		}
+		rs.mu.Unlock()
+		if busy {
+			r.mu.Unlock()
+			return Join{}, ErrServerBusy
+		}
 		if len(r.members) >= r.capacity {
 			r.mu.Unlock()
 			return Join{}, fmt.Errorf("%w: room %d seats %d", ErrRoomFull, r.id, r.capacity)
 		}
 		r.members[peer] = struct{}{}
 		r.order = append(r.order, peer)
+		rs.mu.Lock()
+		rs.members++
+		rs.mu.Unlock()
 	}
 	r.emptyAt = time.Time{}
 	state, epoch, tick := r.state, r.epoch, r.tick
@@ -323,6 +358,13 @@ func (rs *Rooms) Leave(id uint64, peer netplay.PeerID) bool {
 	r.mu.Lock()
 	_, member := r.members[peer]
 	delete(r.members, peer)
+	if member {
+		rs.mu.Lock()
+		if rs.members > 0 {
+			rs.members--
+		}
+		rs.mu.Unlock()
+	}
 	if i := slices.Index(r.order, peer); i >= 0 {
 		r.order = slices.Delete(r.order, i, i+1)
 	}
