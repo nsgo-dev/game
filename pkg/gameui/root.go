@@ -18,6 +18,8 @@ type Root struct {
 	Viewport *Viewport
 	// FocusRing optionally overrides the focus ring style drawn around the focused widget.
 	FocusRing *FocusRingStyle
+	// TextScale multiplies every widget font size under this Root, including explicit per-widget and screen-file sizes; it is clamped to [MinTextScale, MaxTextScale], and 0 uses Theme.TextScale.
+	TextScale float32
 
 	bounds     core.Bounds
 	focusables []Widget
@@ -34,8 +36,18 @@ func NewRoot(child Widget) *Root {
 	return &Root{Child: child, focusIdx: -1}
 }
 
+// SetTextScale sets the root text scale and returns the normalized value.
+func (r *Root) SetTextScale(scale float32) float32 {
+	scale = clampTextScale(scale)
+	r.TextScale = scale
+	return scale
+}
+
 func (r *Root) theme() Theme {
 	th := resolveTheme(r.Theme)
+	if r.TextScale > 0 {
+		th.TextScale = clampTextScale(r.TextScale)
+	}
 	if r.FocusRing != nil {
 		th.FocusRing = r.FocusRing
 	}

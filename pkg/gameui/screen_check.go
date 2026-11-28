@@ -52,6 +52,8 @@ type ScreenIssue struct {
 
 // ScreenCheckOptions configures CheckScreen.
 type ScreenCheckOptions struct {
+	// TextScale is the largest text scale the game supports. When it is above the theme's own scale, text overflow is checked at both scales, and an overflow that only appears at the larger one names that scale in its message. It is clamped to [MinTextScale, MaxTextScale]; 0 checks the theme's scale only.
+	TextScale float32
 	// Locales maps normalized locale tags to their message string maps (for example from l10n.StringTable.Strings).
 	Locales map[string]map[string]string
 	// Plurals optionally maps normalized locale tags to their CLDR plural entries (for example from l10n.StringTable.Plurals).
@@ -96,6 +98,13 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 	} else {
 		th = DefaultTheme()
 		th.Font.Size = core.Points(DefaultScreenFontSize)
+	}
+	th.TextScale = clampTextScale(th.TextScale)
+	textScales := []float32{th.TextScale}
+	if opts.TextScale > 0 {
+		if maxScale := clampTextScale(opts.TextScale); maxScale > th.TextScale {
+			textScales = append(textScales, maxScale)
+		}
 	}
 	if th.TextMeasurer == nil {
 		th.TextMeasurer = screenTextMeasurer
@@ -238,6 +247,7 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 
 			// Lay out the screen at every reference device size for this locale to check box and safe-area overflows.
 			type overflowRec struct {
+				scale   float32
 				devices []string
 				maxOver float32
 				boxW    float32
@@ -245,76 +255,84 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 			}
 			overflows := make(map[string]*overflowRec)
 
-			for _, dev := range devices {
-				built, err := BuildScreen(doc, ScreenBuildOptions{
-					SafeArea:       dev.SafeArea,
-					DeviceClass:    dev.Class,
-					ViewportWidth:  dev.Width,
-					ViewportHeight: dev.Height,
-					Text: func(key string) string {
-						if txt, ok := lookup(key); ok {
-							return txt
-						}
-						return key
-					},
-					Theme: &th,
-				})
-				if err != nil {
-					continue
-				}
-				built.Layout(core.Bounds{
-					Size: core.Size{Width: core.Points(dev.Width), Height: core.Points(dev.Height)},
-				})
-				safeW := max(float32(0), dev.Width-float32(dev.SafeArea.Left+dev.SafeArea.Right))
+			for _, scale := range textScales {
+				scaled := th
+				scaled.TextScale = scale
+				for _, dev := range devices {
+					built, err := BuildScreen(doc, ScreenBuildOptions{
+						SafeArea:       dev.SafeArea,
+						DeviceClass:    dev.Class,
+						ViewportWidth:  dev.Width,
+						ViewportHeight: dev.Height,
+						Text: func(key string) string {
+							if txt, ok := lookup(key); ok {
+								return txt
+							}
+							return key
+						},
+						Theme: &scaled,
+					})
+					if err != nil {
+						continue
+					}
+					built.Layout(core.Bounds{
+						Size: core.Size{Width: core.Points(dev.Width), Height: core.Points(dev.Height)},
+					})
+					safeW := max(float32(0), dev.Width-float32(dev.SafeArea.Left+dev.SafeArea.Right))
 
-				for _, fn := range nodes {
-					txt, ok := present[fn.doc.ID]
-					if !ok || !fn.effectiveDC.matches(dev.Class) {
-						continue
-					}
-					w := built.Widget(fn.doc.ID)
-					if w == nil || w.spec().Hidden {
-						continue
-					}
-					fontSize := fn.doc.FontSize
-					if fontSize <= 0 {
-						fontSize = float32(th.Font.Size)
-					}
-					tw, _ := MeasureScreenText(txt, fontSize)
-					var padX float32
-					if fn.doc.Padding != nil {
-						padX = fn.doc.Padding.Left + fn.doc.Padding.Right
-					} else if fn.doc.Type == NodeButton && fn.doc.Width == 0 {
-						padX = 2 * max(th.Padding, 4)
-					}
-					neededW := tw + padX
-					boxW := float32(w.Bounds().Size.Width)
+					for _, fn := range nodes {
+						txt, ok := present[fn.doc.ID]
+						if !ok || !fn.effectiveDC.matches(dev.Class) {
+							continue
+						}
+						// A node that already overflows at a smaller scale is reported once, at that scale.
+						if rec := overflows[fn.doc.ID]; rec != nil && rec.scale < scale {
+							continue
+						}
+						w := built.Widget(fn.doc.ID)
+						if w == nil || w.spec().Hidden {
+							continue
+						}
+						fontSize := fn.doc.FontSize
+						if fontSize <= 0 {
+							fontSize = float32(th.Font.Size)
+						}
+						tw, _ := MeasureScreenText(txt, fontSize*scale)
+						var padX float32
+						if fn.doc.Padding != nil {
+							padX = fn.doc.Padding.Left + fn.doc.Padding.Right
+						} else if fn.doc.Type == NodeButton && fn.doc.Width == 0 {
+							padX = 2 * max(th.Padding, 4)
+						}
+						neededW := tw + padX
+						boxW := float32(w.Bounds().Size.Width)
 
-					var availW float32
-					if fn.doc.SizeMode == SizeFitText {
-						availW = safeW
-						if !fn.doc.KeepInSafeArea() {
-							availW = dev.Width
+						var availW float32
+						if fn.doc.SizeMode == SizeFitText {
+							availW = safeW
+							if !fn.doc.KeepInSafeArea() {
+								availW = dev.Width
+							}
+						} else if boxW > 0 {
+							availW = boxW
+						} else if fn.doc.Width > 0 {
+							availW = fn.doc.Width
 						}
-					} else if boxW > 0 {
-						availW = boxW
-					} else if fn.doc.Width > 0 {
-						availW = fn.doc.Width
-					}
-					if availW <= 0 {
-						continue
-					}
-					if over := neededW - availW; over > 0.5 {
-						rec := overflows[fn.doc.ID]
-						if rec == nil {
-							rec = &overflowRec{boxW: availW, neededW: neededW, maxOver: over}
-							overflows[fn.doc.ID] = rec
+						if availW <= 0 {
+							continue
 						}
-						rec.devices = append(rec.devices, dev.Name)
-						if over > rec.maxOver {
-							rec.maxOver = over
-							rec.boxW = availW
-							rec.neededW = neededW
+						if over := neededW - availW; over > 0.5 {
+							rec := overflows[fn.doc.ID]
+							if rec == nil {
+								rec = &overflowRec{scale: scale, boxW: availW, neededW: neededW, maxOver: over}
+								overflows[fn.doc.ID] = rec
+							}
+							rec.devices = append(rec.devices, dev.Name)
+							if over > rec.maxOver {
+								rec.maxOver = over
+								rec.boxW = availW
+								rec.neededW = neededW
+							}
 						}
 					}
 				}
@@ -329,6 +347,10 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 				if fn.doc.SizeMode != SizeFitText && fn.doc.Width > 0 {
 					field = "width"
 				}
+				var atScale string
+				if rec.scale != 1 {
+					atScale = fmt.Sprintf(" at text scale %d%%", int(math.Round(float64(rec.scale)*100)))
+				}
 				issues = append(issues, ScreenIssue{
 					Code:     IssueTextOverflow,
 					NodeID:   fn.doc.ID,
@@ -336,9 +358,9 @@ func CheckScreen(doc *ScreenDoc, opts ScreenCheckOptions) []ScreenIssue {
 					Locale:   loc,
 					Devices:  rec.devices,
 					Message: fmt.Sprintf(
-						"node %q (locale %q): text for key %q overflows %s pt box by %s pt (needs %s pt; %s)",
+						"node %q (locale %q): text for key %q overflows %s pt box by %s pt%s (needs %s pt; %s)",
 						fn.doc.ID, loc, fn.doc.TextKey,
-						formatPoints(rec.boxW), formatPoints(rec.maxOver), formatPoints(rec.neededW),
+						formatPoints(rec.boxW), formatPoints(rec.maxOver), atScale, formatPoints(rec.neededW),
 						strings.Join(rec.devices, ", "),
 					),
 				})

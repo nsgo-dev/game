@@ -4,6 +4,8 @@ import "github.com/nsgo-dev/nsgo/core"
 
 // Theme holds the colors, spacing, corner radius, borders, and default font used to lay out and draw a game UI.
 type Theme struct {
+	// TextScale multiplies every widget font size, the default Font and per-widget overrides alike, during layout and draw; it is clamped to [MinTextScale, MaxTextScale], and 0 means 1. Root.TextScale, when set, replaces it.
+	TextScale float32
 	// PanelBackground and PanelBorder style Panel containers.
 	PanelBackground core.Color
 	PanelBorder     core.Color
@@ -53,6 +55,7 @@ type Theme struct {
 // DefaultTheme returns a high-contrast dark theme suited for in-game overlays and menus.
 func DefaultTheme() Theme {
 	return Theme{
+		TextScale:       1,
 		PanelBackground: core.RGBA(0x161b26, 0.92),
 		PanelBorder:     core.RGB(0x334155),
 		Background:      core.RGB(0x243044),
@@ -140,14 +143,29 @@ func resolveTheme(t *Theme) Theme {
 	if out.Font.Size <= 0 {
 		out.Font.Size = def.Font.Size
 	}
+	out.TextScale = clampTextScale(out.TextScale)
 	if out.Font.Weight == 0 {
 		out.Font.Weight = def.Font.Weight
 	}
 	return out
 }
 
-// resolveFont merges an optional per-widget Font override onto the theme's base font.
-func resolveFont(override, base core.Font) core.Font {
+// MinTextScale and MaxTextScale bound Theme.TextScale, Root.TextScale and ScreenCheckOptions.TextScale.
+const (
+	MinTextScale float32 = 1
+	MaxTextScale float32 = 2
+)
+
+// clampTextScale maps a text scale into [MinTextScale, MaxTextScale]; zero, negative and NaN values become MinTextScale.
+func clampTextScale(scale float32) float32 {
+	if !(scale >= MinTextScale) {
+		return MinTextScale
+	}
+	return min(scale, MaxTextScale)
+}
+
+// resolveFont merges an optional per-widget Font override onto the theme's base font and multiplies the result by scale (a resolved Theme.TextScale).
+func resolveFont(override, base core.Font, scale float32) core.Font {
 	f := base
 	if override.Family != "" {
 		f.Family = override.Family
@@ -169,6 +187,9 @@ func resolveFont(override, base core.Font) core.Font {
 	}
 	if f.Size <= 0 {
 		f.Size = core.DefaultFontSize
+	}
+	if scale > 0 && scale != 1 {
+		f.Size = core.Points(float32(f.Size) * scale)
 	}
 	return f
 }
