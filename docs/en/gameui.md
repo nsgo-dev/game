@@ -116,10 +116,10 @@ first := gameui.NewFirstLaunchSettings(gameui.FirstLaunchSettingsConfig{
 	Store: save.NewStorageSettingsStore(cx.Storage(), "game"),
 	OnMoreOptions: func() { openSettingsAccessibility() },
 })
-// Include first.View(cx) in the root overlay while first.Required() is true.
+// Mount first.View(cx) last among the root's children; it removes itself after Continue.
 ```
 
-The prompt is skippable in one action and can be localized with `FirstLaunchSettingsConfig.Text`. Existing custom settings are preserved.
+The prompt is skippable in one action and can be localized with `FirstLaunchSettingsConfig.Text`. The More options button appears only when `OnMoreOptions` is set. Continue keeps the player's other settings, including existing `Custom` keys, and stores completion under the `first_launch_accessibility_complete` key, so a later launch renders nothing.
 
 It persists through `save.DefaultSettingsStore` (shared directly with `a11y.NewAssistFromSettings(cx, store)`) and dispatches validated updates through `save.SettingsTargets` (`save.Apply`) and `SettingsMenuConfig.Video` (`screen.Video.ApplyResolution`):
 
