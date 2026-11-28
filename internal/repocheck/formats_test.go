@@ -190,6 +190,7 @@ var formatVersions = map[string]string{
 	"quest.FormatVersion":                           "quest",
 	"quest.SnapshotVersion":                         "quest#snapshot",
 	"tooling/refs.IndexVersion":                     "tooling/refs",
+	"tooling/storecapture.Version":                  "tooling/storecapture",
 	"render3d.LightProbeGridVersion":                "render3d#lightprobes",
 	"replay.FormatVersion":                          "replay",
 	"resource.CurrentVersion":                       "resource",

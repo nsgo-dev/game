@@ -195,3 +195,4 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/tooling/library` | Experimental | Digest-verified asset, plugin and template pack registry |
 | `game/pkg/tooling/manifest` | Experimental | Typed Go asset manifest generator (`asset:` URIs or `//go:embed`) |
 | `game/pkg/tooling/sizecheck` | Experimental | WebAssembly and mobile package size measurement and budget checks behind `game size` |
+| `game/pkg/tooling/storecapture` | Experimental | `store/capture.yaml` store screenshot plan (scenes, recordings, frames, store size presets) and the image check behind `game capture` |

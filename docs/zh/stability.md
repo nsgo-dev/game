@@ -208,6 +208,7 @@
 | `game/pkg/tooling/playtest` | 实验性 | [playtest](playtest.md) |
 | `game/pkg/tooling/refs` | 实验性 | [项目文件](project.md) |
 | `game/pkg/tooling/sizecheck` | 实验性 | [包体积预算](package-size-budgets.md) |
+| `game/pkg/tooling/storecapture` | 实验性 | [构建与发布](shipping.md) |
 | `game/pkg/tween` | 稳定 | [tween](tween.md) |
 | `game/pkg/undo` | 实验性 | [undo](undo.md) |
 | `game/pkg/vehicle3d` | 实验性 | [vehicle3d](vehicle3d.md) |
