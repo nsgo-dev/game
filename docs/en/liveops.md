@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - `Pause(true)` and `ResetInput` run before the ad shows and `Pause(false)` before the result is reported, so the loop and the mixer stay paused and no key stays held while the ad covers the game.
 
 Not yet available: an `ads.yaml` declaring unit IDs and placements, banner ads, and the mini-game `AdHost`, which waits on NSGo's mini-game ad API ([nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)). Grant currency rewards on the server, keyed by your own show ID, so a reward is not granted twice.
+
+## Gift-code redemption policy
+
+`CodeCampaign` is a small policy primitive for server-side redemption. It normalizes codes, enforces an expiry and per-account limit, and records each `(account, code)` claim before returning the reward identifier. A durable service must commit that claim atomically with the reward grant and rate-limit requests.
