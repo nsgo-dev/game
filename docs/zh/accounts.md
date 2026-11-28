@@ -208,3 +208,7 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ## 游戏端账号客户端
 
 `liveops.NewAccount` 将长期会话保存在调用者提供的钥匙串适配器中，并以并发 single-flight 方式刷新短期 bearer token。将 `Account.Token` 传给 `liveops.CloudClient` 或其他服务客户端即可。`SignInEmail` 会保存返回的会话，`SignOut` 清除钥匙串条目，被撤销的会话返回 `ErrSignedOut`。
+
+## 游戏端客户端
+
+`liveops.NewAccount` 将长期会话保存到传入的安全存储，并在启动时恢复，以单飞锁刷新短期 audience token。`NewAccountForScope` 适配 `core.Secrets`。使用 `Register`、`SignInEmail`、`LinkEmail`、`LinkIdentity`、`Profile` 与 `SignOut`，并可将 `Account.Token` 直接传给 `CloudClientOptions.Token`。

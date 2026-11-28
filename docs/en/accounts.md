@@ -208,3 +208,7 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ## Game-side account client
 
 `liveops.NewAccount` keeps the long-lived session in a caller-supplied keychain adapter and refreshes short-lived bearer tokens with single-flight concurrency. Pass `Account.Token` to `liveops.CloudClient` or other service clients. `SignInEmail` persists a returned session, `SignOut` clears the keychain entry, and a revoked session returns `ErrSignedOut`.
+
+## Game-side client
+
+`liveops.NewAccount` keeps the long-lived session in a supplied secure store, restores it on startup, and refreshes short-lived audience tokens with single-flight locking. `NewAccountForScope` adapts `core.Secrets`. Use `Register`, `SignInEmail`, `LinkEmail`, `LinkIdentity`, `Profile`, and `SignOut`; pass `Account.Token` directly to `CloudClientOptions.Token`.

@@ -161,3 +161,5 @@ CLOUDSAVE_POSTGRES_DSN=postgres://... cloudsaved serve -config cloudsave.yaml -k
 ```
 
 `init` 从不覆盖已有配置。`-keyset` 是 `accountsd genkey` 维护的密钥集文件；`serve` 只在启动时读取一次，因此密钥轮换添加新密钥后需要重启它。`serve` 只接受配置中 `audience` 的令牌；如果它等于密钥集的受众（即游戏服务器的受众），`serve` 拒绝启动。`serve` 向 stderr 输出 JSON 日志，收到 SIGINT 或 SIGTERM 时停止。
+
+将 `account.Token` 作为 `NewCloudClient` 的 token source，可共享并串行化刷新操作。

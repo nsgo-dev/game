@@ -161,3 +161,5 @@ CLOUDSAVE_POSTGRES_DSN=postgres://... cloudsaved serve -config cloudsave.yaml -k
 ```
 
 `init` never overwrites a configuration. `-keyset` is the key set file `accountsd genkey` keeps; `serve` reads it once at start, so restart it after a key rotation adds a key. `serve` accepts only tokens for the configuration's `audience` and refuses to start when that is the key set's audience, which names the game's servers. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM.
+
+Use `account.Token` as the token source for `NewCloudClient` so refreshes are shared and serialized.
