@@ -177,6 +177,14 @@ func (b *Bridge) resolveCompareTarget(target string) (img image.Image, source st
 		for _, dir := range dirs {
 			data, readErr := readConfinedFile(dir, rel)
 			if readErr == nil {
+				// Check the header's dimensions before decoding: a small compressed PNG can declare a frame far larger than any screenshot, and png.Decode would allocate all of it.
+				pngCfg, cfgErr := png.DecodeConfig(bytes.NewReader(data))
+				if cfgErr != nil {
+					return nil, "", fmt.Errorf("mcp: decode compare_to PNG %q: %w", rel, cfgErr)
+				}
+				if dimErr := checkScreenshotDims(pngCfg.Width, pngCfg.Height); dimErr != nil {
+					return nil, "", fmt.Errorf("mcp: compare_to PNG %q: %w", rel, dimErr)
+				}
 				decoded, decErr := png.Decode(bytes.NewReader(data))
 				if decErr != nil {
 					return nil, "", fmt.Errorf("mcp: decode compare_to PNG %q: %w", rel, decErr)

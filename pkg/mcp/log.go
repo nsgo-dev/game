@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"log/slog"
 	"math"
 	"runtime"
@@ -34,8 +35,7 @@ const (
 )
 
 // LogConfig configures bounded slog capture and panic reporting for game_log_read.
-// Set Config.Log = &mcp.LogConfig{} to install a tee slog.Handler around slog.Default()
-// while the Bridge is attached (restoring the previous default logger on Detach).
+// Set Config.Log = &mcp.LogConfig{} to install a tee slog.Handler around slog.Default() while the Bridge is attached (restoring the previous default logger on Detach). Output of the standard log package (log.Print and friends) keeps its previous destination and is not captured.
 type LogConfig struct {
 	// Buffer is an optional pre-created LogBuffer. When nil, the Bridge creates one using Capacity, MinLevel and MaxLineBytes.
 	Buffer *LogBuffer
@@ -98,18 +98,18 @@ type LogReadOptions struct {
 
 // LogReadResult is the JSON result of game_log_read and LogBuffer.Read.
 type LogReadResult struct {
-	Configured bool               `json:"configured"`
-	Entries    []LogEntry         `json:"entries"`
-	Returned   int                `json:"returned"`
-	NextCursor uint64             `json:"next_cursor"`
-	OldestSeq  uint64             `json:"oldest_seq,omitempty"`
-	LatestSeq  uint64             `json:"latest_seq,omitempty"`
-	Capacity   int                `json:"capacity,omitempty"`
-	Buffered   int                `json:"buffered,omitempty"`
-	Dropped    uint64             `json:"dropped,omitempty"`
-	Missed     uint64             `json:"missed,omitempty"`
-	HasMore    bool               `json:"has_more,omitempty"`
-	Truncated  bool               `json:"truncated,omitempty"`
+	Configured bool                   `json:"configured"`
+	Entries    []LogEntry             `json:"entries"`
+	Returned   int                    `json:"returned"`
+	NextCursor uint64                 `json:"next_cursor"`
+	OldestSeq  uint64                 `json:"oldest_seq,omitempty"`
+	LatestSeq  uint64                 `json:"latest_seq,omitempty"`
+	Capacity   int                    `json:"capacity,omitempty"`
+	Buffered   int                    `json:"buffered,omitempty"`
+	Dropped    uint64                 `json:"dropped,omitempty"`
+	Missed     uint64                 `json:"missed,omitempty"`
+	HasMore    bool                   `json:"has_more,omitempty"`
+	Truncated  bool                   `json:"truncated,omitempty"`
 	LastPanic  *gamedebug.PanicRecord `json:"last_panic,omitempty"`
 }
 
@@ -597,7 +597,11 @@ func (b *Bridge) attachDefaultLogger() func() {
 	defaultLoggerMu.Lock()
 	prev := slog.Default()
 	installed := slog.New(b.logBuf.Tee(prev.Handler()))
+	// slog.SetDefault points the log package's output at the new handler. When prev is slog's built-in handler, the tee forwards each record back into the log package, whose output lock is then taken twice and every slog call deadlocks; put the log package's writer and flags back so log.Print keeps its previous destination and the tee never re-enters it.
+	prevWriter, prevFlags := log.Writer(), log.Flags()
 	slog.SetDefault(installed)
+	log.SetOutput(prevWriter)
+	log.SetFlags(prevFlags)
 	defaultLoggerMu.Unlock()
 
 	var once sync.Once

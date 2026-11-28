@@ -6,14 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"math"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
-	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/game/pkg/mcp"
+	"github.com/nsgo-dev/game/pkg/tooling/gamedebug"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -126,6 +128,66 @@ func TestLogRingBufferDropOldestAndCursorResume(t *testing.T) {
 	longRes := callLog(map[string]any{"limit": 1})
 	if len(longRes.Entries[0].Message) > 64+3 || !strings.HasSuffix(longRes.Entries[0].Message, "...") {
 		t.Fatalf("expected truncated message, got len=%d %q", len(longRes.Entries[0].Message), longRes.Entries[0].Message)
+	}
+}
+
+// TestLogAttachWrapsBuiltinDefaultLogger attaches over slog's built-in default handler, which writes through the log package. Wrapping it must not route that output back into the tee (a deadlock on the log package's output lock), and log.Print must keep its destination.
+func TestLogAttachWrapsBuiltinDefaultLogger(t *testing.T) {
+	if got := fmt.Sprintf("%T", slog.Default().Handler()); got != "*slog.defaultHandler" {
+		t.Fatalf("slog.Default() handler = %s, want the built-in *slog.defaultHandler", got)
+	}
+	var out bytes.Buffer
+	prevWriter, prevFlags := log.Writer(), log.Flags()
+	log.SetOutput(&out)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(prevWriter)
+		log.SetFlags(prevFlags)
+	})
+
+	var (
+		cx     *core.Scope
+		bridge *mcp.Bridge
+	)
+	app := nsgotest.Start(t, func(s *core.Scope) core.Node {
+		cx = s
+		var err error
+		bridge, err = mcp.Attach(s, mcp.Config{Log: &mcp.LogConfig{Capacity: 16}})
+		if err != nil {
+			t.Fatalf("mcp.Attach: %v", err)
+		}
+		return core.View{}
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		slog.Info("through builtin", "k", 1)
+		log.Print("plain log line")
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("slog.Info through the wrapped built-in default handler did not return (deadlock)")
+	}
+	if got := out.String(); !strings.Contains(got, "INFO through builtin k=1") || !strings.Contains(got, "plain log line") {
+		t.Fatalf("log package output = %q, want the slog record and the log.Print line", got)
+	}
+
+	res := callTool[mcp.LogReadResult](t, app, cx, mcp.ToolLogRead, nil)
+	if res.Returned != 1 || res.Entries[0].Message != "through builtin" {
+		t.Fatalf("game_log_read = %+v, want only the slog record", res)
+	}
+
+	app.Post(func() { bridge.Detach() })
+	app.Settle()
+	if got := fmt.Sprintf("%T", slog.Default().Handler()); got != "*slog.defaultHandler" {
+		t.Fatalf("after Detach slog.Default() handler = %s, want the built-in one", got)
+	}
+	out.Reset()
+	log.Print("after detach")
+	if got := out.String(); got != "after detach\n" {
+		t.Fatalf("log.Print after Detach wrote %q", got)
 	}
 }
 

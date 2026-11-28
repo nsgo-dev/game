@@ -1,6 +1,6 @@
 ---
 name: nsgo-game
-description: Build, run, test, inspect and drive 2D and 3D games on NSGo with github.com/nsgo-dev/game. Use when scaffolding a game with `go run github.com/nsgo-dev/game/cmd/game@latest new` or running `go tool game`, writing fixed-step game loops, sprites, tilemaps, scenes, ECS worlds, physics, audio, 3D scenes, plain-text YAML game files, attaching `game/pkg/mcp` tools to `nsgo mcp`, or verifying a running game through MCP.
+description: Build, run, test, inspect and drive 2D and 3D games on NSGo with github.com/nsgo-dev/game. Use when scaffolding a game with `go run github.com/nsgo-dev/game/cmd/game@latest new` or running `go tool game`, writing fixed-step game loops, sprites, tilemaps, scenes, ECS worlds, physics, audio, 3D scenes, plain-text YAML game files, attaching `game/mcp` tools to `nsgo mcp`, or verifying a running game through MCP.
 ---
 
 # NSGo Game
@@ -73,7 +73,7 @@ Published English docs for agents live at <https://game.nsgo.dev/llms.txt> (inde
    go tool game release                              # builds export presets from game.yaml via nsgo build
    ```
 
-## Minimal game with `game.Loop` and `game/pkg/mcp`
+## Minimal game with `game.Loop` and `game/mcp`
 
 A game component owns a fixed-step `game.Loop` and triggers `core.Canvas` redraws via a frame signal so the native view tree does not re-commit every frame. Attach `mcp.Bridge` on the same `*core.Scope` so agents can inspect and drive the running game over `nsgo mcp` (in normal and release builds `automation.Register` is a no-op):
 
@@ -136,4 +136,4 @@ Load on demand for exact APIs, flags, schemas, and tool arguments:
 
 - [references/packages.md](references/packages.md) — complete catalog of `pkg/*` packages grouped by stage and domain, with import paths and stability status.
 - [references/cli-and-formats.md](references/cli-and-formats.md) — `go tool game` subcommands, companion tools, YAML file format contract, schemas, and external tool formats.
-- [references/mcp-tools.md](references/mcp-tools.md) — full `game/pkg/mcp` tool reference, `mcp.Config` wiring, component/prefab/asset registration, and `nsgotest` verification patterns.
+- [references/mcp-tools.md](references/mcp-tools.md) — full `game/mcp` tool reference, `mcp.Config` wiring, component/prefab/asset registration, and `nsgotest` verification patterns.
