@@ -1,22 +1,19 @@
-# Agent Note: Hierarchical gameplay tag registry
+# Agent Note: Gameplay tags
 
 Status: implemented
 
 ## Problem
 
-Gameplay packages exchanged unvalidated strings for statuses, categories and ability conditions. Misspelled tags were invisible, parent categories could not be queried, and multiple systems granting the same tag could remove one another's state.
+Inventory, ability, AI and effect systems used unrelated free-form strings for state and category tags.
 
 ## Decision
 
-`pkg/tags` stores a strict version 1 YAML registry and interns declared names in a `Registry`. Dotted parent names are implied in memory, so files stay concise while `Container.Has` walks parent links. Containers count each grant and remove one reference at a time. `Query` evaluates all, any and none predicates, with nested composition available through `AllOf`, `AnyOf` and `NoneOf`. Name-based data is resolved with `Registry.QueryNames`, which rejects unknown tags before gameplay starts.
-
-The registry preserves declaration order for explicit tags and derives missing parent IDs deterministically from first appearance. Matching uses the container's existing maps and does not allocate.
+`pkg/tags` defines a strict versioned registry, interns dotted parent tags, tracks reference-counted grants in containers, and evaluates all/any/none queries with parent matching.
 
 ## Alternatives considered
 
-- Require every parent to be listed in YAML. That would make parent relationships obvious, but repeats boilerplate and makes a rename easy to leave inconsistent.
-- Keep string slices on each gameplay object. That preserves simple serialization, but cannot provide interned identity, reference-counted grants or allocation-free parent matching.
+Keeping strings avoids a registry but cannot catch typos or share hierarchy semantics. A global mutable tag table would make tests and replays order-dependent, so registries own interned IDs.
 
 ## Consequences
 
-Tags can be shared by abilities, effects, cues and editor tooling after those packages adopt the registry. Current integrations must convert names through `Resolve` and keep a registry on their containers. The package does not yet alter existing inventory, cards or AI string fields, so older files continue to load while migration can happen incrementally.
+Systems can adopt a shared vocabulary incrementally while existing string fields remain compatible. Query names must be resolved once before runtime matching.
