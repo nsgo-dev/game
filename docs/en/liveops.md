@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - `Pause(true)` and `ResetInput` run before the ad shows and `Pause(false)` before the result is reported, so the loop and the mixer stay paused and no key stays held while the ad covers the game.
 
 Not yet available: an `ads.yaml` declaring unit IDs and placements, banner ads, and the mini-game `AdHost`, which waits on NSGo's mini-game ad API ([nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)). Grant currency rewards on the server, keyed by your own show ID, so a reward is not granted twice.
+
+### Durable analytics batches
+
+`liveops.NewBatchProvider` writes analytics events as bounded JSON Lines before delivery. `Flush` passes the queue to a caller-supplied sink and clears it only after success. Failed sinks leave the file intact for retry, and `Purge` removes queued events when consent is revoked.

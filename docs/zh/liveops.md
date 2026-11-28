@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - 广告展示前调用 `Pause(true)` 与 `ResetInput`，报告结果前调用 `Pause(false)`，因此广告遮住游戏期间循环与混音器保持暂停，也不会有按键一直处于按下状态。
 
 尚未提供：声明广告单元 ID 与广告位的 `ads.yaml`、横幅广告，以及小游戏 `AdHost`（等待 NSGo 的小游戏广告 API，[nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)）。发放货币类奖励请在服务端进行，并以你自己的展示 ID 作为幂等键，避免重复发放。
+
+### 持久化分析批次
+
+`liveops.NewBatchProvider` 在发送前将分析事件写入有大小上限的 JSON Lines 队列。`Flush` 把队列交给调用者提供的 sink，只有成功后才清空。sink 失败时文件保留以便重试，撤销同意时可调用 `Purge` 删除排队事件。
