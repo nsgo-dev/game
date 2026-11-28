@@ -8,10 +8,10 @@ use (
 	./examples/fieldmedic
 	./examples/fountain
 	./examples/lantern3d
+	./examples/observatory
 	./examples/slidegem
 	./examples/starburst
 	./examples/tutorial
-	./examples/vnsample
 	./template
 	./template/action3d
 	./template/cards2d

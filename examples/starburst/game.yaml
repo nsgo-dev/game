@@ -1,6 +1,6 @@
 version: 1
 name: Starburst
-id: dev.nsgo.game.starburst
+id: dev.nsgo.game.examples.starburst
 appVersion: 0.1.0
 window:
   width: 960

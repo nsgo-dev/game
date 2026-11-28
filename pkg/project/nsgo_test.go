@@ -50,7 +50,7 @@ func TestSyncNSGoSetsOwnedFieldsAndKeepsTheRest(t *testing.T) {
 	}
 	for _, want := range []string{
 		"name: Cave Run\n",
-		"id: dev.nsgo.caverun\n",
+		"id: dev.nsgo.game.examples.caverun\n",
 		"game: true\n",
 		"appearance: dark\n",
 		"# A comment above dev.\n",
@@ -100,7 +100,7 @@ func TestSyncNSGoWritesANewFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "name: Cave Run\nid: dev.nsgo.caverun\nversion: 0.1.0\nappearance: dark\nbuild:\n  output: dist\n  targets: [windows_x64, web]\n"
+	want := "name: Cave Run\nid: dev.nsgo.game.examples.caverun\nversion: 0.1.0\nappearance: dark\nbuild:\n  output: dist\n  targets: [windows_x64, web]\n"
 	if string(out) != want {
 		t.Fatalf("SyncNSGo(nil) = %q, want %q", out, want)
 	}

@@ -15,7 +15,7 @@
       "type": "string"
     },
     "id": {
-      "description": "ID is the game's reverse-DNS application identifier, such as dev.nsgo.caverun, which nsgo.yaml's id follows.",
+      "description": "ID is the game's reverse-DNS application identifier, such as dev.nsgo.game.examples.caverun, which nsgo.yaml's id follows.",
       "type": "string"
     },
     "appVersion": {

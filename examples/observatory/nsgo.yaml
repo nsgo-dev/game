@@ -1,5 +1,5 @@
-name: VN Sample
-id: dev.nsgo.game.vnsample
+name: Observatory
+id: dev.nsgo.game.examples.observatory
 version: 0.1.0
 
 dev:

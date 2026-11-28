@@ -1,5 +1,5 @@
 name: Starburst
-id: dev.nsgo.game.starburst
+id: dev.nsgo.game.examples.starburst
 version: 0.1.0
 
 dev:

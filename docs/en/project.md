@@ -7,7 +7,7 @@
 ```yaml
 version: 1
 name: Cave Run
-id: dev.nsgo.caverun
+id: dev.nsgo.game.examples.caverun
 appVersion: 0.1.0
 window:
   width: 960

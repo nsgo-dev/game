@@ -61,7 +61,7 @@ func TestFirstMatchUnlocksOnEachService(t *testing.T) {
 		os core.OS
 		id string
 	}{
-		{core.OSMacOS, "dev.nsgo.examples.slidegem.first_match"},
+		{core.OSMacOS, "dev.nsgo.game.examples.slidegem.first_match"},
 		{core.OSAndroid, "CgkI8Nq1mKcBEAIQAQ"},
 	} {
 		t.Run(string(tc.os), func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestAchievementsWithoutGameServicesPersistAndReportLater(t *testing.T) {
 	restarted, rg := startTestGame(t, defaultSeed+1, opts...)
 	restarted.Advance(time.Millisecond)
 	restarted.Settle()
-	want := gameservices.Achievement{ID: "dev.nsgo.examples.slidegem.first_match", PercentComplete: 100, Unlocked: true}
+	want := gameservices.Achievement{ID: "dev.nsgo.game.examples.slidegem.first_match", PercentComplete: 100, Unlocked: true}
 	if got := restarted.GameServicesAchievements(); !slices.Contains(got, want) {
 		t.Fatalf("stored unlock not reported: %+v", got)
 	}

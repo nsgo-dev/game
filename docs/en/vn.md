@@ -154,8 +154,8 @@ if i, ok := p.ChoiceAt(size, style, ev.Position); ok {
 
 ## Sample
 
-`examples/vnsample` plays a short scene with two characters whose portraits and voices are drawn and synthesized in code. Tap to go on, pick a choice, and use Auto, Skip and Log; watch the scene again and Skip runs through the lines already read.
+`examples/observatory` plays a short scene with two characters whose portraits and voices are drawn and synthesized in code. Tap to go on, pick a choice, and use Auto, Skip and Log; watch the scene again and Skip runs through the lines already read.
 
 ```sh
-go tool nsgo dev ./examples/vnsample
+go tool nsgo dev ./examples/observatory
 ```

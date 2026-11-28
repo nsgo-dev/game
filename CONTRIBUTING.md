@@ -12,7 +12,7 @@ game/
 ├─ pkg/              every other library package (github.com/nsgo-dev/game/pkg/<name>)
 │  ├─ online/        service and netcode packages (accounts, cloudsave, leaderboard, liveops, netplay, server, ...)
 │  └─ tooling/       build, editor and dev-time tooling that a release build does not link
-├─ examples/         playable sample games, one Go module each, including dedicatedserver and vnsample
+├─ examples/         playable sample games, one Go module each, including dedicatedserver and observatory
 ├─ template/         Go modules publishing the game new templates: starter from template/template/, the others from template/<name>/template/
 ├─ docs/
 │  ├─ en/            site documentation in English

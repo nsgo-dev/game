@@ -107,7 +107,7 @@ Try the examples directly in your browser in the [Playground](https://game.nsgo.
 | **Lantern 3D** | 2D ↔ 3D scene switching with glTF diorama, PBR lighting & shared input/audio | [`examples/lantern3d`](examples/lantern3d/) |
 | **Field Medic** | Small game shipping its own scene editor and editor plugin | [`examples/fieldmedic`](examples/fieldmedic/) |
 | **Star Catcher** | Complete 9-chapter step-by-step tutorial game | [`examples/tutorial`](examples/tutorial/) |
-| **VN Sample** | Two-character visual novel scene with choices, backlog, auto and skip | [`examples/vnsample`](examples/vnsample/) |
+| **Observatory** | Two-character visual novel scene with choices, backlog, auto and skip | [`examples/observatory`](examples/observatory/) |
 | **Dedicated Server** | Fixed-step match in a plain Go process, no NSGo app or cgo (`go build`, not `nsgo dev`) | [`examples/dedicatedserver`](examples/dedicatedserver/) |
 
 ## Documentation

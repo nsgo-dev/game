@@ -1,6 +1,6 @@
 version: 1
 name: Field Medic
-id: dev.nsgo.fieldmedic
+id: dev.nsgo.game.examples.fieldmedic
 appVersion: 0.1.0
 window:
   width: 960

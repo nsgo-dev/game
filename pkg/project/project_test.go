@@ -59,7 +59,7 @@ func TestParseReadsEveryField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Name != "Cave Run" || f.ID != "dev.nsgo.caverun" || f.AppVersion != "0.1.0" || f.Title() != "Cave Run" {
+	if f.Name != "Cave Run" || f.ID != "dev.nsgo.game.examples.caverun" || f.AppVersion != "0.1.0" || f.Title() != "Cave Run" {
 		t.Fatalf("identity = %q %q %q %q", f.Name, f.ID, f.AppVersion, f.Title())
 	}
 	if w, h := f.WindowSize(); w != 960 || h != 540 {
