@@ -130,11 +130,12 @@ Try the examples directly in your browser in the [Playground](https://game.nsgo.
 ```text
 game/
 ├─ go.mod / go.work     Go module github.com/nsgo-dev/game (root package game at root)
-├─ cmd/                 binaries shipped to users (game, nsgo-game, and the service daemons)
-├─ internal/            shared helpers, CLI implementation, repo-wide checks and the sizeprobe CI fixture
+├─ cmd/                 binaries shipped to users (game, nsgo-game, editor, and the service daemons)
+├─ internal/            helpers shared across subtrees, the CLI implementation, repo-only libraries, repo-wide checks and the sizeprobe CI fixture
 ├─ pkg/                 library packages (github.com/nsgo-dev/game/pkg/<name>)
 │  ├─ online/           online services and netplay
-│  └─ tooling/          build, editor and dev-time tooling
+│  ├─ tooling/          build and dev-time tooling that a release build does not link
+│  └─ editor/           the scene editor (theme/, keychain/, editorcmd/, editormcp/, internal/<feature>/)
 ├─ template/            16 Go-module starter templates for game new / nsgo init
 ├─ examples/            playable sample games, the dedicated server and visual-novel samples, and the 9-chapter tutorial
 ├─ library/             shared asset, plugin and template library index

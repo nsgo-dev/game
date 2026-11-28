@@ -7,11 +7,12 @@ Contributions are welcome: bug fixes, new packages, examples, documentation, and
 ```
 game/
 ├─ go.mod / go.work  Go module github.com/nsgo-dev/game (root package game: loop.go and its tests)
-├─ cmd/              binaries shipped to users: game, nsgo-game, and the service daemons accountsd, cloudsaved, leaderboardd
-├─ internal/         shared helpers and the CLI implementation, repocheck/ (repo-wide checks) and sizeprobe/ (the CI size fixture)
+├─ cmd/              binaries shipped to users: game, nsgo-game, editor, and the service daemons accountsd, cloudsaved, leaderboardd; a front end over one library is a game subcommand instead
+├─ internal/         helpers imported from two or more subtrees, the CLI implementation (gamecli/), repo-only libraries the tools module imports (apiref/), repocheck/ (repo-wide checks) and sizeprobe/ (the CI size fixture); a helper one subtree uses lives in that subtree's internal/
 ├─ pkg/              every other library package (github.com/nsgo-dev/game/pkg/<name>)
-│  ├─ online/        service and netcode packages (accounts, cloudsave, leaderboard, liveops, netplay, server, ...)
-│  └─ tooling/       build, editor and dev-time tooling that a release build does not link
+│  ├─ online/        service and netcode packages (accounts, cloudsave, gameserver, leaderboard, liveops, netplay, ...)
+│  ├─ tooling/       build and dev-time tooling whose real code a release build does not link (release-tag stubs allowed)
+│  └─ editor/        the scene editor: one package with public theme/, keychain/, editorcmd/ and editormcp/, and internal/<feature>/ for isolated features
 ├─ examples/         playable sample games, one Go module each, including dedicatedserver and observatory
 ├─ template/         Go modules publishing the game new templates: starter from template/template/, the others from template/<name>/template/
 ├─ docs/
