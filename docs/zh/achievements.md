@@ -148,3 +148,7 @@ got := app.GameServicesAchievements() // [{ID: "com.example.mygame.first_match",
 ```
 
 `App.SetGameServicesError` 和 `App.SetGameServicesAuthError` 可以模拟服务故障和取消登录。[SlideGem 示例](https://github.com/nsgo-dev/game/tree/main/examples/slidegem)就是这样在 Game Center 和 Play Games 上各解锁它的第一个成就。
+
+## Epic Online Services
+
+`pkg/online/eos` 为 Epic 成就、统计分数、排行榜和状态提供异步 EOS 边界。将启动器传入的 `-AUTH_PASSWORD` exchange code 交给 `Service.Login`，并在每个引擎帧调用驱动的 `Tick`。驱动回调会投递到引擎 Scope。

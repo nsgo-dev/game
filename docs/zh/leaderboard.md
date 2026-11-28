@@ -117,3 +117,7 @@ app.GameServicesShownLeaderboards() // 传给 Show 的 ID
 ## 示例
 
 [Starburst](https://github.com/nsgo-dev/game/tree/main/examples/starburst) 在 `leaderboards.yaml` 里声明 `high-score` 排行榜，一局结束时提交分数，玩家登录后在游戏结束界面显示 LEADERBOARD 按钮，未登录时显示 SIGN IN 按钮，登录后补交这一局的分数。
+
+## Epic Online Services
+
+EOS 边界通过 `eos.Service.SubmitScore` 与 `eos.Service.Scores` 异步提交分数并查询全球或好友排行榜，结果会投递到引擎线程。

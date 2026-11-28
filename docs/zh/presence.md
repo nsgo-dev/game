@@ -101,3 +101,7 @@ _ = mgr.Clear(ctx)
 - 通过 `DiscordConfig.Dial` 传入基于 `net.Pipe()` 的进程内模拟 IPC 服务端，验证原始小端帧、握手、`SET_ACTIVITY` 和 `Clear`。
 - 通过 `SteamConfig.Driver` 传入模拟 `SteamDriver`，断言每一次 `SetRichPresence(key, value)` 和 `ClearRichPresence()` 调用。
 - 通过 `ManagerConfig.Now` 注入可控时钟，无需等待即可测试 `MinInterval` 节流与合并。
+
+## Epic Online Services
+
+EOS 在线边界通过 `eos.Service.Presence` 接收包含详情、状态和加入信息的丰富状态更新，更新与完成回调均运行在引擎线程。

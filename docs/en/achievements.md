@@ -148,3 +148,7 @@ got := app.GameServicesAchievements() // [{ID: "com.example.mygame.first_match",
 ```
 
 `App.SetGameServicesError` and `App.SetGameServicesAuthError` simulate an outage or a cancelled sign-in. The [SlideGem example](https://github.com/nsgo-dev/game/tree/main/examples/slidegem) unlocks its first achievement on Game Center and on Play Games this way.
+
+## Epic Online Services
+
+`pkg/online/eos` provides the asynchronous EOS boundary for Epic achievements, stats-backed scores, leaderboards, and presence. Pass the launcher's `-AUTH_PASSWORD` exchange code to `Service.Login`, and make the driver `Tick` once per engine frame. Driver callbacks are posted onto the engine scope.
