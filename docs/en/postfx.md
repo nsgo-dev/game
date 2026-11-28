@@ -159,6 +159,20 @@ return postfx.View{
 
 Flashes and shakes follow reduced motion: `Trigger` does nothing and returns false while `ReduceMotion` reports true. Pass `a11y.Assist`'s `ReduceMotion`, which follows the player's choice and else the platform's; when `ReduceMotion` is nil, the platform's setting is asked. A peak, amplitude or duration of 0 or less does not start one either, and leaves a running one alone: `Stop` ends it, unlike `tilemap.Camera.Shake`, which a zero intensity cancels.
 
+### Photosensitivity
+
+More than three flashes in a second, or a flash of saturated red, can trigger a photosensitive seizure (WCAG 2.3.1, XAG 118), so `Flash` keeps to these limits:
+
+- `Trigger` runs at most `MaxFlashesPerSecond` (3) times in any one second on the scope's clock, and returns false past that. Each `Flash` has a `FlashLimiter` of its own unless `FlashConfig.Limiter` sets one: share one between every full-screen flash of a screen so that together they stay within the limit. `FlashLimiter.MaxPerSecond` lowers the limit; 0, or more than 3, means 3.
+- `NewFlash` desaturates a saturated-red `Color`, one whose red is 80% or more of its red, green and blue together, to the gray of the same relative luminance.
+- While `FlashConfig.ReduceFlashes` reports true, a flash runs as a low-contrast tint: its peak is at most `ReducedFlashPeak` (0.2) and it fades over at least `ReducedFlashFade` (100 ms). Pass `a11y.Assist`'s `ReduceFlashes`, the player's Reduce Flashes setting, which is separate from reduced motion.
+
+```go
+flashes := &postfx.FlashLimiter{}
+hit := postfx.NewFlash(cx, postfx.FlashConfig{Color: core.RGB(0xffffff), ReduceMotion: assist.ReduceMotion, ReduceFlashes: assist.ReduceFlashes, Limiter: flashes})
+lightning := postfx.NewFlash(cx, postfx.FlashConfig{Color: core.RGB(0xd8e8ff), ReduceMotion: assist.ReduceMotion, ReduceFlashes: assist.ReduceFlashes, Limiter: flashes})
+```
+
 ## Palette swap
 
 Two ready effects map colors through a palette texture, bound to `Effect.Texture` and read through `Texture(pos)` and `TextureSize()`. Both carry their own `Reference`, so a chain with them draws reference pictures headless whenever the palette has `Pixels` or PNG `Data`.

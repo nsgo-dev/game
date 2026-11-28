@@ -35,6 +35,3 @@ UPDATE_GOLDEN=1 go tool nsgo test ./pkg/gametest
 ## 比较图像绘制
 
 若测试只需验证精灵落点与属性而非逐像素比对，`ImageDraws(ops)` 会回放变换、透明度、混合模式与裁剪路径，返回每一条绘制出的图像矩形——无论它们是逐个 `DrawImageFrom` 录制，还是合批在 `DrawAtlas` 中。`AssertSameImages(t, got, want)` 在 `1e-3` 浮点容差内断言两份绘制操作序列输出相同的图像绘制列表。
-# 光敏检查
-
-在记录无障碍场景时使用闪光限制器测试作为回归保护。录制运行应在启用玩家“减少闪光”设置时覆盖重复的全屏闪光。
