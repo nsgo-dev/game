@@ -284,6 +284,22 @@ app.Post(func() {
 app.Settle()
 ```
 
+## UI and 3D contracts
+
+Two optional subpackages define the data a game hands to an agent for its menus and its 3D scenes, without `game/mcp` importing `gameui` or any 3D package:
+
+- `game/mcp/mcpui`: `Widget` and `Snapshot` describe the UI tree (path, kind, label, rectangle in virtual coordinates, enabled, focused, value). The game implements `Provider` over its own widgets; `mcpui.Activate(provider, "Play", mcpui.Action{Kind: "press"})` finds the widget by path, or else by a label that only one widget carries, refuses a disabled widget with `ErrDisabled` and a shared label with `ErrAmbiguous`, and calls the provider's `Activate` with the widget's path so the widget's own handler runs.
+- `game/mcp/mcp3d`: `Node`, `Camera` and `Hit` describe scene nodes (path, kind, transform, bounds, model, material), the active camera (pose, projection, field of view) and a ray hit (node path, point, normal, distance). The game implements `Provider` with `Nodes`, `Camera` and `Raycast` over its own scene and physics; `mcp3d.Find` looks a node up by path.
+
+These packages hold the contracts only. They do not register MCP tools yet, so an agent cannot call them through `nsgo mcp` until a later change adds the tools.
+
+```go
+import (
+	"github.com/nsgo-dev/game/pkg/mcp/mcp3d"
+	"github.com/nsgo-dev/game/pkg/mcp/mcpui"
+)
+```
+
 ## Rendering a drawing to PNG
 
 `mcp.RenderPNG(ops, width, height, background)` plays a recorded `core.Drawing`'s operations into a PNG with the software rasterizer `game_screenshot` uses when it draws a frame itself, and reports in `SkippedOps` and `SkippedImages` what it left out (text, and images that are not in memory as `Pixels` or `Data`). The editor's `viewport_image` uses it, so its picture is the same on every platform and headless.
@@ -484,4 +500,3 @@ In `pkg/editor/editormcp`, the editor's MCP server enforces two non-bypassable t
 - **You-only refusal (`*editormcp.YouOnlyError`)**: Every non-read tool call (built-in or registered via `Server.AddTool`) is checked before its handler runs across explicit argument paths, derived targets (including bare-stem `refactor_rename` and `release_notes_draft`), and open document paths, and refused if any target resolves to `permissions.yaml`, `.nsgo/permissions.yaml`, `tools.yaml`, `mcp.yaml`, `models.yaml`, `usage.yaml`, or `Editor.SettingsPath`.
 - **`permissions_draft`**: Submits a You-only draft card (`Editor.SubmitPermissionsDraft`) with zero rules ticked by default. It never modifies `permissions.yaml` directly; only explicit person ticks + **Apply** can persist changes.
 - **`game_delete_file`**: Refuses You-only files, symlinks, `.git/**`, `game.yaml`, open scene tabs, and >1 MiB files; for ordinary project files it proposes a deletion in the Review changes panel with line count and scene usages (`Editor.ProposeFileDeletion`) without deleting the file on disk. **Keep all** never deletes pending files; confirming deletes via a checkpoint command that `⌘Z` restores byte-for-byte.
-Optional `mcpui` and `mcp3d` packages provide dependency-light contracts for widget activation, 3D node snapshots, camera state and raycast hits. Games attach providers to their own runtime bridge so the core `mcp` package stays independent of `gameui` and 3D renderers.

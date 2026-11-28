@@ -157,6 +157,8 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | --- | --- | --- |
 | `game/pkg/tooling/gamedebug` | Experimental | Frame-time `Overlay`, `Profiler`, `GCMonitor`, `MemoryTracker`, `Console` tunables, wireframe debug draw (`-tags release` stripped) |
 | `game/pkg/mcp` | Experimental | `Bridge` registering game MCP tools with `nsgo/automation` for `nsgo mcp` and `nsgotest` |
+| `game/pkg/mcp/mcp3d` | Experimental | 3D node, camera and raycast records behind a game-implemented `Provider` (contract only, no MCP tools yet) |
+| `game/pkg/mcp/mcpui` | Experimental | UI widget snapshot, lookup by path or unique label, and `Activate` through the game's own handler (contract only, no MCP tools yet) |
 | `game/pkg/replay` | Experimental | `Recorder`/`Player`, editable YAML recordings and deterministic replay assertions |
 | `game/pkg/tooling/playtest` | Experimental | `playtest.yaml` parser/encoder, headless seeded bot runner with replays, metrics collector, `platformer-runner` profile and YAML report |
 | `game/pkg/statedump` | Experimental | Headless deterministic YAML state dumps and line diffs between runs |

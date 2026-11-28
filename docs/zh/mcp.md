@@ -284,6 +284,22 @@ app.Post(func() {
 app.Settle()
 ```
 
+## UI 与 3D 契约
+
+两个可选子包定义游戏为菜单和 3D 场景交给智能体的数据，`game/mcp` 本身不必导入 `gameui` 或任何 3D 包：
+
+- `game/mcp/mcpui`：`Widget` 和 `Snapshot` 描述 UI 树（路径、类型、标签、虚拟坐标中的矩形、是否启用、是否聚焦、值）。游戏基于自己的控件实现 `Provider`；`mcpui.Activate(provider, "Play", mcpui.Action{Kind: "press"})` 先按路径查找控件，找不到时再按只有一个控件使用的标签查找，对禁用的控件返回 `ErrDisabled`，对多个控件共用的标签返回 `ErrAmbiguous`，然后以控件路径调用 provider 的 `Activate`，让控件自己的处理函数执行。
+- `game/mcp/mcp3d`：`Node`、`Camera` 和 `Hit` 描述场景节点（路径、类型、变换、包围盒、模型、材质）、当前相机（位姿、投影、视场角）和射线命中（节点路径、命中点、法线、距离）。游戏基于自己的场景和物理实现带 `Nodes`、`Camera`、`Raycast` 的 `Provider`；`mcp3d.Find` 按路径查找节点。
+
+这两个包目前只包含契约，还不注册 MCP 工具，因此在后续改动加入工具之前，智能体无法通过 `nsgo mcp` 调用它们。
+
+```go
+import (
+	"github.com/nsgo-dev/game/pkg/mcp/mcp3d"
+	"github.com/nsgo-dev/game/pkg/mcp/mcpui"
+)
+```
+
 ## 把绘制渲染为 PNG
 
 `mcp.RenderPNG(ops, width, height, background)` 用 `game_screenshot` 自行绘制画面时所用的软件光栅化器，把录制好的 `core.Drawing` 的绘制操作渲染成 PNG，并在 `SkippedOps` 和 `SkippedImages` 中报告它略去的内容（文字，以及不是以 `Pixels` 或 `Data` 形式驻留内存的图片）。编辑器的 `viewport_image` 用的就是它，因此在每个平台和无头模式下得到的画面都一样。
@@ -484,4 +500,3 @@ NSGo 的 `automation` 只在 `nsgo dev -automation` 和测试构建中注册应�
 - **仅限用户硬拒绝（`*editormcp.YouOnlyError`）**：所有非只读工具调用（包括内置工具和通过 `Server.AddTool` 注册的自定义工具）在执行处理器之前都会校验显式参数路径、派生目标（含无扩展名 `refactor_rename` 与 `release_notes_draft`）以及当前打开的文档路径，若指向 `permissions.yaml`、`.nsgo/permissions.yaml`、`tools.yaml`、`mcp.yaml`、`models.yaml`、`usage.yaml` 或 `Editor.SettingsPath`，一律拒绝。
 - **`permissions_draft`**：提交一份仅限用户权限草案卡片（`Editor.SubmitPermissionsDraft`），默认不勾选任何规则，绝不直接写入 `permissions.yaml`，必须由用户手动勾选并点击应用。
 - **`game_delete_file`**：直接拒绝仅限用户文件、符号链接、`.git/**`、`game.yaml`、已打开的场景标签页以及大于 1 MiB 的文件；对普通项目文件，只在审查面板中提议删除并展示行数与场景引用情况（`Editor.ProposeFileDeletion`），绝不直接删除磁盘文件。**全部保留**不会删除待确认文件；经用户确认删除后可通过 `⌘Z` 从检查点逐字节恢复。
-可选的 `mcpui` 与 `mcp3d` 包提供轻量运行时契约，用于 widget 激活、3D 节点快照、相机状态和射线命中。游戏将 provider 接到自己的运行时桥接器，核心 `mcp` 包因此无需依赖 `gameui` 或 3D 渲染器。
