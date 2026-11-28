@@ -7,10 +7,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// ScanOptions configures one-switch focus scanning. Interval is the time
-// between focus changes. Loops limits completed passes when positive, while a
-// zero value scans continuously. Select is the action used by callers to
-// activate the highlighted widget.
+// ScanOptions configures one-switch focus scanning. Interval is the time between focus changes. Loops limits completed passes when positive, while a zero value scans continuously. Select is the action StepActions treats as the switch that activates the highlighted widget.
 type ScanOptions struct {
 	Enabled  bool
 	Interval time.Duration
@@ -202,8 +199,7 @@ type SpatialNavigator struct {
 	OnFocusChange func(prev, next Widget)
 	// FocusRing customizes the focus ring drawn by DrawFocusRing (or attached to Root).
 	FocusRing *FocusRingStyle
-	// Scan configures optional one-switch scanning. Use SetScanOptions to reset
-	// the scan clock after changing it.
+	// Scan configures optional one-switch scanning. Use SetScanOptions to reset the scan clock after changing it.
 	Scan ScanOptions
 
 	overrides   map[Widget]NavOverrides
@@ -242,8 +238,7 @@ func (n *SpatialNavigator) SetScanOptions(opts ScanOptions) {
 	n.scanLoops = 0
 }
 
-// ScanSelect activates the currently highlighted widget when scanning is
-// enabled. It is suitable for a single switch or eye-tracker action.
+// ScanSelect activates the currently highlighted widget when scanning is enabled. It is suitable for a single switch or eye-tracker action.
 func (n *SpatialNavigator) ScanSelect() bool {
 	if n == nil || !n.Scan.Enabled {
 		return false
@@ -251,26 +246,29 @@ func (n *SpatialNavigator) ScanSelect() bool {
 	return n.Confirm()
 }
 
-// Step advances the scanner by fixed simulation time. It returns true when
-// focus changed or a scan pass completed.
+// Step advances the scanner by fixed simulation time, moving focus through the root's focus order (wrapping from the last widget to the first) rather than by spatial direction, so rows, grids and columns all scan every widget. It returns true when focus moved.
 func (n *SpatialNavigator) Step(dt time.Duration) bool {
 	if n == nil || !n.Scan.Enabled || dt <= 0 || n.Root == nil {
 		return false
 	}
-	n.Root.syncFocusables()
-	if len(n.Root.focusables) == 0 {
+	r := n.Root
+	r.syncFocusables()
+	if len(r.focusables) == 0 {
 		return false
 	}
 	n.scanElapsed += dt
 	changed := false
 	for n.scanElapsed >= n.Scan.Interval {
 		n.scanElapsed -= n.Scan.Interval
-		if !n.Move(NavDown) {
+		prev := r.focused
+		if !r.FocusNext() {
 			break
 		}
 		changed = true
-		n.Root.syncFocusables()
-		if n.Root.focusIdx == len(n.Root.focusables)-1 {
+		if prev != r.focused && n.OnFocusChange != nil {
+			n.OnFocusChange(prev, r.focused)
+		}
+		if r.focusIdx == len(r.focusables)-1 {
 			n.scanLoops++
 			if n.Scan.Loops > 0 && n.scanLoops >= n.Scan.Loops {
 				n.Scan.Enabled = false

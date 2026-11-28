@@ -596,6 +596,54 @@ func TestAccessibleMenuRolesKeyboardNavigationActivationAndAnnouncements(t *test
 	}
 }
 
+func TestAccessibleMenuScanAdvancesSkipsDisabledSelectsAndStopsAfterLoops(t *testing.T) {
+	var selected []string
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return a11y.AccessibleMenu(cx, a11y.MenuProps{
+			TestID:                   "scan-menu",
+			Label:                    "Scan Menu",
+			SuppressOpenAnnouncement: true,
+			ScanEnabled:              true,
+			ScanInterval:             time.Second,
+			ScanLoops:                1,
+			ScanSelectKey:            "f",
+			Items: []a11y.MenuItem{
+				{ID: "resume", Label: "Resume", OnSelect: func() { selected = append(selected, "resume") }},
+				{ID: "locked", Label: "Locked", Disabled: func() bool { return true }},
+				{ID: "options", Label: "Options", OnSelect: func() { selected = append(selected, "options") }},
+			},
+		})
+	}, nsgotest.Environment(desktopEnv))
+	app.Focus("id:scan-menu")
+
+	lastAnnouncement := func() string {
+		if len(app.Announced) == 0 {
+			return ""
+		}
+		return app.Announced[len(app.Announced)-1]
+	}
+
+	app.Advance(time.Second)
+	if got := lastAnnouncement(); !strings.Contains(got, "Options") {
+		t.Fatalf("first scan step announced %q, want Options (skipping the disabled item)", got)
+	}
+	app.Key("f")
+	if !slices.Equal(selected, []string{"options"}) {
+		t.Fatalf("selected = %v after the scan switch, want [options]", selected)
+	}
+
+	// The second step wraps to Resume and completes the single configured pass, so scanning stops there.
+	app.Advance(time.Second)
+	if got := lastAnnouncement(); !strings.Contains(got, "Resume") {
+		t.Fatalf("second scan step announced %q, want Resume", got)
+	}
+	announced := len(app.Announced)
+	app.Advance(3 * time.Second)
+	if len(app.Announced) != announced {
+		t.Fatalf("scan kept announcing after ScanLoops: %v", app.Announced[announced:])
+	}
+}
+
 func TestAssistMigratesLegacyStorageKeysOnce(t *testing.T) {
 	// ParseColorVision accepts both "normal" and "none".
 	for _, alias := range []string{"normal", "none", "NONE"} {
