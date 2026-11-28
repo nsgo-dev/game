@@ -92,6 +92,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `cloudsave` | `github.com/nsgo-dev/game/pkg/online/cloudsave` | [cloudsave](cloudsave.md) | 置于 `liveops.CloudSync` 之后的自部署云存档：经 HTTPS 按账号划分的槽位、把并发保存变成冲突的条件写入、大小上限、可恢复的历史版本，以及 SQLite（`cloudsave/sqlitestore`）和 Postgres（`cloudsave/pgstore`）存储 |
 | `leaderboard` | `github.com/nsgo-dev/game/pkg/online/leaderboard` | [leaderboard](leaderboard.md) | 在 YAML 里一次性声明排行榜，通过 Game Center 或 Play 游戏服务提交分数并显示原生排行榜 |
 | `leaderboard/selfhost` | `github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost` | [leaderboard/selfhost](leaderboard-selfhost.md) | 可自行部署的跨平台排行榜：总榜、日榜和周榜并保留往期，成绩由账号令牌认证、可选由游戏服务器签名，支持前 N 名、我附近和好友查询 |
+| `eos` | `github.com/nsgo-dev/game/pkg/online/eos` | [eos](epic.md) | Epic Online Services 边界：通过注入的异步 driver 实现 exchange code 登录、成就、排行榜和富状态，结果在引擎 goroutine 上送达 |
 | `presence` | `github.com/nsgo-dev/game/pkg/online/presence` | [presence](presence.md) | 通过与平台无关的 `Activity` 与 `Manager` 在 Steam（经 purego 调用 `ISteamFriends`）和 Discord（纯 Go 本地 IPC v1）好友列表显示丰富状态 |
 | `liveops` | `github.com/nsgo-dev/game/pkg/online/liveops` | [线上运营](liveops.md) | 与服务商无关的崩溃报告、经同意才收集的分析、`CloudSync` 接口，以及计入存档的应用内购买 |
 | `inventory` | `github.com/nsgo-dev/game/pkg/inventory` | [inventory](inventory.md) | YAML 道具定义、可堆叠的格子容器、带类型的装备槽与存档快照 |

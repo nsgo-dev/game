@@ -84,6 +84,7 @@ onDisagreePrivacy := func() {
 | `pkg/online/achievements` | 部分可用 | 本地 `Tracker` 与 `Persist`（`core.Storage`）在所有平台均无 Google 依赖。`ServiceFor(core.OSAndroid)` 会选择 `PlayGames`，在无 Google Play 服务的 Android 设备（以及当前 NSGo `v0.3.4` 的 Android 整体；见[平台支持](platforms.md)）上 `SignIn` 会返回 `gameservices.ErrUnsupported`。可自行绘制游戏内成就界面，或通过 `Tracker.Connect` 挂载自定义 `Reporter`。 |
 | `pkg/online/audit` | 可用 | 纯服务端只追加 JSON Lines 审计日志（`pkg/online/audit`），无客户端或 Google 依赖。 |
 | `pkg/online/cloudsave` | 可用 | 自部署 HTTPS 云存档服务（`cmd/cloudsaved`，含 `sqlitestore`、`pgstore`、`sqlstore`、`storetest`），由 `accounts/authtoken` 鉴权。推荐作为无 Google 服务 Android 与鸿蒙的云存档替代方案。 |
+| `pkg/online/eos` | 不可用 | 面向桌面端 Epic Games Store 的 Epic Online Services 边界；暂未附带原生适配器，游戏需自行提供 `Driver`，没有时 `New` 返回 `ErrUnavailable`。Android 上不使用；无 Google 依赖。 |
 | `pkg/online/gameserver` | 可用 | 纯服务端无头固定步长对局运行器、房间、匹配、健康检查与指标，无 Google 依赖。 |
 | `pkg/online/leaderboard` | 不可用 | `ProviderFor(core.OSAndroid)` 选择 `ProviderPlayGames`；缺少 Google Play 服务时 `Available()` 返回 `false`，`SignIn`/`Submit`/`Show`/`Scores` 返回 `ErrUnsupported`（iOS/macOS 上的 Game Center 仍正常）。请改用 [`pkg/online/leaderboard/selfhost`](leaderboard-selfhost.md)。 |
 | `pkg/online/leaderboard/selfhost` | 可用 | 自部署跨平台 HTTPS 排行榜服务（`cmd/leaderboardd`），由 `accounts/authtoken` 鉴权。推荐用于无 Google 服务 Android、鸿蒙、桌面端与 Web。 |

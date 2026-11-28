@@ -126,6 +126,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/online/cloudsave/sqlitestore` | Experimental | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/sqlstore` | Experimental | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/storetest` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/online/eos` | Experimental | [eos](epic.md) |
 | `game/pkg/online/gameserver` | Experimental | [gameserver](gameserver.md) |
 | `game/pkg/online/leaderboard` | Experimental | [leaderboard](leaderboard.md) |
 | `game/pkg/online/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |

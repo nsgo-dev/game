@@ -126,6 +126,7 @@
 | `game/pkg/online/cloudsave/sqlitestore` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/sqlstore` | 实验性 | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/storetest` | 实验性 | [cloudsave](cloudsave.md) |
+| `game/pkg/online/eos` | 实验性 | [eos](epic.md) |
 | `game/pkg/online/gameserver` | 实验性 | [gameserver](gameserver.md) |
 | `game/pkg/online/leaderboard` | 实验性 | [leaderboard](leaderboard.md) |
 | `game/pkg/online/leaderboard/selfhost` | 实验性 | [leaderboard/selfhost](leaderboard-selfhost.md) |
