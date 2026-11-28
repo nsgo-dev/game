@@ -111,6 +111,8 @@
 | `game/pkg/math2d` | 稳定 | [math2d](math2d.md) |
 | `game/pkg/math3d` | 实验性 | [math3d](math3d.md) |
 | `game/pkg/mcp` | 实验性 | [mcp](mcp.md) |
+| `game/pkg/mcp/mcp3d` | 实验性 | [mcp](mcp.md) |
+| `game/pkg/mcp/mcpui` | 实验性 | [mcp](mcp.md) |
 | `game/pkg/mempool` | 实验性 | [mempool](mempool.md) |
 | `game/pkg/modding` | 实验性 | [modding](modding.md) |
 | `game/pkg/online/accounts` | 实验性 | [accounts](accounts.md) |
