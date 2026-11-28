@@ -606,7 +606,7 @@ func validateAgentSettings(a *AgentSettings) error {
 	if a == nil {
 		return nil
 	}
-	if a.BuiltInFormat != "" && a.BuiltInFormat != "anthropic" && a.BuiltInFormat != "openai" {
+	if a.BuiltInFormat != "" && a.BuiltInFormat != BuiltInFormatAnthropic && a.BuiltInFormat != BuiltInFormatOpenAI {
 		return loaderr.Errorf("agent.builtInFormat", "choose anthropic or openai", "editor: invalid built-in agent format %q", a.BuiltInFormat)
 	}
 	if hasControlChars(a.BuiltInEndpoint) || hasControlChars(a.BuiltInModel) || hasControlChars(a.BuiltInFastModel) {
