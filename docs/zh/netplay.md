@@ -295,10 +295,10 @@ if err != nil && !errors.Is(err, netplay.ErrRollbackStalled) {
 }
 ```
 
-- `RollbackSession` 会预测尚未到达的远端输入、按帧保存快照，并在延迟到达的远端输入与预测不一致时自动回滚重算。它最多只比仍在等待远端输入的最早 tick 超前 `MaxRollback` 个 tick：到达该处时 `Step` 不再模拟，并返回 `ErrRollbackStalled`（用 `errors.Is` 判断时也匹配 `ErrRollbackWindowExceeded`），直到输入到达或主机移除该对等端为止，因此停止发送的对等端会让对局暂停，而不会让历史记录每个 tick 持续增长。如上例所示，把 `ErrRollbackStalled` 当作本帧等待；其他 `ErrRollbackWindowExceeded`（延迟输入与超出窗口的 tick 不一致）则意味着对局无法继续。
+- `RollbackSession` 会预测尚未到达的远端输入、按帧保存快照，并在延迟到达的远端输入与预测不一致时自动回滚重算。它最多只比仍在等待远端输入的最早 tick 超前 `MaxRollback` 个 tick：到达该处时 `Step` 不再模拟，并返回 `ErrRollbackStalled`（用 `errors.Is` 判断时也匹配 `ErrRollbackWindowExceeded`），直到输入到达或主机移除该对等端为止，因此停止发送的对等端会让对局暂停，而不会让历史记录每个 tick 持续增长。该错误会写明会话正在等待的每个对等端，`Waiting()` 返回它们的 ID。暂停中的会话不再向对等端发送任何消息，所以它等待的不可达对等端永远不会以 `ErrSessionBacklog` 报告：对局因某个对等端暂停超过游戏能接受的时长时，由主机将其移除。如上例所示，把 `ErrRollbackStalled` 当作本帧等待；其他 `ErrRollbackWindowExceeded`（延迟输入与超出窗口的 tick 不一致）则意味着对局无法继续。
 - `LockstepSession`（`SubmitInput`、`Poll`、`Step`）仅在所有对等端当前帧输入齐全时推进模拟，适合 RTS 或严格同步玩法。`SubmitInput` 会忽略已执行过的 tick 或超前 256 个 tick 以上的输入。
 - 两种会话只在有限窗口内保留校验和：锁步会话忽略对等端发来的、比自身当前 tick 落后或超前 256 个 tick 以上的校验和；回滚会话忽略早于其校验和历史（256 个 tick，若更早的 tick 仍在等待确认则继续向前保留）或超前 512 个 tick 以上的校验和。
-- 两种会话均支持周期性校验和比对（可配合 `ChecksumBytes`），通过 `OnDesync` 与 `Desyncs()` 第一时间捕获不同步缺陷。
+- 两种会话均支持周期性校验和比对（可配合 `ChecksumBytes`），通过 `OnDesync` 与 `Desyncs()` 第一时间捕获不同步缺陷。会话只比对校验 tick（即按 `ChecksumInterval` 发送校验和的 tick），忽略对等端发来的其他 tick 的校验和。`OnDesync` 与 `RollbackSession` 的 `Stats().Desyncs` 会看到每一次不同步，而 `Desyncs()` 只返回最近的 256 条。
 - 两种会话均按序列号算术（RFC 1982）比较 `uint32` tick（包括成员参与窗口与待处理加入/离开），因此长时间运行的对局在 2^32 tick 回绕时仍可无缝继续。`RollbackSession` 在首个 tick 确认之前不裁剪历史记录，因此即使某个对等端的首条输入在会话暂停之后才到达，仍可正常确认并推进。
 
 ### 对局中途加入与离开的玩家
