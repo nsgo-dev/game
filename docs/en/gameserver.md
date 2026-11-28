@@ -287,3 +287,7 @@ claims, err := v.Verify(tok) // claims.Subject is the account ID
 ```
 
 The token a player sends is for the game's servers, the key set's audience, and whoever runs a server can replay it until it expires; cloud save, the leaderboard and the account service refuse it, so a server cannot reach the player's saves, scores or account with it (see [Token audiences](accounts.md#token-audiences)). Never forward a player's token to another service, and never ask a player for a token for another audience or for their session.
+
+### Idempotent match results
+
+`gameserver.ResultsBackend` provides the result-commit boundary for finished matches. `Commit` applies record grants, wallet grants and best-score grants under one lock keyed by `MatchID`. Retrying the same result is a no-op, while a different payload or record version conflict is rejected before any mutation. Persistent adapters can map the same contract to a database transaction and score outbox.
