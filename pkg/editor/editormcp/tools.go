@@ -48,7 +48,7 @@ func builtinTools() []Tool {
 		{
 			Name:        ToolSceneRead,
 			Title:       "Read a file",
-			Description: "Read a scene, prefab, data table or other text file of the open project, or game.yaml, as YAML with line numbers. The scene open in the editor and game.yaml are read as the editor holds them while it has edits to them that are not saved, whose line numbers then differ from the file's; otherwise, and for any other file, the file is read from disk, comments included. With no file it reads the open scene.",
+			Description: "Read a scene, prefab, data table or other text file of the open project, or game.yaml, as YAML with line numbers. The scene open in the editor and game.yaml are read as the editor holds them while it has edits to them that are not saved, whose line numbers then differ from the file's; otherwise, and for any other file, the file is read from disk, comments included. With no file it reads the open scene. Scene structured output includes each object's origin, source scene, edit location, edit permission, and any reason an override is required.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{"file":{"type":"string","description":"Slash-separated path from the project root, such as scenes/level.scene.yaml; empty for the scene open in the editor"},"offset":{"type":"integer","minimum":1,"description":"First line to return, 1-based; 1 when absent"},"limit":{"type":"integer","minimum":1,"description":"How many lines to return; 2000 when absent"}}}`),
 			Action:      ActionRead,
 			Handler:     sceneRead,
@@ -72,7 +72,7 @@ func builtinTools() []Tool {
 		{
 			Name:        ToolSelectionGet,
 			Title:       "Get the selection",
-			Description: "What the person has selected in the editor: the open scene, the active layer, the selected object with its YAML and line numbers as scene_read shows them, the file selected in the file browser, the active tool and the view mode.",
+			Description: "What the person has selected in the editor: the open scene, the active layer, the selected object with its YAML and line numbers as scene_read shows them, the object's origin and edit location, the file selected in the file browser, the active tool and the view mode.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{}}`),
 			Action:      ActionRead,
 			Handler:     selectionGet,
@@ -251,6 +251,74 @@ type FileText struct {
 	To   int `json:"to"`
 	// hasFile reports that the text has a file on disk, whose line numbers unsaved edits make differ.
 	hasFile bool
+	// Objects describes objects present in a scene file, including where they
+	// originate and where an edit would be recorded.
+	Objects []SceneObjectInfo `json:"objects,omitempty"`
+}
+
+// SceneObjectInfo describes the edit boundary for one scene object.
+type SceneObjectInfo struct {
+	ID          string `json:"id"`
+	Origin      string `json:"origin"`
+	SourceScene string `json:"sourceScene,omitempty"`
+	EditFile    string `json:"editFile,omitempty"`
+	EditPath    string `json:"editPath,omitempty"`
+	Editable    bool   `json:"editable"`
+	EditReason  string `json:"editReason,omitempty"`
+}
+
+func objectEditInfo(ed *editor.Editor, id string) SceneObjectInfo {
+	info := ed.ObjectOverrideInfo(id)
+	out := SceneObjectInfo{ID: id, Origin: info.Origin.String(), Editable: true}
+	if info.ID == "" {
+		return SceneObjectInfo{ID: id, Origin: "local", EditFile: ed.ScenePath, EditPath: id, Editable: true}
+	}
+	switch info.Origin {
+	case editor.ObjectLocal:
+		out.EditFile = ed.ScenePath
+		if out.EditFile == "" {
+			out.EditFile = ed.FilePath
+		}
+		out.EditPath = id
+	case editor.ObjectInstanced:
+		out.EditFile = ed.ScenePath
+		out.EditPath = "overrides." + info.InstanceID + "." + info.Key
+		out.SourceScene = info.SourceScene
+		out.EditReason = "edit is recorded as an override on the local scene instance"
+	case editor.ObjectInherited:
+		out.EditFile = ed.ScenePath
+		out.EditPath = "overrides." + info.Key
+		out.SourceScene = info.SourceScene
+		out.EditReason = "edit is recorded as an override on the inherited scene"
+	default:
+		out.Editable = false
+		out.EditReason = "object is not present in the resolved scene"
+	}
+	return out
+}
+
+func collectSceneObjectInfo(ed *editor.Editor, data []byte, file string, reg *sceneformat.ComponentRegistry) []SceneObjectInfo {
+	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: file, Components: reg})
+	if err != nil || doc == nil {
+		return nil
+	}
+	var out []SceneObjectInfo
+	var walk func([]sceneformat.ObjectDoc)
+	walk = func(objects []sceneformat.ObjectDoc) {
+		for i := range objects {
+			meta := objectEditInfo(ed, objects[i].ID)
+			if meta.EditFile == "" || (ed.ScenePath != file && meta.Origin == "local") {
+				meta.EditFile = file
+			}
+			out = append(out, meta)
+			walk(objects[i].Children)
+		}
+	}
+	for _, layer := range doc.Layers {
+		walk(layer.Objects)
+	}
+	slices.SortFunc(out, func(a, b SceneObjectInfo) int { return strings.Compare(a.ID, b.ID) })
+	return out
 }
 
 // sceneRead runs scene_read.
@@ -378,7 +446,19 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 	case info.Source == "editor" && rel == "":
 		info.Unsaved = true
 	}
+	if info.File != "" && strings.HasSuffix(strings.ToLower(info.File), ".scene.yaml") {
+		info.Objects = collectSceneObjectInfoFromEditor(ctx, c, info.File, text, reg)
+	}
 	return numberLines(text, info, args.Offset, args.Limit), nil
+}
+
+func collectSceneObjectInfoFromEditor(ctx context.Context, c *Call, file string, data []byte, reg *sceneformat.ComponentRegistry) []SceneObjectInfo {
+	var out []SceneObjectInfo
+	_ = c.Editor(ctx, func(ed *editor.Editor) error {
+		out = collectSceneObjectInfo(ed, data, file, reg)
+		return nil
+	})
+	return out
 }
 
 // readProjectFile reads the text file rel inside root, refusing one a symbolic link takes out of the project, one that is not a regular file, one larger than maxReadBytes and one that is not UTF-8 text.
@@ -513,6 +593,8 @@ type SelectedObject struct {
 	Line int `json:"line,omitempty"`
 	// YAML is the object as the open scene's YAML writes it, with line numbers as scene_read shows them.
 	YAML string `json:"yaml,omitempty"`
+	// Edit describes the object's origin and where a change is recorded.
+	Edit SceneObjectInfo `json:"edit"`
 }
 
 // readSelection is ed's selection.
@@ -532,7 +614,7 @@ func readSelection(ed *editor.Editor) Selection {
 	if obj == nil {
 		return sel
 	}
-	so := &SelectedObject{ID: obj.ID, Name: obj.Name, Layer: layer, X: obj.X, Y: obj.Y}
+	so := &SelectedObject{ID: obj.ID, Name: obj.Name, Layer: layer, X: obj.X, Y: obj.Y, Edit: objectEditInfo(ed, obj.ID)}
 	for name := range obj.Components {
 		so.Components = append(so.Components, name)
 	}
