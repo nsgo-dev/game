@@ -204,3 +204,7 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ```
 
 `init` 从不覆盖已有配置，且不写入 `allowedOrigins`；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `accounts.yaml` 的 `allowedOrigins`。`genkey` 从不覆盖已有密钥，并把新公钥加进密钥集文件，这是轮换的第一步；它先写临时文件再改名替换，游戏服务器读取时不会读到写了一半的文件，密钥集写入失败时还会删掉刚生成的密钥。`serve -keyset` 接受并提供密钥集中的所有公钥，所以轮换后用旧密钥签名的令牌在服务上依然有效。`serve` 把 JSON 日志写到 stderr，收到 SIGINT 或 SIGTERM 时停止。需要绑定平台身份的游戏，用自己的校验器围绕 `accounts.New` 构建自己的命令。
+
+## 会话生命周期核心
+
+`SessionDirectory` 为需要空闲或绝对过期、刷新密钥轮换、重用检测和设备列表的适配器提供会话生命周期边界。`SessionPolicy` 为丢失响应后重试的刷新保留短暂重叠窗口，窗口之外提交旧密钥会撤销会话并返回 `ErrSessionReuse`。`List`、`RevokeAll` 和 `Sweep` 支持设备管理与清理。现有 Store 和 HTTP 契约保持兼容，持久化迁移可据此接入新字段。
