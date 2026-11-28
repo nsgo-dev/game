@@ -2,6 +2,8 @@
 
 `rpg2d` is a small top-down RPG called Hollowbrook: a town and the meadow beyond its gate, three people to talk to, a pack of items and equipment, one quest, turn-based battles and three save slots. It is one of the [templates](templates.md), and the starting point for a game of that kind.
 
+The template includes `scenes/town.scene.yaml` as the editor-openable town entry for NPCs, items and exits. `data/world.yaml` remains the runtime map source during the scene migration.
+
 ```sh
 go run github.com/nsgo-dev/game/cmd/game@latest new -template rpg2d mygame
 cd mygame
