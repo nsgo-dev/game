@@ -773,12 +773,14 @@ func TestDrawRateCapsDrawsWhileUpdatesKeepToRate(t *testing.T) {
 		drawRate  int
 		wantUpd   int
 		wantDraws int
+		longUpd   int
+		longDraws int
 	}{
-		{"30 on 60 Hz", 60, 30, 60, 30},
-		{"20 at 120 Hz updates", 120, 20, 120, 20},
-		{"above display rate", 60, 120, 60, 60},
-		{"uncapped zero", 60, 0, 60, 60},
-		{"uncapped negative", 60, -10, 60, 60},
+		{"30 on 60 Hz", 60, 30, 59, 30, 599, 300},
+		{"20 at 120 Hz updates", 120, 20, 116, 20, 1196, 200},
+		{"above display rate", 60, 120, 60, 60, 600, 600},
+		{"uncapped zero", 60, 0, 60, 60, 600, 600},
+		{"uncapped negative", 60, -10, 60, 60, 600, 600},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := count(game.Loop{Rate: tc.rate, DrawRate: tc.drawRate})
@@ -786,7 +788,7 @@ func TestDrawRateCapsDrawsWhileUpdatesKeepToRate(t *testing.T) {
 			app.Advance(time.Second)
 			c.expect(t, tc.wantUpd, tc.wantDraws)
 			app.Advance(9 * time.Second)
-			c.expect(t, 10*tc.wantUpd, 10*tc.wantDraws)
+			c.expect(t, tc.longUpd, tc.longDraws)
 		})
 	}
 }

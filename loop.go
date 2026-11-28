@@ -27,6 +27,8 @@ type Loop struct {
 	TimeScale float64
 	// DrawRate caps Draw to at most DrawRate calls a second, uncapped when 0 or less. Update still runs at Rate.
 	DrawRate int
+	// MatchDisplayToRate asks the display to run at Rate when DrawRate is uncapped. It is useful when the game wants to avoid display wakeups above its simulation rate.
+	MatchDisplayToRate bool
 	// OnDemand skips Draw on frames where no Update ran, unless MarkDirty has been called since the last Draw. When Idle is also set and returns true, OnDemand skips Update steps too until Idle returns false or MarkDirty wakes the loop.
 	OnDemand bool
 	// Idle, when set with OnDemand, reports whether the game currently has no ongoing work (such as animations, timers or typewriter reveals) that needs fixed-step updates. While OnDemand is true, Paused is false and Idle returns true, display frames skip both Update and Draw without accumulating time, and the display keep-awake hold is released after PausedAwake. Calling MarkDirty wakes an idle loop to run one fixed Update step and Draw on the next frame; if that Update makes Idle return false, fixed-step updates resume until Idle returns true again.
@@ -62,6 +64,9 @@ func (l *Loop) SetPaused(paused bool) {
 		l.pendingSteps = 0
 	}
 	l.syncPause()
+	if r := l.activeRun; r != nil {
+		r.syncFrameRate()
+	}
 }
 
 func (l *Loop) syncPause() {
@@ -77,6 +82,7 @@ func (l *Loop) syncPause() {
 	}
 	if r := l.activeRun; r != nil {
 		r.syncAwake(false)
+		r.syncFrameRate()
 	}
 }
 
@@ -92,6 +98,7 @@ func (l *Loop) Step(n int) {
 		if r := l.activeRun; r != nil && l.Paused {
 			r.awakeIdle = 0
 			r.syncAwake(false)
+			r.syncFrameRate()
 		}
 	}
 }
@@ -110,6 +117,7 @@ func (l *Loop) MarkDirty() {
 	if r := l.activeRun; r != nil && l.OnDemand {
 		r.awakeIdle = 0
 		r.syncAwake(false)
+		r.syncFrameRate()
 	}
 }
 
@@ -329,6 +337,50 @@ func (r *loopRun) syncImmersive() {
 	}
 }
 
+// syncFrameRate asks the host for the rate that matches the loop's current
+// amount of work. A zero range follows the display's native rate.
+func (r *loopRun) syncFrameRate() {
+	if r.cx == nil || r.cancel == nil || r.ended {
+		return
+	}
+	rate := core.FrameRateRange{}
+	active := func() core.FrameRateRange {
+		switch {
+		case r.loop.DrawRate > 0:
+			return core.FrameRateRange{Preferred: float32(r.loop.DrawRate)}
+		case r.loop.MatchDisplayToRate:
+			return core.FrameRateRange{Preferred: float32(r.loop.rate())}
+		default:
+			return rate
+		}
+	}
+	idle := func() core.FrameRateRange {
+		if r.loop.DrawRate > 0 || r.loop.MatchDisplayToRate {
+			return active()
+		}
+		// 60 Hz is a conservative idle preference. It is unchanged on the
+		// common 60 Hz display and avoids waking a high-refresh panel at full
+		// speed while preserving the existing callback cadence for games that
+		// have not opted into a lower active rate.
+		return core.FrameRateRange{Preferred: 60}
+	}
+	// A dirty on-demand loop must receive its wake callback on the next
+	// display frame, even when its steady-state draw rate is lower.
+	if r.loop.OnDemand && (r.loop.dirty || r.loop.wakeStep) {
+		r.cx.SetPreferredFrameRate(rate)
+		return
+	}
+	switch {
+	case r.loop.Paused && r.loop.pendingSteps == 0 && !r.loop.dirty:
+		rate = idle()
+	case r.loop.isIdle() && !r.loop.wakeStep && !r.loop.dirty:
+		rate = idle()
+	default:
+		rate = active()
+	}
+	r.cx.SetPreferredFrameRate(rate)
+}
+
 // syncAwake acquires or releases the display keep-awake hold to match whether the run is active in the foreground (or within PausedAwake). active is true while the current frame is executing pending Step updates or an OnDemand dirty wake/draw.
 func (r *loopRun) syncAwake(active bool) {
 	want := !r.ended && r.cancel != nil && (active ||
@@ -356,6 +408,7 @@ func (r *loopRun) end() {
 	r.ended = true
 	r.cancel = nil
 	r.releaseAwake = nil
+	r.cx.SetPreferredFrameRate(core.FrameRateRange{})
 	if r.unregisterWeb != nil {
 		r.unregisterWeb()
 		r.unregisterWeb = nil
@@ -378,6 +431,7 @@ func (r *loopRun) resume() {
 	r.cx.Run(func() {
 		r.cancel = r.cx.RequestAnimationFrame(r.frame)
 	})
+	r.syncFrameRate()
 	r.syncAwake(false)
 }
 
@@ -391,10 +445,14 @@ func (r *loopRun) pause() {
 		r.releaseAwake()
 		r.releaseAwake = nil
 	}
+	if !r.ended {
+		r.cx.SetPreferredFrameRate(core.FrameRateRange{})
+	}
 }
 
 func (r *loopRun) frame(at time.Time) {
 	r.cancel = r.cx.RequestAnimationFrame(r.frame)
+	r.syncFrameRate()
 	// A display's frame time may fall before the time the run resumed at, read from cx's clock. Such a frame adds nothing and leaves last at the resumption: going back in time would take time off acc and skip the frames' updates until it was paid back, and measuring the next frame from the earlier stamp would count time from before the resumption.
 	var dt time.Duration
 	if at.After(r.last) {
@@ -511,6 +569,7 @@ func (r *loopRun) frame(at time.Time) {
 	}
 	shouldDraw := !r.loop.OnDemand || r.loop.dirty
 	if !r.canDraw(dt, shouldDraw) {
+		r.syncFrameRate()
 		r.syncAwake(false)
 		return
 	}
@@ -522,6 +581,7 @@ func (r *loopRun) frame(at time.Time) {
 	if r.cancel == nil {
 		return
 	}
+	r.syncFrameRate()
 	r.syncAwake(false)
 }
 
