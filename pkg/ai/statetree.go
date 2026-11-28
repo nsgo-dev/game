@@ -13,15 +13,16 @@ type StateTree struct {
 	States     []State           `yaml:"states"`
 }
 type State struct {
-	ID           string       `yaml:"id"`
-	Enter        []Condition  `yaml:"enter,omitempty"`
-	Tasks        []Task       `yaml:"tasks,omitempty"`
-	CompleteWhen string       `yaml:"completeWhen,omitempty"`
-	Transitions  []Transition `yaml:"transitions,omitempty"`
-	Children     []State      `yaml:"children,omitempty"`
+	ID           string           `yaml:"id"`
+	Enter        []StateCondition `yaml:"enter,omitempty"`
+	Tasks        []Task           `yaml:"tasks,omitempty"`
+	CompleteWhen string           `yaml:"completeWhen,omitempty"`
+	Transitions  []Transition     `yaml:"transitions,omitempty"`
+	Children     []State          `yaml:"children,omitempty"`
 }
-type Condition struct {
-	Key, Op string
+type StateCondition struct {
+	Key string `yaml:"key"`
+	Op string `yaml:"op"`
 	Value   any `yaml:"value,omitempty"`
 }
 type Task struct {
@@ -29,7 +30,8 @@ type Task struct {
 	Params map[string]any `yaml:"params,omitempty"`
 }
 type Transition struct {
-	On, To   string
+	On string `yaml:"on"`
+	To string `yaml:"to"`
 	Priority int  `yaml:"priority,omitempty"`
 	Delay    int  `yaml:"delay,omitempty"`
 	Restart  bool `yaml:"restart,omitempty"`
