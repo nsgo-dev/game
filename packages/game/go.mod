@@ -1,3 +1,4 @@
+// Deprecated: the game layer moved to github.com/nsgo-dev/game in 0.2.0, and this module has known security vulnerabilities fixed there in v0.2.1; require github.com/nsgo-dev/game v0.2.1 or later and drop /packages/game from import paths.
 module github.com/nsgo-dev/game/packages/game
 
 go 1.27.3
@@ -60,3 +61,6 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
+
+// v0.1.0 has the vulnerabilities in GHSA-8w88-jhc8-w88x, GHSA-wwhg-x33m-mf5r, GHSA-hj3c-wjj6-66f6, GHSA-9mh9-5gjq-r7h8, GHSA-gw6m-3wq3-4782, GHSA-c599-xjg6-jhc4, GHSA-6qf7-v93j-cwg6, GHSA-769j-vg2v-mgv9, GHSA-264m-q5vc-h23x, GHSA-vwmf-7vh3-w27f and GHSA-r39m-5mfc-4pmq; use github.com/nsgo-dev/game v0.2.1 or later.
+retract v0.1.0

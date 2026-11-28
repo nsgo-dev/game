@@ -1,9 +1,0 @@
-package {{.Package}}
-
-import "testing"
-
-func TestLoad{{.Go}}Scene(t *testing.T) {
-	if _, err := Load{{.Go}}Scene(); err != nil {
-		t.Fatal(err)
-	}
-}

@@ -1,8 +1,0 @@
-version: 1
-title: Night Drive
-tempos:
-  - beat: 0
-    bpm: 150
-meters:
-  - beat: 0
-    beatsPerBar: 4

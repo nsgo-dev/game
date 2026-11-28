@@ -1,7 +1,0 @@
-# The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
-version: 1
-files:
-  - path: data/actors.yaml
-    sha256: 7432eacc6586c926e783a45dc04771348952726d409705d61ce283079d923607
-  - path: scenes/keep.scene.yaml
-    uid: xytq0b09ymm4j
