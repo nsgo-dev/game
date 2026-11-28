@@ -354,4 +354,6 @@ func unitCube() render3d.Mesh {
 
 func toMath(v physics3d.Vec3) math3d.Vec3 { return math3d.Vec3{X: v.X, Y: v.Y, Z: v.Z} }
 
+func toPhysics(v math3d.Vec3) physics3d.Vec3 { return physics3d.Vec3{X: v.X, Y: v.Y, Z: v.Z} }
+
 func lerpVec(a, b physics3d.Vec3, t float32) physics3d.Vec3 { return a.Add(b.Sub(a).Scale(t)) }

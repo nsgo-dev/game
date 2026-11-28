@@ -6,7 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/math2d"
-	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/pathfind"
 )
 
 func TestAimAssist2DDeterministicFrictionMagnetismAndLOS(t *testing.T) {
@@ -48,8 +48,8 @@ func TestAimAssist2DSnapAndPriority(t *testing.T) {
 
 func TestAimAssist3DMagnetismAndSnap(t *testing.T) {
 	a := input.AimAssist{Strength: 1, OuterRadius: 0.5, Magnetism: 1}
-	targets := []input.AimTarget3D{{ID: "enemy", Position: math3d.Vec3{X: 1, Y: 0, Z: -5}, Priority: 1}}
-	result := a.Evaluate3D(math3d.Vec3{}, math3d.Vec3{Z: -1}, targets, nil)
+	targets := []input.AimTarget3D{{ID: "enemy", Position: pathfind.Vec3{X: 1, Y: 0, Z: -5}, Priority: 1}}
+	result := a.Evaluate3D(pathfind.Vec3{}, pathfind.Vec3{Z: -1}, targets, nil)
 	if !result.Found || result.Target.ID != "enemy" {
 		t.Fatalf("target = %#v", result.Target)
 	}
@@ -57,8 +57,8 @@ func TestAimAssist3DMagnetismAndSnap(t *testing.T) {
 		t.Fatalf("direction = %v, want pulled toward target", result.Direction)
 	}
 	snap := input.AimAssist{Strength: 1, OuterRadius: 0.5, Snap: true, SnapAngle: 0.3}
-	if got := snap.Assist3D(math3d.Vec3{}, math3d.Vec3{Z: -1}, targets, nil); !got.ApproxEqual(targets[0].Position.Norm(), 1e-5) {
-		t.Fatalf("snap direction = %v, want %v", got, targets[0].Position.Norm())
+	if got := snap.Assist3D(pathfind.Vec3{}, pathfind.Vec3{Z: -1}, targets, nil); !approxV3(got, normV3(targets[0].Position), 1e-5) {
+		t.Fatalf("snap direction = %v, want %v", got, normV3(targets[0].Position))
 	}
 }
 
@@ -90,8 +90,16 @@ func TestAimAssistNonFiniteDirectionIsUnchanged(t *testing.T) {
 	if r2.Found || r2.Friction != 1 {
 		t.Fatalf("2D NaN direction = %#v, want no target and friction 1", r2)
 	}
-	r3 := a.Evaluate3D(math3d.Vec3{}, math3d.Vec3{Z: nan}, []input.AimTarget3D{{Position: math3d.Vec3{Z: -5}}}, nil)
+	r3 := a.Evaluate3D(pathfind.Vec3{}, pathfind.Vec3{Z: nan}, []input.AimTarget3D{{Position: pathfind.Vec3{Z: -5}}}, nil)
 	if r3.Found || r3.Friction != 1 {
 		t.Fatalf("3D NaN direction = %#v, want no target and friction 1", r3)
 	}
+}
+
+func normV3(v pathfind.Vec3) pathfind.Vec3 {
+	l := float32(math.Sqrt(float64(v.X*v.X + v.Y*v.Y + v.Z*v.Z)))
+	return pathfind.Vec3{X: v.X / l, Y: v.Y / l, Z: v.Z / l}
+}
+func approxV3(a, b pathfind.Vec3, e float32) bool {
+	return float32(math.Abs(float64(a.X-b.X))) <= e && float32(math.Abs(float64(a.Y-b.Y))) <= e && float32(math.Abs(float64(a.Z-b.Z))) <= e
 }
