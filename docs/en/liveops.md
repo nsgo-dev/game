@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - `Pause(true)` and `ResetInput` run before the ad shows and `Pause(false)` before the result is reported, so the loop and the mixer stay paused and no key stays held while the ad covers the game.
 
 Not yet available: an `ads.yaml` declaring unit IDs and placements, banner ads, and the mini-game `AdHost`, which waits on NSGo's mini-game ad API ([nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)). Grant currency rewards on the server, keyed by your own show ID, so a reward is not granted twice.
+
+### Crash fingerprints
+
+`liveops.CrashReport.Fingerprint()` returns a stable SHA-256 grouping key derived from the top application stack frames. It omits file paths, line numbers, goroutine IDs and runtime frames, so moving a line or recovering the same panic on another goroutine keeps the same grouping key. Include the fingerprint with an uploaded report, while retaining the full stack for diagnosis.
