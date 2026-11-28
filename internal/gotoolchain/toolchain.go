@@ -20,7 +20,7 @@ import (
 )
 
 // DefaultMinVersion is the minimum Go version required by the project templates.
-const DefaultMinVersion = "1.27.3"
+const DefaultMinVersion = "1.27.4"
 
 // DownloadURL is the official Go download page linked when Go is missing or too old.
 const DownloadURL = "https://go.dev/dl/"
