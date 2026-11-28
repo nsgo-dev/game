@@ -375,6 +375,7 @@ func TestCrashReporterDefendsAgainstPanickingCaptureStateAndNilInputs(t *testing
 type fakeAnalyticsProvider struct {
 	events  []liveops.Event
 	flushes int
+	purges  int
 	sendErr error
 }
 
@@ -388,6 +389,12 @@ func (p *fakeAnalyticsProvider) Send(ev liveops.Event) error {
 
 func (p *fakeAnalyticsProvider) Flush() error {
 	p.flushes++
+	return nil
+}
+
+func (p *fakeAnalyticsProvider) Purge() error {
+	p.purges++
+	p.events = nil
 	return nil
 }
 
@@ -479,8 +486,31 @@ func TestAnalyticsStrictlyRequiresExplicitConsent(t *testing.T) {
 	if err := an.Flush(); err != nil {
 		t.Fatalf("Flush after revoke: %v", err)
 	}
-	if len(prov.events) != 1 || prov.flushes != 1 {
+	if len(prov.events) != 0 || prov.flushes != 1 || prov.purges != 1 {
 		t.Fatalf("provider received calls after revoke: %d events, %d flushes", len(prov.events), prov.flushes)
+	}
+}
+
+func TestAnalyticsPurgesProviderOnConsentRevocation(t *testing.T) {
+	prov := &fakeAnalyticsProvider{}
+	an := liveops.NewMemoryAnalytics(prov)
+	if err := an.SetConsent(liveops.ConsentGranted); err != nil {
+		t.Fatal(err)
+	}
+	if !an.Track("queued", nil) || len(prov.events) != 1 {
+		t.Fatalf("tracked events = %d, want 1", len(prov.events))
+	}
+	if err := an.SetConsent(liveops.ConsentDenied); err != nil {
+		t.Fatal(err)
+	}
+	if prov.purges != 1 || len(prov.events) != 0 {
+		t.Fatalf("purges=%d events=%d, want 1 and 0", prov.purges, len(prov.events))
+	}
+	if err := an.SetConsent(liveops.ConsentDenied); err != nil {
+		t.Fatal(err)
+	}
+	if prov.purges != 1 {
+		t.Fatalf("repeated deny purges=%d, want 1", prov.purges)
 	}
 }
 
@@ -598,7 +628,7 @@ func TestAnalyticsNilProviderErrorsAndMemoryMode(t *testing.T) {
 	if _, exists := app.Storage().GetItem(liveops.DefaultConsentKey); exists {
 		t.Fatal("default consent key still present after reset to ConsentUnknown")
 	}
-	if stored.Track("blocked", nil) || len(prov.events) != 1 {
+	if stored.Track("blocked", nil) || len(prov.events) != 0 {
 		t.Fatal("event sent after reset to ConsentUnknown")
 	}
 }
