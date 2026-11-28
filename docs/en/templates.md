@@ -2,6 +2,8 @@
 
 A new project starts from a template: a small, complete game that builds, runs and passes its tests before you change a line. `game new` writes one into a new directory, and NSGo's `nsgo init -template` writes the same files from the template's Go module. When growing a template into a shippable game, follow the [Accessibility Guide](accessibility-guide.md) to wire `gameui.SettingsMenu`, `a11y.Assist`, captions, and effects end to end (shipping a ready Accessibility settings screen in every template is tracked in [#1783](https://github.com/nsgo-dev/game/issues/1783)).
 
+The first-launch gate is the smallest complete accessibility slice. Mount `gameui.FirstLaunchSettings.View` above the title screen before starting audio, use the same `save.DefaultSettingsStore` for `gameui.SettingsMenu` and `a11y.NewAssistFromSettings`, and route **More options** to the menu's Accessibility tab. Continue enables captions and records a completion marker, so a later launch can start directly at the title screen. Templates should expose the same entry point from their pause menu and keep the gate's one-action keyboard, gamepad, and touch path.
+
 ## The templates
 
 | Template | What it is | `nsgo init -template` module |

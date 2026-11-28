@@ -2,6 +2,8 @@
 
 新项目从一个模板开始：模板是一个小而完整的游戏，在你改动任何一行之前就能构建、运行并通过测试。`game new` 把模板写入一个新目录，NSGo 自带的 `nsgo init -template` 则从模板的 Go 模块写出同样的文件。将模板发展为可发布游戏时，可按[无障碍指南](accessibility-guide.md)端到端接入 `gameui.SettingsMenu`、`a11y.Assist`、字幕与特效控制（在每个模板中内置无障碍设置界面跟踪于 [#1783](https://github.com/nsgo-dev/game/issues/1783)）。
 
+首次启动门是最小但完整的无障碍切片。应在启动音频前把 `gameui.FirstLaunchSettings.View` 挂到标题画面上方，让 `gameui.SettingsMenu` 与 `a11y.NewAssistFromSettings` 共用同一个 `save.DefaultSettingsStore`，并把**更多选项**连接到设置菜单的无障碍标签页。继续操作会开启字幕并记录完成标记，后续启动即可直接进入标题画面。每个模板都应从暂停菜单提供同一个入口，并保证键盘、手柄和触摸都能一键完成该流程。
+
 ## 现有模板
 
 | 模板 | 内容 | `nsgo init -template` 模块 |
