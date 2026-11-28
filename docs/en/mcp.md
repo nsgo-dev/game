@@ -252,6 +252,8 @@ Use `game_state_capture` and `game_state_diff` to verify what an action, edit, o
 - `game_state_capture` runs [`statedump.Capture`](statedump.md) over `World`, `Scenes`, `Loop` counters and `Config.StateValues` (optionally filtered to `values` keys) and stores the canonical YAML in memory under `name` (bounded to `MaxStateCaptures` captures and `MaxStateCaptureTotalBytes` bytes).
 - `game_state_diff` compares `from` against `to` (or against live state when `to` is omitted), returning `statedump.Diff` output, `changed_entities` (plus `added_entities`, `removed_entities`, `modified_entities`), per-entity `entity_changes` with field-level `before`/`after` values, `value_changes`, `scene_changed` and `steps_delta`. Pass `paths` (such as `["entities"]`, `["entity:0:1.pos"]`, or `["values.score"]`) to scope both the YAML diff and structured summary.
 
+Use the verification loop after an edit. Capture before the action, drive input or a fixed-step advance, capture again, and diff the two snapshots. Pair this with a screenshot baseline comparison for pixels and `game_log_read` for warnings or recovered panics.
+
 ## Logs and recovered panics
 
 Set `Config.Log = &mcp.LogConfig{}` to enable `game_log_read`:

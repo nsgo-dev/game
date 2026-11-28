@@ -252,6 +252,8 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 - `game_state_capture` 对 `World`、`Scenes`、`Loop` 步数及 `Config.StateValues`（可按 `values` 键过滤）运行 [`statedump.Capture`](statedump.md)，并将规范 YAML 按 `name` 保存在内存中（受 `MaxStateCaptures` 数量和 `MaxStateCaptureTotalBytes` 总字节数限制）。
 - `game_state_diff` 将 `from` 与 `to`（省略 `to` 时为当前实时状态）对比，返回 `statedump.Diff` 统一差异、`changed_entities`（及 `added_entities`、`removed_entities`、`modified_entities`）、带字段级 `before`/`after` 的 `entity_changes`、`value_changes`、`scene_changed` 与 `steps_delta`。传入 `paths`（如 `["entities"]`、`["entity:0:1.pos"]` 或 `["values.score"]`）可同时过滤 YAML 差异和结构化变更。
 
+编辑后可以按验证循环操作：先捕获状态，再注入输入或推进固定步长，再次捕获并比较。像素检查配合截图基线比较，警告和恢复的 panic 则使用 `game_log_read`。
+
 ## 日志与已恢复 panic 读取
 
 将 `Config.Log` 设为 `&mcp.LogConfig{}` 即可启用 `game_log_read`：
