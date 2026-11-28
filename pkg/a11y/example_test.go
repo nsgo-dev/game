@@ -64,6 +64,18 @@ func ExampleAssist() {
 	// 0.5
 }
 
+// Caption.Format places directional indicators outside the SFX brackets at a pan magnitude of 0.25 or greater.
+func ExampleCaption_Format() {
+	for _, direction := range []float32{-0.25, 0.24, 0.25} {
+		caption := a11y.Caption{Text: "Explosion", Kind: a11y.CaptionSFX, Direction: direction}
+		fmt.Println(caption.Format())
+	}
+	// Output:
+	// [<] [Explosion]
+	// [Explosion]
+	// [Explosion] [>]
+}
+
 // A CaptionTrack holds timed captions that Update steps from the game loop; Format adds the speaker and the direction a sound came from.
 func ExampleCaptionTrack() {
 	root := core.NewRoot(core.RootOptions{})
