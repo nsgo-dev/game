@@ -3174,3 +3174,7 @@ Media that is binary by nature stays binary: images (PNG), sound (WAV, AAC, MP3)
 ## Keeping this page current
 
 Each entry starts with a line `<!-- format: <package>[#<name>] -->`. Each YAML format's conformance test (`internal/formattest`) names its entry so and checks that every YAML example in it, on this page and its translation, loads and saves to the same bytes. `TestFormatsPage` in `internal/repocheck` checks the rest: that the two languages list the same entries in the same order; that every other entry is listed in the test with the declaration that reads its format, which the package must still have, and that its JSON and Yarn examples load with the format's reader; that every package that decodes JSON has an entry unless the test says why it needs none; and that every exported integer constant whose name ends in `Version` is the version of a format listed here. A format none of these finds, such as an unversioned text format in a package that already has an entry, can still be missed, so a new format adds its entry here in the same change.
+
+## RPG database
+
+`pkg/rpgdata` reads a versioned YAML database for classes, actors, skills, enemies and troops. Cross-references are checked on load and `Progression` provides deterministic experience and level-up events.
