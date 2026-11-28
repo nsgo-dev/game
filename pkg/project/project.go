@@ -417,6 +417,20 @@ type Preset struct {
 	Platform string `yaml:"platform" schema:"required,enum=macos|windows|linux|ios|tvos|watchos|android|harmonyos|web|miniprogram"`
 	// Targets are the NSGo build targets of the platform to build, such as macos_arm64; empty builds the platform name itself, which NSGo expands to its default targets.
 	Targets []string `yaml:"targets,omitempty,flow"`
+	// Delivery places named asset groups into the main package, subpackages or a remote origin.
+	Delivery *AssetDelivery `yaml:"delivery,omitempty"`
+}
+
+type AssetDelivery struct {
+	Main        []string            `yaml:"main,omitempty"`
+	Subpackages map[string][]string `yaml:"subpackages,omitempty"`
+	Remote      []string            `yaml:"remote,omitempty"`
+	Caps        *AssetCaps          `yaml:"caps,omitempty"`
+}
+
+type AssetCaps struct {
+	Main  int64 `yaml:"main,omitempty"`
+	Total int64 `yaml:"total,omitempty"`
 }
 
 // Editor is the scene editor's settings for one project.
@@ -690,7 +704,7 @@ func (f *File) Clone() *File {
 		if f.Export.Presets != nil {
 			e.Presets = make([]Preset, len(f.Export.Presets))
 			for i, p := range f.Export.Presets {
-				e.Presets[i] = Preset{Platform: p.Platform, Targets: append([]string(nil), p.Targets...)}
+				e.Presets[i] = Preset{Platform: p.Platform, Targets: append([]string(nil), p.Targets...), Delivery: cloneAssetDelivery(p.Delivery)}
 			}
 		}
 		c.Export = &e
@@ -1345,8 +1359,69 @@ func validateExport(e *Export) error {
 			}
 			seen[t] = struct{}{}
 		}
+		if p.Delivery != nil {
+			if err := validateAssetDelivery(prefix+".delivery", p.Delivery); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func validateAssetDelivery(field string, d *AssetDelivery) error {
+	claimed := map[string]string{}
+	claim := func(group, where string) error {
+		if strings.TrimSpace(group) == "" {
+			return loaderr.Errorf(field, "use non-empty asset group names", "project: empty asset group in %s", where)
+		}
+		if prior, ok := claimed[group]; ok {
+			return loaderr.Errorf(field, "place each asset group in exactly one delivery location", "project: asset group %q appears in both %s and %s", group, prior, where)
+		}
+		claimed[group] = where
+		return nil
+	}
+	for _, g := range d.Main {
+		if err := claim(g, "main"); err != nil {
+			return err
+		}
+	}
+	for name, groups := range d.Subpackages {
+		if err := validateNameAt(field+".subpackages", "subpackage", name); err != nil {
+			return err
+		}
+		for _, g := range groups {
+			if err := claim(g, "subpackage "+name); err != nil {
+				return err
+			}
+		}
+	}
+	for _, g := range d.Remote {
+		if err := claim(g, "remote"); err != nil {
+			return err
+		}
+	}
+	if d.Caps != nil && (d.Caps.Main < 0 || d.Caps.Total < 0) {
+		return loaderr.Errorf(field+".caps", "set caps to non-negative bytes", "project: asset delivery caps must be non-negative")
+	}
+	return nil
+}
+
+func cloneAssetDelivery(d *AssetDelivery) *AssetDelivery {
+	if d == nil {
+		return nil
+	}
+	out := &AssetDelivery{Main: slices.Clone(d.Main), Remote: slices.Clone(d.Remote)}
+	if d.Caps != nil {
+		c := *d.Caps
+		out.Caps = &c
+	}
+	if d.Subpackages != nil {
+		out.Subpackages = make(map[string][]string, len(d.Subpackages))
+		for k, v := range d.Subpackages {
+			out.Subpackages[k] = slices.Clone(v)
+		}
+	}
+	return out
 }
 
 func validateEditor(e *Editor) error {

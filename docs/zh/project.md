@@ -264,3 +264,6 @@ scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; 
 ## 起手模板与示例
 
 起手模板和四个示例游戏（`caverun`、`cryptquest`、`slidegem`、`starburst`）都把设置放在 `game.yaml` 中：每个项目都有窗口设置，用到时还包括虚拟分辨率、输入映射、音频总线和导出预设。Cave Run 还通过它自动加载关卡。每个项目都有一个测试，检查 `game.yaml` 是规范形式，并且 `nsgo.yaml` 与它一致。它们也都建立了索引：Cave Run 的 `game.yaml` 和地图引用了文件，因此带有 `game.index.yaml`；`game/tooling/refs` 中的一个测试会在 `game index` 要对示例或起手模板做任何修改时失败，所以移动或编辑它们引用的文件后，请在仓库根目录运行 `go run ./cmd/game index <dir>`。其余示例和起手模板没有场景文件或资源文件，也不引用任何文件，因此在游戏加入这类文件之前没有需要索引的内容。
+# 资源交付
+
+`export.presets[].delivery` 在项目 YAML 中保存平台包布局。省略 delivery 时保持现有单包行为。
