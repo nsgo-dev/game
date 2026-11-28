@@ -25,6 +25,6 @@ func TestInventoryMatchesCC0Adventurers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(got) != want {
-		t.Fatal("README.md is stale, run go run ./tools/clipinventory -out library/packs/cc0-adventurers/README.md library/packs/cc0-adventurers/mage.gltf library/packs/cc0-adventurers/knight.gltf")
+		t.Fatal("README.md is stale; from the repository root run go run ./tools/clipinventory -out library/packs/cc0-adventurers/README.md library/packs/cc0-adventurers/mage.gltf library/packs/cc0-adventurers/knight.gltf")
 	}
 }

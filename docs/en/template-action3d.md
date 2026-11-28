@@ -49,7 +49,7 @@ or, without the `game` tool, `nsgo init -template github.com/nsgo-dev/game/templ
 
 ## Where to change it
 
-The procedural hero and enemy rig is the default so the template stays self-contained. For a skinned character upgrade, install the CC0 kit with `go tool game library install cc0-adventurers`. The pack's `animation.states.yaml` uses the shared `Idle`, `Walk`, `Run`, `Jump`, `Attack`, `Hit`, and `Death` clip names. Inspect the generated clip inventory before wiring a model into `render.go`.
+The hero and enemies are built from procedural parts so the template stays self-contained. `go tool game library install cc0-adventurers` adds two placeholder skinned characters whose clips (`Idle`, `Walk`, `Run`, `Jump`, `Attack`, `Hit`, `Death` and five more) are the names the KayKit Adventurers models will keep when they replace the placeholders; the pack's `README.md` lists them with their durations. The template does not draw them yet: that waits on skinned models in scene drawing (#1382).
 
 - **The level.** Move walls, add enemies or lamps, or draw a new level in `scenes/keep.scene.yaml`, by hand or in the scene editor (`go run github.com/nsgo-dev/game/cmd/game editor .`). Every object sits at the top of its layer, and only the spawn is rotated (by `rotY`): the level refuses an object nested inside another or a rotated block, since it reads positions as world values and blocks as boxes aligned with the axes. The tests check that it still loads; the bot's route in `game_test.go` says how a run is won, so a new layout needs a new route.
 - **The fight.** `data/actors.yaml` holds every number: an enemy's `attackSpeed` below 1 slows its swing, and `health`, `reach`, `damage`, `cooldown` and `knockback` change the difficulty without touching code.
