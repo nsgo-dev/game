@@ -1,0 +1,6 @@
+version: 1
+tickRate: 20
+maxPlayers: 4
+rejoinGrace: 30s
+reviveTicks: 40
+respawnTicks: 100

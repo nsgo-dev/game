@@ -1,0 +1,11 @@
+name: Co-op Game
+id: dev.nsgo.coopgame
+version: 0.1.0
+game: true
+dev:
+  target: native
+  hot_reload: true
+build:
+  output: dist
+  open: false
+  targets: [windows_x64, linux_x64, linux_arm64, android_arm64, web]

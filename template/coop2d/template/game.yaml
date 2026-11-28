@@ -1,0 +1,21 @@
+version: 1
+name: Co-op Game
+id: dev.nsgo.coopgame
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 540
+display:
+  width: 320
+  height: 180
+  mode: fit
+export:
+  output: dist
+  presets:
+    - platform: windows
+      targets: [windows_x64]
+    - platform: linux
+      targets: [linux_x64, linux_arm64]
+    - platform: android
+      targets: [android_arm64]
+    - platform: web
