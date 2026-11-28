@@ -104,7 +104,9 @@ err := store.LoadChecked("slot1", &snap, func() error {
 
 ## 玩家设置（`SettingsStore` 与 `AccessibilitySettings`）
 
-`NewDefaultSettingsStore`（`NewFileSettingsStore` / `NewStorageSettingsStore`）在存档槽之外独立保存 `Settings`（包含 `Audio`、`Bindings`、`Display`、`Locale`、`Accessibility`、`Custom`），同样具备版本信封与备份恢复。调用 `store.Subscribe(fn)` 可在每次 `Save`、`Reset` 或 `Delete` 成功时收到通知（`a11y.NewAssistFromSettings` 借此与 `gameui.SettingsMenu` 实时同步字幕、菜单与特效）。
+`NewDefaultSettingsStore`（`NewFileSettingsStore` / `NewStorageSettingsStore`）在存档槽之外独立保存 `Settings`（包含 `Audio`、`Bindings`、`Display`、`Controls`、`Camera`、`Locale`、`Accessibility`、`Custom`），同样具备版本信封与备份恢复。调用 `store.Subscribe(fn)` 可在每次 `Save`、`Reset` 或 `Delete` 成功时收到通知（`a11y.NewAssistFromSettings` 借此与 `gameui.SettingsMenu` 实时同步字幕、菜单与特效）。
+
+`Controls` 保存各设备的视角灵敏度、轴反转、摇杆死区、扳机阈值和震动强度。`Camera` 保存角度制视野、镜头摇晃与摆动强度以及运动模糊开关。加载时两部分都会校验，也可通过 `SettingsTargets.ApplyControls` 和 `SettingsTargets.ApplyCamera` 分发。
 
 `AccessibilitySettings` 是无障碍与玩法辅助偏好的唯一数据模型：
 

@@ -130,6 +130,47 @@ type DisplaySettings struct {
 	Quality string `json:"quality,omitempty"`
 }
 
+// ControlSettings holds player preferences that affect camera look input and
+// controller feedback. Sensitivity values are multipliers where 1 is the
+// game's declared default.
+type ControlSettings struct {
+	MouseSensitivity float64 `json:"mouse_sensitivity"`
+	StickSensitivity float64 `json:"stick_sensitivity"`
+	TouchSensitivity float64 `json:"touch_sensitivity"`
+	GyroSensitivity  float64 `json:"gyro_sensitivity"`
+	InvertX          bool    `json:"invert_x"`
+	InvertY          bool    `json:"invert_y"`
+	StickDeadZone    float64 `json:"stick_dead_zone"`
+	TriggerThreshold float64 `json:"trigger_threshold"`
+	Vibration        float64 `json:"vibration"`
+}
+
+// CameraSettings holds player preferences used by first- and third-person
+// cameras. FieldOfView is in degrees and is validated to a safe perspective
+// range. CameraBob and CameraSway are normalized strengths.
+type CameraSettings struct {
+	FieldOfView float64 `json:"field_of_view"`
+	CameraBob   float64 `json:"camera_bob"`
+	CameraSway  float64 `json:"camera_sway"`
+	MotionBlur  bool    `json:"motion_blur"`
+}
+
+func (c *ControlSettings) Validate() {
+	c.MouseSensitivity = clampPositiveRange(c.MouseSensitivity, 0, 10, 1)
+	c.StickSensitivity = clampPositiveRange(c.StickSensitivity, 0, 10, 1)
+	c.TouchSensitivity = clampPositiveRange(c.TouchSensitivity, 0, 10, 1)
+	c.GyroSensitivity = clampPositiveRange(c.GyroSensitivity, 0, 10, 1)
+	c.StickDeadZone = clampPositiveRange(c.StickDeadZone, 0, 0.99, 0.15)
+	c.TriggerThreshold = clampUnit(c.TriggerThreshold, 0.5)
+	c.Vibration = clampUnit(c.Vibration, 1)
+}
+
+func (c *CameraSettings) Validate() {
+	c.FieldOfView = clampPositiveRange(c.FieldOfView, 1, 179, 90)
+	c.CameraBob = clampUnit(c.CameraBob, 1)
+	c.CameraSway = clampUnit(c.CameraSway, 1)
+}
+
 // AccessibilitySettings holds player accessibility and gameplay-assist preferences.
 type AccessibilitySettings struct {
 	Captions bool `json:"captions"`
@@ -384,6 +425,8 @@ type Settings struct {
 	Bindings      map[string][]string        `json:"bindings,omitempty"`
 	InputAssists  InputAssistSettings        `json:"input_assists,omitzero"`
 	Display       DisplaySettings            `json:"display"`
+	Controls      ControlSettings            `json:"controls"`
+	Camera        CameraSettings             `json:"camera"`
 	Locale        string                     `json:"locale,omitempty"`
 	Accessibility AccessibilitySettings      `json:"accessibility"`
 	Custom        map[string]json.RawMessage `json:"custom,omitempty"`
@@ -412,6 +455,16 @@ func DefaultSettings() Settings {
 			AutoDropLowPower: true,
 			Quality:          qualityAuto,
 		},
+		Controls: ControlSettings{
+			MouseSensitivity: 1,
+			StickSensitivity: 1,
+			TouchSensitivity: 1,
+			GyroSensitivity:  1,
+			StickDeadZone:    0.15,
+			TriggerThreshold: 0.5,
+			Vibration:        1,
+		},
+		Camera: CameraSettings{FieldOfView: 90, CameraBob: 1, CameraSway: 1},
 		Locale: "",
 		Accessibility: AccessibilitySettings{
 			Captions:       false,
@@ -445,6 +498,8 @@ func (s *Settings) Validate() {
 		s.Display.ScaleMode = "fit"
 	}
 	s.Display.Quality = normalizeQuality(s.Display.Quality)
+	s.Controls.Validate()
+	s.Camera.Validate()
 
 	s.Locale = strings.TrimSpace(s.Locale)
 
@@ -1008,6 +1063,12 @@ type SettingsTargets struct {
 	// ApplyDisplay receives the validated DisplaySettings.
 	ApplyDisplay func(DisplaySettings) error
 
+	// ApplyControls receives validated look and controller feedback preferences.
+	ApplyControls func(ControlSettings) error
+
+	// ApplyCamera receives validated camera preferences.
+	ApplyCamera func(CameraSettings) error
+
 	// ApplyLocale receives the validated Locale string.
 	ApplyLocale func(locale string) error
 
@@ -1076,6 +1137,16 @@ func Apply(s Settings, targets SettingsTargets) error {
 	if targets.ApplyDisplay != nil {
 		if err := targets.ApplyDisplay(s.Display); err != nil {
 			errs = append(errs, fmt.Errorf("save: apply display: %w", err))
+		}
+	}
+	if targets.ApplyControls != nil {
+		if err := targets.ApplyControls(s.Controls); err != nil {
+			errs = append(errs, fmt.Errorf("save: apply controls: %w", err))
+		}
+	}
+	if targets.ApplyCamera != nil {
+		if err := targets.ApplyCamera(s.Camera); err != nil {
+			errs = append(errs, fmt.Errorf("save: apply camera: %w", err))
 		}
 	}
 	if targets.ApplyLocale != nil {

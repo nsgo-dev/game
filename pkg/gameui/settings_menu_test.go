@@ -1094,10 +1094,10 @@ func TestSettingsMenuControlsTabMotorAssists(t *testing.T) {
 	menu.SetTab(gameui.SettingsTabControls)
 	menu.Layout(bounds)
 
-	// Controls layout: 5 action buttons + 2 toggle switches (sprint, struggle) + 1 mash switch (struggle) + MinPress + AcceptDelay + ResetControls = 11 controls.
+	// Controls layout includes the legacy motor-assist rows followed by the sensitivity, camera, and haptics rows.
 	controls := menu.TabControls(gameui.SettingsTabControls)
-	if len(controls) != 11 {
-		t.Fatalf("Controls tab control count = %d, want 11", len(controls))
+	if len(controls) != 24 {
+		t.Fatalf("Controls tab control count = %d, want 24", len(controls))
 	}
 	// Verify zero overlap and full containment in 960x540 viewport.
 	for i, w := range controls {

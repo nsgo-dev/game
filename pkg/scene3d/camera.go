@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/math3d"
+	"github.com/nsgo-dev/game/pkg/save"
 )
 
 // ProjectionKind selects perspective or orthographic camera projection.
@@ -118,6 +119,22 @@ type Camera struct {
 	Pos        math3d.Vec3
 	Rot        math3d.Quat
 	Projection Projection
+	// MotionBlur records the player's camera preference for renderers that
+	// implement a motion-blur pass.
+	MotionBlur bool
+}
+
+// ApplyCameraSettings applies the player camera preferences to c. Perspective
+// field of view is stored in degrees in save settings and radians here.
+func (c *Camera) ApplyCameraSettings(settings save.CameraSettings) {
+	if c == nil {
+		return
+	}
+	settings.Validate()
+	if c.Projection.Kind == ProjectionPerspective {
+		c.Projection.FOVY = math3d.DegToRad(float32(settings.FieldOfView))
+	}
+	c.MotionBlur = settings.MotionBlur
 }
 
 // NewPerspectiveCamera creates a perspective Camera looking down -Z.
@@ -495,13 +512,25 @@ func orbitBasis(yaw, pitch float32) (right, up math3d.Vec3) {
 // FPSController implements a first-person camera controller with yaw/pitch
 // orientation, clamped pitch, and local forward/right/up movement.
 type FPSController struct {
-	Pos       math3d.Vec3
-	Yaw       float32 // Radians around +Y (0 faces -Z)
-	Pitch     float32 // Radians around local +X (positive looks up)
-	MinPitch  float32 // Defaults to -89° when MinPitch == MaxPitch == 0
-	MaxPitch  float32 // Defaults to +89° when MinPitch == MaxPitch == 0
-	MoveSpeed float32 // Speed multiplier in units/second (defaults to 1 when <= 0)
-	Grounded  bool    // When true, forward/right move on the horizontal XZ plane and up moves along +Y
+	Pos        math3d.Vec3
+	Yaw        float32 // Radians around +Y (0 faces -Z)
+	Pitch      float32 // Radians around local +X (positive looks up)
+	MinPitch   float32 // Defaults to -89° when MinPitch == MaxPitch == 0
+	MaxPitch   float32 // Defaults to +89° when MinPitch == MaxPitch == 0
+	MoveSpeed  float32 // Speed multiplier in units/second (defaults to 1 when <= 0)
+	Grounded   bool    // When true, forward/right move on the horizontal XZ plane and up moves along +Y
+	CameraBob  float32 // Player-controlled bob strength, normalized to [0, 1].
+	CameraSway float32 // Player-controlled sway strength, normalized to [0, 1].
+}
+
+// ApplyCameraSettings stores the player-controlled camera motion preferences.
+func (c *FPSController) ApplyCameraSettings(settings save.CameraSettings) {
+	if c == nil {
+		return
+	}
+	settings.Validate()
+	c.CameraBob = float32(settings.CameraBob)
+	c.CameraSway = float32(settings.CameraSway)
 }
 
 // NewFPSController creates an FPSController at pos with pitch clamped to [-89°, +89°].
@@ -611,6 +640,18 @@ type ThirdPersonController struct {
 	Pos math3d.Vec3
 	// LookTarget is the current world-space point the camera is looking at.
 	LookTarget math3d.Vec3
+	CameraBob  float32 // Player-controlled bob strength, normalized to [0, 1].
+	CameraSway float32 // Player-controlled sway strength, normalized to [0, 1].
+}
+
+// ApplyCameraSettings stores the player-controlled camera motion preferences.
+func (c *ThirdPersonController) ApplyCameraSettings(settings save.CameraSettings) {
+	if c == nil {
+		return
+	}
+	settings.Validate()
+	c.CameraBob = float32(settings.CameraBob)
+	c.CameraSway = float32(settings.CameraSway)
 }
 
 // NewThirdPersonController returns a ThirdPersonController with balanced defaults.
