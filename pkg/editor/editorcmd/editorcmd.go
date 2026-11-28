@@ -101,6 +101,14 @@ func withPhysicsComponents(reg *sceneformat.ComponentRegistry) (*sceneformat.Com
 			return nil, err
 		}
 	}
+	for _, t := range sceneformat.BehaviorComponentRegistry().Types() {
+		if _, ok := out.Lookup(t.Name); ok {
+			continue
+		}
+		if err := out.Register(t); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
 }
 

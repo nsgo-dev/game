@@ -337,9 +337,13 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 			e.OnPlayTrigger(ev)
 		}
 	}
-	if e.components != nil && len(playDoc.Connections) > 0 {
-		if sigs, err := sceneformat.Connect(playDoc, e.components, playBuilt); err == nil {
+	var playSigs *sceneformat.Signals
+	if reg := e.playComponentRegistry(); reg != nil {
+		if sigs, err := sceneformat.Connect(playDoc, reg, playBuilt); err == nil {
 			playPhys.Signals = sigs
+			playBuilt.Signals = sigs
+			playBuilt.ScreenSignals = sigs
+			playSigs = sigs
 		}
 	}
 
@@ -434,6 +438,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	e.Built = playBuilt
 	e.playScene = playBuilt
 	e.playPhysics = playPhys
+	e.playSignals = playSigs
 	e.playTriggerEvents = nil
 	e.playSteps = 0
 	e.playFrames = 0
@@ -581,8 +586,16 @@ func (e *Editor) runPlayStep(dt time.Duration, playProf *gamedebug.Profiler) {
 			e.playPhysics.Step(dt)
 		}
 	}
+	if e.playSignals != nil {
+		_ = e.playSignals.Update(dt)
+	}
+	// Built-in 2D motion behaviors step deterministically on the fixed loop before visual updates.
+	e.playScene.Step(dt)
 	// Animated tiles of the scene's tilemaps advance as they do in the game.
 	e.playScene.Update(dt)
+	if e.playSignals != nil {
+		_ = e.playSignals.Flush()
+	}
 	if e.playScene.Lights2D != nil {
 		_ = e.playScene.SyncLights2D()
 	}
@@ -620,6 +633,7 @@ func (e *Editor) stopInternal(sendMarks bool) error {
 	e.playPaused = false
 	e.playScene = nil
 	e.playPhysics = nil
+	e.playSignals = nil
 	e.playReplay = nil
 	e.playReplayPlayer = nil
 	e.playReplayPath = ""

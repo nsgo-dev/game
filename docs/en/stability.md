@@ -116,6 +116,7 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/mcp/mcpui` | Experimental | [mcp](mcp.md) |
 | `game/pkg/mempool` | Experimental | [mempool](mempool.md) |
 | `game/pkg/modding` | Experimental | [modding](modding.md) |
+| `game/pkg/motion` | Experimental | [scene](scene.md) |
 | `game/pkg/online/accounts` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/authtoken` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/pgstore` | Experimental | [accounts](accounts.md) |

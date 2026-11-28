@@ -20,6 +20,7 @@ import (
 	"github.com/nsgo-dev/game/pkg/skeletal"
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/game/pkg/tilemap"
+	"github.com/nsgo-dev/game/pkg/tilemap/tileshape"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -102,6 +103,10 @@ type BuiltScene struct {
 	Notifiers []*ScreenNotifier
 	// ScreenSignals, when non-nil, receives the "on_screen.entered" and "on_screen.exited" events the Notifiers fire during Update. Set it to the Signals Connect made for the scene's connections to run their handlers.
 	ScreenSignals *Signals
+	// Signals, when non-nil, receives events emitted by built-in motion behavior components during Step (falling back to ScreenSignals when nil).
+	Signals *Signals
+	// Physics is the PhysicsScene built from this scene by BuildPhysics (set automatically by BuildPhysics), used by built-in motion behaviors such as bullet.bounceOffSolids and move_to.stopOnSolids.
+	Physics *PhysicsScene
 
 	// DrawAllTiles makes Draw draw every tile of the layers' maps (BuiltLayer.Map). By default Draw culls them to the scene's view, its virtual viewport through the camera, which a view that shows more of the world, such as an editor's panned past the camera, sets it to avoid.
 	DrawAllTiles bool
@@ -112,6 +117,12 @@ type BuiltScene struct {
 	notifierByObject map[*BuiltObject]*ScreenNotifier
 	// animators indexes runtime AnimatorControllers attached to objects in this built scene.
 	animators map[string]AnimatorController
+	// behaviors holds runtime motion behavior states in document order, stepped by Step.
+	behaviors    []*objectBehaviors
+	behaviorByID map[string]*objectBehaviors
+	// tileSolids caches tileshape views of layers with a BuiltLayer.Map for solid queries.
+	tileSolids      []*tileshape.View
+	tileSolidsReady bool
 }
 
 // SetAnimator attaches ctrl as the runtime AnimatorController for objectID on this built scene (passing nil removes it).
@@ -211,6 +222,7 @@ type BuiltObject struct {
 
 	emitterBaseRot float32
 	emitterZ       int
+	freed          bool
 }
 
 // Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw. A single grid of atlas frames becomes a sprite batch (BuiltLayer.Tilemap); a layered grid, with the YAML tileset it names read through a FileResolver, and a Tiled or LDtk source, read through a TilemapResolver when the resolver implements one and otherwise through a FileResolver, become a tilemap.Tilemap (BuiltLayer.Map). A scene that instances or inherits other scene files (SceneDoc.RefersToScenes) is first resolved with Resolve, which loads them through resolver when it implements SceneResolver.
@@ -414,6 +426,13 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 			built.notifierByObject[n.Object] = n
 		}
 	}
+
+	behaviors, behaviorByID, err := extractBehaviors(built)
+	if err != nil {
+		return nil, err
+	}
+	built.behaviors = behaviors
+	built.behaviorByID = behaviorByID
 
 	return built, nil
 }

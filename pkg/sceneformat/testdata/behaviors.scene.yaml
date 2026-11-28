@@ -1,0 +1,118 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+name: Motion Behaviors Showcase
+virtualWidth: 320
+virtualHeight: 180
+layers:
+  - name: world
+    objects:
+      - id: wall_right
+        x: 280
+        "y": 90
+        components:
+          body2d:
+            kind: static
+            version: 1
+          collider2d:
+            height: 160
+            shape: box
+            version: 1
+            width: 16
+      - id: shot
+        x: 60
+        "y": 90
+        components:
+          bullet:
+            acceleration: 0
+            angle: 0
+            bounceOffSolids: true
+            gravity: 0
+            setAngle: true
+            speed: 180
+            version: 1
+          destroy_outside:
+            margin: 64
+            version: 1
+          flash:
+            "off": 0.05
+            "on": 0.05
+            version: 1
+      - id: coin
+        x: 120
+        "y": 60
+        components:
+          sine:
+            magnitude: 6
+            period: 1.5
+            phase: 0
+            property: "y"
+            version: 1
+            wave: sine
+      - id: saw
+        x: 160
+        "y": 90
+        components:
+          rotate:
+            acceleration: 0
+            speed: 180
+            version: 1
+      - id: shield
+        x: 160
+        "y": 90
+        components:
+          orbit:
+            radius: 32
+            speed: 90
+            target: saw
+            version: 1
+      - id: drone
+        x: 40
+        "y": 140
+        components:
+          bound:
+            mode: edge
+            version: 1
+          move_to:
+            acceleration: 0
+            active: true
+            maxSpeed: 120
+            stopOnSolids: true
+            targetX: 220
+            targetY: 140
+            version: 1
+      - id: cloud
+        x: 300
+        "y": 30
+        components:
+          bullet:
+            angle: 0
+            setAngle: false
+            speed: 60
+            version: 1
+          wrap:
+            mode: scene
+            version: 1
+      - id: toast
+        x: 160
+        "y": 24
+        components:
+          fade:
+            destroy: true
+            fadeIn: 0
+            fadeOut: 0.5
+            version: 1
+            wait: 1
+connections:
+  - from: shot
+    event: bullet.bounced
+    to: shot
+    handler: flash.flash
+    args:
+      duration: 0.25
+  - from: drone
+    event: move_to.arrived
+    to: drone
+    handler: move_to.moveTo
+    args:
+      x: 40
+      "y": 140

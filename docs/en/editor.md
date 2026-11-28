@@ -454,6 +454,23 @@ In the editor, `Editor.SetComponentRegistry(reg)` checks the open scene's compon
 - **Running on the game clock**: `Signals.Update(dt)` advances every timer of the connected scene once per update step — call it in `game.Loop`'s `Update` before `Flush` — and enqueues each `timeout` for that `Flush`, in document order, so a scene wires a timer to any handler with no Go code and timer order stays deterministic. A one-shot timer fires once and stops; a repeating one carries the overshoot into the next period, so it does not drift; `seconds: 0` fires once per update step. The timer of an object whose entity has been destroyed (`SpawnConnected`) stops.
 - **`start` and `stop` handlers**: connecting any event to a timer's `start` restarts it from its full `seconds`, and to `stop` halts it without resetting, so a button can arm a door's timer in the file.
 
+### Built-in 2D motion behavior components (#1751)
+
+`sceneformat` ships ten drop-in 2D motion behaviors registered via `RegisterBehaviorComponents(reg)` or `BehaviorComponentRegistry()` (and available automatically in the editor's inspector, Play-in-Editor, and the scene JSON schemas). Each carries `version: 1` and optional `enabled` (`true`), and advances deterministically via `BuiltScene.Step(dt)`:
+
+| Component | Key fields, events and handlers |
+| --- | --- |
+| `bullet` | `speed` (`240`), `acceleration` (`0`), `gravity` (`0`), `angle` (`0`), `setAngle` (`true`), `bounceOffSolids` (`false`); event `bounced`; handlers `setSpeed`, `setAngle`, `start`, `stop` |
+| `sine` | `property` (`x\|y\|angle\|scale\|alpha`), `period` (`1.5`), `magnitude` (`6`), `wave` (`sine\|triangle\|sawtooth\|reverse_sawtooth\|square`), `phase` (`0`); handlers `start`, `stop` |
+| `rotate` | `speed` (`180`), `acceleration` (`0`); handlers `setSpeed`, `start`, `stop` |
+| `orbit` | `target` (`""`), `radius` (`32`), `speed` (`90`), `angle` (`0`), `setAngle` (`false`); handlers `setSpeed`, `start`, `stop` |
+| `move_to` | `maxSpeed` (`120`), `acceleration` (`0`), `stopOnSolids` (`false`), `targetX`, `targetY`, `active` (`false`); event `arrived`; handlers `moveTo(x, y)`, `setSpeed`, `stop` |
+| `wrap` | `mode` (`scene\|view`), `margin` (`0`); event `wrapped`; handlers `start`, `stop` |
+| `bound` | `mode` (`edge\|origin`); handlers `start`, `stop` |
+| `destroy_outside` | `margin` (`64`), `mode` (`scene\|view`); event `destroyed`; handlers `start`, `stop` |
+| `fade` | `fadeIn` (`0`), `wait` (`1`), `fadeOut` (`0.5`), `destroy` (`true`), `autostart` (`true`); event `finished`; handlers `start`, `stop` |
+| `flash` | `on` (`0.05`), `off` (`0.05`), `duration` (`0`); event `finished`; handlers `flash(duration)`, `stop` |
+
 ### Connections (#490)
 
 A scene file connects an event one object emits to a handler of another object, as Godot's `[connection]` entries in a `.tscn` file do, so a button opens a door with no Go code that names either of them:

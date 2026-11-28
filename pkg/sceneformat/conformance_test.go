@@ -12,7 +12,7 @@ func TestFormatConformance(t *testing.T) {
 	formattest.Run(t, formattest.Format[*sceneformat.SceneDoc]{
 		Decode:     sceneformat.Parse,
 		Encode:     sceneformat.Encode,
-		Files:      []string{"testdata/fleet.scene.yaml", "testdata/hall.scene.yaml", "testdata/parallax.scene.yaml", "testdata/lighting3d.scene.yaml", "testdata/timer.scene.yaml", "testdata/canonical/*.scene.yaml", "testdata/project/*.scene.yaml", "testdata/project/scenes/*.scene.yaml"},
+		Files:      []string{"testdata/fleet.scene.yaml", "testdata/hall.scene.yaml", "testdata/parallax.scene.yaml", "testdata/lighting3d.scene.yaml", "testdata/timer.scene.yaml", "testdata/behaviors.scene.yaml", "testdata/canonical/*.scene.yaml", "testdata/project/*.scene.yaml", "testdata/project/scenes/*.scene.yaml"},
 		Doc:        "sceneformat",
 		MaxVersion: 4,
 	})

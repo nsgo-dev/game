@@ -508,6 +508,30 @@ func generate(root string) ([]schemaFile, error) {
 							AllOf:       []*jsonschema.Schema{{Ref: "#/definitions/TimerComponent"}},
 						},
 					})
+					for _, bt := range []struct {
+						defName string
+						ct      sceneformat.ComponentType
+					}{
+						{"BulletComponent", sceneformat.BulletComponent()},
+						{"SineComponent", sceneformat.SineComponent()},
+						{"RotateComponent", sceneformat.RotateComponent()},
+						{"OrbitComponent", sceneformat.OrbitComponent()},
+						{"MoveToComponent", sceneformat.MoveToComponent()},
+						{"WrapComponent", sceneformat.WrapComponent()},
+						{"BoundComponent", sceneformat.BoundComponent()},
+						{"DestroyOutsideComponent", sceneformat.DestroyOutsideComponent()},
+						{"FadeComponent", sceneformat.FadeComponent()},
+						{"FlashComponent", sceneformat.FlashComponent()},
+					} {
+						s.Definitions[bt.defName] = sceneformat.ComponentTypeSchema(bt.ct)
+						comps.Properties = append(comps.Properties, jsonschema.Property{
+							Name: bt.ct.Name,
+							Schema: &jsonschema.Schema{
+								Description: bt.ct.Doc,
+								AllOf:       []*jsonschema.Schema{{Ref: "#/definitions/" + bt.defName}},
+							},
+						})
+					}
 				}
 			}
 		}

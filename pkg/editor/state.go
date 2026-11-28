@@ -662,6 +662,7 @@ type Editor struct {
 	playStop           func()
 	playScene          *sceneformat.BuiltScene
 	playPhysics        *sceneformat.PhysicsScene
+	playSignals        *sceneformat.Signals
 	playTriggerEvents  []sceneformat.PhysicsTriggerEvent
 	playSteps          int
 	playFrames         int

@@ -116,6 +116,7 @@
 | `game/pkg/mcp/mcpui` | 实验性 | [mcp](mcp.md) |
 | `game/pkg/mempool` | 实验性 | [mempool](mempool.md) |
 | `game/pkg/modding` | 实验性 | [modding](modding.md) |
+| `game/pkg/motion` | 实验性 | [scene](scene.md) |
 | `game/pkg/online/accounts` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/authtoken` | 实验性 | [accounts](accounts.md) |
 | `game/pkg/online/accounts/pgstore` | 实验性 | [accounts](accounts.md) |

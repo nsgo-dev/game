@@ -454,6 +454,23 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 - **随游戏时钟运行**：`Signals.Update(dt)` 每个更新步推进已连接场景的所有计时器一次——在 `game.Loop` 的 `Update` 中、`Flush` 之前调用——并把每个 `timeout` 按文档顺序入队，留给这次 `Flush` 分发，于是场景不用写任何 Go 代码就能把计时器接到任意处理函数上，计时器顺序也是确定的。单次计时器触发一次后停止；重复计时器把超出部分带进下一个周期，不会漂移；`seconds: 0` 每个更新步触发一次。实体被销毁（`SpawnConnected`）的对象的计时器会停止。
 - **`start` 和 `stop` 处理函数**：把任意事件连接到计时器的 `start` 会从完整 `seconds` 重新启动它，连接到 `stop` 则在不重置的情况下停住它，于是文件里就能让一个按钮启动一扇门的计时器。
 
+### 内置 2D 运动行为组件（#1751）
+
+`sceneformat` 内置十种开箱即用的 2D 运动行为组件，可通过 `RegisterBehaviorComponents(reg)` 或 `BehaviorComponentRegistry()` 注册（在编辑器检查器、编辑器内试玩和场景 JSON Schema 中默认自动可用）。每个组件均带有 `version: 1` 和可选的 `enabled`（`true`），通过 `BuiltScene.Step(dt)` 确定性推进：
+
+| 组件 | 主要字段、事件与处理函数 |
+| --- | --- |
+| `bullet` | `speed`（`240`）、`acceleration`（`0`）、`gravity`（`0`）、`angle`（`0`）、`setAngle`（`true`）、`bounceOffSolids`（`false`）；事件 `bounced`；处理函数 `setSpeed`、`setAngle`、`start`、`stop` |
+| `sine` | `property`（`x\|y\|angle\|scale\|alpha`）、`period`（`1.5`）、`magnitude`（`6`）、`wave`（`sine\|triangle\|sawtooth\|reverse_sawtooth\|square`）、`phase`（`0`）；处理函数 `start`、`stop` |
+| `rotate` | `speed`（`180`）、`acceleration`（`0`）；处理函数 `setSpeed`、`start`、`stop` |
+| `orbit` | `target`（`""`）、`radius`（`32`）、`speed`（`90`）、`angle`（`0`）、`setAngle`（`false`）；处理函数 `setSpeed`、`start`、`stop` |
+| `move_to` | `maxSpeed`（`120`）、`acceleration`（`0`）、`stopOnSolids`（`false`）、`targetX`、`targetY`、`active`（`false`）；事件 `arrived`；处理函数 `moveTo(x, y)`、`setSpeed`、`stop` |
+| `wrap` | `mode`（`scene\|view`）、`margin`（`0`）；事件 `wrapped`；处理函数 `start`、`stop` |
+| `bound` | `mode`（`edge\|origin`）；处理函数 `start`、`stop` |
+| `destroy_outside` | `margin`（`64`）、`mode`（`scene\|view`）；事件 `destroyed`；处理函数 `start`、`stop` |
+| `fade` | `fadeIn`（`0`）、`wait`（`1`）、`fadeOut`（`0.5`）、`destroy`（`true`）、`autostart`（`true`）；事件 `finished`；处理函数 `start`、`stop` |
+| `flash` | `on`（`0.05`）、`off`（`0.05`）、`duration`（`0`）；事件 `finished`；处理函数 `flash(duration)`、`stop` |
+
 ### 连接（#490）
 
 场景文件可以把一个对象发出的事件连接到另一个对象的处理函数，就像 Godot 在 `.tscn` 文件里写的 `[connection]` 条目，于是按钮能打开门，而不需要任何点名这两个对象的 Go 代码：

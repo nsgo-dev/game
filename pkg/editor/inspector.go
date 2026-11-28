@@ -382,10 +382,16 @@ var builtinEditorComponents = func() *sceneformat.ComponentRegistry {
 	if err := sceneformat.RegisterTimerComponent(reg); err != nil {
 		panic(err)
 	}
+	if err := sceneformat.RegisterOnScreen(reg); err != nil {
+		panic(err)
+	}
+	if err := sceneformat.RegisterBehaviorComponents(reg); err != nil {
+		panic(err)
+	}
 	return reg
 }()
 
-// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting + skeletal + 2D navigation + timer).
+// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting + skeletal + 2D navigation + timer + on_screen + motion behaviors).
 func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool) {
 	if e != nil && e.components != nil {
 		if ct, ok := e.components.Lookup(cn); ok {
@@ -393,6 +399,24 @@ func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool
 		}
 	}
 	return builtinEditorComponents.Lookup(cn)
+}
+
+// playComponentRegistry returns a component registry for Play-in-Editor combining e.components
+// with any built-in editor components not overridden by the project.
+func (e *Editor) playComponentRegistry() *sceneformat.ComponentRegistry {
+	if e == nil || e.components == nil {
+		return builtinEditorComponents
+	}
+	out := sceneformat.NewComponentRegistry()
+	for _, t := range e.components.Types() {
+		_ = out.Register(t)
+	}
+	for _, t := range builtinEditorComponents.Types() {
+		if _, exists := out.Lookup(t.Name); !exists {
+			_ = out.Register(t)
+		}
+	}
+	return out
 }
 
 // inspectorSchemaKey computes a stable signature of either the selected asset file
