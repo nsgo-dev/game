@@ -1,3 +1,3 @@
 module github.com/nsgo-dev/game/template/idle
 
-go 1.27.3
+go 1.27.4
