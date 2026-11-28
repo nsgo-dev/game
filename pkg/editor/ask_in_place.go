@@ -48,6 +48,7 @@ type AskInPlaceSnapshot struct {
 	InputLabel         string
 	Placeholder        string
 	Suggestions        []AskInPlaceSuggestion
+	ContextSummary     string
 	SelectedSuggestion int
 	Placement          AskInPlacePlacement
 }
@@ -63,6 +64,9 @@ type askInPlaceState struct {
 	returnFocus        *core.Ref
 	measuredW          float32
 	measuredH          float32
+	savedDraft         string
+	savedTargetIDs     []string
+	savedScenePath     string
 }
 
 const (
@@ -158,9 +162,13 @@ func (e *Editor) openAskInPlaceForTargets(ids []string) error {
 		cleanIDs = append(cleanIDs, obj.ID)
 		names = append(names, contextObjectDisplayName(obj))
 	}
+	restore := e.askInPlace.savedDraft != "" && slices.Equal(e.askInPlace.savedTargetIDs, cleanIDs) && e.askInPlace.savedScenePath == e.effectiveScenePath()
 	e.askInPlace.open = true
 	e.askInPlace.seq++
 	e.askInPlace.draft = ""
+	if restore {
+		e.askInPlace.draft = e.askInPlace.savedDraft
+	}
 	e.askInPlace.targetIDs = cleanIDs
 	e.askInPlace.targetNames = names
 	e.askInPlace.suggestions = e.buildAskInPlaceSuggestions(cleanIDs)
@@ -182,6 +190,11 @@ func (e *Editor) CloseAskInPlace() {
 		return
 	}
 	ret := e.askInPlace.returnFocus
+	if strings.TrimSpace(e.askInPlace.draft) != "" {
+		e.askInPlace.savedDraft = e.askInPlace.draft
+		e.askInPlace.savedTargetIDs = slices.Clone(e.askInPlace.targetIDs)
+		e.askInPlace.savedScenePath = e.effectiveScenePath()
+	}
 	e.askInPlace.open = false
 	e.askInPlace.draft = ""
 	e.askInPlace.selectedSuggestion = -1
@@ -191,6 +204,36 @@ func (e *Editor) CloseAskInPlace() {
 	if ret != nil && refMounted(ret) && !e.IsDragging() {
 		ret.Focus()
 	}
+}
+
+// ClearAskInPlaceDraft explicitly discards the draft saved by closing the composer.
+func (e *Editor) ClearAskInPlaceDraft() {
+	if e == nil {
+		return
+	}
+	e.askInPlace.draft = ""
+	e.askInPlace.savedDraft = ""
+	e.askInPlace.savedTargetIDs = nil
+	e.askInPlace.savedScenePath = ""
+	e.notify()
+}
+
+func (e *Editor) askInPlaceContextSummary() string {
+	if e == nil {
+		return ""
+	}
+	objectCount := fmt.Sprintf("%d", len(e.askInPlace.targetIDs))
+	scene := filepath.Base(e.effectiveScenePath())
+	if scene == "." || scene == "" {
+		scene = e.Doc.Name
+		if scene == "" {
+			scene = e.T("scene.untitledScene")
+		}
+	}
+	if e.AgentPrivacy().ViewportImages {
+		return e.T("askInPlace.contextWithViewport", l10n.Param("count", objectCount), l10n.Param("scene", scene))
+	}
+	return e.T("askInPlace.contextWithoutViewport", l10n.Param("count", objectCount), l10n.Param("scene", scene))
 }
 
 // SetAskInPlaceDraft updates the multi-line text draft of the open in-place composer
@@ -327,7 +370,11 @@ func (e *Editor) submitAgentTurn(prompt, source string, skipPlan bool, targetIDs
 		sceneYAML = string(data)
 	}
 
-	pngBytes, pw, ph, _ := e.RenderViewportPNG(1)
+	var pngBytes []byte
+	var pw, ph int
+	if e.AgentPrivacy().ViewportImages {
+		pngBytes, pw, ph, _ = e.RenderViewportPNG(1)
+	}
 
 	now := e.nowTime()
 	e.agent.turnSeq++
@@ -359,6 +406,9 @@ func (e *Editor) submitAgentTurn(prompt, source string, skipPlan bool, targetIDs
 	e.initTurnBaseline(&e.agent.turns[len(e.agent.turns)-1])
 	e.askInPlace.open = false
 	e.askInPlace.draft = ""
+	e.askInPlace.savedDraft = ""
+	e.askInPlace.savedTargetIDs = nil
+	e.askInPlace.savedScenePath = ""
 	e.askInPlace.selectedSuggestion = -1
 	e.askInPlace.returnFocus = nil
 	e.askInPlace.seq++
@@ -762,6 +812,7 @@ func (e *Editor) AskInPlaceSnapshot() AskInPlaceSnapshot {
 		InputLabel:         inputLabel,
 		Placeholder:        placeholder,
 		Suggestions:        slices.Clone(e.askInPlace.suggestions),
+		ContextSummary:     e.askInPlaceContextSummary(),
 		SelectedSuggestion: e.askInPlace.selectedSuggestion,
 		Placement:          e.AskInPlacePlacement(),
 	}

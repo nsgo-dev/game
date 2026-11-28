@@ -523,7 +523,7 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					TestID: "ask-in-place-composer",
 					Ref:    &cardRef,
 					Role:   core.RoleDialog,
-					Label:  snap.InputLabel,
+					Label:  snap.InputLabel + " · " + snap.ContextSummary,
 					OnLayout: func(b core.Bounds) {
 						ed.setAskInPlaceMeasuredSize(float32(b.Size.Width), float32(b.Size.Height))
 					},
@@ -550,6 +550,12 @@ func AskInPlaceComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 					},
 					Children: []core.Node{
 						chipRow,
+						core.Text{
+							TestID:  "ask-in-place-context",
+							Content: snap.ContextSummary,
+							Role:    core.RoleStatus,
+							Style:   core.Style{FontSize: 11, Color: p.TextMuted},
+						},
 						inputNode,
 						suggestionsRow,
 					},
