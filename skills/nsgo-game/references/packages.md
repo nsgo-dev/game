@@ -99,6 +99,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/pathfind` | Stable | Grid `AStar`, HPA*, JPS, graph and waypoint search, 2D `NavMesh` with `NavAgent`, tiled meshes and budgeted path queues |
 | `game/pkg/pathfind/navbake` | Experimental | Bakes 2D navmeshes from obstacles or tilemaps with an agent radius, versioned YAML meshes, debug drawing |
 | `game/pkg/platformer` | Experimental | Platformer `Controller` (coyote time, jump buffer, variable jump, wall slide/jump) from YAML |
+| `game/pkg/battle` | Experimental | Deterministic turn-based party-versus-troop battles with scoped actions, seeded rolls, events and snapshots |
 | `game/pkg/bullets` | Experimental | Pooled shooter bullet patterns (rings, spirals, aimed bursts) from YAML |
 | `game/pkg/cards` | Experimental | Board slot drag-and-drop, fanned hands, decks, piles, grids and YAML boards |
 | `game/pkg/rooms` | Experimental | Room maps with per-room camera bounds and cut/slide/fade transitions |

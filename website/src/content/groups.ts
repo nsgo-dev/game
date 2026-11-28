@@ -122,6 +122,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'ability',
       'quest',
       'loot',
+      'battle',
       'cards',
       'bullets',
       'fighting',
