@@ -264,6 +264,7 @@ func TestReadNSGoSettingsItchConfig(t *testing.T) {
 	yamlText := `name: Demo
 id: dev.example.demo
 version: 1.0.0
+build_number: 42
 updates:
   channel: none
 build:
@@ -281,7 +282,7 @@ itch:
 	if err != nil {
 		t.Fatalf("ReadNSGoSettings: %v", err)
 	}
-	if got.Channel != "none" || got.Output != "out/rel" || got.ItchProject != "studio/demo-game" {
+	if got.Channel != "none" || got.Output != "out/rel" || got.ItchProject != "studio/demo-game" || got.BuildNumber != "42" {
 		t.Fatalf("ReadNSGoSettings = %+v", got)
 	}
 	wantChannels := map[string]string{

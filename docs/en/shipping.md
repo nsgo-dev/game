@@ -373,6 +373,10 @@ go tool nsgo publish -target android -track internal
 
 `publish` finds the current project version's `.aab` in `build.output/releases`. If more than one matches, pass the desired `.aab` path after the flags. The track can be `internal`, `production` or a closed track's ID. NSGo reads the package name and version code from the bundle, requires a version code higher than every release on that track, uploads the bundle and commits the release.
 
+### Publish records
+
+Each successful upload from the editor's Build and Release screen (itch.io, Google Play internal testing or TestFlight) is recorded in `.game/publish/<destination>.yaml`, under the `.game` folder a project leaves out of version control. The record holds the last upload's version, `build_number` from `nsgo.yaml`, artifact name, SHA-256, size, upload time, result URL and outcome, plus the time of each store-console step a person confirmed. The file is versioned (`version: 1`), refuses unknown fields, is written atomically and never contains a credential. A new upload clears the confirmations for the previous version and keeps the app-level ones, such as the store account.
+
 ## Store compliance
 
 Use `nsgo.yaml` to track the release questionnaires that remain outside the package:

@@ -373,6 +373,10 @@ go tool nsgo publish -target android -track internal
 
 `publish` 会在 `build.output/releases` 中查找当前项目版本的 `.aab`。有多个匹配文件时，在参数后传入要上传的 `.aab` 路径。轨道可以填写 `internal`、`production` 或封闭测试轨道的 ID。NSGo 从包中读取包名和版本代码，确认版本代码高于该轨道上的所有版本后，上传包并提交发布。
 
+### 发布记录
+
+在编辑器的“构建与发布”界面每成功上传一次（itch.io、Google Play 内部测试或 TestFlight），都会记录到 `.game/publish/<destination>.yaml`，位于项目不纳入版本库的 `.game` 文件夹下。记录包含最近一次上传的版本、`nsgo.yaml` 中的 `build_number`、构件名称、SHA-256、大小、上传时间、结果 URL 和结果，以及人在商店控制台确认的每个步骤的时间。该文件带版本号（`version: 1`），拒绝未知字段，原子写入，永远不包含凭据。新的上传会清除上一版本的确认，保留应用级的确认，例如商店账号。
+
 ## 商店合规
 
 用 `nsgo.yaml` 跟踪包外各项发布问卷的进度：

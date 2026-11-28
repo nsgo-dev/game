@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
@@ -275,6 +276,7 @@ type ReleaseUploadItem struct {
 	Track             string              `json:"track,omitempty"`
 	ManualOnly        bool                `json:"manualOnly,omitempty"`
 	Version           string              `json:"version"`
+	BuildNumber       string              `json:"buildNumber,omitempty"`
 	ArtifactName      string              `json:"artifactName"`
 	ArtifactPath      string              `json:"artifactPath"`
 	ArtifactRelPath   string              `json:"artifactRelPath"`
@@ -1375,6 +1377,7 @@ func (e *Editor) buildReviewUploadItems() []ReleaseUploadItem {
 			DestinationLabel:  dest.DisplayName(),
 			Track:             track,
 			Version:           ver,
+			BuildNumber:       nsgoCfg.BuildNumber,
 			ArtifactName:      artifactName,
 			ArtifactPath:      artifactPath,
 			ArtifactRelPath:   relPath,
@@ -1643,6 +1646,18 @@ func (e *Editor) executeConfirmedReleaseUploads(
 		msg := res.Message
 		if msg == "" {
 			msg = "Uploaded"
+		}
+		if projectDir != "" {
+			rec, recErr := LoadPublishRecord(projectDir, item.Destination)
+			if recErr == nil {
+				recErr = rec.RecordUpload(item.Version, item.BuildNumber, item.ArtifactName, item.ArtifactPath, res.URL, item.SizeBytes, time.Now())
+			}
+			if recErr == nil {
+				recErr = SavePublishRecord(projectDir, rec)
+			}
+			if recErr != nil && firstErr == nil {
+				firstErr = fmt.Errorf("editor: save publish record: %w", recErr)
+			}
 		}
 		e.updateUploadItemLocked(run, item.Platform, func(it *ReleaseUploadItem) {
 			it.Status = UploadStatusDone
