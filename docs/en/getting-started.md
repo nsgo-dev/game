@@ -2,6 +2,8 @@
 
 Create an NSGo game, run it on desktop, web, iOS and Android, draw an animated sprite on a fixed-step loop, handle touch and mouse input, and play sound.
 
+Coming from another 2D tool? Use the [GameMaker](from-gamemaker.md), [Construct](from-construct.md), or [RPG Maker](from-rpgmaker.md) migration guide to map familiar concepts to the templates, editor, packages, and current feature gaps.
+
 ## Requirements
 
 - **Go 1.27** or later.
