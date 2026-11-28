@@ -2,6 +2,8 @@ package netplay
 
 import (
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -104,5 +106,137 @@ func TestRollbackSilentPeerStalls(t *testing.T) {
 	}
 	if sim.Checksum() != ref.Checksum() {
 		t.Fatalf("state after resuming = %x, want %x", sim.Checksum(), ref.Checksum())
+	}
+}
+
+// TestRollbackDesyncsStayBounded has a member send a mismatching checksum for every tick, not only the checksum ticks: the session takes only the checksum ticks, reports each once through OnDesync and Stats, and keeps only the latest maxDesyncHistory of them for Desyncs.
+func TestRollbackDesyncsStayBounded(t *testing.T) {
+	const interval = 4
+	tr := &memberTransport{id: 1}
+	reported := 0
+	s := NewRollbackSession(RollbackConfig{Transport: tr, Sim: &memberSim{}, Peers: []PeerID{1, 2}, MaxRollback: 8, ChecksumInterval: interval, OnDesync: func(ev DesyncEvent) {
+		reported++
+		if (ev.Tick+1)%interval != 0 {
+			t.Fatalf("desync reported for tick %d, which is not a checksum tick", ev.Tick)
+		}
+	}})
+	const steps = 4000
+	for i := range uint32(steps) {
+		tick := s.Tick()
+		tr.inbox = append(tr.inbox, Packet{From: 2, Payload: encodeSingleInput(InputFrame{Tick: tick, Peer: 2})})
+		if tick > 0 {
+			tr.inbox = append(tr.inbox, Packet{From: 2, Payload: encodeChecksumMsg(tick-1, 2, 0xdead)})
+		}
+		if err := s.Step(InputFrame{}); err != nil {
+			t.Fatalf("step %d: %v", i, err)
+		}
+	}
+	if want := steps / interval; reported < want-2 || reported > want {
+		t.Fatalf("OnDesync ran %d times, want about %d", reported, want)
+	}
+	if got := s.Stats().Desyncs; got != reported {
+		t.Fatalf("Stats().Desyncs = %d, OnDesync ran %d times", got, reported)
+	}
+	if n := len(s.desyncs); n != maxDesyncHistory {
+		t.Fatalf("desyncs holds %d events, want %d", n, maxDesyncHistory)
+	}
+	if d := s.Desyncs(); d[len(d)-1].Tick+interval < s.Tick()-2 {
+		t.Fatalf("latest kept desync is at tick %d at tick %d, want the most recent", d[len(d)-1].Tick, s.Tick())
+	}
+}
+
+// TestLockstepDesyncsStayBounded has a member send a mismatching checksum for every checksum tick: OnDesync sees every one while Desyncs keeps the latest maxDesyncHistory.
+func TestLockstepDesyncsStayBounded(t *testing.T) {
+	tr := &memberTransport{id: 1}
+	reported := 0
+	s := NewLockstepSession(LockstepConfig{Transport: tr, Sim: &memberSim{}, Peers: []PeerID{1, 2}, ChecksumInterval: 1, OnDesync: func(DesyncEvent) { reported++ }})
+	const steps = 1000
+	for i := range uint32(steps) {
+		tick := s.Tick()
+		tr.inbox = append(tr.inbox, Packet{From: 2, Payload: encodeSingleInput(InputFrame{Tick: tick, Peer: 2})})
+		if tick > 0 {
+			tr.inbox = append(tr.inbox, Packet{From: 2, Payload: encodeChecksumMsg(tick-1, 2, 0xdead)})
+		}
+		if err := s.SubmitInput(InputFrame{Tick: tick}); err != nil {
+			t.Fatal(err)
+		}
+		if !s.Step() {
+			t.Fatalf("step %d did not run", i)
+		}
+	}
+	if reported < steps-2 {
+		t.Fatalf("OnDesync ran %d times, want about %d", reported, steps)
+	}
+	if n := len(s.Desyncs()); n != maxDesyncHistory {
+		t.Fatalf("Desyncs holds %d events, want %d", n, maxDesyncHistory)
+	}
+}
+
+// unreachableTransport delivers nothing and fails every send to the peers in down with ErrDisconnected, as a transport does for a peer that has dropped.
+type unreachableTransport struct {
+	memberTransport
+	down map[PeerID]bool
+}
+
+func (u *unreachableTransport) Send(to PeerID, ch Channel, payload []byte) error {
+	if u.down[to] {
+		return ErrDisconnected
+	}
+	return u.memberTransport.Send(to, ch, payload)
+}
+
+// TestRollbackStallNamesUnreachablePeer has peer 2 drop: its transport fails every send and it sends nothing. A stalled session queues nothing more for it, so ErrSessionBacklog never comes; the stall error and Waiting name peer 2 instead, and once the host removes it the match resumes.
+func TestRollbackStallNamesUnreachablePeer(t *testing.T) {
+	const maxRB = 8
+	tr := &unreachableTransport{memberTransport: memberTransport{id: 1}, down: map[PeerID]bool{2: true}}
+	s := NewRollbackSession(RollbackConfig{Transport: tr, Sim: &memberSim{}, Peers: []PeerID{1, 2}, MaxRollback: maxRB})
+	var err error
+	for range 6000 {
+		if err = s.Step(InputFrame{Bits: 1}); err != nil && !errors.Is(err, ErrRollbackStalled) {
+			t.Fatalf("Step = %v, want only ErrRollbackStalled", err)
+		}
+	}
+	if !errors.Is(err, ErrRollbackStalled) || !strings.Contains(err.Error(), "peer 2") {
+		t.Fatalf("Step = %v, want ErrRollbackStalled naming peer 2", err)
+	}
+	if got := s.Waiting(); !slices.Equal(got, []PeerID{2}) {
+		t.Fatalf("Waiting = %v, want [2]", got)
+	}
+	if _, err := s.RemovePeer(2); err != nil {
+		t.Fatalf("RemovePeer: %v", err)
+	}
+	before := s.Tick()
+	for i := range 20 {
+		if err := s.Step(InputFrame{Bits: 1}); err != nil {
+			t.Fatalf("step %d after removing peer 2: %v", i, err)
+		}
+	}
+	if s.Tick() != before+20 || len(s.Waiting()) != 0 {
+		t.Fatalf("tick %d, waiting %v after removing peer 2, want tick %d and none", s.Tick(), s.Waiting(), before+20)
+	}
+}
+
+// TestRollbackStalledStepReportsBacklog overflows the outbox of an unreachable peer 3 while the session stalls on a silent peer 2: the stalled Step returns ErrSessionBacklog on its own, which is reported only once, so a caller that skips ErrRollbackStalled still sees it.
+func TestRollbackStalledStepReportsBacklog(t *testing.T) {
+	const maxRB = 8
+	tr := &unreachableTransport{memberTransport: memberTransport{id: 1}, down: map[PeerID]bool{3: true}}
+	s := NewRollbackSession(RollbackConfig{Transport: tr, Sim: &memberSim{}, Peers: []PeerID{1, 2, 3}, MaxRollback: maxRB})
+	for range maxRB + 1 {
+		if err := s.Step(InputFrame{Bits: 1}); err != nil && !errors.Is(err, ErrRollbackStalled) {
+			t.Fatal(err)
+		}
+	}
+	for len(s.outbox[3]) < maxOutbox {
+		s.outbox[3] = append(s.outbox[3], []byte{0})
+	}
+	if _, err := s.AddPeer(4); err != nil {
+		t.Fatalf("AddPeer: %v", err)
+	}
+	err := s.Step(InputFrame{Bits: 1})
+	if !errors.Is(err, ErrSessionBacklog) || errors.Is(err, ErrRollbackStalled) || !strings.Contains(err.Error(), "peer 3") {
+		t.Fatalf("stalled Step = %v, want ErrSessionBacklog for peer 3 alone", err)
+	}
+	if err := s.Step(InputFrame{Bits: 1}); !errors.Is(err, ErrRollbackStalled) {
+		t.Fatalf("next Step = %v, want ErrRollbackStalled", err)
 	}
 }

@@ -11,7 +11,7 @@ import (
 // ErrRollbackWindowExceeded is returned when a late remote input arrives for a tick older than the retained MaxRollback snapshot window. RollbackSession.Step also returns it, as ErrRollbackStalled, while a remote peer's inputs are MaxRollback ticks behind.
 var ErrRollbackWindowExceeded = errors.New("net: rollback window exceeded")
 
-// ErrRollbackStalled is returned by RollbackSession.Step, which then simulates no tick, while the oldest tick still waiting for a remote peer's input is MaxRollback ticks back: simulating further would put that tick beyond the snapshots kept, where its input could no longer be rolled back to. It matches ErrRollbackWindowExceeded with errors.Is. Unlike a late input beyond the window, it is temporary: Step advances again once the input arrives or the host removes the peer.
+// ErrRollbackStalled is returned by RollbackSession.Step, which then simulates no tick, while the oldest tick still waiting for a remote peer's input is MaxRollback ticks back: simulating further would put that tick beyond the snapshots kept, where its input could no longer be rolled back to. It matches ErrRollbackWindowExceeded with errors.Is. Unlike a late input beyond the window, it is temporary: Step advances again once the input arrives or the host removes the peer. Step names each peer it waits for, as Waiting returns them; a host removes one that keeps the match stalled, since a stalled session sends that peer nothing more and so never reports it with ErrSessionBacklog.
 var ErrRollbackStalled = fmt.Errorf("%w: waiting for remote input", ErrRollbackWindowExceeded)
 
 // InputFrame is a deterministic per-tick player input sample.
@@ -223,7 +223,7 @@ func (s *LockstepSession) Active() bool {
 	return s.joined && s.activeAt(s.localID, s.tick)
 }
 
-// Desyncs returns a copy of all DesyncEvents observed so far.
+// Desyncs returns a copy of the most recent DesyncEvents observed, up to maxDesyncHistory of them; OnDesync still sees every one.
 func (s *LockstepSession) Desyncs() []DesyncEvent {
 	out := make([]DesyncEvent, len(s.desyncs))
 	copy(out, s.desyncs)
@@ -498,6 +498,19 @@ const maxLockstepLeadTicks = 256
 // for desync reports.
 const lockstepChecksumHistory = 256
 
+// maxDesyncHistory is how many of the most recent DesyncEvents a session keeps for Desyncs, so a member that sends a mismatching checksum for every tick cannot grow the list for the whole match.
+const maxDesyncHistory = 256
+
+// appendDesync appends ev to list, dropping the oldest event once list holds maxDesyncHistory.
+func appendDesync(list []DesyncEvent, ev DesyncEvent) []DesyncEvent {
+	if len(list) < maxDesyncHistory {
+		return append(list, ev)
+	}
+	copy(list, list[1:])
+	list[len(list)-1] = ev
+	return list
+}
+
 func (s *LockstepSession) recordInput(in InputFrame) {
 	d := tickDelta(in.Tick, s.tick)
 	if d < 0 || d > maxLockstepLeadTicks {
@@ -580,7 +593,7 @@ func (s *LockstepSession) checkDesyncAt(tick uint32) {
 			LocalChecksum:  localSum,
 			RemoteChecksum: remoteSum,
 		}
-		s.desyncs = append(s.desyncs, ev)
+		s.desyncs = appendDesync(s.desyncs, ev)
 		if s.onDesync != nil {
 			s.onDesync(ev)
 		}
@@ -733,7 +746,7 @@ func (s *RollbackSession) Stats() RollbackStats {
 	return s.stats
 }
 
-// Desyncs returns a copy of all detected DesyncEvents.
+// Desyncs returns a copy of the most recent DesyncEvents detected, up to maxDesyncHistory of them; OnDesync and Stats().Desyncs still count every one.
 func (s *RollbackSession) Desyncs() []DesyncEvent {
 	out := make([]DesyncEvent, len(s.desyncs))
 	copy(out, s.desyncs)
@@ -811,7 +824,7 @@ func (s *RollbackSession) removeAt(mm *matchMember, leave uint32) (uint32, error
 	return leave, nil
 }
 
-// Step submits the local input (applied at currentTick + InputDelay), drains incoming packets (executing any needed rollbacks), simulates the next tick, and exchanges checksums for newly confirmed ticks. While the local peer takes no part (see Active) it only polls. While the oldest unconfirmed tick is MaxRollback ticks back it only polls too, ignoring localInput, and returns ErrRollbackStalled until the missing inputs arrive. It returns ErrSessionBacklog, after simulating the tick, when a remote peer has become unreachable for too long (see Poll).
+// Step submits the local input (applied at currentTick + InputDelay), drains incoming packets (executing any needed rollbacks), simulates the next tick, and exchanges checksums for newly confirmed ticks. While the local peer takes no part (see Active) it only polls. While the oldest unconfirmed tick is MaxRollback ticks back it only polls too, ignoring localInput, and returns ErrRollbackStalled, naming each peer the tick waits for (see Waiting), until the missing inputs arrive or the host removes those peers. It returns ErrSessionBacklog, after simulating the tick or instead of ErrRollbackStalled, when a remote peer has become unreachable for too long (see Poll).
 func (s *RollbackSession) Step(localInput InputFrame) error {
 	if !s.Active() {
 		return s.Poll()
@@ -824,7 +837,11 @@ func (s *RollbackSession) Step(localInput InputFrame) error {
 			return s.takeBacklog()
 		}
 		if s.stalled() {
-			return errors.Join(ErrRollbackStalled, s.takeBacklog())
+			// A backlog is reported only once, so return it on its own rather than joined with the stall a caller skips.
+			if err := s.takeBacklog(); err != nil {
+				return err
+			}
+			return s.stallError()
 		}
 	}
 	targetTick := s.currentTick + uint32(s.inputDelay)
@@ -957,6 +974,31 @@ func (s *RollbackSession) broadcastLocalInput(in InputFrame) {
 			_ = s.send(mm.id, payload)
 		}
 	}
+}
+
+// Waiting returns the sorted IDs of the remote peers whose input the oldest unconfirmed tick still waits for. While Step returns ErrRollbackStalled these are the peers holding the match; one that stays there, having stopped sending or become unreachable, is for the host to remove with RemovePeer.
+func (s *RollbackSession) Waiting() []PeerID {
+	t := s.nextToConfirm()
+	var ids []PeerID
+	for _, id := range s.activeIDs(t) {
+		if _, ok := s.confirmedInputs[t][id]; !ok && id != s.localID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// stallError returns ErrRollbackStalled naming each peer the session waits for.
+func (s *RollbackSession) stallError() error {
+	ids := s.Waiting()
+	if len(ids) == 0 {
+		return ErrRollbackStalled
+	}
+	errs := make([]error, len(ids))
+	for i, id := range ids {
+		errs[i] = fmt.Errorf("%w: peer %d", ErrRollbackStalled, id)
+	}
+	return errors.Join(errs...)
 }
 
 // stalled reports whether simulating the current tick would put the oldest unconfirmed tick more than MaxRollback ticks back, where a late input for it could no longer be rolled back to and the history kept for it would grow with every tick.
@@ -1251,8 +1293,11 @@ func (s *RollbackSession) advanceConfirmedAndChecksums() {
 	}
 }
 
-// recordRemoteChecksum keeps a member's checksum for a tick from the checksum floor to maxRollbackLeadTicks ahead, so a member cannot grow the map with checksums for ticks this peer will never compute or has already pruned.
+// recordRemoteChecksum keeps a member's checksum for a checksum tick, one advanceConfirmedAndChecksums sends for, from the checksum floor to maxRollbackLeadTicks ahead, so a member cannot grow the map with checksums for ticks this peer will never compute or has already pruned, nor report a desync for every tick.
 func (s *RollbackSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uint64) {
+	if s.checksumInterval == 0 || (tick+1)%s.checksumInterval != 0 {
+		return
+	}
 	if peer == s.localID || s.member(peer) == nil || tickBefore(tick, s.checksumFloor()) || tickDelta(tick, s.currentTick) > maxRollbackLeadTicks {
 		return
 	}
@@ -1291,7 +1336,7 @@ func (s *RollbackSession) checkDesyncAt(tick uint32) {
 			LocalChecksum:  localSum,
 			RemoteChecksum: remoteSum,
 		}
-		s.desyncs = append(s.desyncs, ev)
+		s.desyncs = appendDesync(s.desyncs, ev)
 		s.stats.Desyncs++
 		if s.onDesync != nil {
 			s.onDesync(ev)
