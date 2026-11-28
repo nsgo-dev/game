@@ -34,3 +34,7 @@ claude mcp add nsgo -- go tool nsgo mcp
 1. 使用 `go run github.com/nsgo-dev/game/cmd/game@latest new` 创建项目，并用 `go tool game generate`、`go tool game assets` 与 `go tool game check` 搭建组件并校验资源和引用。
 2. 在游戏的 `*core.Scope` 上挂载 `mcp.Bridge`，并运行 `go tool nsgo dev -automation`（或在测试中使用 `nsgotest.Start`）。
 3. 通过 MCP 执行可复现验证：调用 `game_loop_pause` 暂停、`game_loop_seed` 设定随机种子、注入输入或生成实体、调用 `game_loop_step` 同步推进步数、通过 `game_entities_list` / `game_entity_inspect` / `game_component_get` 检查实体状态，并用 `game_screenshot` 截取叠加层画面。
+
+## 一步插件安装
+
+Claude Code 和 Codex 可以安装仓库中的 `.claude-plugin/` 与 `.codex-plugin/` 插件清单。引导技能会保留无关 MCP 服务器，只安装缺少的部分，并通过只读 `selection_get` 调用证明编辑器连接。使用 `go tool game mcp prompt -host claude|codex|other` 获取可复制的设置提示。
