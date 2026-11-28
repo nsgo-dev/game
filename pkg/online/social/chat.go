@@ -121,18 +121,21 @@ func (c *Chat) Send(ch, s string, v json.RawMessage) (Message, error) {
 		return Message{}, errors.New("social: message too large")
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.next++
 	m := Message{ID: stringID(c.next), Channel: ch, Sender: s, Content: append(json.RawMessage(nil), v...), Created: c.now()}
 	m.Updated = m.Created
-	if c.BeforeSend != nil {
+	hook := c.BeforeSend
+	c.mu.Unlock()
+	if hook != nil {
 		var e error
-		m, e = c.BeforeSend(m)
+		m, e = hook(m)
 		if e != nil {
 			return Message{}, e
 		}
 	}
+	c.mu.Lock()
 	c.messages[ch] = append(c.messages[ch], m)
+	c.mu.Unlock()
 	return m, nil
 }
 func (c *Chat) History(ch string, limit int) []Message {
