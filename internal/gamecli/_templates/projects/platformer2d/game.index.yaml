@@ -1,0 +1,5 @@
+# The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
+version: 1
+files:
+  - path: scenes/level1.scene.yaml
+    uid: w2hp63r7xa3ta

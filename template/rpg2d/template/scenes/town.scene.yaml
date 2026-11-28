@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
 version: 1
+uid: z8hf2h77x4mkx
 name: Hollowbrook
 virtualWidth: 480
 virtualHeight: 270
