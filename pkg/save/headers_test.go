@@ -7,7 +7,7 @@ import (
 
 func TestHeadersListWithoutDecodingData(t *testing.T) {
 	s := save.NewFileStore(t.TempDir())
-	if err := s.SaveWithHeader("slot", map[string]any{"chapter": "one"}, func() {}); err != nil {
+	if err := s.SaveWithHeader("slot", map[string]any{"chapter": "one"}, map[string]any{"world": "large"}); err != nil {
 		t.Fatal(err)
 	}
 	h, err := s.Headers()
