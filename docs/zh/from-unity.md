@@ -103,3 +103,7 @@ Build Settings 和 Player Settings 变成项目根目录下的 `nsgo.yaml`：产
 | 应用商店构建（`.aab`、Mac App Store） | `go tool nsgo build -channel store` |
 
 发布前用 `go tool nsgo check -target all` 针对每个目标平台检查游戏。见[构建与发布](shipping.md)；第一个项目从[快速开始](getting-started.md)入手。
+
+## 测试
+
+使用 `nsgotest` 测试循环和视图，使用 `replay` 回放确定性输入，使用 `gametest` 测试黄金图像，覆盖 Unity Test Framework 和 Recorder 的常见流程。

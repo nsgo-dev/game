@@ -2,7 +2,7 @@
 
 A map from Unity's scenes, GameObjects and components, assets, events, Input System, physics and builds to this layer, with the page that covers each one.
 
-A game here is Go code inside an NSGo component rather than C# scripts attached in an editor. Scenes, prefabs and settings are YAML text with a version field and readable object IDs such as `crate_3` that stay the same from save to save, where a `.unity` file refers to objects by opaque `fileID` numbers, so a change to a scene reads as a small diff. HUD and menus are native NSGo views over the game's canvas, where Unity would use uGUI or UI Toolkit.
+A game here is Go code inside an NSGo component rather than C# scripts attached in an editor. Scenes, prefabs and settings are YAML text with a version field and readable object IDs such as `crate_3` that stay the same from save to save, where a `.unity` file refers to objects by opaque `fileID` numbers, so a change to a scene reads as a small diff. HUD and menus use `gameui` widgets and versioned `*.screen.yaml` files over the game canvas, where Unity would use uGUI or UI Toolkit.
 
 ## At a glance
 
@@ -48,7 +48,7 @@ Coordinates differ from Unity's. 2D drawing and 2D physics use screen space: X r
 
 Images and sounds loaded at runtime live in `resources/` and open by `"asset:<path>"`, such as `core.Src("asset:hero.png")`, on every target, as `Resources.Load` paths do. Data that `assets.Manager` reads itself, such as atlas JSON, raw bytes and your own parsed files, comes from the file system you give it: embed it with `//go:embed` and pass `assets.NewManager(cx, assets.WithFS(fsys))`, or pass `WithReadAsset` for custom storage. `assets.Manager` groups assets per scene, loads a group off the engine goroutine with progress you can bind to a loading screen, and releases it when the scene ends, the part of Addressables most games use. See [assets](assets.md).
 
-There is no asset database or `.meta` file. Files are read as their tools write them: TexturePacker and Aseprite atlases ([sprite](sprite.md)), Tiled maps ([tilemap](tilemap.md)) and glTF models ([3D Models from Blender](3d-models-blender.md)). A `ScriptableObject` becomes a YAML file decoded into a Go struct. `PlayerPrefs` becomes `core.Storage`, and saved games are versioned JSON slots with migrations and a backup in [save](save.md).
+There is no asset database or `.meta` file. Files are read as their tools write them: TexturePacker and Aseprite atlases ([sprite](sprite.md)), Tiled maps ([tilemap](tilemap.md)) and glTF models ([3D Models from Blender](3d-models-blender.md)). A `ScriptableObject` becomes a versioned YAML resource or data table decoded into a Go struct. `PlayerPrefs` becomes `core.Storage`, and saved games are versioned JSON slots with migrations and a backup in [save](save.md).
 
 ## Events
 
@@ -68,8 +68,8 @@ An `input.Actions` value is an action map: names bound to inputs, read once per 
 | `action.WasPressedThisFrame()` | `actions.JustPressed("jump")` |
 | `action.WasReleasedThisFrame()` | `actions.JustReleased("jump")` |
 | A 1D axis composite | `actions.BindAxis("move_x", "left", "right")`, then `actions.Axis("move_x")` |
-| On-Screen Stick and Button | `input.VirtualPad` |
-| Saving rebinding overrides | `actions.Save` and `actions.Load` in `core.Storage` (`Load` merges per name so defaults added later stay bound; `LoadReplace` replaces all) |
+| On-Screen Stick and Button | `input.TouchControls` with a YAML layout |
+| Saving rebinding overrides | store the override map in `core.Storage`; `save` slots persist game state separately |
 
 Call `actions.Step()` at the start of each update. Bindings today are touch regions, mouse buttons and device motion. Key and gamepad bindings are tracked in [#3](https://github.com/nsgo-dev/game/issues/3); until they land, a key bound with NSGo's `cx.OnKey` can call `actions.Trigger(name)`, which registers the action for one step. See [input](input.md).
 
@@ -103,3 +103,7 @@ Build Settings and Player Settings become `nsgo.yaml` at the project root: produ
 | Store builds (`.aab`, Mac App Store) | `go tool nsgo build -channel store` |
 
 `go tool nsgo check -target all` vets the game for every target before a release. See [Building and Shipping](shipping.md), and [Getting Started](getting-started.md) for a first project.
+
+## Testing
+
+Use `nsgotest` for a loop and view test, `replay` for deterministic input playback, and `gametest` for golden images. These cover Unity Test Framework and Recorder workflows without a running editor.
