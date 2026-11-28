@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math"
 	"net/url"
 	"path"
@@ -12,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/pkg/l10n"
 	"github.com/nsgo-dev/game/pkg/loaderr"
 )
 
@@ -117,8 +119,14 @@ type FontTarget struct {
 	Out string `yaml:"out"`
 	// Size is the font size in pixels the glyphs are drawn at; 0 is DefaultFontSize. A folder of glyph images keeps its images' pixels instead.
 	Size int `yaml:"size,omitempty"`
-	// Chars are the characters baked, each once, in any order; empty is DefaultFontChars. A character the font has no glyph for is left out. A folder of glyph images bakes every image it holds instead.
+	// Chars are the characters baked, each once, in any order; empty is DefaultFontChars when CharsFrom and CharsFile are also empty. When CharsFrom or CharsFile is set, Chars is merged with the characters collected from them. A character the font has no glyph for is left out. A folder of glyph images bakes every image it holds instead.
 	Chars string `yaml:"chars,omitempty"`
+	// CharsFrom lists slash-separated project-relative files whose text characters are collected and merged into the baked set: versioned YAML or JSON localization string tables (all strings and plural forms, with {placeholders} and rich-text markup stripped), YAML data tables (*.table.yaml, all string cells), and scene files (*.scene.yaml). A folder of glyph images refuses CharsFrom.
+	CharsFrom []string `yaml:"charsFrom,omitempty"`
+	// CharsFile is a slash-separated project-relative UTF-8 plain-text file whose non-control characters are merged into the baked set. A folder of glyph images refuses CharsFile.
+	CharsFile string `yaml:"charsFile,omitempty"`
+	// Locale is the optional normalized BCP-47 locale tag (such as "zh-Hans" or "en") this font target is meant to draw, checked by game check against that locale's localization string tables. When omitted, game check infers the locale from any localization string tables listed in CharsFrom.
+	Locale string `yaml:"locale,omitempty"`
 	// Padding is the transparent gap around each glyph on the pages in pixels; nil is 1.
 	Padding *int `yaml:"padding,omitempty"`
 	// Glyphs maps a glyph image's slash-separated path relative to In to the character it draws, for images whose base name's stem is not one character, such as "plus.png": "+". A folder input only takes it.
@@ -167,6 +175,32 @@ func ValidateFontChars(chars string) error {
 	}
 	if i := strings.IndexFunc(chars, unicode.IsControl); i >= 0 {
 		return fmt.Errorf("chars holds the control character %q; list only characters to draw", chars[i:i+1])
+	}
+	return nil
+}
+
+// ValidateFontCharsFrom checks the charsFrom path list of a font target or a font's import settings: each entry a clean, non-empty, slash-separated relative file path inside the project, with no duplicates.
+func ValidateFontCharsFrom(paths []string) error {
+	seen := make(map[string]bool, len(paths))
+	for i, p := range paths {
+		if err := validateAssetFile(p); err != nil {
+			return fmt.Errorf("charsFrom[%d]: %w", i, err)
+		}
+		if seen[p] {
+			return fmt.Errorf("charsFrom[%d]: duplicate path %q", i, p)
+		}
+		seen[p] = true
+	}
+	return nil
+}
+
+// ValidateFontCharsFile checks the charsFile path of a font target or a font's import settings: empty, or a clean, slash-separated relative file path inside the project.
+func ValidateFontCharsFile(p string) error {
+	if p == "" {
+		return nil
+	}
+	if err := validateAssetFile(p); err != nil {
+		return fmt.Errorf("charsFile: %w", err)
 	}
 	return nil
 }
@@ -301,7 +335,10 @@ func (a *Assets) Validate() error {
 	}
 	for i, f := range a.Fonts {
 		where := fmt.Sprintf("fonts[%d]", i)
-		if err := validateFontTarget(f); err != nil {
+		if err := validateFontTarget("assets."+where, f); err != nil {
+			if _, ok := loaderr.As(err); ok {
+				return err
+			}
 			return loaderr.Errorf("assets."+where, "fix the font target settings in game.yaml", "project: assets %s: %w", where, err)
 		}
 		dir, name := f.FontPages()
@@ -409,7 +446,14 @@ func (a *Assets) Validate() error {
 		read(au.In, fmt.Sprintf("audio[%d]", i))
 	}
 	for i, f := range a.Fonts {
-		read(f.In, fmt.Sprintf("fonts[%d]", i))
+		owner := fmt.Sprintf("fonts[%d]", i)
+		read(f.In, owner)
+		for _, src := range f.CharsFrom {
+			read(src, owner)
+		}
+		if f.CharsFile != "" {
+			read(f.CharsFile, owner)
+		}
 	}
 	for i, m := range a.Models {
 		read(m.In, fmt.Sprintf("models[%d]", i))
@@ -465,6 +509,15 @@ func (a *Assets) normalize() {
 	}
 	if len(a.Fonts) == 0 {
 		a.Fonts = nil
+	} else {
+		for i := range a.Fonts {
+			if len(a.Fonts[i].CharsFrom) == 0 {
+				a.Fonts[i].CharsFrom = nil
+			}
+			if len(a.Fonts[i].Glyphs) == 0 {
+				a.Fonts[i].Glyphs = nil
+			}
+		}
 	}
 	if len(a.Models) == 0 {
 		a.Models = nil
@@ -506,6 +559,8 @@ func (a *Assets) clone() *Assets {
 		c.Fonts = make([]FontTarget, len(a.Fonts))
 		for i, f := range a.Fonts {
 			f.Padding = clonePtr(f.Padding)
+			f.CharsFrom = slices.Clone(f.CharsFrom)
+			f.Glyphs = maps.Clone(f.Glyphs)
 			c.Fonts[i] = f
 		}
 	}
@@ -644,7 +699,7 @@ func validateAudioTarget(a AudioTarget) error {
 	return nil
 }
 
-func validateFontTarget(f FontTarget) error {
+func validateFontTarget(field string, f FontTarget) error {
 	if err := validateAssetIO(f.In, f.Out, false); err != nil {
 		return err
 	}
@@ -657,12 +712,23 @@ func validateFontTarget(f FontTarget) error {
 	if f.Padding != nil && *f.Padding < 0 {
 		return fmt.Errorf("padding %d must not be negative", *f.Padding)
 	}
+	if f.Locale != "" {
+		if err := l10n.ValidateLocale(f.Locale); err != nil {
+			return loaderr.Errorf(field+".locale", "set locale to a canonical BCP-47 tag such as en or zh-Hans", "project: %s: locale: %w", field, err)
+		}
+	}
 	if f.GlyphFolder() {
 		if f.Size != 0 {
 			return fmt.Errorf("size %d is the pixel size a TTF or OTF font's glyphs are drawn at, and %s is a folder of glyph images, whose pixels it keeps", f.Size, f.In)
 		}
 		if f.Chars != "" {
 			return fmt.Errorf("chars picks the glyphs of a TTF or OTF font, and %s is a folder of glyph images, which bakes every image it holds", f.In)
+		}
+		if len(f.CharsFrom) > 0 {
+			return loaderr.Errorf(field+".charsFrom", "remove charsFrom from a glyph-image folder font target", "project: %s: charsFrom collects glyphs for a TTF or OTF font, and %s is a folder of glyph images, which bakes every image it holds", field, f.In)
+		}
+		if f.CharsFile != "" {
+			return loaderr.Errorf(field+".charsFile", "remove charsFile from a glyph-image folder font target", "project: %s: charsFile collects glyphs for a TTF or OTF font, and %s is a folder of glyph images, which bakes every image it holds", field, f.In)
 		}
 		if f.Spacing < 0 {
 			return fmt.Errorf("spacing %d must not be negative", f.Spacing)
@@ -686,7 +752,26 @@ func validateFontTarget(f FontTarget) error {
 	if err := ValidateFontSize(f.Size); err != nil {
 		return err
 	}
-	return ValidateFontChars(f.Chars)
+	if err := ValidateFontChars(f.Chars); err != nil {
+		return err
+	}
+	seen := make(map[string]bool, len(f.CharsFrom))
+	for i, p := range f.CharsFrom {
+		elemField := fmt.Sprintf("%s.charsFrom[%d]", field, i)
+		if err := validateAssetFile(p); err != nil {
+			return loaderr.Errorf(elemField, "set each charsFrom entry to a slash-separated relative file path inside the project", "project: %s: charsFrom[%d]: %w", field, i, err)
+		}
+		if seen[p] {
+			return loaderr.Errorf(elemField, "remove the duplicate path from charsFrom", "project: %s: charsFrom[%d]: duplicate path %q", field, i, p)
+		}
+		seen[p] = true
+	}
+	if f.CharsFile != "" {
+		if err := validateAssetFile(f.CharsFile); err != nil {
+			return loaderr.Errorf(field+".charsFile", "set charsFile to a slash-separated relative file path inside the project", "project: %s: charsFile: %w", field, err)
+		}
+	}
+	return nil
 }
 
 // validateFontGlyphs checks the glyphs mapping of a font target that bakes a folder of glyph images: each key the slash-separated relative path of a PNG image whose base name's stem is not one character, each value exactly one character that is not a control character, and no two images mapped to one character.

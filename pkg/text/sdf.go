@@ -90,13 +90,14 @@ type SDFFont struct {
 	// CacheBytes bounds the memory of resolved glyph images kept between draws; 0 means 16 MiB. The least recently drawn glyph images go first.
 	CacheBytes int
 
-	pages map[int]*fieldPage
-	cache glyphCache
+	pages   map[int]*fieldPage
+	cache   glyphCache
+	missing missingGlyphState
 }
 
 // layoutFont returns the bitmap-font view of f's metrics that lays its text out, in atlas pixels.
 func (f *SDFFont) layoutFont() *Font {
-	return &Font{Face: f.Face, Size: f.Size, LineHeight: f.LineHeight, Base: f.Base, Glyphs: f.Glyphs, Kernings: f.Kernings}
+	return &Font{Face: f.Face, Size: f.Size, LineHeight: f.LineHeight, Base: f.Base, Glyphs: f.Glyphs, Kernings: f.Kernings, missing: &f.missing}
 }
 
 // fieldPage is one texture page's distance field: channels bytes per texel, row by row.

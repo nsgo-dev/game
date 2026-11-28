@@ -1,7 +1,9 @@
 package text
 
 import (
+	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/nsgo-dev/game/pkg/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -103,6 +105,7 @@ func (f *Font) Layout(s string, x, y float32, opts Options) []GlyphPlacement {
 		for _, r := range line {
 			g, ok := f.Glyphs[r]
 			if !ok {
+				f.logMissingGlyph(r)
 				hasPrev = false
 				continue
 			}
@@ -193,6 +196,38 @@ func (f *Font) Draw(d *core.Drawing, s string, x, y float32, opts Options) {
 	}
 }
 
+// MissingRunes returns the sorted, deduplicated non-control runes in s that f
+// has no glyph for. Control characters (such as newlines and tabs) are ignored.
+func (f *Font) MissingRunes(s string) []rune {
+	if s == "" {
+		return nil
+	}
+	var seen map[rune]struct{}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			continue
+		}
+		if f != nil {
+			if _, ok := f.Glyphs[r]; ok {
+				continue
+			}
+		}
+		if seen == nil {
+			seen = make(map[rune]struct{})
+		}
+		seen[r] = struct{}{}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]rune, 0, len(seen))
+	for r := range seen {
+		out = append(out, r)
+	}
+	slices.Sort(out)
+	return out
+}
+
 func (f *Font) measureLine(line string, scale float32) float32 {
 	var penX float32
 	var prev rune
@@ -200,6 +235,7 @@ func (f *Font) measureLine(line string, scale float32) float32 {
 	for _, r := range line {
 		g, ok := f.Glyphs[r]
 		if !ok {
+			f.logMissingGlyph(r)
 			hasPrev = false
 			continue
 		}

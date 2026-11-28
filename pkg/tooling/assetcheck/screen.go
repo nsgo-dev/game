@@ -11,9 +11,17 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+type localeTableFile struct {
+	path    string
+	projRel string
+	data    []byte
+	table   *l10n.StringTable
+}
+
 type projectLocales struct {
 	strings map[string]map[string]string
 	plurals map[string]map[string]l10n.PluralForms
+	files   []*localeTableFile
 }
 
 // loadLocaleTables discovers and parses every l10n YAML string table in the scanned directory, grouped by project root.
@@ -42,6 +50,10 @@ func (c *checker) loadLocaleTables(yamlFiles []string) {
 			}
 		}
 		proj := c.projectRoot(path.Dir(p))
+		projRel := p
+		if proj != "." {
+			projRel = strings.TrimPrefix(p, proj+"/")
+		}
 		pl := c.localeTables[proj]
 		if pl == nil {
 			pl = &projectLocales{
@@ -50,6 +62,12 @@ func (c *checker) loadLocaleTables(yamlFiles []string) {
 			}
 			c.localeTables[proj] = pl
 		}
+		pl.files = append(pl.files, &localeTableFile{
+			path:    p,
+			projRel: projRel,
+			data:    data,
+			table:   tbl,
+		})
 		if pl.strings[tbl.Locale] == nil {
 			pl.strings[tbl.Locale] = make(map[string]string)
 		}

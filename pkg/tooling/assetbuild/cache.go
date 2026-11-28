@@ -31,6 +31,8 @@ type cacheEntry struct {
 	Key string `yaml:"key"`
 	// Outputs are the files the target wrote, sorted by path.
 	Outputs []cacheOutput `yaml:"outputs"`
+	// Warnings are non-fatal diagnostics recorded when the target was built, such as requested font characters absent from the source font file.
+	Warnings []string `yaml:"warnings,omitempty"`
 }
 
 // cacheOutput is one file a target wrote.

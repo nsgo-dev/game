@@ -451,6 +451,10 @@ type Font struct {
 	Size int `yaml:"size,omitempty" schema:"minimum=0,maximum=2048"`
 	// Chars are the characters baked into the font, each once, in any order, such as " 0123456789"; empty keeps the target's.
 	Chars string `yaml:"chars,omitempty"`
+	// CharsFrom lists slash-separated project-relative source files whose text characters are collected and merged into the baked set; empty keeps the target's.
+	CharsFrom []string `yaml:"charsFrom,omitempty"`
+	// CharsFile is a slash-separated project-relative UTF-8 plain-text file whose characters are merged into the baked set; empty keeps the target's.
+	CharsFile string `yaml:"charsFile,omitempty"`
 	// Padding is the transparent gap around each glyph on the font's pages, in pixels.
 	Padding *int `yaml:"padding,omitempty" schema:"minimum=0"`
 }
@@ -522,6 +526,9 @@ func Parse(data []byte) (*File, error) {
 	if f.Audio != nil {
 		f.Audio.normalize()
 	}
+	if f.Font != nil {
+		f.Font.normalize()
+	}
 	if f.Model != nil {
 		f.Model.normalize()
 	}
@@ -563,6 +570,13 @@ func Encode(f *File) ([]byte, error) {
 		c, au := *f, *f.Audio
 		au.normalize()
 		c.Audio = &au
+		f = &c
+	}
+	if f.Font != nil {
+		c, fo := *f, *f.Font
+		fo.CharsFrom = slices.Clone(fo.CharsFrom)
+		fo.normalize()
+		c.Font = &fo
 		f = &c
 	}
 	if f.Model != nil {
@@ -812,6 +826,12 @@ func (im *Image) normalize() {
 	}
 }
 
+func (fo *Font) normalize() {
+	if len(fo.CharsFrom) == 0 {
+		fo.CharsFrom = nil
+	}
+}
+
 func (fo *Font) validate() error {
 	if err := project.ValidateFontSize(fo.Size); err != nil {
 		return loaderr.Errorf("font.size", "set font.size to 0 (inherit target) or an integer in [1, 2048]", "importsettings: font: %w", err)
@@ -821,6 +841,12 @@ func (fo *Font) validate() error {
 	}
 	if err := project.ValidateFontChars(fo.Chars); err != nil {
 		return loaderr.Errorf("font.chars", "remove duplicate or invalid characters from font.chars", "importsettings: font: %w", err)
+	}
+	if err := project.ValidateFontCharsFrom(fo.CharsFrom); err != nil {
+		return loaderr.Errorf("font.charsFrom", "set each font.charsFrom entry to a unique slash-separated relative file path inside the project", "importsettings: font: %w", err)
+	}
+	if err := project.ValidateFontCharsFile(fo.CharsFile); err != nil {
+		return loaderr.Errorf("font.charsFile", "set font.charsFile to a slash-separated relative file path inside the project", "importsettings: font: %w", err)
 	}
 	return nil
 }

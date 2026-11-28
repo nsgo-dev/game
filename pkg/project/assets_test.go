@@ -72,6 +72,14 @@ func TestAssetsRefused(t *testing.T) {
 		{"manifest not go", assetsHead + "assets:\n  manifest:\n    in: assets\n    out: assets/manifest.txt\n", ".go file"},
 		{"glyph font with size", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      size: 24\n", "is a folder of glyph images"},
 		{"glyph font with chars", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      chars: \"0123\"\n", "is a folder of glyph images"},
+		{"glyph font with charsFrom", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      charsFrom:\n        - l10n/en.yaml\n", "is a folder of glyph images"},
+		{"glyph font with charsFile", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      charsFile: fonts/extra.txt\n", "is a folder of glyph images"},
+		{"font charsFrom invalid path", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      charsFrom:\n        - ../escape.yaml\n", "inside the project"},
+		{"font charsFrom duplicate", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      charsFrom:\n        - l10n/en.yaml\n        - l10n/en.yaml\n", "duplicate path"},
+		{"font charsFile invalid path", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      charsFile: .\n", "names the project directory"},
+		{"font non-canonical locale", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      locale: zh_hans\n", "zh-Hans"},
+		{"output overwrites font charsFrom", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      charsFrom:\n        - l10n/en.yaml\n  audio:\n    - in: sfx/a.wav\n      out: l10n/en.yaml\n", "which fonts[0] reads"},
+		{"output overwrites font charsFile", assetsHead + "assets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      charsFile: fonts/extra.txt\n  audio:\n    - in: sfx/a.wav\n      out: fonts/extra.txt\n", "which fonts[0] reads"},
 		{"glyph font negative spacing", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      spacing: -1\n", "spacing -1"},
 		{"glyph font align", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      align: baseline\n", "top, center or bottom"},
 		{"glyph font glyphs not png", assetsHead + "assets:\n  fonts:\n    - in: art/digits\n      out: a.fnt\n      glyphs:\n        plus.txt: \"+\"\n", "must be a PNG image"},
@@ -125,6 +133,7 @@ func TestAssetsAccepted(t *testing.T) {
 		{"glyph image font", assetsHead + "assets:\n  fonts:\n    - in: art/fonts/score\n      out: assets/fonts/score.fnt\n      glyphs:\n        plus.png: \"+\"\n      spacing: 2\n      align: bottom\n      padding: 0\n"},
 		{"remote minimal", assetsHead + "assets:\n  remote:\n    out: dist/cdn\n    base: https://cdn.example.com/game/\n"},
 		{"remote with in and include", assetsHead + "assets:\n  remote:\n    in: resources\n    out: dist/cdn\n    base: https://cdn.example.com/game/\n    prefix: \"asset:\"\n    include: [music/, \"*.m4a\"]\n"},
+		{"font with charsFrom charsFile and locale", assetsHead + "assets:\n  fonts:\n    - in: fonts/NotoSansSC-Regular.otf\n      out: assets/fonts/ui-zh.fnt\n      size: 28\n      chars: \"0123456789\"\n      charsFrom:\n        - l10n/zh-Hans.yaml\n        - data/items.table.yaml\n      charsFile: fonts/extra-zh.txt\n      locale: zh-Hans\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := project.Parse([]byte(tc.src)); err != nil {

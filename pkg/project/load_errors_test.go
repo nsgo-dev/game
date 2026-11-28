@@ -63,4 +63,16 @@ func TestParseLoadErrors(t *testing.T) {
 		_, err := project.Parse(data)
 		loaderrtest.ExpectField(t, err, "", data, "audio.maxVoices")
 	})
+
+	t.Run("font invalid locale", func(t *testing.T) {
+		data := []byte("version: 1\nname: Demo\nid: dev.example.demo\nappVersion: '1'\nwindow: {width: 1, height: 1}\nassets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      locale: zh_hans\n")
+		_, err := project.Parse(data)
+		loaderrtest.ExpectField(t, err, "", data, "assets.fonts[0].locale")
+	})
+
+	t.Run("font duplicate charsFrom", func(t *testing.T) {
+		data := []byte("version: 1\nname: Demo\nid: dev.example.demo\nappVersion: '1'\nwindow: {width: 1, height: 1}\nassets:\n  fonts:\n    - in: a.ttf\n      out: a.fnt\n      charsFrom:\n        - l10n/en.yaml\n        - l10n/en.yaml\n")
+		_, err := project.Parse(data)
+		loaderrtest.ExpectField(t, err, "", data, "assets.fonts[0].charsFrom[1]")
+	})
 }

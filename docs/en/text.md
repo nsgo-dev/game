@@ -67,6 +67,12 @@ for i, g := range placements {
 }
 ```
 
+### Reporting missing glyphs
+
+When `Draw`, `Layout`, `Measure`, or rich-text layout encounters a rune the font has no glyph for, it skips that rune. In debug builds (everything except `-tags release`), call `text.SetLogMissingGlyphs(true)` to log each skipped rune once per rune and font, and optionally install a custom callback with `text.SetMissingGlyphLogger(fn)`. Both functions compile to no-ops under `-tags release` (`text.LogMissingGlyphsEnabled()` returns `false`). To inspect coverage directly, call `font.MissingRunes(s)` (or `sdfFont.MissingRunes(s)`), which returns the sorted, deduplicated non-control runes in `s` that the font lacks.
+
+For localized bitmap fonts, configure `charsFrom` and `charsFile` on the font target in `game.yaml` so `go tool game assets` bakes the characters used by your string tables and `go tool game check` flags any undrawable localized string ([Command Line](cli.md#assets)).
+
 ## Signed-distance-field fonts
 
 A bitmap font is sharp only at the size it was drawn at; stretched, its edges blur. An `SDFFont` keeps a distance field instead (how far each atlas pixel is from the glyph's outline), and each glyph is resolved from it at the size it is drawn at, so its edge is one pixel wide at any size: right for text that zooms, labels in a 3D world and damage numbers that fly toward the camera.

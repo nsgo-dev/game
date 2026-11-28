@@ -54,30 +54,28 @@ func (b *Builder) font(t project.FontTarget) (prepared, error) {
 	if err := onlySection(settings, "font", t.In, "a font target bakes it as a font"); err != nil {
 		return prepared{}, err
 	}
+	var scFont *importsettings.Font
 	if settings != nil && settings.Font != nil {
-		s := settings.Font
-		if s.Size != 0 {
-			t.Size = s.Size
+		scFont = settings.Font
+		if scFont.Size != 0 {
+			t.Size = scFont.Size
 		}
-		if s.Chars != "" {
-			t.Chars = s.Chars
-		}
-		if s.Padding != nil {
-			t.Padding = s.Padding
+		if scFont.Padding != nil {
+			t.Padding = scFont.Padding
 		}
 	}
-	fs := fontSettings{Size: t.Size, Chars: t.Chars, Padding: 1}
+	collectedChars, err := CollectFontChars(os.DirFS(b.Root), t, scFont)
+	if err != nil {
+		return prepared{}, err
+	}
+	fs := fontSettings{Size: t.Size, Chars: collectedChars, Padding: 1}
 	if fs.Size == 0 {
 		fs.Size = project.DefaultFontSize
-	}
-	if fs.Chars == "" {
-		fs.Chars = project.DefaultFontChars
 	}
 	if t.Padding != nil {
 		fs.Padding = *t.Padding
 	}
-	// The key takes the characters sorted and once each, so reordering chars rebuilds nothing.
-	fs.Chars = sortedChars(fs.Chars)
+	// The key takes the resulting sorted character set (never the raw source table bytes), so reordering chars or editing strings without changing the character set rebuilds nothing.
 	runes := []rune(fs.Chars)
 	k, err := newKeyer(b, KindFont, fs)
 	if err != nil {
@@ -91,13 +89,21 @@ func (b *Builder) font(t project.FontTarget) (prepared, error) {
 	if sc != nil {
 		k.input(importsettings.Path(t.In), sc)
 	}
-	return prepared{key: k.key(), build: func(root string) ([]string, error) {
+	return prepared{key: k.key(), build: func(root string) ([]string, []string, error) {
 		_, name := t.FontPages()
 		baked, err := bakeFont(data, name, runes, fs)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", t.In, err)
+			return nil, nil, fmt.Errorf("%s: %w", t.In, err)
 		}
-		return writeBakedFont(root, t, baked)
+		outs, err := writeBakedFont(root, t, baked)
+		if err != nil {
+			return nil, nil, err
+		}
+		var warnings []string
+		if len(baked.missing) > 0 {
+			warnings = append(warnings, fmt.Sprintf("font %s has no glyph for %d character(s): %s", t.In, len(baked.missing), FormatMissingRunes(baked.missing)))
+		}
+		return outs, warnings, nil
 	}}, nil
 }
 
@@ -119,8 +125,8 @@ func (b *Builder) glyphFont(t project.FontTarget) (prepared, error) {
 	}
 	if settings != nil && settings.Font != nil {
 		s := settings.Font
-		if s.Size != 0 || s.Chars != "" {
-			return prepared{}, fmt.Errorf("%s: size and chars pick the glyphs of a TTF or OTF font, and %s is a folder of glyph images, whose files pick them; only padding applies", importsettings.Path(t.In), t.In)
+		if s.Size != 0 || s.Chars != "" || len(s.CharsFrom) > 0 || s.CharsFile != "" {
+			return prepared{}, fmt.Errorf("%s: size, chars, charsFrom and charsFile pick the glyphs of a TTF or OTF font, and %s is a folder of glyph images, whose files pick them; only padding applies", importsettings.Path(t.In), t.In)
 		}
 		if s.Padding != nil {
 			t.Padding = s.Padding
@@ -167,13 +173,14 @@ func (b *Builder) glyphFont(t project.FontTarget) (prepared, error) {
 	if sc != nil {
 		k.input(importsettings.Path(t.In), sc)
 	}
-	return prepared{key: k.key(), build: func(root string) ([]string, error) {
+	return prepared{key: k.key(), build: func(root string) ([]string, []string, error) {
 		_, name := t.FontPages()
 		baked, err := bakeGlyphFont(glyphs, name, gs)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", t.In, err)
+			return nil, nil, fmt.Errorf("%s: %w", t.In, err)
 		}
-		return writeBakedFont(root, t, baked)
+		outs, err := writeBakedFont(root, t, baked)
+		return outs, nil, err
 	}}, nil
 }
 
@@ -275,6 +282,7 @@ type bakedFont struct {
 	fnt       []byte
 	pages     [][]byte
 	pageNames []string
+	missing   []rune
 }
 
 // fontGlyph is one character's glyph as baked: its image, nil for one with no ink such as the space, and its metrics in pixels.
@@ -316,13 +324,16 @@ func bakeFont(data []byte, name string, runes []rune, s fontSettings) (*bakedFon
 
 	var glyphs []fontGlyph
 	var inputs []atlaspack.Input
+	var missing []rune
 	for _, r := range runes {
 		gi, err := f.GlyphIndex(&buf, r)
 		if err != nil || gi == 0 {
+			missing = append(missing, r)
 			continue // the font has no glyph for r
 		}
 		dr, mask, maskp, adv, ok := face.Glyph(fixed.P(0, ascent), r)
 		if !ok {
+			missing = append(missing, r)
 			continue
 		}
 		g := fontGlyph{r: r, index: gi, xoffset: dr.Min.X, yoffset: dr.Min.Y, xadvance: adv.Round()}
@@ -414,7 +425,7 @@ func bakeFont(data []byte, name string, runes []rune, s fontSettings) (*bakedFon
 		}
 	}
 
-	baked := &bakedFont{fnt: out.Bytes(), pageNames: pageNames}
+	baked := &bakedFont{fnt: out.Bytes(), pageNames: pageNames, missing: missing}
 	for _, img := range pageImages {
 		var pb bytes.Buffer
 		if err := png.Encode(&pb, img); err != nil {
