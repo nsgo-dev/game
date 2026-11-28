@@ -185,6 +185,8 @@ type Verifier struct {
 	keys     map[string]ed25519.PublicKey
 	issuer   string
 	audience string
+	// keySetAudience is the audience of the key set the verifier was built from, which names the game's servers.
+	keySetAudience string
 	// Leeway tolerates clock skew between the account service and the verifier: a token stays valid until Leeway past its expiry and is accepted up to Leeway before its issue time.
 	Leeway time.Duration
 	// Now is the clock tokens are checked against; nil uses time.Now.
@@ -207,7 +209,7 @@ func NewVerifierFor(ks *KeySet, audience string) (*Verifier, error) {
 	if audience == "" {
 		return nil, errors.New("token: verifier needs an audience")
 	}
-	v := &Verifier{keys: make(map[string]ed25519.PublicKey, len(ks.Keys)), issuer: ks.Issuer, audience: audience}
+	v := &Verifier{keys: make(map[string]ed25519.PublicKey, len(ks.Keys)), issuer: ks.Issuer, audience: audience, keySetAudience: ks.Audience}
 	for _, k := range ks.Keys {
 		pub, _ := k.publicKey() // Validate checked it.
 		v.keys[k.ID] = pub
@@ -217,6 +219,12 @@ func NewVerifierFor(ks *KeySet, audience string) (*Verifier, error) {
 
 // Audience is the audience the verifier accepts.
 func (v *Verifier) Audience() string { return v.audience }
+
+// AcceptsGameServerTokens reports whether the verifier accepts tokens for the audience of the key set it was built from: the tokens sign-in returns and a player sends every game server it joins. A service that acts on a player's own data, such as cloud save, must refuse such a verifier, however its audience was named.
+func (v *Verifier) AcceptsGameServerTokens() bool { return v.audience == v.keySetAudience }
+
+// AccountServiceAudience is the audience of tokens for the account service's own bearer endpoints (accounts.ServiceAudience). Another service must not accept it, or whoever runs that service could replay a player's token to read or link the player's account.
+const AccountServiceAudience = "accounts"
 
 // Verify checks tok and returns its claims. Errors wrap ErrMalformed, ErrUnknownKey, ErrSignature, ErrIssuer, ErrAudience, ErrExpired or ErrNotYetValid.
 func (v *Verifier) Verify(tok string) (Claims, error) {

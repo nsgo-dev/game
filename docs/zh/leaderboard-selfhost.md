@@ -107,7 +107,7 @@ proof, err := prover.Sign("weekly-sprint", claims.Subject, result.TimeMillis)
 
 ## HTTP
 
-`Service.Handler` 以 JSON 提供服务。除 `GET /v1/openapi.yaml` 外，每个请求都在 `Authorization: Bearer <token>` 里携带玩家的账号令牌；处理器用 `Options.Tokens` 离线校验，只接受签给配置中受众的令牌（见[令牌受众](accounts.md#令牌受众)），所以玩家发给游戏服务器的令牌无法替玩家提交成绩；`New` 拒绝其他受众的校验器。令牌的主体就是提交成绩的账号，所以玩家只能提交自己的成绩。完整的机器可读契约以 [OpenAPI 3.1 描述文件](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) 发布，也通过 `GET /v1/openapi.yaml` 在线提供。
+`Service.Handler` 以 JSON 提供服务。除 `GET /v1/openapi.yaml` 外，每个请求都在 `Authorization: Bearer <token>` 里携带玩家的账号令牌；处理器用 `Options.Tokens` 离线校验，只接受签给配置中受众的令牌（见[令牌受众](accounts.md#令牌受众)），所以玩家发给游戏服务器的令牌无法替玩家提交成绩；`New` 拒绝其他受众的校验器，也拒绝接受其密钥集中游戏服务器受众的校验器，配置也不能写 `accounts`（账号服务自身的受众）。令牌的主体就是提交成绩的账号，所以玩家只能提交自己的成绩。完整的机器可读契约以 [OpenAPI 3.1 描述文件](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) 发布，也通过 `GET /v1/openapi.yaml` 在线提供。
 
 | 请求 | 响应 |
 | --- | --- |

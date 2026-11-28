@@ -114,7 +114,7 @@ allowedOrigins:
 | `keepVersions` | 每个槽位保留的版本数（含当前版本），1 到 100 |
 | `allowedOrigins` | 允许其页面调用服务的网页 origin；为空时省略 |
 
-`ParseConfig` 拒绝未知字段、尾随文档、超出范围的值，以及带路径、通配符、1 到 65535 以外端口或 `http`、`https` 以外协议的 origin。`Config.Marshal` 写出规范形式：字段按上表顺序，`audience` 只在设置时写出，`allowedOrigins` 只在有条目时写出。规范形式的文件（例如 `Marshal` 或 `cloudsaved init` 写出的）读回后再写出，内容不变。`DefaultConfig` 返回上面所示的设置，不含 origin。
+`ParseConfig` 拒绝未知字段、尾随文档、超出范围的值、`audience: accounts`（账号服务自身的受众），以及带路径、通配符、1 到 65535 以外端口或 `http`、`https` 以外协议的 origin。`Config.Marshal` 写出规范形式：字段按上表顺序，`audience` 只在设置时写出，`allowedOrigins` 只在有条目时写出。规范形式的文件（例如 `Marshal` 或 `cloudsaved init` 写出的）读回后再写出，内容不变。`DefaultConfig` 返回上面所示的设置，不含 origin。
 
 ## 存储
 
@@ -127,7 +127,7 @@ verifier, err := token.NewVerifierFor(keySet, cfg.TokenAudience())   // 不要�
 svc, err := cloudsave.New(cfg, cloudsave.Options{Store: store, Tokens: verifier, Logger: slog.Default()})
 ```
 
-`New` 拒绝受众不是 `Config.TokenAudience` 的校验器。
+`New` 拒绝受众不是 `Config.TokenAudience` 的校验器，也拒绝接受其密钥集自身受众（即游戏服务器的受众）的校验器，即使配置写的就是这个受众。
 
 SQL 存储有两张表：`cloudsave_slots`（每个槽位的最新版本）和 `cloudsave_versions`（保留的版本及其负载），模式版本记在 `cloudsave_schema` 中。每次写入在一个事务中比较并设置槽位的最新版本号；在 Postgres 上还会对账号加咨询锁，因此槽位计数和版本修剪能看到所有并发写入。SQLite 使用纯 Go 的 `modernc.org/sqlite` 驱动，开启预写日志并只用一个连接；Postgres 使用 `github.com/jackc/pgx/v5`。两者都会在表缺失时创建表，并拒绝比自身更新的模式。`NewMemoryStore` 把一切保存在内存中，用于测试和原型；自定义存储需通过 `storetest.Run`。
 

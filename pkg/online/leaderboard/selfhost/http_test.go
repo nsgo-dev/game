@@ -364,6 +364,21 @@ func TestHTTPRefusesGameServerToken(t *testing.T) {
 	if _, err := selfhost.New(context.Background(), f.boards.Config(), selfhost.Options{Store: selfhost.NewMemoryStore(), Tokens: game}); err == nil {
 		t.Fatal("New accepted a verifier for the game servers' audience")
 	}
+	// Naming the game servers' audience in the config does not get around the check: the verifier remembers its key set.
+	renamed := f.boards.Config()
+	renamed.Audience = f.accounts.KeySet().Audience
+	gameFor, err := token.NewVerifierFor(f.accounts.KeySet(), renamed.Audience)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := selfhost.New(context.Background(), renamed, selfhost.Options{Store: selfhost.NewMemoryStore(), Tokens: gameFor}); err == nil {
+		t.Fatal("New accepted a config and verifier naming the game servers' audience")
+	}
+	self := f.boards.Config()
+	self.Audience = token.AccountServiceAudience
+	if _, err := selfhost.New(context.Background(), self, selfhost.Options{Store: selfhost.NewMemoryStore()}); err == nil {
+		t.Fatal("New accepted the account service's audience")
+	}
 }
 
 func TestHTTPCORS(t *testing.T) {

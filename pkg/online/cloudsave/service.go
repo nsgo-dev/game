@@ -43,6 +43,9 @@ func New(cfg Config, opts Options) (*Service, error) {
 	if got, want := opts.Tokens.Audience(), cfg.TokenAudience(); got != want {
 		return nil, fmt.Errorf("cloudsave: token verifier accepts audience %q, want %q: build it with token.NewVerifierFor(keySet, %q)", got, want, want)
 	}
+	if opts.Tokens.AcceptsGameServerTokens() {
+		return nil, fmt.Errorf("cloudsave: audience %q is the game servers' audience of the key set: set Config.Audience to one the account service lists in its audiences, such as %q", cfg.TokenAudience(), DefaultAudience)
+	}
 	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	s := &Service{cfg: cfg, store: opts.Store, tokens: opts.Tokens, log: opts.Logger, now: opts.Now}
 	if s.log == nil {

@@ -8,6 +8,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
+	"github.com/nsgo-dev/game/pkg/online/accounts/token"
 	"github.com/nsgo-dev/game/pkg/online/internal/cors"
 )
 
@@ -41,7 +42,7 @@ const (
 type Config struct {
 	// Version is the schema version; it must be ConfigVersion.
 	Version int `yaml:"version"`
-	// Audience is the token audience the service accepts, which the account service must list in its audiences; empty means DefaultAudience. It must differ from the audience of the key set, which names the game's servers.
+	// Audience is the token audience the service accepts, which the account service must list in its audiences; empty means DefaultAudience. It must differ from the audience of the key set, which names the game's servers, and must not be "accounts", the account service's own audience.
 	Audience string `yaml:"audience,omitempty"`
 	// MaxSlotBytes is the largest payload a slot may hold, in bytes, from 1 to MaxSlotBytesLimit. A liveops.CloudSyncer payload is the save inside a JSON envelope: about 250 bytes more, with the save's quotes and backslashes escaped, or base64, a third larger, for data that is not UTF-8.
 	MaxSlotBytes int `yaml:"maxSlotBytes"`
@@ -70,6 +71,9 @@ func (c Config) TokenAudience() string {
 func (c Config) Validate() error {
 	if c.Version != ConfigVersion {
 		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the cloudsave config", ConfigVersion), "cloudsave: unsupported config version %d (want %d)", c.Version, ConfigVersion)
+	}
+	if c.Audience == token.AccountServiceAudience {
+		return loaderr.Errorf("audience", fmt.Sprintf("set audience to the name the account service lists in its audiences for this service, such as %q, not %q, which names the account service itself", DefaultAudience, token.AccountServiceAudience), "cloudsave: audience %q is reserved for the account service", token.AccountServiceAudience)
 	}
 	if c.MaxSlotBytes < 1 || c.MaxSlotBytes > MaxSlotBytesLimit {
 		return loaderr.Errorf("maxSlotBytes", fmt.Sprintf("set maxSlotBytes to an integer from 1 to %d", MaxSlotBytesLimit), "cloudsave: maxSlotBytes %d must be from 1 to %d", c.MaxSlotBytes, MaxSlotBytesLimit)
