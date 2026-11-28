@@ -137,3 +137,14 @@ func parseHash(encoded string) (Argon2Params, []byte, []byte, error) {
 	}
 	return p, salt, key, nil
 }
+
+// ValidatePassword applies the service's length policy without hashing.
+func ValidatePassword(password string, min int) error {
+	if min < 1 {
+		min = 1
+	}
+	if len(password) < min || len(password) > MaxPasswordBytes {
+		return ErrWeakPassword
+	}
+	return nil
+}
