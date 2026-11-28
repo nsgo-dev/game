@@ -10,7 +10,7 @@ New games need an accessible entry point before their first sound plays, while t
 
 `pkg/gameui` provides `FirstLaunchSettings`, a small overlay that reads and writes the existing `save.DefaultSettingsStore`. The prompt enables captions when the player continues, preserves other settings, and records completion in `Settings.Custom["first_launch_accessibility_complete"]`. The starter template mounts the overlay at the root and uses the same storage namespace for later settings screens.
 
-The prompt accepts localized copy and an `OnMoreOptions` callback so a template can open its full Accessibility tab. `Required` is derived from persisted settings, which keeps the overlay hidden on later launches without a second store or process-global state.
+The prompt accepts localized copy and an `OnMoreOptions` callback so a template can open its full Accessibility tab. `Required` is derived from persisted settings, which keeps the overlay hidden on later launches without a second store or process-global state. `View` wraps the overlay in a `core.Show` driven by a signal that `Complete` clears, so a mounted prompt unmounts itself on Continue instead of relying on the caller to rebuild its tree; the More options button is only rendered when `OnMoreOptions` is set, so the prompt never offers a control that does nothing.
 
 ## Alternatives considered
 

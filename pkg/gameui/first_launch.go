@@ -88,6 +88,8 @@ type FirstLaunchSettings struct {
 	onComplete func(save.Settings) error
 	completed  bool
 	lastErr    error
+	// shown is the signal the mounted View reads, so the overlay unmounts when Complete succeeds.
+	shown *core.Signal[bool]
 }
 
 // NewFirstLaunchSettings creates a prompt from persisted settings or defaults.
@@ -157,15 +159,35 @@ func (f *FirstLaunchSettings) Complete() error {
 	f.settings = settings
 	f.completed = true
 	f.lastErr = nil
+	if f.shown != nil {
+		f.shown.Set(false)
+	}
 	return nil
 }
 
-// View renders the prompt as a native NSGo overlay. Call it before the first
-// sound is played and omit it once Required returns false.
-func (f *FirstLaunchSettings) View(_ *core.Scope) core.Node {
-	if f == nil || !f.Required() {
+// View renders the prompt as a native NSGo overlay. Mount it before the first sound is played; it removes itself once Complete succeeds and renders nothing when the prompt was already completed.
+func (f *FirstLaunchSettings) View(cx *core.Scope) core.Node {
+	if f == nil {
 		return nil
 	}
+	f.shown = core.NewSignal(cx, f.Required())
+	return core.Show{
+		When: f.shown.Get,
+		Then: func(*core.Scope) core.Node { return f.overlay() },
+	}
+}
+
+func (f *FirstLaunchSettings) overlay() core.Node {
+	children := []core.Node{
+		core.Text{TestID: "first-launch-title", Content: f.text.Title, Style: core.Style{Color: core.RGB(0xffffff), FontSize: 26, FontWeight: core.FontWeightBold}},
+		core.Text{Content: f.text.Body, Style: core.Style{Color: core.RGB(0xe2e8f0), FontSize: 16}, MaxLines: 3},
+		core.Text{Content: "• " + f.text.Captions + "\n• " + f.text.TextSize + "\n• " + f.text.ReducedMotion, Style: core.Style{Color: core.RGB(0xcbd5e1), FontSize: 14}, MaxLines: 4},
+	}
+	// The More options button only appears when the game has a settings screen to open.
+	if f.onMore != nil {
+		children = append(children, base.Button{TestID: "first-launch-more-options", Label: f.text.MoreOptions, OnPress: func(core.PressEvent) { f.onMore() }, Style: core.Style{Padding: core.Symmetric(10, 16), BorderWidth: 1, BorderColor: core.RGB(0x94a3b8), CornerRadius: 8}, Children: []core.Node{core.Text{Content: f.text.MoreOptions, Style: core.Style{Color: core.RGB(0xffffff), FontSize: 14}}}})
+	}
+	children = append(children, base.Button{TestID: "first-launch-continue", Label: f.text.Continue, OnPress: func(core.PressEvent) { _ = f.Complete() }, Style: core.Style{Padding: core.Symmetric(12, 20), Background: core.RGB(0x2563eb), CornerRadius: 8}, Children: []core.Node{core.Text{Content: f.text.Continue, Style: core.Style{Color: core.RGB(0xffffff), FontSize: 16, FontWeight: core.FontWeightBold}}}})
 	return core.View{
 		TestID: "first-launch-accessibility",
 		Style: core.Style{
@@ -173,17 +195,7 @@ func (f *FirstLaunchSettings) View(_ *core.Scope) core.Node {
 			Background: core.RGBA(0x0f172a, 0.98), Padding: core.All(24), Gap: 14,
 			JustifyContent: core.JustifyCenter, AlignItems: core.AlignCenter,
 		},
-		Children: []core.Node{
-			core.Text{TestID: "first-launch-title", Content: f.text.Title, Style: core.Style{Color: core.RGB(0xffffff), FontSize: 26, FontWeight: core.FontWeightBold}},
-			core.Text{Content: f.text.Body, Style: core.Style{Color: core.RGB(0xe2e8f0), FontSize: 16}, MaxLines: 3},
-			core.Text{Content: "• " + f.text.Captions + "\n• " + f.text.TextSize + "\n• " + f.text.ReducedMotion, Style: core.Style{Color: core.RGB(0xcbd5e1), FontSize: 14}, MaxLines: 4},
-			base.Button{TestID: "first-launch-more-options", Label: f.text.MoreOptions, OnPress: func(core.PressEvent) {
-				if f.onMore != nil {
-					f.onMore()
-				}
-			}, Style: core.Style{Padding: core.Symmetric(10, 16), BorderWidth: 1, BorderColor: core.RGB(0x94a3b8), CornerRadius: 8}, Children: []core.Node{core.Text{Content: f.text.MoreOptions, Style: core.Style{Color: core.RGB(0xffffff), FontSize: 14}}}},
-			base.Button{TestID: "first-launch-continue", Label: f.text.Continue, OnPress: func(core.PressEvent) { _ = f.Complete() }, Style: core.Style{Padding: core.Symmetric(12, 20), Background: core.RGB(0x2563eb), CornerRadius: 8}, Children: []core.Node{core.Text{Content: f.text.Continue, Style: core.Style{Color: core.RGB(0xffffff), FontSize: 16, FontWeight: core.FontWeightBold}}}},
-		},
+		Children: children,
 	}
 }
 

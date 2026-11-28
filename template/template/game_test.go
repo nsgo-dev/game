@@ -14,6 +14,9 @@ func TestMain(m *testing.M) { nsgotest.Main(m) }
 func TestGameAdvancesAndDrawsSprite(t *testing.T) {
 	app := nsgotest.Start(t, Root)
 	app.Press("id:first-launch-continue")
+	if app.Exists("id:first-launch-accessibility") {
+		t.Fatal("the first-launch prompt is still shown after Continue")
+	}
 	app.Find("text:Score: 0")
 
 	first, ok := spriteDrawOp(app.Find("game-canvas").Ops)

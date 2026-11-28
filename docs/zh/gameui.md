@@ -125,10 +125,10 @@ first := gameui.NewFirstLaunchSettings(gameui.FirstLaunchSettingsConfig{
 	Store: save.NewStorageSettingsStore(cx.Storage(), "game"),
 	OnMoreOptions: func() { openSettingsAccessibility() },
 })
-// 在根覆盖层中包含 first.View(cx)，直到 first.Required() 返回 false。
+// 把 first.View(cx) 放在根节点子元素的最后；点击继续后它会自行移除。
 ```
 
-提示支持通过 `FirstLaunchSettingsConfig.Text` 本地化，继续操作会保留已有的自定义设置。
+提示只需一次操作即可跳过，可通过 `FirstLaunchSettingsConfig.Text` 本地化。只有设置了 `OnMoreOptions` 时才会显示“更多选项”按钮。继续操作会保留玩家的其他设置（包括已有的 `Custom` 键），并把完成状态记录在 `first_launch_accessibility_complete` 键下，之后启动时不再渲染任何内容。
 
 菜单通过 `save.DefaultSettingsStore` 持久化玩家设置（与 `a11y.NewAssistFromSettings(cx, store)` 直接共享同一份存储），并通过 `save.SettingsTargets`（`save.Apply`）与 `SettingsMenuConfig.Video`（`screen.Video.ApplyResolution`）将校验后的设置派发到各子系统：
 

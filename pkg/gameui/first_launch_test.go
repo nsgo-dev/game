@@ -48,8 +48,39 @@ func TestFirstLaunchSettingsViewHasSingleContinueAction(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return prompt.View(cx) })
 	app.Find("id:first-launch-accessibility")
 	app.Find("id:first-launch-continue")
+	if app.Exists("id:first-launch-more-options") {
+		t.Fatal("More options is shown without OnMoreOptions")
+	}
 	app.Press("id:first-launch-continue")
 	if prompt.Required() {
 		t.Fatal("continue did not dismiss the prompt")
+	}
+	if app.Exists("id:first-launch-accessibility") {
+		t.Fatal("the overlay is still mounted after Continue")
+	}
+}
+
+func TestFirstLaunchSettingsMoreOptionsCallsCallback(t *testing.T) {
+	opened := 0
+	prompt := NewFirstLaunchSettings(FirstLaunchSettingsConfig{OnMoreOptions: func() { opened++ }})
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return prompt.View(cx) })
+	app.Press("id:first-launch-more-options")
+	if opened != 1 {
+		t.Fatalf("OnMoreOptions calls = %d, want 1", opened)
+	}
+	if !prompt.Required() {
+		t.Fatal("More options completed the prompt")
+	}
+}
+
+func TestFirstLaunchSettingsViewHiddenWhenAlreadyComplete(t *testing.T) {
+	settings := save.DefaultSettings()
+	SetFirstLaunchComplete(&settings, true)
+	prompt := NewFirstLaunchSettings(FirstLaunchSettingsConfig{Initial: &settings})
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{prompt.View(cx)}}
+	})
+	if app.Exists("id:first-launch-accessibility") {
+		t.Fatal("a completed prompt rendered its overlay")
 	}
 }
