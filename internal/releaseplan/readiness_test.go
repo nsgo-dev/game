@@ -56,6 +56,8 @@ func TestCheckResourcesRefusesCredentialsDotfilesPEMAndSymlinks(t *testing.T) {
 		".env":             "TOKEN=secret",
 		"keys/release.p12": "bytes",
 		"keys/private.txt": "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
+		"keys/deploy.txt":  "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
+		"keys/cert.txt":    "-----BEGIN CERTIFICATE-----\npublic\n-----END CERTIFICATE-----",
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(dir, "resources", name), []byte(data), 0o600); err != nil {
@@ -70,13 +72,30 @@ func TestCheckResourcesRefusesCredentialsDotfilesPEMAndSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := CheckResources(dir, &project.File{})
-	if len(items) != 4 {
+	if len(items) != 5 {
 		t.Fatalf("items = %+v", items)
 	}
 	for _, item := range items {
 		if item.Status != ReadinessFail {
 			t.Errorf("%s status = %s, want fail", item.ID, item.Status)
 		}
+	}
+}
+
+func TestEvaluateReadinessSkipsResourcesForUnsavedProject(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "resources"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "resources", ".env"), []byte("TOKEN=secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	if items := EvaluateReadiness("web", "", &project.File{}); len(items) != 0 {
+		t.Fatalf("items = %+v, want none for a project without a directory", items)
+	}
+	if items := EvaluateReadiness("web", dir, &project.File{}); len(items) != 1 || items[0].Status != ReadinessFail {
+		t.Fatalf("items = %+v, want one failure for resources/.env", items)
 	}
 }
 

@@ -41,15 +41,15 @@ func CheckResources(dir string, f *project.File) []ReadinessItem {
 	}
 	var items []ReadinessItem
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		rel, _ := filepath.Rel(dir, path)
+		rel = filepath.ToSlash(rel)
 		if walkErr != nil {
-			items = append(items, resourceFinding(path, "cannot inspect resource: "+walkErr.Error(), ReadinessFail))
+			items = append(items, resourceFinding(rel, "cannot inspect resource: "+walkErr.Error(), ReadinessFail))
 			return nil
 		}
 		if path == root {
 			return nil
 		}
-		rel, _ := filepath.Rel(dir, path)
-		rel = filepath.ToSlash(rel)
 		base := strings.ToLower(entry.Name())
 		if entry.Type()&os.ModeSymlink != 0 {
 			items = append(items, resourceFinding(rel, "symbolic links are refused in release resources", ReadinessFail))
@@ -76,11 +76,29 @@ func CheckResources(dir string, f *project.File) []ReadinessItem {
 		if entry.IsDir() {
 			return nil
 		}
+		// Only regular files are read: a named pipe or device would block or never end.
+		if !entry.Type().IsRegular() {
+			items = append(items, resourceFinding(rel, "only regular files and directories are allowed in release resources", ReadinessFail))
+			return nil
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			items = append(items, resourceFinding(rel, "cannot inspect resource: "+infoErr.Error(), ReadinessFail))
+			return nil
+		}
+		// Credentials are small text files; skipping larger media keeps the editor's repeated readiness checks from reading every video and audio file.
+		if info.Size() > maxScannedResourceBytes {
+			return nil
+		}
 		data, readErr := os.ReadFile(path)
-		if readErr == nil && (bytes.Contains(data, []byte("-----BEGIN PRIVATE KEY-----")) || bytes.Contains(data, []byte("-----BEGIN RSA PRIVATE KEY-----")) || bytes.Contains(data, []byte("-----BEGIN EC PRIVATE KEY-----"))) {
+		if readErr != nil {
+			items = append(items, resourceFinding(rel, "cannot read resource: "+readErr.Error(), ReadinessFail))
+			return nil
+		}
+		if containsPEMPrivateKey(data) {
 			items = append(items, resourceFinding(rel, "PEM private-key content is refused in release resources", ReadinessFail))
 		}
-		if readErr == nil && bytes.Contains(data, []byte(`"type"`)) && bytes.Contains(data, []byte(`service_account`)) && bytes.Contains(data, []byte(`private_key`)) {
+		if bytes.Contains(data, []byte(`"type"`)) && bytes.Contains(data, []byte(`service_account`)) && bytes.Contains(data, []byte(`private_key`)) {
 			items = append(items, resourceFinding(rel, "Google service-account credentials are refused in release resources", ReadinessFail))
 		}
 		return nil
@@ -92,6 +110,27 @@ func CheckResources(dir string, f *project.File) []ReadinessItem {
 		return []ReadinessItem{{ID: "resources", Label: "Resources", Detail: "resources/ contains no refused files", Status: ReadinessOK}}
 	}
 	return items
+}
+
+// maxScannedResourceBytes bounds the files whose contents are scanned for private keys and service-account credentials; names are checked for every file.
+const maxScannedResourceBytes = 1 << 20
+
+// containsPEMPrivateKey reports whether data holds a PEM private-key header of any kind (PKCS#8, RSA, EC, DSA, OpenSSH, encrypted).
+func containsPEMPrivateKey(data []byte) bool {
+	for rest := data; ; {
+		i := bytes.Index(rest, []byte("-----BEGIN "))
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len("-----BEGIN "):]
+		end := bytes.Index(rest, []byte("-----"))
+		if end < 0 {
+			return false
+		}
+		if bytes.HasSuffix(rest[:end], []byte("PRIVATE KEY")) {
+			return true
+		}
+	}
 }
 
 func resourceFinding(path, detail string, status ReadinessStatus) ReadinessItem {

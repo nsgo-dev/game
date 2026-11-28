@@ -47,6 +47,10 @@ func EvaluateReadiness(platform, dir string, f *project.File) []ReadinessItem {
 	if platform == "ios" {
 		items = evaluateIOSReadiness(dir, f)
 	}
+	// An unsaved project has no directory; checking would walk resources/ under the process's working directory instead.
+	if dir == "" {
+		return items
+	}
 	for _, item := range CheckResources(dir, f) {
 		if item.Status != ReadinessOK {
 			items = append(items, item)
