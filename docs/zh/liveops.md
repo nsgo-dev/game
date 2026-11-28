@@ -233,6 +233,8 @@ showNoAds := !shop.Owned("com.example.noads")
 - `SignOrder(appKey, sessionKey, Order)` 返回 `signData` JSON、它的 `paySig`（以 AppKey 对 `requestMidasPaymentGameItem&` + `signData` 做 HMAC-SHA256）以及用户态 `signature`（以登录换取的玩家会话密钥做 HMAC-SHA256）。客户端把这三者原样交给平台。`GoodsPrice` 以分为单位；`OutTradeNo` 最多 32 个字母、数字或 `_-|*@`，且不能以 `_` 开头。
 - `Handler.Handle(ctx, event, payload, payEventSig)` 校验 `minigame_game_pay_goods_deliver_notify` 推送：事件名、`PayEventSig`（以 AppKey 对事件名 + `&` + `Payload` 做 HMAC-SHA256），以及负载的 `Env` 与处理器的 `Env` 一致，因此沙箱购买永远不会在正式环境发货。之后它对每个 `OutTradeNo` 只调用一次 `Deliver`，并把订单记录到 `DeliveryStore`；平台的重试（包括同一进程中首次发货尚未结束时到达的重试）返回 nil 而不再发货；`Deliver` 返回错误时不记录订单，下一次重试会重新发货。`Handle` 返回 nil 时应答 `{"ErrCode":0,"ErrMsg":"Success"}`，否则应答非零的 `ErrCode`。
 
+集成检查应确保两把签名密钥都只保留在服务器上，将 `SignOrder` 返回的完整 `signData`、`paySig` 与 `signature` 原样交给客户端，并把服务器收到的发货推送作为购买依据。解码前先校验事件名和原始负载签名，要求环境匹配，并使用以 `OutTradeNo` 为幂等键的持久 `DeliveryStore`，让订单记录与发货在多进程下也保持幂等。只有发货和存储写入都成功后才返回成功，这样失败的发货仍可重试。
+
 `MemoryStore` 在重启后会忘记已发货的订单；不使用持久存储的服务器，以及共用同一存储的多个进程，必须让 `Deliver` 自身对 `OutTradeNo` 幂等，例如在记录订单的同一个数据库事务中发放道具。HTTP 端点仍由游戏的服务器负责：推送 URL 的 token 校验和安全模式的 AES 解密尚未纳入本包，SQLite 与 Postgres 存储、用于对账的订单查询、客户端的 `Purchases` 模式以及未成年人保护错误 `-15009` 的映射也尚未提供（[#1740](https://github.com/nsgo-dev/game/issues/1740)）。
 
 ## 本地提醒
