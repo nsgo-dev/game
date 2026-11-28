@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+name: Lantern Hills
+virtualWidth: 320
+virtualHeight: 180
+layers:
+  - name: terrain
+    space: world
+    objects:
+      - id: start_platform
+        x: 0
+        y: 160
+        properties: {width: 320, height: 32}
+      - id: beacon
+        x: 304
+        y: 144
+        properties: {kind: goal}
+  - name: actors
+    space: world
+    objects:
+      - id: player_spawn
+        x: 24
+        y: 144
+        properties: {kind: player}
+      - id: checkpoint_lamp
+        x: 192
+        y: 144
+        properties: {kind: checkpoint}
