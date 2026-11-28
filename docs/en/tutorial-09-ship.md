@@ -1,12 +1,28 @@
 # Tutorial 9: Shipping
 
-Get Star Catcher ready for players: give it a name, version and icon for the stores, pause it when the app loses the focus, play whole games in a test before each release, check every target, and build release packages.
+Get Star Catcher ready for players: give it a name, version and icon for the stores, pause it when the app loses the focus, play whole games in a test before each release, check every target, build release packages, and validate its store listings.
 
 The finished game is in [`examples/tutorial/ch09-ship`](../../examples/tutorial/ch09-ship/). [Building and Shipping](shipping.md) covers each step below in more depth, signing and store uploads included.
 
 ## Name, version and icon
 
-`nsgo.yaml` now says what the stores show:
+In a project made with `game new`, edit the store identity in `game.yaml`, not directly in `nsgo.yaml`:
+
+```yaml
+version: 1
+name: Star Catcher
+id: dev.nsgo.starcatcher
+appVersion: 1.0.0
+```
+
+Replace the generated `dev.nsgo.starcatcher` with a reverse-DNS name of a domain you own before the first upload, then synchronize and check the two project files:
+
+```sh
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
+```
+
+The corresponding `nsgo.yaml` holds the synchronized values, the build number and the icon:
 
 ```yaml
 name: Star Catcher
@@ -26,9 +42,9 @@ build:
   targets: [macos, windows, linux, android, web, ios]
 ```
 
-- `id` must stay the same in every release: the App Store, Google Play and the Microsoft Store know the app by it. Use a reverse-DNS name of a domain you own.
-- `version` is what players see; `build_number` goes up by one for every upload to a store.
-- `icon.png` is a 1024-pixel square PNG, which `nsgo build` turns into every size each platform wants. Add `icon.apple`, an Icon Composer `.icon`, for the layered icons of macOS and iOS.
+- `id` must stay the same in every release: the App Store, Google Play and the Microsoft Store know the app by it.
+- `appVersion` in `game.yaml`, synchronized to `version` in `nsgo.yaml`, is what players see; `build_number` stays in `nsgo.yaml` and goes up by one for every upload to a store.
+- `icon.png` is a 1024-pixel square PNG, which `nsgo build` turns into every size each platform wants. Add `icon.apple`, an Icon Composer `.icon`, for the layered icons of macOS and iOS, and `icon.android.foreground`, `background` and `monochrome` for adaptive and themed Android icons. [Building and Shipping](shipping.md#name-identifier-and-version) explains the ownership and synchronization rules.
 
 ## An icon from code
 
@@ -123,6 +139,18 @@ go tool nsgo build -channel store -target macos,windows,ios,android
 ```
 
 The web build is a folder to put on any static host. Try it locally with `go tool nsgo build -target web -run`, which serves it and opens a browser. The `store` channel makes the packages the Mac App Store, Microsoft Store, App Store and Google Play take; [Building and Shipping](shipping.md) explains signing and uploading them.
+
+## Validate store listings
+
+The finished example includes a minimal store listing: `store/listing.yaml` selects the default locale and stores, while `store/en-US/listing.yaml` holds the title, short description, keywords and support URL. The full description and release notes are Markdown beside it.
+
+From `examples/tutorial/ch09-ship`, validate the metadata for both stores:
+
+```sh
+go tool nsgo publish -store all -dry-run
+```
+
+The dry run checks required fields, locale codes and character limits without credentials, network requests or uploads. The repository's CI runs the same command. [Building and Shipping](shipping.md#store-listings) explains localized listings, screenshots, store credentials and the `nsgo publish` commands that upload builds and metadata.
 
 ## Where next
 

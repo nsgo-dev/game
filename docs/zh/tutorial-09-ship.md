@@ -1,12 +1,28 @@
 # 教程 9：发布
 
-让 Star Catcher 准备好交到玩家手里：给它商店需要的名称、版本和图标，应用失去焦点时暂停，每次发布前在测试里玩完整局，检查所有目标平台，并构建发布包。
+让 Star Catcher 准备好交到玩家手里：给它商店需要的名称、版本和图标，应用失去焦点时暂停，每次发布前在测试里玩完整局，检查所有目标平台，构建发布包，并验证商店列表。
 
 完成后的游戏在 [`examples/tutorial/ch09-ship`](../../examples/tutorial/ch09-ship/)。下面每一步的更多细节，包括签名和上传商店，见[构建与发布](shipping.md)。
 
 ## 名称、版本和图标
 
-`nsgo.yaml` 现在写明商店里显示的内容：
+对于用 `game new` 创建的项目，在 `game.yaml` 中修改商店身份，不要直接改 `nsgo.yaml`：
+
+```yaml
+version: 1
+name: Star Catcher
+id: dev.nsgo.starcatcher
+appVersion: 1.0.0
+```
+
+首次上传前，把生成的 `dev.nsgo.starcatcher` 换成你拥有的域名的反向 DNS 名称，然后同步并检查两个项目文件：
+
+```sh
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
+```
+
+对应的 `nsgo.yaml` 保存同步后的值、构建号和图标：
 
 ```yaml
 name: Star Catcher
@@ -26,9 +42,9 @@ build:
   targets: [macos, windows, linux, android, web, ios]
 ```
 
-- `id` 在每次发布中都必须保持不变：App Store、Google Play 和 Microsoft Store 都靠它识别应用。请使用你拥有的域名的反向 DNS 名称。
-- `version` 是玩家看到的版本；`build_number` 每次上传商店加一。
-- `icon.png` 是边长 1024 像素的正方形 PNG，`nsgo build` 会把它转换成各平台需要的所有尺寸。若要 macOS 和 iOS 的分层图标，再加上 `icon.apple`，一个 Icon Composer `.icon` 文件。
+- `id` 在每次发布中都必须保持不变：App Store、Google Play 和 Microsoft Store 都靠它识别应用。
+- `game.yaml` 的 `appVersion` 会同步为 `nsgo.yaml` 的 `version`，是玩家看到的版本；`build_number` 留在 `nsgo.yaml` 中，每次上传商店加一。
+- `icon.png` 是边长 1024 像素的正方形 PNG，`nsgo build` 会把它转换成各平台需要的所有尺寸。若要 macOS 和 iOS 的分层图标，再加上 `icon.apple`，一个 Icon Composer `.icon` 文件；`icon.android.foreground`、`background` 和 `monochrome` 则提供 Android 自适应和主题图标。所有权与同步规则见[构建与发布](shipping.md#名称标识符和版本)。
 
 ## 用代码画图标
 
@@ -123,6 +139,18 @@ go tool nsgo build -channel store -target macos,windows,ios,android
 ```
 
 Web 构建是一个可以放到任何静态托管上的文件夹。在本地用 `go tool nsgo build -target web -run` 试一试，它会启动服务并打开浏览器。`store` 渠道生成 Mac App Store、Microsoft Store、App Store 和 Google Play 接受的包；签名和上传见[构建与发布](shipping.md)。
+
+## 验证商店列表
+
+完成后的示例包含一份最小商店列表：`store/listing.yaml` 选择默认语言和目标商店，`store/en-US/listing.yaml` 保存标题、简短描述、关键词和支持 URL。完整描述和更新说明是旁边的 Markdown 文件。
+
+在 `examples/tutorial/ch09-ship` 中验证两个商店的元数据：
+
+```sh
+go tool nsgo publish -store all -dry-run
+```
+
+Dry run 会检查必填项、语言代码和字符上限，不需要凭据，不发起网络请求或上传。仓库的 CI 运行同一条命令。本地化列表、截图、商店凭据以及上传构建和元数据的 `nsgo publish` 命令见[构建与发布](shipping.md#商店列表)。
 
 ## 接下来
 

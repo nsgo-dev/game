@@ -1,0 +1,6 @@
+version: 1
+default_locale: en-US
+app_store:
+  platform: ios
+google_play:
+  track: internal

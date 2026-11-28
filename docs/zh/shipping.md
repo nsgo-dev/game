@@ -1,11 +1,45 @@
 # 构建与发布
 
-用 `nsgo check` 验证全部目标平台，在 `nsgo.yaml` 中配置应用元数据、图标和签名，并用 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android 构建发布包。
+用 `nsgo check` 验证全部目标平台，在 `game.yaml` 中配置应用身份和导出预设，在 `nsgo.yaml` 中保留图标和签名设置，并用 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android 构建发布包。
 
-## 配置 nsgo.yaml
+## 名称、标识符和版本
 
-`nsgo build` 从项目根目录的 `nsgo.yaml` 读取应用标识、图标、签名和默认构建目标。命令行上的参数（`-name`、`-id`、`-version`、`-build-number`、`-output`、`-target`、`-channel`）会覆盖本次构建对应的 `nsgo.yaml` 字段。
+对于用 `game new` 创建的项目，`game.yaml` 拥有名称、标识符、玩家看到的版本、外观和导出设置。首次上传商店前，把生成的 `dev.nsgo.<name>` 标识符换成你拥有的域名的反向 DNS 名称，并在之后的版本中保持不变：App Store、Google Play 和 Microsoft Store 都靠它识别应用。
 
+<!-- shipping-project: game.yaml -->
+```yaml
+version: 1
+name: My Game
+id: com.example.mygame
+appVersion: 1.0.0
+window:
+  width: 1280
+  height: 720
+export:
+  output: dist
+  presets:
+    - platform: macos
+      targets: [macos_arm64, macos_x64]
+    - platform: windows
+      targets: [windows_x64, windows_arm64]
+    - platform: linux
+      targets: [linux_x64, linux_arm64]
+    - platform: web
+    - platform: ios
+    - platform: android
+      targets: [android_arm64]
+```
+
+编辑 `game.yaml` 后，同步 NSGo 读取的字段，不要直接修改 `nsgo.yaml` 中的这些字段：
+
+```sh
+go run github.com/nsgo-dev/game/cmd/gameproject sync
+go run github.com/nsgo-dev/game/cmd/gameproject check
+```
+
+`sync` 会保留 `nsgo.yaml` 的其他设置和注释。`build_number` 不属于 `game.yaml`：把它留在 `nsgo.yaml` 中，并在每次上传商店时递增。`nsgo build` 读取同步后的文件；它的 `-name`、`-id`、`-version`、`-build-number`、`-output`、`-target` 和 `-channel` 参数只覆盖本次构建的对应值，不会改写这两个文件。
+
+<!-- shipping-project: nsgo.yaml -->
 ```yaml
 name: My Game
 id: com.example.mygame
@@ -32,8 +66,7 @@ build:
     - android_arm64
 ```
 
-- **`id`**：反向域名格式的 Bundle ID / Application ID（例如 `com.example.mygame`）。各版本间请保持不变，Apple App Store、Google Play 和 Microsoft Store 都以此识别你的应用。
-- **`version`**：面向用户的语义化版本号（Apple 的 `CFBundleShortVersionString`、Android 的 `versionName`）。
+- **`appVersion` / `version`**：面向用户的语义化版本号（Apple 的 `CFBundleShortVersionString`、Android 的 `versionName`）。
 - **`build_number`**：每次提交商店都必须递增的整数构建号（Apple 的 `CFBundleVersion`、Android 的 `versionCode`）。省略时会从 `version` 推导。
 - **`resources/` 与 `assets/`**：所有在运行时通过 `"asset:..."` 加载的文件——包括图片、声音、图集 JSON、瓦片地图、模型、数据表以及由 `assets.Manager` 读取的原始字节——统一放在 `resources/` 中，会原样打入每个安装包（在 Web 上通过 `core.Scope.ReadAsset` 按需获取）。应用图标等构建期输入，以及少量通过 `//go:embed` 嵌入的首屏文件放在 `assets/` 中。可以在 `nsgo.yaml` 里用 `mobile.exclude_resources` 从 iOS 和 Android 包中排除仅桌面端使用的资源。
 
@@ -47,6 +80,50 @@ build:
 如果需要区分开发版和正式版图标，可以放置带 `-dev` 后缀的文件（`assets/AppIcon-dev.icon`、`assets/Icon-dev.png`）或在 `dev.icon` 中指定，`nsgo dev` 会自动使用它们。
 
 对于桌面端安装程序，还可以在 `nsgo.yaml` 中设置 `macos.dmg_icon`、`macos.dmg_background`（PNG，可选同名 `@2x` 图）、`windows.installer_icon` 和 `windows.uninstaller_icon`。
+
+Android 启动器可以按自己的形状裁剪并移动自适应图标，而不是把共享 PNG 缩放到自己的底板上。配置前景和背景，并为 Android 13 的主题图标添加单色形状：
+
+```yaml
+icon:
+  android:
+    foreground: assets/IconForeground.png
+    background: "#1F1F1F"  # 颜色或正方形 PNG
+    monochrome: assets/IconMonochrome.png
+```
+
+每个图层都是 108 dp 的正方形，PNG 会缩放到 432 像素。把标志放在中央 66 dp（264 像素）以内，并让背景铺满整个方形。单色形状只看透明度。`icon.android.png` 仍可单独指定普通 Android 位图；未指定时，NSGo 使用 `icon.png` 或用自适应图层绘制。完整的回退规则见 [NSGo 构建指南](https://nsgo.dev/zh/docs/building/)。
+
+## 启动画面
+
+在 `nsgo.yaml` 中设置 `launch_screen`，即可在 iOS 和 Android 12 及以后的版本上显示不透明背景、居中 PNG 或两者：
+
+```yaml
+launch_screen:
+  background: "#F5F1EA"
+  image: assets/Launch.png
+  dark:
+    background: "#201C26"
+    image: assets/LaunchDark.png
+```
+
+图片路径相对于 `nsgo.yaml`。图片按比例放进 128 × 128 点或 dp 的区域；使用最长边至少 512 像素的透明 PNG。除非 `game.yaml` 的 `window.appearance` 固定外观，否则由系统选择浅色或深色。省略某个深色字段时会复用对应的浅色值；完全省略图片或背景则保留平台默认值。
+
+## Apple 隐私清单与出口合规
+
+NSGo 构建的每个 Apple 包都包含 `PrivacyInfo.xcprivacy`，声明 NSGo 和 Go 运行时使用的需要理由的 API。用 `apple.privacy` 添加游戏自己的声明；`resources/` 中的 `PrivacyInfo.xcprivacy` 会与这些声明合并，而不是被替换。在 `apple.info` 下记录应用对 Apple 加密出口合规问卷的回答：
+
+```yaml
+apple:
+  privacy:
+    accessed_apis:
+      NSPrivacyAccessedAPICategoryDiskSpace: [E174.1]  # 仅为示例：声明游戏实际使用的 API 和理由
+    tracking: false
+  info:
+    ITSAppUsesNonExemptEncryption: false  # 示例回答；请使用应用的实际情况
+    # ITSEncryptionExportComplianceCode: "Apple 提供的批准代码（如果有）"
+```
+
+`accessed_apis` 也支持 Apple 的其他需要理由的 API 类别，`privacy` 还接受 `tracking_domains` 和 `collected_data`。出口合规值必须是 YAML 布尔值，批准代码必须是字符串。也可以省略这两个键，在上传时回答问卷。完整声明见 [NSGo 构建指南](https://nsgo.dev/zh/docs/building/)和 Apple 当前的 App Store Connect 指南。
 
 ## 构建前检查所有目标平台
 
@@ -143,7 +220,7 @@ go tool nsgo build -target macos
   ```sh
   go tool nsgo build -channel store -target macos
   ```
-  `nsgo build` 会启用 App Sandbox 签名并生成可直接通过 Transporter 上传的 `.pkg` 安装包。
+  `nsgo build` 会启用 App Sandbox 签名并生成可供 `go tool nsgo publish macos` 上传的 `.pkg` 安装包，见下文[发布到商店](#发布到商店)。
 
 ### Windows
 
@@ -211,7 +288,7 @@ go tool nsgo build -target ios_simulator
 
 - **签名**：通过 `sign.profile`（或 `-profile`）提供与 `id` 匹配的 App Store、Ad Hoc 或 Development 描述文件。`nsgo build` 会自动从钥匙串选择匹配的签名证书，也可以用 `sign.identity`（或 `-sign`）显式指定。
 - **商店提交注意事项**：
-  - 使用 Apple 的 Transporter 应用或 Xcode 将 `<name>.ipa` 上传至 App Store Connect / TestFlight。
+  - 用 `go tool nsgo publish ios` 把已签名的商店 `.ipa` 上传至 App Store Connect / TestFlight，见下文[发布到商店](#发布到商店)。
   - 每次上传都必须递增 `build_number`（`CFBundleVersion`）。
   - 使用 `apple.requires_full_screen` 和 `apple.orientations`（`portrait`、`portrait_upside_down`、`landscape_left`、`landscape_right`）配置 iPad 分屏与屏幕方向，并在 `apple.info` 下添加所需的 `Info.plist` 字段。`apple.orientations` 声明全屏 iPad 允许的方向，而游戏在运行时通过 `cx.RequestOrientation` 发出的请求在 iPhone 和 iPad 上都会生效（见[手机上的屏幕方向](screen.md#手机上的屏幕方向)）。在 iPad 上，UIKit 只允许两者共有的方向，因此要列出游戏请求的每个方向，例如横屏游戏列出 `landscape_left` 和 `landscape_right`；请求与 `apple.orientations` 没有共同方向时，iPad 将没有可用的方向。
 
@@ -225,12 +302,88 @@ go tool nsgo build -target android_arm64
 
 如需同时构建 `android_x64`（用于 x86_64 模拟器或 Chromebook），请安装 Android NDK 后传入 `-target android_arm64,android_x64`。
 
-- **签名**：通过 `sign.keystore`（或 `-keystore`）指定 PKCS#12 或 JKS 密钥库，通过 `sign.key_alias`（或 `-key-alias`）指定密钥别名。切勿把密码写入 `nsgo.yaml`，请使用环境变量传递：
+- **创建上传密钥**：用 JDK 的 `keytool` 创建 PKCS#12 上传密钥库，按提示填写身份信息并设置强密码。密钥文件和密码不要提交到版本库，并妥善备份：
+  ```sh
+  mkdir -p certs
+  keytool -genkeypair -v -keystore certs/upload.p12 -storetype PKCS12 -alias upload -keyalg RSA -keysize 2048 -validity 10000
+  ```
+- **签名**：通过 `sign.keystore`（或 `-keystore`）指定这个 PKCS#12 或 JKS 密钥库，通过 `sign.key_alias`（或 `-key-alias`）指定密钥别名。切勿把密码写入 `nsgo.yaml`，请使用环境变量传递：
   ```sh
   NSGO_KEYSTORE_PASSWORD="$STORE_PW" NSGO_KEY_PASSWORD="$KEY_PW" \
     go tool nsgo build -channel store -target android_arm64 \
     -keystore certs/upload.p12 -key-alias upload
   ```
   未配置密钥库时，`nsgo build` 会使用项目自带的调试密钥签名 APK（仅限侧载测试，无法上传 Google Play）。
-- **Google Play**：使用 `-channel store` 生成已签名的 `.aab`（Android App Bundle）上传至 Google Play Console。每次上传需递增 `build_number`（`versionCode`），按 Google Play 当前要求设置 `android.target_sdk`（`minSdkVersion` 为 28），并在 `android.permissions` 下声明额外权限。
+- **Google Play**：使用 `-channel store` 生成已签名的 `.aab`（Android App Bundle），再按下文[发布到商店](#发布到商店)用 `go tool nsgo publish -target android` 上传。每次上传需递增 `build_number`（`versionCode`），按 Google Play 当前要求设置 `android.target_sdk`（`minSdkVersion` 为 28），并在 `android.permissions` 下声明额外权限。
 - **屏幕方向**：清单不固定屏幕方向；游戏在运行时通过 `cx.RequestOrientation` 请求游玩时的方向（见[手机上的屏幕方向](screen.md#手机上的屏幕方向)）。
+
+## 商店列表
+
+把商店元数据以 YAML 和 Markdown 纯文本纳入版本库，默认放在 `store/`，也可在 `nsgo.yaml` 中用 `store.dir` 修改目录：
+
+```text
+store/
+  listing.yaml              # version: 1、default_locale、app_store 与 google_play 设置
+  en-US/
+    listing.yaml            # version: 1、标题、副标题、简短描述、关键词与 URL
+    description.md          # 完整描述；也可改用 YAML 的 description 字段
+    release_notes.md        # 更新说明；也可改用 YAML 的 release_notes 字段
+    promotional_text.md     # 可选的 App Store 宣传文本
+    screenshots/
+  zh-Hans/
+    listing.yaml
+    description.md
+    release_notes.md
+    screenshots/
+```
+
+两层 `listing.yaml` 都必须包含 `version: 1`，并拒绝未知字段。规范的语言目录名会自动映射到各商店的语言代码；也可用 `app_store.locale` 或 `google_play.locale` 单独覆盖。`app_store.bundle_id`、`app_store.version` 和 `google_play.package_name` 默认使用从 `game.yaml` 同步的身份信息。全部字段、媒体类型和各商店覆盖规则见 [NSGo 构建指南](https://nsgo.dev/zh/docs/building/#商店列表)。
+
+每次发布前验证所有语言：
+
+```sh
+go tool nsgo publish -store all -dry-run
+```
+
+它会检查必填项、语言代码、URL 协议、媒体文件及数量，以及各商店的字符上限，不读取凭据，也不发起 HTTP 请求。这些上限包括：两个商店的标题均为 30 字符，Google Play 简短描述为 80，两个商店的完整描述均为 4000，Google Play 更新说明为 500。App Store Connect 还限制副标题 30、关键词 100、宣传文本 170、更新说明 4000 字符。
+
+要上传验证通过的元数据，运行 `go tool nsgo publish -store appstore,play`；在 `-store play` 后加 `-track production` 还会更新该轨道的发布说明。App Store Connect 读取 `NSGO_APP_STORE_KEY`、`NSGO_APP_STORE_KEY_ID` 和 `NSGO_APP_STORE_ISSUER`，未设置时回退到对应的 `NSGO_NOTARY_*` 变量。Google Play 读取 `NSGO_PLAY_SERVICE_ACCOUNT`。凭据只从环境变量读取，不写进列表文件。
+
+## 发布到商店
+
+上传前先在 App Store Connect 和 Google Play Console 创建应用记录。NSGo 负责上传构建和商店元数据，但处理完成的构建仍需你在各商店中单独提交审核。
+
+对于 App Store Connect 和 TestFlight，iOS `.ipa` 要用 App Store 分发描述文件签名，macOS 商店 `.pkg` 要用团队的安装器身份签名。在安装了 Xcode 的 Mac 上，把 `NSGO_APP_STORE_KEY` 设为 App Store Connect `.p8` 密钥的路径或内容，并设置 `NSGO_APP_STORE_KEY_ID` 和 `NSGO_APP_STORE_ISSUER`；该密钥要有权访问此应用并上传构建。然后把已签名的包传给对应命令：
+
+```sh
+go tool nsgo publish ios path/to/MyGame.ipa
+go tool nsgo publish macos path/to/MyGame.pkg
+```
+
+命令会检查包内构建号、上传包并报告 Apple 的处理结果。下次上传前递增 `build_number`。macOS 的构建号要跨所有应用版本递增；iOS 可以在新版本重新安排构建号序列。
+
+对于 Google Play，启用 Google Play Developer API，并授予服务账号向目标轨道发布此应用的权限。把 `NSGO_PLAY_SERVICE_ACCOUNT` 设为服务账号 JSON 密钥的内容或文件路径，构建已签名的 App Bundle，然后发布：
+
+```sh
+GOFLAGS=-tags=release go tool nsgo build -channel store -target android
+go tool nsgo publish -target android -track internal
+```
+
+`publish` 会在 `build.output/releases` 中查找当前项目版本的 `.aab`。有多个匹配文件时，在参数后传入要上传的 `.aab` 路径。轨道可以填写 `internal`、`production` 或封闭测试轨道的 ID。NSGo 从包中读取包名和版本代码，确认版本代码高于该轨道上的所有版本后，上传包并提交发布。
+
+## 商店合规
+
+用 `nsgo.yaml` 跟踪包外各项发布问卷的进度：
+
+```yaml
+compliance:
+  app_store: { age_rating: false }
+  google_play: { data_safety: false }
+  steam: { content_survey: false }
+```
+
+完成问卷后将对应条目标记为 `true`。匹配的 `-channel store` 或 `-channel steam` 构建会提醒你处理仍为 `false` 的条目；不想在 YAML 中跟踪的条目可以省略。
+
+- 在 App Store Connect 填写[年龄分级问卷](https://developer.apple.com/help/app-store-connect/manage-app-information/set-an-app-age-rating)和[应用隐私信息](https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy)。加密出口合规问题按上文 [Apple 隐私清单与出口合规](#apple-隐私清单与出口合规)填写。
+- 在 Play Console 填写[数据安全表单](https://support.google.com/googleplay/android-developer/answer/10787469)。仅通过内部测试轨道分发的应用可免填。
+- 在提交游戏审核前，在 Steamworks 填写[内容调查](https://partner.steamgames.com/doc/gettingstarted/contentsurvey)。
