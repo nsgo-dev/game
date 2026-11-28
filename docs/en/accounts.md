@@ -204,3 +204,7 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ```
 
 `init` never overwrites a configuration and writes no `allowedOrigins`; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `accounts.yaml` before `serve`. `genkey` never overwrites a key and adds the new public key to the key set file, the first step of a rotation; it replaces the file through a temporary file and a rename, so a game server reading it never sees half of it, and it removes the new key again when the key set cannot be written. `serve -keyset` accepts and serves every key in the key set, so tokens signed with an old key keep working on the service after a rotation. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM. A game that links platform identities builds its own command around `accounts.New` with its verifiers.
+
+### OIDC identity verifier
+
+`accounts/identity.OIDC` verifies RS256 and ES256 ID tokens against a cached issuer JWKS, requiring the configured issuer, audience, expiry and stable subject. The cache refreshes hourly and callers can construct it with an HTTP client and clock for tests. Provider-specific Apple and mini-program exchanges remain separate integrations.
