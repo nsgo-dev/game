@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/brief.v1.json
+version: 1
+basis: assumption
+pitch: 'The authoritative rules of a 2D co-op room: room codes and invite links, a fixed tick, rejoining within a grace period, teammate revival and solo respawn, with no network transport yet'
+genre: [2D co-op]
+platforms: [desktop, web, mobile]
+artDirection: Placeholder art that is easy to replace with the game's own.
+toneAndAudio: Clear, readable feedback for every action, with room for the game's own sound direction.
+feel:
+  basis: assumption
+  summary: No measured targets yet; add them under feel.targets when playtest.yaml gains goals.
