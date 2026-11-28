@@ -4,7 +4,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/input"
 	"github.com/nsgo-dev/game/pkg/math3d"
 	"github.com/nsgo-dev/game/pkg/pathfind"
 	"github.com/nsgo-dev/game/pkg/physics3d"
@@ -67,7 +66,7 @@ type match struct {
 	clock   float32 // seconds since the match began
 
 	hitFlash  float32 // seconds the crosshair shows a hit
-	aimAssist input.AimAssist
+	aimAssist aimAssist3D
 }
 
 // player is the player's body, view, health and weapons.
@@ -140,7 +139,7 @@ func newMatch(a *Arena) *match {
 		astar:     pathfind.NewAStar(),
 		phase:     phaseCountdown,
 		timer:     a.Countdown,
-		aimAssist: input.AimAssist{Strength: 0.7},
+		aimAssist: aimAssist3D{Strength: 0.7},
 	}
 	m.astar.Diagonal = true
 	route := map[byte]physics3d.Vec3{}
@@ -345,14 +344,13 @@ func (m *match) aim() physics3d.Vec3 {
 		return direction
 	}
 	from := m.eye()
-	targets := make([]input.AimTarget3D, 0, len(m.enemies))
+	targets := make([]aimTarget3D, 0, len(m.enemies))
 	for _, e := range m.enemies {
-		targets = append(targets, input.AimTarget3D{Position: toMath(e.center()), Radius: e.kind.Radius, Priority: 1})
+		targets = append(targets, aimTarget3D{Position: toMath(e.center()), Radius: e.kind.Radius, Priority: 1})
 	}
-	result := m.aimAssist.Evaluate3D(toMath(from), toMath(direction), targets, func(from, to math3d.Vec3) bool {
+	return toPhysics(m.aimAssist.evaluate(toMath(from), toMath(direction), targets, func(from, to math3d.Vec3) bool {
 		return m.clearLine(toPhysics(from), toPhysics(to), 0)
-	})
-	return toPhysics(result.Direction)
+	}))
 }
 
 // fire shoots w from the player's eye: a hitscan shot hits at once, a projectile round starts flying. Either one alerts every enemy that hears it.
