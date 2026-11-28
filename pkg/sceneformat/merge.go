@@ -2095,6 +2095,7 @@ func (m *sceneMerger) mergeConnections() []ConnectionDoc {
 				Handler: o.Handler,
 				Args:    m.mergeAnyMap(&st, ctx, "args", b.Args, o.Args, t.Args),
 				Once:    mergeScalar(m, &st, ctx, "once", b.Once, o.Once, t.Once),
+				When:    mergeScalar(m, &st, ctx, "when", b.When, o.When, t.When),
 			}
 			surviving[k] = merged
 			if side := st.side(); side != "" {
@@ -2526,7 +2527,7 @@ func objectOverrideMapEqual(a, b map[string]ObjectOverride) bool {
 
 func connectionEqual(a, b ConnectionDoc) bool {
 	return a.From == b.From && a.Event == b.Event && a.To == b.To &&
-		a.Handler == b.Handler && a.Once == b.Once && anyMapEqual(a.Args, b.Args)
+		a.Handler == b.Handler && a.Once == b.Once && a.When == b.When && anyMapEqual(a.Args, b.Args)
 }
 
 func anyMapEqual(a, b map[string]any) bool {

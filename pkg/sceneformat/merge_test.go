@@ -696,7 +696,7 @@ func TestMergeCoversAllDocumentFields(t *testing.T) {
 		reflect.TypeFor[sceneformat.LightProbeGridDoc]():  5,
 		reflect.TypeFor[sceneformat.LayerOverride]():      10,
 		reflect.TypeFor[sceneformat.ObjectOverride]():     34,
-		reflect.TypeFor[sceneformat.ConnectionDoc]():      6,
+		reflect.TypeFor[sceneformat.ConnectionDoc]():      7,
 	}
 	for typ, want := range wantCounts {
 		if got := typ.NumField(); got != want {
