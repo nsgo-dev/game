@@ -275,6 +275,13 @@ When a reference names a file that is gone and the project index knows where it 
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
+When `game.yaml` records an [`origin`](project.md#the-file) of kind `template` naming a template this version of `game` embeds, `game check` also compares the project with that template, byte for byte, and prints what is still unchanged as warnings, `file:line: warning: message`, after the problems: the Go files holding the rules (other than `main.go` and tests) and the data files (YAML, JSON, CSV and Yarn files other than `game.yaml`, `nsgo.yaml`, `game.index.yaml`, `playtest.yaml` and touch layouts) still equal to the template's, listed together in one warning; a `name` or window title still the template's; and a `README.md` or `CREDITS.md` still the template's. Warnings do not fail the command: with no problems it exits with 0 and its summary counts them. For a deliberate as-is copy, list the warnings to leave out in `origin.keep`: `rules`, `data`, `name`, `readme` or `credits`.
+
+```text
+game.yaml:20: warning: 9 rule and data files still equal template "cards2d": board.yaml, game.go, hud.go, project.go, render.go, rules.go, rules.yaml, save.go, table.go; change them, or add rules or data to origin.keep for a deliberate copy
+README.md: warning: README.md is still template "cards2d"'s; rewrite it for this game, or add readme to origin.keep
+```
+
 When the checked directory is a project with its own editor command (either a `main` package in `cmd/editor` importing `pkg/editor/editorcmd`, or a `main` built with `-tags gameeditor` as `game generate editor` writes), `game check` runs that command with `-check <dir>`, which runs `assetcheck.CheckWith` using the project's `editorcmd.Options.Components` plus the built-in physics and skeletal components so component fields and connection events, handlers and arguments are checked too (including connections brought in by instanced or inherited scenes). Without an editor command, `game check` checks connection objects only and, when any scene has connections, prints a note explaining that events and handlers were not checked and how to enable it with `game generate editor`.
 
 The Examples workflow runs `game check` on the sample games. To run it in a game's own CI, add the command as a tool as above and run `go tool game check` from the game's directory. The checks are also a package, `github.com/nsgo-dev/game/pkg/tooling/assetcheck`, whose `Check` takes an `fs.FS` and returns the problems as values, and whose `CheckWith` takes the game's component registry so tests (such as `action3d`'s `TestScenesCheck`) can check events and handlers directly without an editor command.
@@ -646,6 +653,3 @@ ln -s game.fish ~/.config/fish/completions/nsgo.fish
 ```
 
 Leave out the `nsgo` link when `nsgo` has a completion of its own there. To type `game` alone, install the command with `go install github.com/nsgo-dev/game/cmd/game@latest`, or define `game` as a shell function that runs `go tool game`, which keeps the version a module's `go.mod` pins inside the module: `game() { go tool game "$@"; }` in zsh and bash, and `function game; go tool game $argv; end` in fish.
-# Template residue warnings
-
-When `game.yaml` records an origin of kind `template`, `game check` compares the project with the embedded template baseline. It reports advisory warnings while rules or data files, the project name, or `README.md` still match the template exactly. Warnings do not change the command's exit status. Add the finding name to `origin.keep` (`rules`, `data`, `name`, `readme`, or `credits`) for an intentional as-is copy.

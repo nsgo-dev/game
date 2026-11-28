@@ -43,8 +43,6 @@ import (
 
 // Problem is one thing wrong with a file Check read.
 type Problem struct {
-	// Warning marks advisory findings that do not make Check fail.
-	Warning bool
 	// File is the slash-separated path of the file at fault, relative to the checked directory.
 	File string
 	// Line is the 1-based line of the file that holds the problem, or 0 when the problem is about the whole file, such as a loader error that names no place in it.
@@ -71,14 +69,10 @@ func (p Problem) Location() string {
 
 // String formats p as "file:line: message", or "file: message" when it has no line, as compilers and go vet print theirs.
 func (p Problem) String() string {
-	prefix := ""
-	if p.Warning {
-		prefix = "warning: "
-	}
 	if p.Line > 0 {
-		return prefix + p.File + ":" + strconv.Itoa(p.Line) + ": " + p.Message
+		return p.File + ":" + strconv.Itoa(p.Line) + ": " + p.Message
 	}
-	return prefix + p.File + ": " + p.Message
+	return p.File + ": " + p.Message
 }
 
 // Report is what Check found.
