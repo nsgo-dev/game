@@ -112,6 +112,8 @@ type Actions struct {
 	gpSnap        map[string]float64
 	// gpMuted holds, per controller ID, a bit mask of the buttons held across Reset, which stay inactive until released.
 	gpMuted map[int]uint32
+	contexts map[string]InputContext
+	vectors map[string]VectorBinding
 
 	// look is the player's look preferences set with ApplyControlSettings, applied to stick, pointer and motion axes as they are read.
 	look lookPrefs
