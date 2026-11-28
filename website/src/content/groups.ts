@@ -15,6 +15,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
       'template-towerdefense2d',
       'template-fighting2d',
       'template-cards2d',
+      'template-coop2d',
       'template-idle',
       'template-rts2d',
       'template-action3d',

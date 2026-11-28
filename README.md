@@ -37,7 +37,7 @@ Your game draws into one NSGo view (`Canvas`, pixel buffer, shader, or GPU view)
 Requires **Go 1.27+** and **NSGo `v0.3.4+`** (iOS builds require macOS and Xcode).
 
 ```sh
-# 1. Create a new game project (add -template <name> to pick from 16 genres)
+# 1. Create a new game project (add -template <name> to pick from 17 genres)
 go run github.com/nsgo-dev/game/cmd/game@latest new mygame
 
 # 2. Run natively with hot reload on save
@@ -80,7 +80,7 @@ Import only what you need from `github.com/nsgo-dev/game`. Browse the full inter
 
 ## Starter Templates
 
-Scaffold a working, tested game in any of 16 genres with `go run github.com/nsgo-dev/game/cmd/game@latest new -template <name> mygame` (or `nsgo init -template github.com/nsgo-dev/game/template/<name>`). Run `go run github.com/nsgo-dev/game/cmd/game@latest new -list` or read [Templates](docs/en/templates.md) ([中文](docs/zh/templates.md)) for details.
+Scaffold a working, tested game in any of 17 genres with `go run github.com/nsgo-dev/game/cmd/game@latest new -template <name> mygame` (or `nsgo init -template github.com/nsgo-dev/game/template/<name>`). Run `go run github.com/nsgo-dev/game/cmd/game@latest new -list` or read [Templates](docs/en/templates.md) ([中文](docs/zh/templates.md)) for details.
 
 | 2D Templates | Description | 3D & Specialty Templates | Description |
 | --- | --- | --- | --- |
@@ -92,6 +92,7 @@ Scaffold a working, tested game in any of 16 genres with `go run github.com/nsgo
 | `rts2d` | Real-time strategy skirmish with fog of war, flow fields & control groups | `puzzle2d` | Grid sliding puzzle with YAML levels, undo/redo & star ratings |
 | `shmup2d` | Vertical shooter with YAML bullet patterns, waves & 3-phase boss | `rhythm` | 4-lane rhythm game with beat maps, audio clock & latency calibration |
 | `idle` | Generators, upgrades, big numbers, offline progress & prestige | `visualnovel` | Branching Yarn Spinner visual novel with backlog, saves & EN/中文 |
+| `coop2d` | Authoritative co-op room rules: room codes, invite links, rejoin, revive & respawn (no transport yet) | | |
 
 ## Playable Examples
 
