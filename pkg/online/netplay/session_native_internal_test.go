@@ -408,13 +408,10 @@ func TestUDPServerIgnoresShortHellos(t *testing.T) {
 	if _, err := raw.Write(encodeHello(hello{}, 0)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	// A padded v2 hello is answered; its reply proves the short one was processed first and ignored.
+	// A padded hello is answered; its reply proves the short one was processed first and ignored.
 	h := hello{}
 	h.nonce[0] = 7
-	dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h)
-	if err != nil {
-		t.Fatalf("encodeUDPHelloV2: %v", err)
-	}
+	dgram, init := cookieHello(t, raw, srv, h)
 	if _, err := raw.Write(dgram); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -857,10 +854,7 @@ func TestUDPServerResendsTheWelcomeForARetransmittedHello(t *testing.T) {
 	srv := listenUDPServer(t, Auth{})
 	raw := dialRawUDP(t, srv)
 	h, _ := newHello(nil, resumeState{})
-	dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h)
-	if err != nil {
-		t.Fatalf("encodeUDPHelloV2: %v", err)
-	}
+	dgram, init := cookieHello(t, raw, srv, h)
 
 	// The first welcome is lost on the way, so the client sends the same hello again.
 	first := udpExchange(t, raw, dgram)
@@ -916,10 +910,7 @@ func TestUDPResumeMovesALiveSession(t *testing.T) {
 	cli.mu.Unlock()
 	raw := dialRawUDP(t, srv)
 	h, _ := newHello([]byte("good"), res)
-	dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h)
-	if err != nil {
-		t.Fatalf("encodeUDPHelloV2: %v", err)
-	}
+	dgram, init := cookieHello(t, raw, srv, h)
 	w, _, s2cKey, err := acceptUDPServerHandshakeV2(init, h.nonce, udpExchange(t, raw, dgram))
 	if err != nil || w.peer != id || !w.resumed {
 		t.Fatalf("resume of a live session = %+v, %v", w, err)
@@ -949,15 +940,12 @@ func TestUDPServerRejectsAHelloFloodPastMaxPeers(t *testing.T) {
 	var welcomed, full int
 	for range 8 {
 		h, _ := newHello(nil, resumeState{})
-		dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h)
-		if err != nil {
-			t.Fatalf("encodeUDPHelloV2: %v", err)
-		}
+		dgram, init := cookieHello(t, raw, srv, h)
 		reply := udpExchange(t, raw, dgram)
 		if len(reply) > len(dgram) {
 			t.Fatalf("reply of %d bytes to a %d-byte hello", len(reply), len(dgram))
 		}
-		_, _, _, err = acceptUDPServerHandshakeV2(init, h.nonce, reply)
+		_, _, _, err := acceptUDPServerHandshakeV2(init, h.nonce, reply)
 		var rej *RejectError
 		switch {
 		case err == nil:

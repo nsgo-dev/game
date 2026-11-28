@@ -392,7 +392,12 @@ func TestUDPSessionRejectsWrongServerKeyAndInvalidKeys(t *testing.T) {
 			if err != nil {
 				return
 			}
-			if n < udpHelloPrefixSize || buf[0] != hsHello {
+			if n < udpHelloHeader || buf[0] != hsHello {
+				continue
+			}
+			// Hand out a cookie first, so the client sends its Noise hello and the forged welcome below answers it.
+			if [udpCookieSize]byte(buf[udpHelloPrefixSize:udpHelloHeader]) == ([udpCookieSize]byte{}) {
+				_, _ = mitmConn.WriteTo(encodeUDPCookie([hsNonceSize]byte(buf[2:udpHelloPrefixSize]), testCookie), from)
 				continue
 			}
 			// Send a forged welcome echoing the client's nonce with random Noise bytes.

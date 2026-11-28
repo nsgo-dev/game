@@ -4,11 +4,14 @@ package netplay
 
 import (
 	"crypto/ecdh"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	stdnet "net"
+	"net/netip"
 	"slices"
 	"sync"
 	"time"
@@ -21,6 +24,8 @@ const (
 	udpClientIdle       = 10 * time.Second
 	// udpKickCopies is how many times a kick datagram is sent, since UDP may drop one; each copy uses a fresh sequence number so the client's replay window does not refuse it.
 	udpKickCopies = 3
+	// udpCookieWindow is how long the server issues the same cookie for one address and nonce. A cookie is accepted in the window that issued it and the next one, so it lives between one and two windows.
+	udpCookieWindow = 5 * time.Second
 )
 
 // udpLink binds a UDP session to the address and directional AEAD ciphers established by its Noise NK handshake.
@@ -35,7 +40,7 @@ type udpLink struct {
 	recv       replayWindow
 }
 
-// UDPServer is a native UDP Transport for a server whose clients connect with DialUDP. Each client runs a Noise NK key exchange (handshake version 2) against the server's static X25519 key before its packets reach Recv: the token and resume secret travel encrypted, Auth.Verify checks the token, and the server assigns the client's ID in an encrypted welcome.
+// UDPServer is a native UDP Transport for a server whose clients connect with DialUDP. Each client first echoes a stateless cookie the server sent to its address, proving it receives there, and then runs a Noise NK key exchange (handshake version 3) against the server's static X25519 key before its packets reach Recv; a hello without a valid cookie gets only the cookie, smaller than the hello, and takes no session slot and no Auth.Verify call. Then the token and resume secret travel encrypted, Auth.Verify checks the token, and the server assigns the client's ID in an encrypted welcome.
 //
 // After the handshake every datagram is encrypted and authenticated with ChaCha20-Poly1305 using directional keys from the Noise split, a 10-byte cleartext header authenticated as associated data, an implicit direction||peer||seq nonce, and a 64-entry replay window that also refuses wrapped sequence numbers. A datagram from another address, with a bad tag, reflected from the opposite direction, or replayed is dropped.
 //
@@ -44,6 +49,8 @@ type UDPServer struct {
 	conn      stdnet.PacketConn
 	serverID  PeerID
 	staticKey *ecdh.PrivateKey
+	// cookieKey is the random key of the HMAC that makes hello cookies, so the server can check a cookie without remembering it.
+	cookieKey [32]byte
 
 	mu      sync.Mutex
 	table   *sessionTable
@@ -97,6 +104,7 @@ func newUDPServerWithKey(conn stdnet.PacketConn, serverID PeerID, auth Auth, sta
 		byNonce:   make(map[[hsNonceSize]byte]PeerID),
 		changed:   make(chan struct{}, 1),
 	}
+	_, _ = rand.Read(s.cookieKey[:]) // crypto/rand.Read never fails since Go 1.24
 	go s.readLoop()
 	return s
 }
@@ -173,6 +181,13 @@ func (s *UDPServer) handleHello(b []byte, from stdnet.Addr) {
 	}
 	s.mu.Unlock()
 
+	// Until the sender shows it receives at its source address by echoing a cookie issued to that address, its hello costs one HMAC and a reply smaller than the hello: no Noise DH, no session slot and no Auth.Verify.
+	now := s.table.now()
+	if !s.validCookie([udpCookieSize]byte(b[udpHelloPrefixSize:udpHelloHeader]), nonce, from, now) {
+		_, _ = s.conn.WriteTo(encodeUDPCookie(nonce, s.cookie(nonce, from, cookieWindow(now))), from)
+		return
+	}
+
 	resp, h, err := decodeUDPHelloV2(s.staticKey, b)
 	if err != nil {
 		return
@@ -180,6 +195,41 @@ func (s *UDPServer) handleHello(b []byte, from stdnet.Addr) {
 	if reply := s.admit(resp, h, helloHash, from, len(b)); reply != nil {
 		_, _ = s.conn.WriteTo(reply, from)
 	}
+}
+
+// cookieWindow numbers the cookie window that contains now.
+func cookieWindow(now time.Time) int64 {
+	return now.UnixNano() / int64(udpCookieWindow)
+}
+
+// cookie returns the cookie the server issues in window to the hello with nonce from addr.
+func (s *UDPServer) cookie(nonce [hsNonceSize]byte, addr stdnet.Addr, window int64) [udpCookieSize]byte {
+	mac := hmac.New(sha256.New, s.cookieKey[:])
+	var w [8]byte
+	binary.BigEndian.PutUint64(w[:], uint64(window))
+	mac.Write(w[:])
+	mac.Write(nonce[:])
+	if ua, ok := addr.(*stdnet.UDPAddr); ok {
+		ap := ua.AddrPort()
+		mac.Write([]byte(netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()).String()))
+	} else {
+		mac.Write([]byte(addr.String()))
+	}
+	var out [udpCookieSize]byte
+	copy(out[:], mac.Sum(nil))
+	return out
+}
+
+// validCookie reports whether c is the cookie issued to nonce and addr in the current or the previous window.
+func (s *UDPServer) validCookie(c [udpCookieSize]byte, nonce [hsNonceSize]byte, addr stdnet.Addr, now time.Time) bool {
+	window := cookieWindow(now)
+	for _, w := range []int64{window, window - 1} {
+		want := s.cookie(nonce, addr, w)
+		if hmac.Equal(c[:], want[:]) {
+			return true
+		}
+	}
+	return false
 }
 
 // admit runs the session side of the handshake and returns the encrypted Noise message 2 reply.
@@ -633,16 +683,15 @@ func (c *UDPClient) connect() error {
 	return nil
 }
 
-// udpHandshake sends the Noise NK hello, resending the identical datagram until the server answers with a valid welcome or reject or the handshake times out.
+// udpHandshake asks the server for a cookie, then sends the Noise NK hello carrying it, resending each datagram until the server answers with a valid welcome or reject or the handshake times out. A new cookie for the same nonce, sent when the server no longer accepts the old one, replaces the hello with one carrying it.
 func udpHandshake(conn stdnet.Conn, serverKey *ecdh.PublicKey, token []byte, res resumeState, timeout time.Duration) (w welcome, c2sKey, s2cKey [32]byte, err error) {
 	h, err := newHello(token, res)
 	if err != nil {
 		return w, c2sKey, s2cKey, err
 	}
-	dgram, init, err := encodeUDPHelloV2(serverKey, h)
-	if err != nil {
-		return w, c2sKey, s2cKey, err
-	}
+	dgram := encodeUDPCookieRequest(h.nonce)
+	var cookie [udpCookieSize]byte
+	var init *noiseNKInitiator
 	if timeout <= 0 {
 		timeout = udpHandshakeTimeout
 	}
@@ -658,7 +707,8 @@ func udpHandshake(conn stdnet.Conn, serverKey *ecdh.PublicKey, token []byte, res
 			wait = deadline
 		}
 		_ = conn.SetReadDeadline(wait)
-		for {
+		rebuilt := false
+		for !rebuilt {
 			n, err := conn.Read(buf)
 			if err != nil {
 				var ne stdnet.Error
@@ -667,19 +717,38 @@ func udpHandshake(conn stdnet.Conn, serverKey *ecdh.PublicKey, token []byte, res
 				}
 				return w, c2sKey, s2cKey, err
 			}
-			if n == 0 || (buf[0] != hsWelcome && buf[0] != hsReject) {
+			if n == 0 {
 				continue
 			}
-			w, c2sKey, s2cKey, err = acceptUDPServerHandshakeV2(init, h.nonce, buf[:n])
-			if errors.Is(err, ErrInvalidPacket) {
-				continue // a late reply to an earlier dial, or an unauthenticated/forged datagram
+			switch {
+			case buf[0] == hsCookie:
+				c, ok := decodeUDPCookie(buf[:n], h.nonce)
+				if !ok || (init != nil && c == cookie) {
+					continue
+				}
+				cookie = c
+				if dgram, init, err = encodeUDPHelloV2(serverKey, h, cookie); err != nil {
+					return w, c2sKey, s2cKey, err
+				}
+				rebuilt = true
+			case buf[0] == hsWelcome || buf[0] == hsReject:
+				// Before the cookie only a cleartext version rejection, from a server that speaks another version, can answer.
+				if init == nil && (buf[0] != hsReject || n < 2 || buf[1] != hsVersion) {
+					continue
+				}
+				w, c2sKey, s2cKey, err = acceptUDPServerHandshakeV2(init, h.nonce, buf[:n])
+				if errors.Is(err, ErrInvalidPacket) {
+					continue // a late reply to an earlier dial, or an unauthenticated/forged datagram
+				}
+				return w, c2sKey, s2cKey, err
 			}
-			return w, c2sKey, s2cKey, err
 		}
 		if !time.Now().Before(deadline) {
 			return w, c2sKey, s2cKey, fmt.Errorf("net: udp handshake with %s timed out", conn.RemoteAddr())
 		}
-		retry = min(2*retry, time.Second)
+		if !rebuilt {
+			retry = min(2*retry, time.Second)
+		}
 	}
 }
 
