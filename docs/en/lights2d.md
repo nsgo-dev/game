@@ -62,6 +62,8 @@ When `light.CastShadows` is `true`, `Scene.Draw` clips that light against `Visib
 
 ## Normal-mapped sprites
 
+Generate a sprite normal map from a grayscale height image with `texseam.Height` and `texseam.Normal`. Use `texseam.Clamp` for sprites so the finite-difference samples do not wrap across opposite edges. The result uses `(128, 128, 255)` for a flat tangent-space normal and can be passed as the `normalMap` argument to `ShadeNormalMap`.
+
 Give 2D pixel art or painted sprites directional rim and bump highlights using a tangent-space normal map (`*image.NRGBA`):
 
 ```go

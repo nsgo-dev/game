@@ -62,6 +62,8 @@ lighting.Occluders = []lights2d.Occluder{
 
 ## 法线贴图精灵
 
+可以用 `texseam.Height` 从灰度图生成高度图，再用 `texseam.Normal` 生成精灵法线图。精灵应使用 `texseam.Clamp`，这样有限差分取样不会从相对边缘循环过去。结果以 `(128, 128, 255)` 表示平面的切线空间法线，可以作为 `ShadeNormalMap` 的 `normalMap` 参数。
+
 为像素画或手绘 2D 精灵配上一张切线空间法线贴图（`*image.NRGBA`），即可获得随光源方向变化的立体高光与凹凸感：
 
 ```go

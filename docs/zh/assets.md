@@ -6,6 +6,12 @@
 import "github.com/nsgo-dev/game/pkg/assets"
 ```
 
+## 无缝瓦片与派生贴图
+
+`github.com/nsgo-dev/game/pkg/tooling/texseam` 为瓦片和受光精灵提供确定性的图像工具。`texseam.Check` 将各个循环边缘与内部相邻像素差异比较，两条轴的比值都不超过 `1.3` 时通过；`texseam.Fix` 将相对边缘羽化到一致的接缝。`texseam.Merge` 将编辑结果限制在中心十字的羽化带内，带外保留原图的像素值。
+
+可以用 `texseam.Height` 从亮度生成灰度高度图，用 `texseam.Normal` 生成 RGBA8 切线空间法线图，用 `texseam.Roughness` 生成反转并拉伸对比度的灰度粗糙度图。`Normal` 对循环纹理使用 `texseam.Wrap`，对精灵使用 `texseam.Clamp`，并输出渲染器使用的平面法线 `(128, 128, 255)`。
+
 `Manager` 与 `Group` 的方法均在引擎 goroutine 上调用；文件读取与解析在后台执行，并通过 `core.Scope.Post` 回到引擎 goroutine，确保动画与 `game.Loop` 不会卡顿。
 
 ## 创建 Manager 并定义资源组
