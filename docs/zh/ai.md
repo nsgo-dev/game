@@ -803,8 +803,6 @@ for _, ev := range guard.Events() {
 
 ### 3D
 
-导航智能体提供 `DesiredVelocity()` 供避障阶段读取，并提供 `StepWithVelocity(v, dt)` 应用选择后的速度，同时保留走廊修复和沿表面移动。2D 与 3D API 都会把传入速度限制在配置的最大速度内，因此 ORCA 结果可以直接交回，而无需重新实现导航移动。
-
 实验性包 `game/ai/perception3d` 在 `math3d.Vec3` 上运行同一个引擎，因此其感官、记忆、事件、阵营与预算的行为与上文完全一致。其 `Perception` 的视锥沿 `Forward` 方向（为零时朝向 -Z），角度在 3D 空间中测量，`EyeOffset` 通常为 +Y 方向的头部高度；`System`、`Target`、`Noise`、`Memory`、`Event` 与 `LineOfSight` 与对应的 2D 类型一一对应，并复用 `ai.SightConfig`、`ai.HearingConfig`、`ai.StimulusID`、`ai.Team` 与事件类型：
 
 ```go

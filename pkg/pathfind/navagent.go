@@ -425,25 +425,22 @@ func (a *NavAgent) Step(dt time.Duration) {
 	a.stepMovement(dt)
 }
 
-// DesiredVelocity returns the velocity the agent would use to follow its current corridor.
-// It is suitable for passing through an avoidance solver before StepWithVelocity.
+// DesiredVelocity returns the velocity Step would steer toward this step to follow the corridor: MaxSpeed toward the next funnel corner, slowed inside ArrivalRadius on the final segment. It is the preferred velocity to hand to an avoidance solver such as ai.ORCASolver before StepWithVelocity, and is zero while the agent has no corridor, is idle or unreachable, rests within StoppingDistance of its target, or is traversing a link.
 func (a *NavAgent) DesiredVelocity() core.Point {
-	if a == nil || !a.hasTarget || a.mesh == nil || len(a.corridor) == 0 || a.state == NavAgentIdle || a.state == NavAgentUnreachable {
+	if a == nil || !a.hasTarget || a.mesh == nil || len(a.corridor) == 0 || a.traversingLink {
 		return core.Point{}
 	}
-	corner, isGoal, _ := a.mesh.nextFunnelCorner(a.pos, a.target, a.portals)
-	d := corner.sub(a.pos).len()
-	if d <= 1e-9 {
+	if a.state == NavAgentIdle || a.state == NavAgentUnreachable {
 		return core.Point{}
 	}
-	speed := float64(a.cfg.MaxSpeed)
-	if isGoal && a.cfg.ArrivalRadius > 0 && d < float64(a.cfg.ArrivalRadius) {
-		speed *= d / float64(a.cfg.ArrivalRadius)
+	corner, isGoal, offMeshIdx := a.mesh.nextFunnelCorner(a.pos, a.target, a.portals)
+	if isGoal && dist(a.pos, a.target) <= float64(a.cfg.StoppingDistance) {
+		return core.Point{}
 	}
-	return toPoint(corner.sub(a.pos).scale(speed / d))
+	return toPoint(a.steerVelocity(corner, isGoal, offMeshIdx, 0))
 }
 
-// StepWithVelocity advances the agent using an externally chosen velocity, such as an ORCA result.
+// StepWithVelocity advances a standalone agent by dt like Step, but steers toward the externally chosen velocity v (such as an ORCA result) instead of DesiredVelocity. The velocity is reached under MaxAcceleration and clamped to MaxSpeed, and the move goes through the same corridor repair, surface sliding, link traversal and arrival handling as Step. Agents owned by a NavAgentGroup are moved by the group's Step; calling StepWithVelocity on them moves them without the group's replan budget. Non-finite velocities are treated as zero.
 func (a *NavAgent) StepWithVelocity(v core.Point, dt time.Duration) {
 	if a == nil || dt <= 0 {
 		return
@@ -452,16 +449,33 @@ func (a *NavAgent) StepWithVelocity(v core.Point, dt time.Duration) {
 	if a.hasTarget && a.needsReplan && a.replanCooldown <= 0 {
 		a.replanNow()
 	}
-	if a.mesh == nil || len(a.corridor) == 0 || a.state == NavAgentUnreachable {
-		return
-	}
-	secs := dt.Seconds()
 	vel := toVec2(v)
-	maxSpeed := float64(a.cfg.MaxSpeed)
-	if speed := vel.len(); speed > maxSpeed && speed > 0 {
-		vel = vel.scale(maxSpeed / speed)
+	if !isFiniteVec2(vel) {
+		vel = vec2{}
 	}
-	a.advancePosition(a.pos.add(vel.scale(secs)), vel, dt)
+	a.stepMovementWith(dt, &vel)
+}
+
+// steerVelocity returns the corridor-following velocity toward corner. When secs > 0 the speed is also capped so one step of secs never overshoots the goal or an off-mesh link entry.
+func (a *NavAgent) steerVelocity(corner vec2, isGoal bool, offMeshIdx int, secs float64) vec2 {
+	toCorner := corner.sub(a.pos)
+	d := toCorner.len()
+	if d <= 1e-9 {
+		return vec2{}
+	}
+	speed := float64(a.cfg.MaxSpeed)
+	if isGoal {
+		if slow := float64(a.cfg.ArrivalRadius); slow > 0 && d < slow {
+			speed *= d / slow
+		}
+	}
+	if secs > 0 && (isGoal || offMeshIdx >= 0) {
+		// Never overshoot the target or a link entry in a single step.
+		if maxStepSpeed := d / secs; speed > maxStepSpeed {
+			speed = maxStepSpeed
+		}
+	}
+	return toCorner.scale(speed / d)
 }
 
 func (a *NavAgent) tickPreStep(dt time.Duration) {
@@ -558,6 +572,11 @@ func (a *NavAgent) replanNow() bool {
 }
 
 func (a *NavAgent) stepMovement(dt time.Duration) {
+	a.stepMovementWith(dt, nil)
+}
+
+// stepMovementWith moves the agent one step, steering toward override when it is non-nil and toward the corridor's desired velocity otherwise.
+func (a *NavAgent) stepMovementWith(dt time.Duration, override *vec2) {
 	if !a.hasTarget || a.mesh == nil || len(a.mesh.polys) == 0 {
 		return
 	}
@@ -616,25 +635,17 @@ func (a *NavAgent) stepMovement(dt time.Duration) {
 		return
 	}
 
-	toCorner := corner.sub(a.pos)
-	d := toCorner.len()
-	var desiredVel vec2
-	if d > 1e-9 {
-		speed := float64(a.cfg.MaxSpeed)
-		if isGoal {
-			if slow := float64(a.cfg.ArrivalRadius); slow > 0 && d < slow {
-				speed *= d / slow
-			}
-			// Never overshoot the target in a single step.
-			if maxStepSpeed := d / secs; speed > maxStepSpeed {
-				speed = maxStepSpeed
-			}
-		} else if offMeshIdx >= 0 {
-			if maxStepSpeed := d / secs; speed > maxStepSpeed {
-				speed = maxStepSpeed
+	desiredVel := a.steerVelocity(corner, isGoal, offMeshIdx, secs)
+	if override != nil {
+		desiredVel = clampVec2(*override, float64(a.cfg.MaxSpeed))
+		if isGoal || offMeshIdx >= 0 {
+			// Keep the overshoot guard of the corridor-following path for external velocities too.
+			if d := corner.sub(a.pos).len(); d > 1e-9 {
+				desiredVel = clampVec2(desiredVel, d/secs)
+			} else {
+				desiredVel = vec2{}
 			}
 		}
-		desiredVel = toCorner.scale(speed / d)
 	}
 
 	reqAccel := desiredVel.sub(a.vel).scale(1 / secs)

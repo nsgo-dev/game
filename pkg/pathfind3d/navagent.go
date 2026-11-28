@@ -413,25 +413,23 @@ func (a *NavAgent) Step(dt time.Duration) {
 	a.stepMovement(dt)
 }
 
-// DesiredVelocity returns the horizontal velocity the agent would use to follow its current corridor.
+// DesiredVelocity returns the horizontal (XZ) velocity Step would steer toward this step to follow the corridor: MaxSpeed toward the next funnel corner, slowed inside ArrivalRadius on the final segment. It is the preferred velocity to hand to an avoidance solver such as ai.ORCASolver's XZ step before StepWithVelocity, and is zero while the agent has no corridor, is idle or unreachable, rests within StoppingDistance of its target, or is traversing a link.
 func (a *NavAgent) DesiredVelocity() math3d.Vec3 {
-	if a == nil || !a.hasTarget || a.mesh == nil || len(a.corridor) == 0 || a.state == NavAgentIdle || a.state == NavAgentUnreachable {
+	if a == nil || !a.hasTarget || a.mesh == nil || len(a.corridor) == 0 || a.traversingLink {
 		return math3d.Vec3{}
 	}
-	corner, isGoal, _ := a.mesh.nextFunnelCorner(a.pos, a.target, a.portals)
-	dx, dz := float64(corner.X-a.pos.X), float64(corner.Z-a.pos.Z)
-	d := math.Hypot(dx, dz)
-	if d <= 1e-9 {
+	if a.state == NavAgentIdle || a.state == NavAgentUnreachable {
 		return math3d.Vec3{}
 	}
-	speed := float64(a.cfg.MaxSpeed)
-	if isGoal && a.cfg.ArrivalRadius > 0 && d < float64(a.cfg.ArrivalRadius) {
-		speed *= d / float64(a.cfg.ArrivalRadius)
+	corner, isGoal, offMeshIdx := a.mesh.nextFunnelCorner(a.pos, a.target, a.portals)
+	if isGoal && a.pos.Dist(a.target) <= a.cfg.StoppingDistance {
+		return math3d.Vec3{}
 	}
-	return math3d.Vec3{X: float32(dx * speed / d), Z: float32(dz * speed / d)}
+	vx, vz := a.steerVelocity(corner, isGoal, offMeshIdx, 0)
+	return math3d.Vec3{X: float32(vx), Z: float32(vz)}
 }
 
-// StepWithVelocity advances the agent using an externally chosen horizontal velocity, such as an ORCA result.
+// StepWithVelocity advances a standalone agent by dt like Step, but steers toward the externally chosen horizontal velocity v (such as an ORCA result; v.Y is ignored because elevation follows the walked surface) instead of DesiredVelocity. The velocity is reached under MaxAcceleration and clamped to MaxSpeed, and the move goes through the same corridor repair, surface tracking, link traversal and arrival handling as Step. Agents owned by a NavAgentGroup are moved by the group's Step; calling StepWithVelocity on them moves them without the group's replan budget. Non-finite velocities are treated as zero.
 func (a *NavAgent) StepWithVelocity(v math3d.Vec3, dt time.Duration) {
 	if a == nil || dt <= 0 {
 		return
@@ -440,19 +438,35 @@ func (a *NavAgent) StepWithVelocity(v math3d.Vec3, dt time.Duration) {
 	if a.hasTarget && a.needsReplan && a.replanCooldown <= 0 {
 		a.replanNow()
 	}
-	if a.mesh == nil || len(a.corridor) == 0 || a.state == NavAgentUnreachable {
-		return
+	vel := [2]float64{float64(v.X), float64(v.Z)}
+	if !isFinite32(v.X) || !isFinite32(v.Z) {
+		vel = [2]float64{}
 	}
-	secs := float64(dt.Seconds())
-	vel := v
-	speed := math.Hypot(float64(vel.X), float64(vel.Z))
-	if maxSpeed := float64(a.cfg.MaxSpeed); speed > maxSpeed && speed > 0 {
-		scale := maxSpeed / speed
-		vel.X *= float32(scale)
-		vel.Z *= float32(scale)
+	a.stepMovementWith(dt, &vel)
+}
+
+// steerVelocity returns the horizontal corridor-following velocity toward corner. When secs > 0 the speed is also capped so one step of secs never overshoots the goal or an off-mesh link entry.
+func (a *NavAgent) steerVelocity(corner math3d.Vec3, isGoal bool, offMeshIdx int, secs float64) (float64, float64) {
+	dx := float64(corner.X - a.pos.X)
+	dz := float64(corner.Z - a.pos.Z)
+	dXZ := math.Hypot(dx, dz)
+	if dXZ <= 1e-9 {
+		return 0, 0
 	}
-	next := a.pos.Add(math3d.Vec3{X: vel.X * float32(secs), Z: vel.Z * float32(secs)})
-	a.advancePosition(next, math3d.Vec3{X: vel.X, Z: vel.Z}, dt)
+	speed := float64(a.cfg.MaxSpeed)
+	if isGoal {
+		d3 := float64(a.pos.Dist(a.target))
+		if slow := float64(a.cfg.ArrivalRadius); slow > 0 && d3 < slow {
+			speed *= d3 / slow
+		}
+	}
+	if secs > 0 && (isGoal || offMeshIdx >= 0) {
+		// Never overshoot the target or a link entry in a single step.
+		if maxStepSpeed := dXZ / secs; speed > maxStepSpeed {
+			speed = maxStepSpeed
+		}
+	}
+	return dx * (speed / dXZ), dz * (speed / dXZ)
 }
 
 func (a *NavAgent) tickPreStep(dt time.Duration) {
@@ -551,6 +565,11 @@ func (a *NavAgent) replanNow() bool {
 }
 
 func (a *NavAgent) stepMovement(dt time.Duration) {
+	a.stepMovementWith(dt, nil)
+}
+
+// stepMovementWith moves the agent one step, steering toward the horizontal velocity override when it is non-nil and toward the corridor's desired velocity otherwise.
+func (a *NavAgent) stepMovementWith(dt time.Duration, override *[2]float64) {
 	if !a.hasTarget || a.mesh == nil || len(a.mesh.Polys) == 0 {
 		return
 	}
@@ -606,28 +625,17 @@ func (a *NavAgent) stepMovement(dt time.Duration) {
 	}
 
 	// Horizontal XZ steering; Y is driven by the walked polygon surface.
-	dx := float64(corner.X - a.pos.X)
-	dz := float64(corner.Z - a.pos.Z)
-	dXZ := math.Hypot(dx, dz)
-
-	var desVX, desVZ float64
-	if dXZ > 1e-9 {
-		speed := float64(a.cfg.MaxSpeed)
-		if isGoal {
-			d3 := float64(a.pos.Dist(a.target))
-			if slow := float64(a.cfg.ArrivalRadius); slow > 0 && d3 < slow {
-				speed *= d3 / slow
-			}
-			if maxStepSpeed := dXZ / secs; speed > maxStepSpeed {
-				speed = maxStepSpeed
-			}
-		} else if offMeshIdx >= 0 {
-			if maxStepSpeed := dXZ / secs; speed > maxStepSpeed {
-				speed = maxStepSpeed
+	desVX, desVZ := a.steerVelocity(corner, isGoal, offMeshIdx, secs)
+	if override != nil {
+		desVX, desVZ = clampXZ(override[0], override[1], float64(a.cfg.MaxSpeed))
+		if isGoal || offMeshIdx >= 0 {
+			// Keep the overshoot guard of the corridor-following path for external velocities too.
+			if dXZ := math.Hypot(float64(corner.X-a.pos.X), float64(corner.Z-a.pos.Z)); dXZ > 1e-9 {
+				desVX, desVZ = clampXZ(desVX, desVZ, dXZ/secs)
+			} else {
+				desVX, desVZ = 0, 0
 			}
 		}
-		desVX = dx * (speed / dXZ)
-		desVZ = dz * (speed / dXZ)
 	}
 
 	reqAX := (desVX - float64(a.vel.X)) / secs
