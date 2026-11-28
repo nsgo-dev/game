@@ -68,6 +68,8 @@ type Target struct {
 	Status Status
 	// Outputs are the slash-separated paths, relative to the project directory, of the files the target wrote or would write, sorted; when Status is Stale they are the outputs of the previous build, if any.
 	Outputs []string
+	// Warnings are non-fatal diagnostics produced while building or checking the target, such as characters requested for a font target that the source font file has no glyph for.
+	Warnings []string
 }
 
 // Report lists every target of a build in the order it ran: atlases, textures, audio, fonts and models in their game.yaml order, the manifest last.
@@ -197,10 +199,12 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 		if !b.Force && old != nil && old.Key == key && b.outputsIntact(old) {
 			t.Status = UpToDate
 			t.Outputs = old.paths()
+			t.Warnings = slices.Clone(old.Warnings)
 			next.Targets = append(next.Targets, *old)
 		} else if b.Check {
 			var current bool
 			var outs []string
+			var warns []string
 			if p.encoded != "" && old == nil {
 				// Another encoder, or another version of one, writes other bytes for the same input, so with no cache entry from this machine only the output's presence can be checked.
 				_, err := os.Stat(b.abs(p.encoded))
@@ -213,12 +217,13 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 				}
 			} else {
 				// Without a matching cache entry, as in a fresh checkout that does not commit the cache, the target is built in a temporary folder and is up to date when the files on disk are what it writes.
-				current, outs, err = b.matchesDisk(build)
+				current, outs, warns, err = b.matchesDisk(build)
 				if err != nil {
 					runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
 					break
 				}
 			}
+			t.Warnings = warns
 			switch {
 			case current:
 				t.Status = UpToDate
@@ -230,7 +235,7 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 				t.Status = Stale
 			}
 		} else {
-			outs, err := build(b.Root)
+			outs, warns, err := build(b.Root)
 			if err != nil {
 				runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
 				break
@@ -240,6 +245,7 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 				runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
 				break
 			}
+			entry.Warnings = slices.Clone(warns)
 			if old != nil {
 				if err := b.removeStale(old, entry, written); err != nil {
 					runErr = fmt.Errorf("assetbuild: %s: %w", s.id, err)
@@ -248,6 +254,7 @@ func (b *Builder) Build(ctx context.Context, a *project.Assets) (*Report, error)
 			}
 			t.Status = Built
 			t.Outputs = entry.paths()
+			t.Warnings = warns
 			next.Targets = append(next.Targets, *entry)
 		}
 		if s.pages != nil && t.Status != Stale {
@@ -350,8 +357,8 @@ func (b *Builder) abs(rel string) string {
 	return under(b.Root, rel)
 }
 
-// builder writes a target's outputs under root, the directory its slash-separated output paths are relative to, and returns the files it wrote.
-type builder func(root string) ([]string, error)
+// builder writes a target's outputs under root, the directory its slash-separated output paths are relative to, and returns the files it wrote and any non-fatal warnings.
+type builder func(root string) (outputs []string, warnings []string, err error)
 
 // prepared is a target whose inputs and import settings were read: its key and what builds it.
 type prepared struct {
@@ -366,22 +373,22 @@ func under(root, rel string) string {
 	return filepath.Join(root, filepath.FromSlash(rel))
 }
 
-// matchesDisk builds a target in a new temporary folder and reports whether every file it writes is already in b.Root with the same content, with the slash-separated paths of those files. It writes nothing under b.Root.
-func (b *Builder) matchesDisk(build builder) (current bool, outputs []string, err error) {
+// matchesDisk builds a target in a new temporary folder and reports whether every file it writes is already in b.Root with the same content, with the slash-separated paths of those files and any warnings. It writes nothing under b.Root.
+func (b *Builder) matchesDisk(build builder) (current bool, outputs, warnings []string, err error) {
 	tmp, err := os.MkdirTemp("", "game-assets-check-")
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	outs, err := build(tmp)
+	outs, warns, err := build(tmp)
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
 	e, err := record(tmp, "", "", outs)
 	if err != nil {
-		return false, nil, err
+		return false, nil, nil, err
 	}
-	return b.outputsIntact(e), e.paths(), nil
+	return b.outputsIntact(e), e.paths(), warns, nil
 }
 
 // keyer accumulates what a target's key covers.
@@ -461,12 +468,12 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 			k.input(importsettings.Path(name), sc)
 		}
 	}
-	return prepared{key: k.key(), build: func(root string) ([]string, error) {
+	return prepared{key: k.key(), build: func(root string) ([]string, []string, error) {
 		inputs := make([]atlaspack.Input, 0, len(names))
 		for i, name := range names {
 			img, err := png.Decode(bytes.NewReader(files[i]))
 			if err != nil {
-				return nil, fmt.Errorf("decode %s: %w", path.Join(a.In, name), err)
+				return nil, nil, fmt.Errorf("decode %s: %w", path.Join(a.In, name), err)
 			}
 			im := images[i]
 			if im == nil || im.Slice == nil {
@@ -480,7 +487,7 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 					if spec, ok := im.Collision.ForImage(); ok {
 						shapes, err = atlaspack.TraceCollision(img, packCollisionOptions(spec))
 						if err != nil {
-							return nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
+							return nil, nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
 						}
 					}
 					pts = packPointsMap(im.PointsForImage())
@@ -490,7 +497,7 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 			}
 			frames, err := sliceFrames(name, img, im)
 			if err != nil {
-				return nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
+				return nil, nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
 			}
 			inputs = append(inputs, frames...)
 		}
@@ -498,15 +505,16 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 		seen := make(map[string]bool, len(inputs))
 		for _, in := range inputs {
 			if seen[in.Name] {
-				return nil, fmt.Errorf("two frames of %s are named %s; rename the image or the sheet sliced into that frame", a.In, in.Name)
+				return nil, nil, fmt.Errorf("two frames of %s are named %s; rename the image or the sheet sliced into that frame", a.In, in.Name)
 			}
 			seen[in.Name] = true
 		}
 		res, err := atlaspack.PackImages(inputs, opts)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return res.Write(under(root, a.Out))
+		outs, err := res.Write(under(root, a.Out))
+		return outs, nil, err
 	}}, nil
 }
 
@@ -562,20 +570,20 @@ func (b *Builder) texture(t project.TextureTarget) (prepared, error) {
 	if sc != nil {
 		k.input(importsettings.Path(t.In), sc)
 	}
-	return prepared{key: k.key(), build: func(root string) ([]string, error) {
+	return prepared{key: k.key(), build: func(root string) ([]string, []string, error) {
 		img, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
-			return nil, fmt.Errorf("decode %s: %w", t.In, err)
+			return nil, nil, fmt.Errorf("decode %s: %w", t.In, err)
 		}
 		out, err := ktx2.Encode(img, opts)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		dest := under(root, t.Out)
 		if err := writeFile(dest, out); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []string{dest}, nil
+		return []string{dest}, nil, nil
 	}}, nil
 }
 
@@ -669,10 +677,10 @@ func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (prepared, 
 	if sc != nil {
 		k.input(importsettings.Path(au.In), sc)
 	}
-	p := prepared{key: k.key(), build: func(root string) ([]string, error) {
+	p := prepared{key: k.key(), build: func(root string) ([]string, []string, error) {
 		buf, err := audioconv.DecodeWAV(bytes.NewReader(data))
 		if err != nil {
-			return nil, fmt.Errorf("decode %s: %w", au.In, err)
+			return nil, nil, fmt.Errorf("decode %s: %w", au.In, err)
 		}
 		if loop != nil {
 			end := loop.End
@@ -680,15 +688,15 @@ func (b *Builder) audio(ctx context.Context, au project.AudioTarget) (prepared, 
 				end = buf.Frames()
 			}
 			if loop.Start >= end || end > buf.Frames() {
-				return nil, fmt.Errorf("%s: loop from frame %d to %d is not inside %s's %d frames", importsettings.Path(au.In), loop.Start, end, au.In, buf.Frames())
+				return nil, nil, fmt.Errorf("%s: loop from frame %d to %d is not inside %s's %d frames", importsettings.Path(au.In), loop.Start, end, au.In, buf.Frames())
 			}
 			buf.Loop = &audioconv.Loop{Start: loop.Start, End: end}
 		}
 		dest := under(root, au.Out)
 		if err := enc.ConvertBuffer(ctx, buf, dest, format, opts); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []string{dest}, nil
+		return []string{dest}, nil, nil
 	}}
 	if format != audioconv.FormatWAV {
 		p.encoded = au.Out

@@ -55,6 +55,8 @@ type Font struct {
 	Glyphs map[rune]Glyph
 	// Kernings maps pairs of consecutive runes to their horizontal kerning adjustment.
 	Kernings map[KerningPair]float32
+
+	missing *missingGlyphState
 }
 
 // Kerning returns the horizontal kerning adjustment when second follows first,

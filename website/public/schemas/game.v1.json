@@ -902,7 +902,22 @@
           "maximum": 9223372036854776000
         },
         "chars": {
-          "description": "Chars are the characters baked, each once, in any order; empty is DefaultFontChars. A character the font has no glyph for is left out. A folder of glyph images bakes every image it holds instead.",
+          "description": "Chars are the characters baked, each once, in any order; empty is DefaultFontChars when CharsFrom and CharsFile are also empty. When CharsFrom or CharsFile is set, Chars is merged with the characters collected from them. A character the font has no glyph for is left out. A folder of glyph images bakes every image it holds instead.",
+          "type": "string"
+        },
+        "charsFrom": {
+          "description": "CharsFrom lists slash-separated project-relative files whose text characters are collected and merged into the baked set: versioned YAML or JSON localization string tables (all strings and plural forms, with {placeholders} and rich-text markup stripped), YAML data tables (*.table.yaml, all string cells), and scene files (*.scene.yaml). A folder of glyph images refuses CharsFrom.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "charsFile": {
+          "description": "CharsFile is a slash-separated project-relative UTF-8 plain-text file whose non-control characters are merged into the baked set. A folder of glyph images refuses CharsFile.",
+          "type": "string"
+        },
+        "locale": {
+          "description": "Locale is the optional normalized BCP-47 locale tag (such as \"zh-Hans\" or \"en\") this font target is meant to draw, checked by game check against that locale's localization string tables. When omitted, game check infers the locale from any localization string tables listed in CharsFrom.",
           "type": "string"
         },
         "padding": {

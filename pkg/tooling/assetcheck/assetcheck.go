@@ -137,7 +137,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		l10nByRoot:  make(map[string]*l10nIndex),
 		varsByRoot:  make(map[string]*projectVars),
 	}
-	var scenes, cutscenes, screens, statesFiles, soundFiles, varsFiles, yarnFiles, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
+	var scenes, cutscenes, screens, statesFiles, soundFiles, varsFiles, yarnFiles, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs, gameYAMLs []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -185,7 +185,9 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		case strings.HasSuffix(name, ".json"):
 			jsons = append(jsons, p)
 		case strings.HasSuffix(name, ".yaml"), strings.HasSuffix(name, ".yml"):
-			if d.Name() != project.FileName && d.Name() != project.NSGoFileName && d.Name() != refs.IndexFileName {
+			if d.Name() == project.FileName {
+				gameYAMLs = append(gameYAMLs, p)
+			} else if d.Name() != project.NSGoFileName && d.Name() != refs.IndexFileName {
 				otherYAMLs = append(otherYAMLs, p)
 			}
 		}
@@ -232,6 +234,9 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	}
 	if len(otherYAMLs) > 0 {
 		c.loadLocaleTables(otherYAMLs)
+	}
+	if len(gameYAMLs) > 0 {
+		c.checkFonts(gameYAMLs)
 	}
 	for _, p := range screens {
 		c.checkScreen(p)

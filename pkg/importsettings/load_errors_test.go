@@ -25,4 +25,16 @@ func TestParseLoadErrors(t *testing.T) {
 		_, err := importsettings.ParseAssetSource(data)
 		loaderrtest.ExpectField(t, err, "", data, "prompt")
 	})
+
+	t.Run("font charsFrom duplicate", func(t *testing.T) {
+		data := []byte("version: 1\nfont:\n  charsFrom:\n    - l10n/en.yaml\n    - l10n/en.yaml\n")
+		_, err := importsettings.Parse(data)
+		loaderrtest.ExpectField(t, err, "", data, "font.charsFrom")
+	})
+
+	t.Run("font charsFile invalid", func(t *testing.T) {
+		data := []byte("version: 1\nfont:\n  charsFile: ../escape.txt\n")
+		_, err := importsettings.Parse(data)
+		loaderrtest.ExpectField(t, err, "", data, "font.charsFile")
+	})
 }

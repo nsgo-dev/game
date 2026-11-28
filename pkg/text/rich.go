@@ -1162,6 +1162,7 @@ func LayoutRich(font *Font, rt RichText, opts RichOptions) RichLayout {
 				af, _, _ := resolveBitmapStyleFont(font, tok.Style, opts)
 				g, ok := af.Glyphs[tok.Rune]
 				if !ok {
+					af.logMissingGlyph(tok.Rune)
 					hasPrev = false
 					continue
 				}
@@ -1280,6 +1281,7 @@ func LayoutRich(font *Font, rt RichText, opts RichOptions) RichLayout {
 				af, fauxB, fauxI := resolveBitmapStyleFont(font, tok.Style, opts)
 				g, ok := af.Glyphs[tok.Rune]
 				if !ok {
+					af.logMissingGlyph(tok.Rune)
 					hasPrev = false
 					continue
 				}

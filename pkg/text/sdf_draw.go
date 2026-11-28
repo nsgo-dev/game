@@ -64,6 +64,15 @@ func (f *SDFFont) layoutOptions(o SDFOptions, scale float32) Options {
 	return Options{MaxWidth: o.MaxWidth, Align: o.Align, Scale: scale, LineSpacing: o.LineSpacing * f.Size * scale}
 }
 
+// MissingRunes returns the sorted, deduplicated non-control runes in s that f
+// has no glyph for. Control characters (such as newlines and tabs) are ignored.
+func (f *SDFFont) MissingRunes(s string) []rune {
+	if f == nil {
+		return (*Font)(nil).MissingRunes(s)
+	}
+	return f.layoutFont().MissingRunes(s)
+}
+
 // Measure returns the bounding width and height, in points, of s laid out with opts.
 func (f *SDFFont) Measure(s string, opts SDFOptions) core.Size {
 	if f == nil || opts.Size < 0 {

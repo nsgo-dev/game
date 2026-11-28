@@ -12,6 +12,7 @@ import (
 
 	"github.com/nsgo-dev/game/pkg/editor/editorcmd"
 	"github.com/nsgo-dev/game/pkg/project"
+	"golang.org/x/image/font/gofont/goregular"
 )
 
 // assetsProjectHead is the identity and window every game.yaml carries, which the assets tests extend.
@@ -364,5 +365,37 @@ func TestAssetsResourcesWritesToResourcesDirAndEmitsURIs(t *testing.T) {
 	}
 	if want := "2 up to date\n"; stdout.String() != want {
 		t.Fatalf("-resources -check stdout = %q, want %q", stdout, want)
+	}
+}
+
+func TestAssetsFontPrintsMissingGlyphWarning(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "fonts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "l10n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "fonts/go.ttf"), goregular.TTF, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "l10n/zh-Hans.yaml"), []byte("version: 1\nlocale: zh-Hans\nstrings:\n  score: \"Score 得分：{score}\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Join(root, "game.yaml")
+	cfg := assetsProjectHead + "assets:\n  fonts:\n    - in: fonts/go.ttf\n      out: assets/fonts/ui-zh.fnt\n      size: 16\n      charsFrom:\n        - l10n/zh-Hans.yaml\n"
+	if err := os.WriteFile(projectPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"assets", "-in", projectPath}, a); code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout.String(), "built font assets/fonts/ui-zh.fnt\n") {
+		t.Fatalf("stdout = %q, want built font line", stdout)
+	}
+	if !strings.Contains(stderr.String(), "warning: font assets/fonts/ui-zh.fnt:") || !strings.Contains(stderr.String(), "得") {
+		t.Fatalf("stderr = %q, want missing glyph warning for 得", stderr)
 	}
 }

@@ -32,6 +32,9 @@ assets:
   fonts:
     - in: fonts/hud.ttf
       out: gen/hud.fnt
+      charsFrom:
+        - l10n/en.yaml
+      charsFile: fonts/extra.txt
   models:
     - in: models/ship.gltf
       out: gen/ship.glb
@@ -76,12 +79,14 @@ func TestPathRefs(t *testing.T) {
 		"24:12 assets audio out gen/jump.wav dir=false output=true",
 		"26:11 assets font in fonts/hud.ttf dir=false output=false",
 		"27:12 assets font out gen/hud.fnt dir=false output=true",
-		"29:11 assets model in models/ship.gltf dir=false output=false",
-		"30:12 assets model out gen/ship.glb dir=false output=true",
-		"32:9 assets manifest in gen dir=true output=true",
-		"33:10 assets manifest out gen/manifest_gen.go dir=false output=true",
-		"41:10 pack dir packs/dungeon-tiles dir=true output=false",
-		"48:10 pack dir packs/ui-kit dir=true output=false",
+		"29:11 assets font charsFrom l10n/en.yaml dir=false output=false",
+		"30:18 assets font charsFile fonts/extra.txt dir=false output=false",
+		"32:11 assets model in models/ship.gltf dir=false output=false",
+		"33:12 assets model out gen/ship.glb dir=false output=true",
+		"35:9 assets manifest in gen dir=true output=true",
+		"36:10 assets manifest out gen/manifest_gen.go dir=false output=true",
+		"44:10 pack dir packs/dungeon-tiles dir=true output=false",
+		"51:10 pack dir packs/ui-kit dir=true output=false",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("PathRefs:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

@@ -81,16 +81,16 @@ func (b *Builder) model(t project.ModelTarget) (prepared, error) {
 	if sc != nil {
 		k.input(importsettings.Path(t.In), sc)
 	}
-	return prepared{key: k.key(), build: func(root string) ([]string, error) {
+	return prepared{key: k.key(), build: func(root string) ([]string, []string, error) {
 		out, err := packGLB(data, files, ms)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", t.In, err)
+			return nil, nil, fmt.Errorf("%s: %w", t.In, err)
 		}
 		dest := under(root, t.Out)
 		if err := writeFile(dest, out); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []string{dest}, nil
+		return []string{dest}, nil, nil
 	}}, nil
 }
 

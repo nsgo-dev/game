@@ -272,7 +272,7 @@ game check: 1 problem
 | YAML 图块集（`*.tileset.yaml`、`*.tileset.yml`） | 按[图块集格式](tilemap.md#yaml-图块集)解析并校验通过；网格图块集的 `image` 存在，且大小足以容纳它的 `columns`、`tileCount`、`spacing` 和 `margin`；图集图块集的 `atlas` 存在，且含有它的每个 `frames` |
 | LDtk 项目（`.ldtk`） | 图块集图片和关卡背景存在；没有关卡保存在单独的 `.ldtkl` 文件中，因为 `tilemap.LoadLDtkAll` 不读取这些文件（在 LDtk 中关闭“Save levels to separate files”）；项目能用 `tilemap.LoadLDtkAll` 加载 |
 | 精灵图集（顶层有 `frames` 和 `meta` 的 JSON，即 TexturePacker 和 Aseprite 导出的格式） | `meta.image` 存在；每一帧都落在图片之内；图集能用 `sprite.LoadAtlas` 加载 |
-| `game.yaml` 以及文件之间的其他所有引用 | `game.yaml` 按[项目文件](project.md)解析并校验通过；每个自动加载的场景和资源都存在，每个 `assets` 目标的 `in`（图集的是文件夹）也存在，上面各行没有覆盖到的其他引用所指的文件同样必须存在：场景 `inherits` 的场景和对象实例化的场景（`scene`，不论其文件名是什么）、覆盖项中以及不以 `*.scene.yaml` 命名的场景中的材质、模型和瓦片地图 `source`，材质的 `texture`（无论该材质在哪里被使用），以及 `.gltf` 模型存放在单独文件中的缓冲区和图片。`game assets` 写出的路径（`out`、`cache`、`manifest.in`）以及场景 `navMesh` 指定、由 `game navmesh` 写出的导航网格文件可以暂不存在 |
+| `game.yaml` 以及文件之间的其他所有引用 | `game.yaml` 按[项目文件](project.md)解析并校验通过；每个自动加载的场景和资源都存在，每个 `assets` 目标的 `in`（图集或字形图片字体的是文件夹）、字体目标的 `charsFrom` 与 `charsFile` 输入以及上面各行没有覆盖到的其他引用所指的文件同样必须存在：场景 `inherits` 的场景和对象实例化的场景（`scene`，不论其文件名是什么）、覆盖项中以及不以 `*.scene.yaml` 命名的场景中的材质、模型和瓦片地图 `source`，材质的 `texture`（无论该材质在哪里被使用），以及 `.gltf` 模型存放在单独文件中的缓冲区和图片。`game assets` 写出的路径（`out`、`cache`、`manifest.in`）以及场景 `navMesh` 指定、由 `game navmesh` 写出的导航网格文件可以暂不存在。对于指定了语言的字体目标（通过 `locale` 显式声明，或通过 `charsFrom` 引用该语言的字符串表推断），该语言字符串表中的每条字符串和复数形式都必须能被该字体目标绘制（已有烘焙 `.fnt` 时检查 `.fnt`，尚未烘焙时检查源字体与字符来源），并指出缺失的键名和字符 |
 | 项目索引（`game.index.yaml`） | 能够解析，且同一项目中没有两个场景或资源文件共用同一个 `uid`（复制出的文件在 `game index` 给它分配新 uid 之前就是这种情况）；不同的项目（例如由同一模板创建的两个游戏）可以共用 |
 
 地图、图块集和图集里写的路径相对于该文件本身，与 Tiled、LDtk 和纹理打包工具的写法一致。场景的瓦片地图 `source`、`tilesetFile`、`material` 和 `model`，YAML 图块集的 `image`，以及材质的 `texture`，相对于项目根目录：从场景往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录，都没有时为被检查的目录。场景按游戏的 `sceneformat.AssetResolver` 的方式用名字指代图集，所以检查按文件名找它：同一项目中去掉 `.json` 后的文件名等于这个名字的图集 JSON（`actors` 即 `art/actors.json`），或者从项目根目录算起的路径等于这个名字的（`art/actors`）。有多个匹配时取离场景最近的一个，距离按从场景往上走到共同目录、再往下走到图集所经过的目录数计算，所以场景旁边的图集优先于子目录里的；两个同样近时报告为有歧义，直到场景用路径指明其中一个。没有图集匹配、但有同名的 JSON 文件无法解析或不是图集时，报告该文件的问题。路径必须是相对路径、使用正斜杠，且不能指到被检查的目录之外。PNG、JPEG 和 GIF 图片必须能解码；其他图片只要存在即可。
@@ -342,7 +342,12 @@ assets:
     - in: fonts/Inter.ttf # TrueType 或 OpenType 字体
       out: assets/fonts/hud.fnt  # 页面 hud.png，或 hud-0.png、hud-1.png 等，写在它旁边
       size: 24            # 像素；省略时为 32
-      chars: " 0123456789:" # 省略时为可打印 ASCII
+      chars: " 0123456789:" # chars、charsFrom 和 charsFile 均省略时为可打印 ASCII；否则合并
+      charsFrom:          # 从本地化字符串表、*.table.yaml 数据表和 *.scene.yaml 场景收集字符
+        - l10n/zh-Hans.yaml
+        - data/items.table.yaml
+      charsFile: fonts/extra-zh.txt # 额外字符的纯 UTF-8 文本文件，合并到字符集
+      locale: zh-Hans     # 可选的 BCP-47 语言标签，供 game check 校验（省略时从 charsFrom 中的字符串表推断）
       padding: 1          # 省略时为 1
     - in: art/fonts/score # 字形图片目录：0.png ... 9.png、plus.png、times.png
       out: assets/fonts/score.fnt
@@ -371,9 +376,9 @@ assets:
 
 每个列表和清单都可省略，每项设置的含义与单个命令中同名参数相同。两个目标不能写同一个文件：名为 `ui` 的图集写出 `ui.png` 和 `ui.json`，需要多页时写出 `ui-0.png`、`ui-1.png` 等及对应的 `.json` 文件，因此同一文件夹里的其他目标不能写这些文件名，那里的其他图集也不能命名为 `ui` 或 `ui-1`。任何目标和缓存都不能覆盖 `game.yaml` 或某个目标读取的文件，否则下次运行会读到自己的输出。图集不能把页面写进任何图集读取图像的文件夹，其他目标和缓存也不能在那里写 `.png` 文件，否则下次运行时图集会把它们打包进去；缓存也不能放在资源清单的文件夹里，否则清单会把它列出来。名字以点开头的文件夹会被这两种扫描跳过，所以这些文件都可以放在那里。字体的页面像图集的页面以图集名命名那样，以它的 `.fnt` 文件命名，即 `hud.fnt` 旁边的 `hud.png` 或 `hud-0.png`、`hud-1.png` 等，并遵守同样的规则。任何目标也不能读取字体的页面：字体在纹理和模型之后构建，用页面生成的纹理会编码上一次运行的页面。
 
-字体目标把 TrueType 或 OpenType 字体烘焙为 `text.LoadBMFont` 读取的 [AngelCode BMFont](text.md)：`chars` 中字体有字形的每个字符都以 `size` 像素（最大 2048）绘制，颜色为白色、覆盖率作为 alpha，字形以 `padding` 像素的间隔打包到每边最多 2048 像素的 PNG 页面上，`.fnt` 文本文件记录每个字形的位置、偏移和前进量、行高和基线，以及字体在这些字符之间的字距调整。字体没有字形的字符会被略过；一个字形都没有时报错。
+字体目标把 TrueType 或 OpenType 字体烘焙为 `text.LoadBMFont` 读取的 [AngelCode BMFont](text.md)：烘焙字符集由 `chars`、`charsFrom` 中的每个文件（带版本 YAML 或 JSON 本地化字符串表的所有字符串与复数形式、YAML 数据表的字符串单元格，以及 `.scene.yaml` 场景的自定义文本字段，自动剥离 `{placeholders}` 占位符与富文本标记）和 UTF-8 `charsFile`（忽略控制字符与换行）合并而成；三者均省略时默认为可打印 ASCII。目标的缓存键只覆盖最终排序去重后的字符集，因此编辑字符串但未增减字符时不会重建字体。字体有字形的每个字符都以 `size` 像素（最大 2048）绘制，颜色为白色、覆盖率作为 alpha，字形以 `padding` 像素的间隔打包到每边最多 2048 像素的 PNG 页面上，`.fnt` 文本文件记录每个字形的位置、偏移和前进量、行高和基线，以及字体在这些字符之间的字距调整。字体没有字形的字符会被略过并在标准错误输出警告；一个字形都没有时报错。
 
-`in` 也可以是一个 PNG 字形图片目录（如记分数字、伤害数字），从图片本身烘焙出同样的 `.fnt` 和页面：文件名主干是单个字符的图片（如 `7.png`）绘制该字符，其余名字由 `glyphs` 映射到字符，如 `plus.png` 映射到 `+`。未映射的名字、两张图片对应同一字符、`glyphs` 条目指向目录里不存在的文件、以及目录中出现非 PNG 文件都会被拒绝；`size` 和 `chars` 同样被拒绝，它们是为字体文件挑选字形的设置。每个字形按图片自身的像素绘制，因此 `lineHeight` 和 `base` 取最高图片的高度，前进量是图片宽度加 `spacing`，`align` 把字形放在行的顶部、居中或底部；手绘图片没有字距信息，`.fnt` 里也就没有。目录自己的附属文件只能设置 `padding`。
+`in` 也可以是一个 PNG 字形图片目录（如记分数字、伤害数字），从图片本身烘焙出同样的 `.fnt` 和页面：文件名主干是单个字符的图片（如 `7.png`）绘制该字符，其余名字由 `glyphs` 映射到字符，如 `plus.png` 映射到 `+`。未映射的名字、两张图片对应同一字符、`glyphs` 条目指向目录里不存在的文件、以及目录中出现非 PNG 文件都会被拒绝；`size`、`chars`、`charsFrom` 和 `charsFile` 同样被拒绝，它们是为字体文件挑选字形的设置。每个字形按图片自身的像素绘制，因此 `lineHeight` 和 `base` 取最高图片的高度，前进量是图片宽度加 `spacing`，`align` 把字形放在行的顶部、居中或底部；手绘图片没有字距信息，`.fnt` 里也就没有。目录自己的附属文件只能设置 `padding`。
 
 模型目标把 glTF 模型打包成一个[无需再解析任何外部文件](3d-models-blender.md)的二进制 glTF 文件：模型包含或引用的缓冲区（包括 `.glb` 文件的二进制块）合并进 GLB 的二进制块，它通过文件或 data URI 引用的每张图片连同媒体类型嵌入其中。其他属性全部保留，包括扩展和 extras，结果会通过加载来检查。`scale` 在模型各场景的每个根节点之上加一个按它缩放的新节点，同一根节点被多个场景列出时也只加一个，例如以厘米导出的模型用 `0.01`；`animations: false` 不保留动画。模型引用的缓冲区和图片必须是项目内的相对路径；它们是目标的输入，所以编辑 `.gltf` 文件旁的纹理会重新打包它。
 
@@ -426,7 +431,10 @@ audio:
 version: 1
 font:
   size: 24
-  chars: " 0123456789:"  # 每个字符一次，顺序不限
+  chars: " 0123456789:"  # 每个字符一次，顺序不限；与 charsFrom 和 charsFile 合并
+  charsFrom:
+    - l10n/zh-Hans.yaml
+  charsFile: fonts/extra-zh.txt
   padding: 2
 ```
 

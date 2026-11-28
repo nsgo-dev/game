@@ -63,6 +63,9 @@ func defineAssets(a *app, fs *flag.FlagSet) func() error {
 				if t.Status != assetbuild.UpToDate {
 					fmt.Fprintf(a.stdout, "%s %s\n", t.Status, t.ID)
 				}
+				for _, w := range t.Warnings {
+					fmt.Fprintf(a.stderr, "warning: %s: %s\n", t.ID, w)
+				}
 			}
 		}
 		if err != nil {

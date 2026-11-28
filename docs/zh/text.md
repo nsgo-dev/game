@@ -67,6 +67,12 @@ for i, g := range placements {
 }
 ```
 
+### 报告缺失字形
+
+当 `Draw`、`Layout`、`Measure` 或富文本布局遇到字体没有字形的字符时，会跳过该字符。在调试构建中（除 `-tags release` 外的所有构建），调用 `text.SetLogMissingGlyphs(true)` 会对每个字体中每个缺失字符仅记录一次日志，也可用 `text.SetMissingGlyphLogger(fn)` 安装自定义回调。在 `-tags release` 构建下，这两个函数都会编译为空操作（`text.LogMissingGlyphsEnabled()` 返回 `false`）。如需直接检查覆盖率，可调用 `font.MissingRunes(s)`（或 `sdfFont.MissingRunes(s)`），返回 `s` 中字体缺少的、已排序去重的非控制字符。
+
+对于本地化位图字体，可在 `game.yaml` 的字体目标上配置 `charsFrom` 与 `charsFile`，让 `go tool game assets` 自动从字符串表收集要烘焙的字符，并由 `go tool game check` 报告无法绘制的本地化文案（见[命令行](cli.md#assets)）。
+
 ## 有向距离场字体
 
 位图字体只在生成时的尺寸下清晰，放大后边缘就会模糊。`SDFFont` 保存的是距离场（每个图集像素到字形轮廓的距离），每个字形都按绘制时的尺寸从距离场解析出来，所以任何尺寸下边缘都只有一个像素宽：适合会缩放的文字、3D 世界中的标签，以及飞向镜头的伤害数字。

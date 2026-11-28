@@ -20,6 +20,8 @@ const (
 	FieldAudioOut         = "assets audio out"
 	FieldFontIn           = "assets font in"
 	FieldFontOut          = "assets font out"
+	FieldFontCharsFrom    = "assets font charsFrom"
+	FieldFontCharsFile    = "assets font charsFile"
 	FieldModelIn          = "assets model in"
 	FieldModelOut         = "assets model out"
 	FieldManifestIn       = "assets manifest in"
@@ -80,8 +82,12 @@ func pathFields(f *File) []pathField {
 			add(FieldAudioOut, false, true, &a.Audio[i].Out, "assets", "audio", strconv.Itoa(i), "out")
 		}
 		for i := range a.Fonts {
-			add(FieldFontIn, false, false, &a.Fonts[i].In, "assets", "fonts", strconv.Itoa(i), "in")
+			add(FieldFontIn, a.Fonts[i].GlyphFolder(), false, &a.Fonts[i].In, "assets", "fonts", strconv.Itoa(i), "in")
 			add(FieldFontOut, false, true, &a.Fonts[i].Out, "assets", "fonts", strconv.Itoa(i), "out")
+			for j := range a.Fonts[i].CharsFrom {
+				add(FieldFontCharsFrom, false, false, &a.Fonts[i].CharsFrom[j], "assets", "fonts", strconv.Itoa(i), "charsFrom", strconv.Itoa(j))
+			}
+			add(FieldFontCharsFile, false, false, &a.Fonts[i].CharsFile, "assets", "fonts", strconv.Itoa(i), "charsFile")
 		}
 		for i := range a.Models {
 			add(FieldModelIn, false, false, &a.Models[i].In, "assets", "models", strconv.Itoa(i), "in")
