@@ -9,7 +9,7 @@
 | `starter` | 一个点击得分的 2D 游戏：固定步长循环上的动画精灵、原生 HUD 和无头测试，是最小的起步项目。默认模板。 | `github.com/nsgo-dev/game/template` |
 | `action3d` | 第三人称 3D 动作冒险：环绕相机、由状态机混合的奔跑、跳跃和攻击动画、近战敌人，以及打开通往目标的大门的钥匙（[说明](template-action3d.md)）。 | `github.com/nsgo-dev/game/template/action3d` |
 | `cards2d` | [Suit Ladders](template-cards2d.md)，一个单人纸牌游戏：在抽牌堆、手牌、弃牌堆和四座梯子之间拖放卡牌，规则写在代码里，牌组和牌桌写在 YAML 里，带编号的发牌和存档。 | `github.com/nsgo-dev/game/template/cards2d` |
-| `coop2d` | 一个带房间码、邀请链接、固定 tick、重连、救援和重生的权威协作房间游戏。 | `github.com/nsgo-dev/game/template/coop2d` |
+| `coop2d` | 1 到 4 人 2D 协作房间的权威规则：房间码和邀请链接、固定 tick、宽限期内重新加入、队友救起倒地玩家和单人重生，调优写在 YAML 里，带无头测试；尚无网络传输（[说明](template-coop2d.md)）。 | `github.com/nsgo-dev/game/template/coop2d` |
 | `fighting2d` | 一对一的 2D 格斗游戏：两名原创角色，有搓招触发的必杀技、连段、上下段防御、回合和计时，可对战电脑或第二名玩家，用键盘、手柄或触屏操作。详见[格斗游戏模板](template-fighting2d.md)。 | `github.com/nsgo-dev/game/template/fighting2d` |
 | `fps3d` | 一个 3D 第一人称射击竞技场：即时命中和弹体两种武器，用 `ai` 和 `physics3d` 实现会巡逻、搜寻和射击的敌人，生命和弹药拾取物，以及三波要清除的敌人，可用键盘鼠标、游戏手柄或触屏游玩。详见 [fps3d 模板](template-fps3d.md)。 | `github.com/nsgo-dev/game/template/fps3d` |
 | `idle` | 一个放置游戏：生产器、升级、大数、回来时结算离线进度和转生，有胜有负；详见[放置游戏模板](template-idle.md)。 | `github.com/nsgo-dev/game/template/idle` |

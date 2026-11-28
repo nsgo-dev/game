@@ -1,11 +1,14 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/nsgo-dev/nsgo/core"
-	"time"
+	"github.com/nsgo-dev/nsgo/desktop"
 )
 
+// Root is the game's root NSGo component. It shows the room rules from coop.yaml; replace it with the game's lobby and play screens, which talk to a Server over the game's netplay transport.
 func Root(cx *core.Scope) core.Node {
-	return core.Text{Content: "Co-op room: create or join with a room code"}
+	desktop.SetTitle(cx, Project.Title())
+	return core.Text{Content: fmt.Sprintf("Co-op room: up to %d players, %d Hz authoritative tick", Coop.MaxPlayers, Coop.TickRate)}
 }
-func fixedTickCount(d time.Duration, rate int) int { return int(d.Seconds() * float64(rate)) }
