@@ -821,3 +821,6 @@ senses.Add(guard)
 // 在 game.Loop.Update 中：
 senses.Step(dt, []perception3d.Target{{ID: playerID, Team: teamPlayer, Pos: playerPos}})
 ```
+# 智能对象
+
+`ai.SmartObjects` 提供带标签的交互槽位，按半径查找空闲槽，防止重复占用，在对象禁用时释放占用，并支持保存占用状态。
