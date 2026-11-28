@@ -22,7 +22,7 @@ type PlacementStep struct {
 	Prefab  string   `yaml:"prefab,omitempty"`
 	Exclude []string `yaml:"exclude,omitempty"`
 }
-type Point struct {
+type PlacementPoint struct {
 	X, Y       float32
 	ID, Prefab string
 }
@@ -38,7 +38,7 @@ func ParsePlacement(data []byte) (Placement, error) {
 		return p, errors.New("procgen: placement requires version 1 and steps")
 	}
 	seen := map[string]bool{}
-	for i, s := range p.Steps {
+	for _, s := range p.Steps {
 		if s.ID == "" || seen[s.ID] {
 			return p, fmt.Errorf("procgen: invalid or duplicate step %q", s.ID)
 		}
@@ -68,8 +68,8 @@ func EncodePlacement(p Placement) ([]byte, error) {
 	return b.Bytes(), nil
 }
 func mustYAML(p Placement) []byte { b, _ := yaml.Marshal(p); return b }
-func (p Placement) Grid(width, height int) []Point {
-	out := []Point{}
+func (p Placement) Grid(width, height int) []PlacementPoint {
+	out := []PlacementPoint{}
 	r := random.New(p.Seed)
 	for _, s := range p.Steps {
 		if s.Sampler != "grid" {
@@ -80,7 +80,7 @@ func (p Placement) Grid(width, height int) []Point {
 			n = width * height
 		}
 		for i := 0; i < n; i++ {
-			out = append(out, Point{X: float32(r.Intn(width)), Y: float32(r.Intn(height)), ID: fmt.Sprintf("%s-%04d", s.ID, i), Prefab: s.Prefab})
+			out = append(out, PlacementPoint{X: float32(r.Intn(width)), Y: float32(r.Intn(height)), ID: fmt.Sprintf("%s-%04d", s.ID, i), Prefab: s.Prefab})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
