@@ -330,13 +330,14 @@ claude mcp add game-editor -- go tool game mcp
 | `tile_review_restore_region` | edit | `id` 或 `index` | 恢复当前瓦片审查中已还原的单个区域，并立即更新 2D 视口。 |
 | `tile_review_keep` | edit | 无 | 将当前瓦片审查中所有保留区域合并提交为 `History` 中的单个可撤销步骤，并关闭审查。 |
 | `tile_review_revert_all` | edit | 无 | 丢弃当前瓦片审查中的所有待确认改动，还原到审查前的瓦片地图并关闭审查。 |
+| `object_set_field` | edit | `field`、`value`（必填），`id`、`component`、`property`、`label`、`why`（可选） | 通过检查器自身的 `Editor` 方法设置对象 `id` 的单个检查器字段、组件字段（`component`）或自定义属性（`property: true`），在回合之外作为单个撤销步骤。省略 `id` 时见[编辑目标](#编辑目标)。 |
 | `object_copy_yaml` | read | `id`（可选） | 将当前场景中的对象（本地或解析后的继承/实例对象）序列化为规范 `sceneformat` YAML，复制到编辑器剪贴板并显示复制提示。 |
 | `object_paste_yaml` | edit | `yaml`、`layer`（可选） | 解析规范 `sceneformat` 对象 YAML（省略 `yaml` 时读取编辑器当前剪贴板，最大 4 MiB），分配全新的唯一 ID 并作为一个撤销步骤放置到 `layer`。 |
-| `object_duplicate` | edit | `id`（可选） | 在同一图层中克隆对象（及其子项）并分配全新的唯一 ID，作为单个撤销步骤。 |
-| `object_group` | edit | `ids`、`name`（可选） | 新建父分组对象并将给定对象 ID（或当前选中对象）移入其下，保持世界变换不变，作为单个撤销步骤。 |
-| `object_move_under` | edit | `id`、`parent`、`listCandidates`（可选） | 将对象重新挂到 `parent` 下（`parent` 为空时移至图层顶层）并保持世界变换不变，作为单个撤销步骤；当 `listCandidates: true` 时仅列出合法候选父级而不修改场景。 |
+| `object_duplicate` | edit | `id`（可选） | 在同一图层中克隆对象 `id`（及其子项）并分配全新的唯一 ID，作为单个撤销步骤，并以 `sourceId` 报告源对象。省略 `id` 时见[编辑目标](#编辑目标)。 |
+| `object_group` | edit | `ids`、`name`（可选） | 新建父分组对象并将对象 `ids` 移入其下，保持世界变换不变，作为单个撤销步骤，并以 `children` 报告这些对象。省略 `ids` 时见[编辑目标](#编辑目标)。 |
+| `object_move_under` | edit | `id`、`parent`、`listCandidates`（可选） | 将对象 `id` 重新挂到 `parent` 下（`parent` 为空时移至图层顶层）并保持世界变换不变，作为单个撤销步骤；当 `listCandidates: true` 时仅列出合法候选父级而不修改场景，只有这种情况下 `id` 默认为选中对象。移动时省略 `id` 见[编辑目标](#编辑目标)。 |
 | `object_select_same_prefab` | read | `id`（可选） | 选中当前场景中与目标对象共享同一 `prefab` 或实例化 `scene` 引用的全部对象，并返回 `selectedIds`。 |
-| `object_visibility` | edit | `id`、`hidden`、`locked`（可选） | 设置本地或解析对象的会话级隐藏与/或锁定状态，不修改场景文件。 |
+| `object_visibility` | edit | `id`、`hidden`、`locked`（可选） | 设置本地或解析对象 `id` 的会话级隐藏与/或锁定状态，不修改场景文件。省略 `id` 时见[编辑目标](#编辑目标)。 |
 | `object_find_usages` | read | `id`（可选） | 在打开的项目中查找对象的实例化场景、预制体或 ID 的引用与搜索匹配（对场景/预制体路径打开查找用法界面，对普通 ID 打开搜索面板）。 |
 | `release_notes_draft` | edit | `markdown`、`kept_reviews`（均可选） | 根据自上一发布标签（无标签时自初始提交）以来的 git 提交、已保留的审查摘要及 `changelog.d` 片段起草面向玩家的 Markdown 发布说明（或直接保存经校验的 `markdown`，上限 256 KiB），并仅原子写入 `game release -release-notes` 读取的同一文件。 |
 | `release_review_uploads` | run | 无 | 打开构建与发布界面的 **Review uploads** 确认对话框，列出每个产物的名称、体积、目标商店（`itch.io`、`Google Play · internal testing`、`TestFlight`）与版本号。绝不启动上传：无论权限配置如何，商店上传始终需要开发者本人显式确认。 |
@@ -381,6 +382,17 @@ claude mcp add game-editor -- go tool game mcp
 `add` 的对象由场景格式自己的读取器配合编辑器的组件注册表读取，因此会像打开文件时那样被拒绝。一次调用中只要有一项编辑被编辑器拒绝，所有编辑都不生效：场景、其撤销历史和磁盘上的文件都保持原样，工具错误会写出文件、编辑序号、对象、组件和字段以及修正方法，例如 `scene_edit: scenes/room.scene.yaml: edit 2 (set) on object "hero" component "body" field "sped": unknown field (registered: friction, layer, solid, speed); use a component and fields the project registers, as the message lists them. Nothing was changed.` 结构化结果以 `editormcp.EditError` 的形式包含同样的信息。
 
 在智能体回合进行期间（从 `turn_start` 到 `turn_end`，或从编辑器右侧 Agent 面板发起请求），智能体通过 `scene_edit`、`object_set_field` 与 `file_edit` 对场景、预制体、数据表、`game.yaml` 与动画片段所做的全部编辑都会暂存在内存中并归入同一个待确认回合，绝不提前写盘。编辑器通过把每个被改动文件与回合前状态做结构化对比来派生变更（并保留工具调用附带的 `why` 说明），允许用户在待确认期间按单条变更或按整个文件随时还原与恢复；用户点击 **Keep** 时把剩余改动跨全部文件提交为一条标记为 `AuthorAgent` 的撤销步骤，点击 **Revert** 时把每个文件按字节恢复到回合前状态。`turn_status` 会如实报告派生变更以及用户已还原的条目；按设计不存在可由智能体调用的保留或还原回合 MCP 工具。在回合之外，每次 `scene_edit` 或 `object_set_field` 仍是打开场景上的单个普通撤销步骤。
+
+#### 编辑目标
+
+选区是上下文，绝不是写入目标：用户与智能体共用同一个编辑器，智能体工作期间用户的一次点击不能把它的写入改投到别的对象上。`object_set_field`、`object_duplicate`、`object_group`、`object_move_under` 与 `object_visibility` 在为并行任务持有对象之前只解析一次要编辑的对象，持有、写入与报告的都是这同一组对象：
+
+- 给出 `id`（或 `ids`）时，编辑所指定的对象。
+- 省略时，若处于打开的智能体回合中，编辑用户发送请求时固定下来的对象，即 `agent_turn_get` 返回的 `selectionIds`，与当前选中了什么无关。只编辑一个对象的工具遇到固定了多个对象的请求会拒绝，并要求传入 `id`。
+- 省略时，若不在回合中，返回修复建议为 `pass id; selection_get shows the selected object` 的 `EditError`，不做任何改动；若回合的请求没有固定任何对象，修复建议改为指向 `agent_turn_get`。
+- 固定的对象已不在打开的场景中时，以问题 `the object the request was about was removed or renamed` 拒绝，并建议用 `scene_read` 重新读取场景，与未知 `id` 的错误不同。
+
+只读的 `object_locate_yaml`、`object_copy_yaml` 与 `object_find_usages` 仍默认使用选中对象，因为它们不会写错地方。
 
 当编辑器的自动保存处于失败状态时（例如目标目录只读或磁盘已满），`editormcp` 返回的每次工具结果都会追加一条警告，说明当前更改尚未写入磁盘并附上失败原因（同时在 `_meta` 中附带 `nsgo.dev/editsNotOnDisk`、`nsgo.dev/saveError`、`nsgo.dev/saveWarning`，并在 `Result` / `AutomationResult` 中填充 `SaveWarning`），直到保存成功为止，避免智能体基于未落盘的编辑继续构建。
 

@@ -840,7 +840,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **移至子级（Move under）**：子菜单（`MoveUnderCandidates`、`MoveObjectUnder`）列出所有合法的候选父对象——排除自身、后代以及会超出 `MaxObjectDepth` 的目标——并标注当前父对象、锁定状态、子对象数量或所在图层；重设父对象只占一个撤销步骤，一次撤销即可原样还原。
 - **选择相同预制体（Select same prefab）**：当对象设置了 `prefab` 或 `scene` 时，`SelectSamePrefab` 会选中场景中所有共享同一引用的对象（`SelectedIDs`、`SelectObjects`、`IsObjectSelected`）。
 - **隐藏/显示（`h`）、锁定/解锁、查找用法（`shift+f12`）、重命名（`f2`）与向智能体询问此项（`mod+l`）**：切换会话可见性（`ToggleObjectHidden`）和锁定状态（`ToggleObjectLocked`），在打开的项目中查找对该对象 ID、预制体或实例化场景的引用（`FindObjectUsages` / `ShowObjectUsages`，对场景/预制体路径打开查找用法界面，对普通 ID 打开搜索面板，未打开项目时省略），在场景树中开启行内重命名（`RequestRenameObject`），或将 `AgentPromptRequest` 草稿发送给 `Editor.OnAskAgent`（`AskAgentAboutObject`）。上下文菜单会实时读取自定义快捷键（`EffectiveShortcut`），对场景实例与继承/外部对象保留覆盖操作（打开实例化场景、转为本地对象、将覆盖应用到源场景、打开源场景、还原覆盖）并禁用外部对象的本地结构编辑，同时在场景树行中保留树顺序、剪切、粘贴为子对象、取消编组、修改 ID、移动到图层与删除操作。
-- **MCP 对等能力（`pkg/editor/editormcp`）**：每个上下文菜单操作都调用一个导出的 `Editor` 方法，并由编辑器 MCP 服务器同步暴露（`object_copy_yaml`、`object_paste_yaml`、`object_duplicate`、`object_group`、`object_move_under`、`object_select_same_prefab`、`object_visibility` 与 `object_find_usages`，配合既有的 `scene_edit` 以及 `selection_get` 的 `selectedIds`）。
+- **MCP 对等能力（`pkg/editor/editormcp`）**：每个上下文菜单操作都调用一个导出的 `Editor` 方法，并由编辑器 MCP 服务器同步暴露（`object_copy_yaml`、`object_paste_yaml`、`object_duplicate`、`object_group`、`object_move_under`、`object_select_same_prefab`、`object_visibility` 与 `object_find_usages`，配合既有的 `scene_edit` 以及 `selection_get` 的 `selectedIds`）。其中的编辑类工具从 `id` / `ids` 取得要编辑的对象，或在智能体回合中取自请求固定的选区，绝不取自实时选区（[mcp](mcp.md#编辑目标)）。
 
 ### 多对象选择与批量编辑（#867）
 
@@ -1429,6 +1429,7 @@ func main() {
 - **可播报选区标签、多行输入与上下文建议**：顶部以 `RoleStatus` / `LiveRegionPolite` 标签播报选区数量与对象名称（例如 `"已选中 2 项 · slime_01, slime_02"`）；主体为带无障碍标签的真实多行输入框（`⇧↵` 插入换行，`↵` 或 `⌘↵` 发送）；下方提供最多两条上下文建议（如多选时的“将它们做成预制体变体”与“均匀排列它们”），可用方向键与 `↵` 选取且绝不阻塞自由输入；视口左下角显示本地化提示 `"⌘L 询问选中内容 · ⌘K 搜索 · 右键“向智能体询问此项”"`。
 - **右键菜单联动**：视口右键菜单与场景树右键菜单中的**向智能体询问此项**（`AskAgentAboutObject`）都会打开同一个锚定就地提问框（目标对象属于多选时自动带入整个选区）。
 - **智能体面板与 MCP 上下文投递**：发送后会创建标记为 `SkipPlan: true` 的 `AgentTurn`（遵循 `Plan.dc.html`：“使用 ⌘L 发起的小修改会跳过计划”），附带选中对象 ID 与名称、打开的场景文件路径与 YAML 以及实时渲染的视口 PNG（`RenderViewportPNG`），将右侧栏（`RightRailView` / `RightRailTab`，可通过 `⌘1` / `⌘2` 切换）切至**智能体**标签页（`AgentPanelView`）展示该条对话与上下文标签，并通过 `editormcp` 的 `editor://agent/turn` 资源与 `agent_turn_get` / `agent_turn_reply` 工具推送给已连接的 MCP 客户端。
+- **固定的选区才是智能体的编辑目标，实时选区只是上下文**：回合打开期间，省略 `id` 调用的 `object_set_field`、`object_duplicate`、`object_group`、`object_move_under` 与 `object_visibility` 会编辑该回合发送时固定的对象（`Editor.OpenAgentTurnPin`），因此智能体工作期间选中别的对象绝不会改变它写入的对象，并行任务持有的对象也就是它写入的对象。在回合之外这些工具必须传入 `id`；固定的对象已被删除或改名时会以单独的错误拒绝（[mcp](mcp.md#编辑目标)）。
 ## 后台任务列表：排队与并行智能体请求（#1022）
 
 请求、计划步骤与自动化任务共享智能体面板中的同一个后台任务列表（`TasksPanelView`，严格使用 `design/editor/Spec.dc.html` 令牌并对应 `Tasks.dc.html`），可通过状态栏任务指示器（`status-tasks`）、`View > 后台任务` 菜单或 `CmdToggleTasks`（`mod+shift+t`）打开：

@@ -1,0 +1,3 @@
+### Fixed
+
+- `game/editor`: the `object_set_field`, `object_duplicate`, `object_group`, `object_move_under` and `object_visibility` MCP tools resolve the objects they edit once, before taking the object hold, so a click while the agent works no longer makes the hold and the write name different objects. Without `id` (or `ids`) they edit the objects the open agent turn pinned when the person sent it, never the live selection; outside a turn they refuse with an `EditError` that asks for `id`, and a pinned object that was removed or renamed is refused with its own error. Agents that relied on the selection default outside a turn must pass `id`, which `selection_get` reports. `Editor.OpenAgentTurnPin` returns an open turn's pinned objects (#1926).
