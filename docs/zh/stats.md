@@ -78,6 +78,8 @@ loop := &game.Loop{Rate: 60, Update: func(dt time.Duration) {
 
 ## 效果
 
+效果是确定性的固定步状态。`Apply` 具有原子性，`Refresh` 将一个来源替换为单次净变化，`Snapshot`/`Restore` 为回放保留活动修改器及剩余步数。
+
 `Effect` 是一组一起应用的带名字修饰符，例如一件物品的加成，或同时影响多个属性的增益。它的 `Steps`（0 表示无时限）作用于其中所有修饰符：
 
 ```go

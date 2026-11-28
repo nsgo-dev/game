@@ -78,6 +78,8 @@ Because time is counted in steps rather than durations, a paused loop pauses eve
 
 ## Effects
 
+Effects are deterministic fixed-step state. `Apply` is atomic, `Refresh` replaces one source as a single net change, and `Snapshot`/`Restore` preserve active modifiers and remaining steps for replay.
+
 An `Effect` is a named group of modifiers applied together, such as an item's bonuses or a buff that touches several stats. Its `Steps` (0 for no limit) applies to all of its modifiers:
 
 ```go
