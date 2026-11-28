@@ -355,3 +355,27 @@ func TestMatchmakerUnfilledAnchorPreservesCandidates(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchmakerPropertiesAreSymmetricAndScoreShould(t *testing.T) {
+	mm := gameserver.NewMatchmaker(2)
+	mm.Enqueue(gameserver.Ticket{ID: 1, Mode: "q", Region: "eu", Party: []string{"a"}, Strings: map[string]string{"platform": "pc"}, Query: gameserver.Query{{Kind: gameserver.Must, Field: "platform", In: []string{"pc"}}}})
+	mm.Enqueue(gameserver.Ticket{ID: 2, Mode: "q", Region: "eu", Party: []string{"b"}, Strings: map[string]string{"platform": "pc"}})
+	mm.Enqueue(gameserver.Ticket{ID: 3, Mode: "q", Region: "eu", Party: []string{"c"}, Strings: map[string]string{"platform": "mobile"}})
+	got := mm.Match()
+	if len(got) != 1 || !slices.Equal(got[0].TicketIDs, []uint64{1, 2}) {
+		t.Fatalf("matches = %+v", got)
+	}
+}
+
+func TestMatchmakerCountBoundsAndMultiple(t *testing.T) {
+	mm := gameserver.NewMatchmaker(4)
+	for i := uint64(1); i <= 3; i++ {
+		if err := mm.Enqueue(gameserver.Ticket{ID: i, Mode: "q", Region: "eu", Party: []string{string(rune('a' + i - 1))}, MinCount: 2, MaxCount: 3, CountMultiple: 2}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := mm.Match()
+	if len(got) != 1 || len(got[0].Players) != 2 {
+		t.Fatalf("matches = %+v", got)
+	}
+}
