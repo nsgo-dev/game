@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -64,8 +65,7 @@ type Join struct {
 	Snapshot []byte
 }
 
-// Room groups peers for one match. A room owns its members and inbox: packets
-// delivered through one room are never visible to another.
+// Room groups peers for one match. A room owns its members and inbox: packets delivered through one room are never visible to another. The inbox is bounded per member by RoomLimits.
 type Room struct {
 	id       uint64
 	code     string
@@ -80,7 +80,16 @@ type Room struct {
 	epoch   uint64
 	tick    uint64
 	members map[netplay.PeerID]struct{}
+	order   []netplay.PeerID // members in join order
 	inbox   map[netplay.PeerID][]netplay.Packet
+
+	perPeer  int // resolved RoomLimits.PerPeer, 0 for none
+	warning  int // resolved RoomLimits.Warning, 0 for none
+	queued   int
+	dropped  uint64
+	refused  uint64
+	warnings uint64
+	backlog  bool
 }
 
 // ID returns the room's manager-assigned ID.
@@ -122,15 +131,11 @@ func (r *Room) Advance() {
 	}
 }
 
-// Members returns the current peers in admission order not kept.
+// Members returns the current peers in join order. A peer that leaves and joins again moves to the end.
 func (r *Room) Members() []netplay.PeerID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]netplay.PeerID, 0, len(r.members))
-	for p := range r.members {
-		out = append(out, p)
-	}
-	return out
+	return append(make([]netplay.PeerID, 0, len(r.order)), r.order...)
 }
 
 // Start begins a match, or starts the next one after End: the epoch advances
@@ -148,16 +153,15 @@ func (r *Room) Start() error {
 	return nil
 }
 
-// End ends the running match. The room stays open so its peers can see the
-// result; a later Start begins the next epoch.
+// End ends the running match and discards the packets still queued in the room's inbox. The room stays open so its peers can see the result; a later Start begins the next epoch.
 func (r *Room) End() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.state = RoomEnded
+	r.clearInboxLocked()
 }
 
-// Deliver routes a packet from a member into this room's inbox. A peer outside
-// the room cannot inject packets, so one room's traffic never reaches another.
+// Deliver routes a packet from a member into this room's inbox. A peer outside the room cannot inject packets, so one room's traffic never reaches another. The member's queue is bounded by RoomLimits.PerPeer: past it an unreliable packet drops the member's oldest unreliable one, and a reliable packet that has none to evict is refused with ErrRoomInboxFull.
 func (r *Room) Deliver(from netplay.PeerID, p netplay.Packet) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -167,26 +171,14 @@ func (r *Room) Deliver(from netplay.PeerID, p netplay.Packet) error {
 	if _, ok := r.members[from]; !ok {
 		return ErrNotInRoom
 	}
-	r.inbox[from] = append(r.inbox[from], p)
-	return nil
+	return r.enqueueLocked(from, p)
 }
 
-// Recv pops the next packet delivered by peer. Non-members and empty inboxes
-// report false.
+// Recv pops the next packet delivered by peer. Non-members and empty inboxes report false. To read every member fairly, use Drain.
 func (r *Room) Recv(peer netplay.PeerID) (netplay.Packet, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	queue := r.inbox[peer]
-	if len(queue) == 0 {
-		return netplay.Packet{}, false
-	}
-	p := queue[0]
-	if len(queue) == 1 {
-		delete(r.inbox, peer)
-	} else {
-		r.inbox[peer] = queue[1:]
-	}
-	return p, true
+	return r.popLocked(peer)
 }
 
 // Rooms manages the rooms of one server process.
@@ -206,6 +198,7 @@ type Rooms struct {
 
 	mu     sync.Mutex
 	nextID uint64
+	limits RoomLimits
 	rooms  map[uint64]*Room
 	codes  map[string]*Room
 }
@@ -239,6 +232,7 @@ func (rs *Rooms) Create(capacity int, private bool) (*Room, error) {
 		members:  make(map[netplay.PeerID]struct{}),
 		inbox:    make(map[netplay.PeerID][]netplay.Packet),
 	}
+	r.applyLimits(rs.limits)
 	if private {
 		for attempt := 0; attempt < 8; attempt++ {
 			code := rs.code()
@@ -303,6 +297,7 @@ func (rs *Rooms) join(r *Room, peer netplay.PeerID) (Join, error) {
 			return Join{}, fmt.Errorf("%w: room %d seats %d", ErrRoomFull, r.id, r.capacity)
 		}
 		r.members[peer] = struct{}{}
+		r.order = append(r.order, peer)
 	}
 	r.emptyAt = time.Time{}
 	state, epoch, tick := r.state, r.epoch, r.tick
@@ -327,7 +322,10 @@ func (rs *Rooms) Leave(id uint64, peer netplay.PeerID) bool {
 	r.mu.Lock()
 	_, member := r.members[peer]
 	delete(r.members, peer)
-	delete(r.inbox, peer)
+	if i := slices.Index(r.order, peer); i >= 0 {
+		r.order = slices.Delete(r.order, i, i+1)
+	}
+	r.dropQueueLocked(peer)
 	if member && len(r.members) == 0 {
 		r.emptyAt = rs.now()
 	}
@@ -364,6 +362,7 @@ func (rs *Rooms) Tick() []uint64 {
 		empty := len(r.members) == 0 && now.Sub(r.emptyAt) >= rs.EmptyTimeout
 		if empty {
 			r.closed = true
+			r.clearInboxLocked()
 		}
 		r.mu.Unlock()
 		if !empty {

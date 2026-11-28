@@ -3,7 +3,6 @@ package server_test
 import (
 	"context"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/netplay"
@@ -47,10 +46,8 @@ func ExampleRooms() {
 	room.Start()
 	room.Advance()
 	j, err := rooms.Join(room.ID(), 3)
-	// Members does not keep admission order, so sort it before printing.
-	members := room.Members()
-	slices.Sort(members)
-	fmt.Println(err, members, room.State(), j.Epoch, j.Tick)
+	// Members lists peers in join order.
+	fmt.Println(err, room.Members(), room.State(), j.Epoch, j.Tick)
 	// Output:
 	// KX7Q waiting
 	// <nil> [1 2 3] running 1 1

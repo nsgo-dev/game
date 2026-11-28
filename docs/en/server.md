@@ -102,6 +102,22 @@ rs.Tick()                                 // close rooms empty for EmptyTimeout
 - A private room's `Code` is accepted by `JoinCode`; a full room returns `ErrRoomFull`, an unknown code `ErrRoomNotFound`.
 - An empty room — whether nobody joined it or its last member left — closes after `EmptyTimeout` when `Tick` runs, releasing its ID and private code.
 
+Each room's inbox is bounded per member, like the transports' inboxes, so a match that falls behind its packet loop holds a fixed amount of memory:
+
+```go
+rs.SetLimits(server.RoomLimits{PerPeer: 256, Warning: 1024}) // the defaults; applies to open and future rooms
+if err := room.Deliver(peer, pkt); errors.Is(err, server.ErrRoomInboxFull) {
+	wsServer.Kick(peer, "room inbox full")
+}
+room.Drain(4, func(p netplay.Packet) { apply(p) }) // up to 4 per member, round robin in join order
+stats := room.InboxStats()                          // Queued, Dropped, Refused, Warnings, Backlog
+```
+
+- A member's queue holds at most `PerPeer` packets (zero uses `DefaultRoomInboxPerPeer`, 256; negative removes the cap). A packet that arrives at a full queue evicts that member's oldest unreliable packet; when the queue holds only reliable packets, an arriving unreliable packet is dropped and a reliable one is refused with `ErrRoomInboxFull`, so the packet loop should disconnect that peer. One member's flood evicts only its own packets.
+- `Drain` reads every member fairly: each member's oldest packet, then each member's next, up to the budget per member, so a peer that floods the room does not delay the others. Its callback runs without the room's lock held. `Members` returns peers in join order.
+- `InboxStats().Warnings` counts once when the room's whole backlog passes `Warning` and again only after it has fallen to half of it (zero uses `DefaultRoomInboxWarning`, 1024; negative turns it off).
+- `End`, `Leave` (for the leaving member) and `Tick` closing a room discard the packets still queued.
+
 ## Rate limits and input validation
 
 `Guard` enforces a per-peer policy before packets reach a room or simulation:

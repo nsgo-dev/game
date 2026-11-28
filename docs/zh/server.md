@@ -102,6 +102,22 @@ rs.Tick()                                 // 关闭空置超过 EmptyTimeout 的
 - 私有房间的 `Code` 可由 `JoinCode` 使用；满员返回 `ErrRoomFull`，未知房间码返回 `ErrRoomNotFound`。
 - 空房间（无论是从未有人加入，还是最后一个成员已经离开）会在空置满 `EmptyTimeout` 后于 `Tick` 运行时关闭，并释放其 ID 与私有房间码。
 
+每个房间的收件箱按成员设有上限，与传输层的收件箱一致，所以跟不上收包循环的比赛只占用固定的内存：
+
+```go
+rs.SetLimits(server.RoomLimits{PerPeer: 256, Warning: 1024}) // 即默认值；对已打开和之后创建的房间都生效
+if err := room.Deliver(peer, pkt); errors.Is(err, server.ErrRoomInboxFull) {
+	wsServer.Kick(peer, "room inbox full")
+}
+room.Drain(4, func(p netplay.Packet) { apply(p) }) // 每个成员最多 4 个，按加入顺序轮流
+stats := room.InboxStats()                          // Queued、Dropped、Refused、Warnings、Backlog
+```
+
+- 每个成员的队列最多保存 `PerPeer` 个包（零使用 `DefaultRoomInboxPerPeer`，即 256；负数取消上限）。队列已满时到达的包会挤掉该成员最旧的不可靠包；队列里只剩可靠包时，到达的不可靠包被丢弃，到达的可靠包被 `ErrRoomInboxFull` 拒绝，收包循环应断开该 peer。一个成员刷包只会挤掉它自己的包。
+- `Drain` 公平地读取每个成员：先取每个成员最旧的包，再取每个成员的下一个，每个成员最多取 budget 个，所以刷包的 peer 不会拖慢其他人。回调执行时不持有房间的锁。`Members` 按加入顺序返回 peer。
+- 房间全部积压超过 `Warning` 时 `InboxStats().Warnings` 计一次，回落到一半（含）后才会再计（零使用 `DefaultRoomInboxWarning`，即 1024；负数关闭警告）。
+- `End`、`Leave`（针对离开的成员）以及 `Tick` 关闭房间时，会丢弃仍在排队的包。
+
 ## 速率限制与输入校验
 
 `Guard` 在包进入房间或模拟前执行每个 peer 的策略：
