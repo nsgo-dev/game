@@ -116,7 +116,7 @@ allowedOrigins:
 | `keepVersions` | Versions kept per slot, the current one included, from 1 to 100 |
 | `allowedOrigins` | Web origins whose pages may call the service; omitted when empty |
 
-`ParseConfig` refuses unknown fields, trailing documents, out-of-range values and an origin with a path, a wildcard, a port outside 1 to 65535 or a scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above, `audience` only when set and `allowedOrigins` only when it has entries. A file in that form, such as one `Marshal` or `cloudsaved init` wrote, reads back and writes again unchanged. `DefaultConfig` returns the settings shown, without origins.
+`ParseConfig` refuses unknown fields, trailing documents, out-of-range values, `audience: accounts` (the account service's own audience) and an origin with a path, a wildcard, a port outside 1 to 65535 or a scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above, `audience` only when set and `allowedOrigins` only when it has entries. A file in that form, such as one `Marshal` or `cloudsaved init` wrote, reads back and writes again unchanged. `DefaultConfig` returns the settings shown, without origins.
 
 ## Storage
 
@@ -129,7 +129,7 @@ verifier, err := authtoken.NewVerifierFor(keySet, cfg.TokenAudience())   // not 
 svc, err := cloudsave.New(cfg, cloudsave.Options{Store: store, Tokens: verifier, Logger: slog.Default()})
 ```
 
-`New` refuses a verifier for any audience other than `Config.TokenAudience`.
+`New` refuses a verifier for any audience other than `Config.TokenAudience`, and one for the audience of the key set it was built from, which names the game's servers, even when the configuration names that audience.
 
 The SQL store keeps two tables, `cloudsave_slots` (each slot's newest version) and `cloudsave_versions` (the kept versions with their payloads), and versions its schema in `cloudsave_schema`. Each write compares and sets the slot's newest version number in one transaction; on Postgres it also takes an advisory lock on the account, so the slot count and pruning see every concurrent write. SQLite uses the pure-Go `modernc.org/sqlite` driver with write-ahead logging and one connection; Postgres uses `github.com/jackc/pgx/v5`. Both create their tables when missing and refuse a schema newer than they know. `NewMemoryStore` keeps everything in memory for tests and prototypes, and a store of your own passes `storetest.Run`.
 

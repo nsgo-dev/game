@@ -64,6 +64,7 @@ func TestConfigRefusesInvalid(t *testing.T) {
 		"origin empty host":         "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: ['http://:8080']\n",
 		"origin twice":              "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\nallowedOrigins: [https://a.example, https://a.example]\n",
 		"trailing doc":              "version: 1\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\n---\nversion: 1\n",
+		"account service audience":  "version: 1\naudience: accounts\nmaxSlotBytes: 1\nmaxSlots: 1\nkeepVersions: 1\n",
 	}
 	for name, src := range cases {
 		if _, err := cloudsave.ParseConfig([]byte(src)); err == nil {

@@ -368,6 +368,25 @@ func TestNewRefusesVerifierForAnotherAudience(t *testing.T) {
 	if _, err := cloudsave.New(cloudsave.DefaultConfig(), cloudsave.Options{Store: cloudsave.NewMemoryStore(), Tokens: game}); err == nil {
 		t.Fatal("New accepted a verifier for the game servers' audience")
 	}
+	// Naming the game servers' audience in the config does not get around the check: the verifier remembers its key set.
+	renamed := cloudsave.DefaultConfig()
+	renamed.Audience = "test-game"
+	gameFor, err := authtoken.NewVerifierFor(signer.KeySet(), "test-game")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cloudsave.New(renamed, cloudsave.Options{Store: cloudsave.NewMemoryStore(), Tokens: gameFor}); err == nil {
+		t.Fatal("New accepted a config and verifier naming the game servers' audience")
+	}
+	self := cloudsave.DefaultConfig()
+	self.Audience = authtoken.AccountServiceAudience
+	selfV, err := authtoken.NewVerifierFor(signer.KeySet(), authtoken.AccountServiceAudience)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cloudsave.New(self, cloudsave.Options{Store: cloudsave.NewMemoryStore(), Tokens: selfV}); err == nil {
+		t.Fatal("New accepted the account service's audience")
+	}
 	if got := (cloudsave.Config{}).TokenAudience(); got != cloudsave.DefaultAudience {
 		t.Fatalf("TokenAudience of a config without audience = %q", got)
 	}

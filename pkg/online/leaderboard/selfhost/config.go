@@ -88,7 +88,7 @@ const SignedByServer Validation = "signed"
 type Config struct {
 	// Version is the schema version; it must be ConfigVersion.
 	Version int `yaml:"version"`
-	// Audience is the token audience Handler accepts, which the account service must list in its audiences; empty means DefaultAudience. It must differ from the audience of the key set, which names the game's servers.
+	// Audience is the token audience Handler accepts, which the account service must list in its audiences; empty means DefaultAudience. It must differ from the audience of the key set, which names the game's servers, and must not be "accounts", the account service's own audience.
 	Audience string `yaml:"audience,omitempty"`
 	// ProofTTL is how old a game server's score proof may be, from 1s to 24h; zero means DefaultProofTTL.
 	ProofTTL Duration `yaml:"proofTTL,omitempty"`
@@ -186,6 +186,9 @@ func (c Config) Board(name string) (Board, bool) {
 func (c Config) Validate() error {
 	if c.Version != ConfigVersion {
 		return loaderr.Errorf("version", fmt.Sprintf("set version: %d at the top of the leaderboard server config", ConfigVersion), "selfhost: unsupported config version %d (want %d)", c.Version, ConfigVersion)
+	}
+	if c.Audience == authtoken.AccountServiceAudience {
+		return loaderr.Errorf("audience", fmt.Sprintf("set audience to the name the account service lists in its audiences for this service, such as %q, not %q, which names the account service itself", DefaultAudience, authtoken.AccountServiceAudience), "selfhost: audience %q is reserved for the account service", authtoken.AccountServiceAudience)
 	}
 	if ttl := time.Duration(c.ProofTTL); ttl != 0 && (ttl < time.Second || ttl > 24*time.Hour || ttl%time.Second != 0) {
 		return loaderr.Errorf("proofTTL", "set proofTTL to whole seconds from 1s to 24h such as 10m, or omit it for the default", "selfhost: proofTTL %v must be whole seconds from 1s to 24h", ttl)

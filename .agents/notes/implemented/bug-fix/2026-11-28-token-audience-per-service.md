@@ -13,7 +13,8 @@ Every consumer verifies its own audience, and the account service issues a token
 ### Token contract (`accounts/authtoken`)
 
 - `Signer.IssueFor(subject, audience)` issues for an audience other than the signer's own; `Issue` keeps issuing for the key set's audience.
-- `NewVerifierFor(ks, audience)` builds a verifier for the key set's keys and issuer that accepts only `audience`; `NewVerifier(ks)` is `NewVerifierFor(ks, ks.Audience)`. `Verifier.Audience` reports it.
+- `NewVerifierFor(ks, audience)` builds a verifier for the key set's keys and issuer that accepts only `audience`; `NewVerifier(ks)` is `NewVerifierFor(ks, ks.Audience)`. `Verifier.Audience` reports it, and `Verifier.AcceptsGameServerTokens` reports whether it equals the key set's audience, which the verifier remembers.
+- `AccountServiceAudience` (`"accounts"`) is the account service's own audience; `accounts.ServiceAudience` is the same constant, so services that must refuse it need not import `accounts`.
 - The key set file format is unchanged: its `audience` is the game servers' one.
 
 ### Account service (`accounts`)
@@ -25,7 +26,8 @@ Every consumer verifies its own audience, and the account service issues a token
 ### Services that act for the player
 
 - `cloudsave.Config.Audience` and `selfhost.Config.Audience` (`audience:`, omitted when empty) name the audience the service accepts; `TokenAudience` resolves empty to `DefaultAudience` (`cloudsave` / `leaderboard`). `cloudsaved init` and `leaderboardd init` write it explicitly.
-- `cloudsave.New` and `selfhost.New` refuse an `Options.Tokens` whose `Audience` is not `TokenAudience`, so a verifier built with `NewVerifier` from the key set fails at construction rather than accepting game server tokens.
+- `cloudsave.New` and `selfhost.New` refuse an `Options.Tokens` whose `Audience` is not `TokenAudience`, so a verifier built with `NewVerifier` from the key set fails at construction rather than accepting game server tokens. They also refuse a verifier with `AcceptsGameServerTokens`, so a library caller who names the game servers' audience in the configuration and builds a matching verifier with `NewVerifierFor` is refused too, the same rule the daemons apply.
+- Both configurations refuse `audience: accounts`: a service accepting account service tokens would let whoever runs it replay them against `GET /v1/me` and the link endpoints.
 - `cloudsaved serve` and `leaderboardd serve` build the verifier with `NewVerifierFor(ks, cfg.TokenAudience())` and refuse to start when that audience equals the key set's.
 
 ## Alternatives considered
