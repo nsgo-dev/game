@@ -121,6 +121,20 @@ go tool game release [flags] [dir]
 | `-strict` |  | fail with an error instead of warning when building an experimental target platform |
 | `-target targets` |  | comma-separated nsgo build targets (default: game.yaml's export presets, else macos,windows,linux,web,ios,android, or macos,windows,linux for the steam channel) |
 
+## game capture
+
+Render reproducible store screenshots and covers from a YAML capture plan.
+
+```sh
+go tool game capture [flags] [project]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-out directory` | `store/media` | output directory relative to the project |
+| `-plan file` | `store/capture.yaml` | capture plan file relative to the project |
+| `-shot shot` |  | render only the named shot |
+
 ## game replay
 
 Check the input recordings under the directories and play them headless through their replay tests, failing on a mismatch.

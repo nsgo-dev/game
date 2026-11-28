@@ -153,6 +153,10 @@ go tool nsgo check -target macos,windows,linux,web,ios,android
 
 ## 构建发布包
 
+### 可复现的商店截图
+
+将商店静态图保存在 `store/capture.yaml`。每个 `version: 1` 镜头声明场景、可选的 `.replay.yaml` 录制和固定步数的 `frame` 或 `time`、输出名称，以及使用 `app_store`、`google_play`、`itch_cover`、`minigame_share` 或显式 `width` 与 `height` 的 `sizes`。未知字段和不支持的版本会被拒绝。运行 `go tool game capture` 将确定性的 PNG 写入 `store/media`，传入 `-shot name` 可只重建一个镜头。
+
 `go tool game release`（以及场景编辑器的导出面板 / 构建与发布界面）会自动以 `GOFLAGS=-tags=release` 调用 `nsgo build`，从而把仅限开发期的包（`pkg/tooling/gamedebug`、`pkg/tooling/hotreload`、`pkg/tooling/devstate` 以及物理与 AI 调试绘制）替换为零开销空实现，并在构建完成后校验桌面端二进制未链接调试符号，同时在产物旁写出 `CREDITS.md`：
 
 ```sh
