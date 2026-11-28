@@ -1367,6 +1367,8 @@ func main() {
 
 ## 通过 MCP 生成器服务器生成资源（#1053）
 
+编辑器在边界处使用统一的生成参数词汇。支持的键包括 `prompt`、`negativePrompt`、`seed`、`count`、`width`、`height`、`aspectRatio`、`background`、`referenceImages`、`duration`、`loop`、`voice`、`instrumental`、`frameCount` 与 `faceLimit`。连接的工具声明 `aspect_ratio`、`num_images` 或 `image_size` 等别名时，编辑器会把统一键映射为线上的键，并在调用服务器前校验类型、枚举值与数值范围。`GeneratorServerConfig.Params` 可用 `canonical: wire` 显式覆写提供商专用名称。接受现有 `target`、`prompt`、`count` 与 `kind` 参数的服务器仍会原样收到这些旧参数。
+
 通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `design/editor/Spec.dc.html` 令牌并对应 `design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
 
 - **MCP 生成器服务器（`GENERATORS · MCP`）**：在 **设置 › 工具**（`EditorSettingsDialogView`）中配置服务器（`GeneratorServerConfig`、`SetGeneratorServerConfigs`），通过 `ConnectAssetGenerator`（任意 `mcp.Transport`，与 `ConnectRemote` 一致）或 `ConnectAssetGeneratorCommand`（桌面端 stdio 进程）连接。`AssetGenerators` 列出所有已连接或已配置的 `images` / `sound` 服务器及实时连接状态。

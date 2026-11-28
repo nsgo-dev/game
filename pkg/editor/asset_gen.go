@@ -16,6 +16,7 @@ import (
 	"image/png"
 	"io"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path"
@@ -81,6 +82,8 @@ type GeneratorServerConfig struct {
 	Args []string `yaml:"args,omitempty"`
 	// Tool optionally names the specific MCP tool to invoke; empty selects the first matching generate tool advertised by the server.
 	Tool string `yaml:"tool,omitempty"`
+	// Params maps canonical generation parameter names to provider wire keys.
+	Params map[string]string `yaml:"params,omitempty"`
 }
 
 // AssetGeneratorServer describes the live status of a configured or connected MCP generator server.
@@ -238,6 +241,8 @@ type GenerateAssetParams struct {
 	VaryFromSeed *int64
 	// Refine optionally adds refinement words while keeping the same references.
 	Refine string
+	// Params contains optional canonical generation parameters validated against the connected tool schema.
+	Params map[string]any
 }
 
 type assetGenServerConn struct {
@@ -245,6 +250,7 @@ type assetGenServerConn struct {
 	session *sdkmcp.ClientSession
 	tool    string
 	errMsg  string
+	schema  GeneratorParameterSchema
 }
 
 type assetGenState struct {
@@ -717,18 +723,39 @@ func (e *Editor) ConnectAssetGenerator(ctx context.Context, cfg GeneratorServerC
 		return fmt.Errorf("editor: connect MCP generator %q: %w", cfg.Name, err)
 	}
 
-	toolName := strings.TrimSpace(cfg.Tool)
-	if toolName == "" {
+	var tools []*sdkmcp.Tool
+	if cfg.Tool == "" || len(cfg.Params) > 0 {
 		res, listErr := cs.ListTools(ctx, nil)
 		if listErr != nil {
 			_ = cs.Close()
 			return fmt.Errorf("editor: list tools on MCP generator %q: %w", cfg.Name, listErr)
 		}
-		toolName = pickGeneratorTool(res.Tools, cfg.Kind)
+		tools = res.Tools
+	}
+	toolName := strings.TrimSpace(cfg.Tool)
+	if toolName == "" {
+		toolName = pickGeneratorTool(tools, cfg.Kind)
 		if toolName == "" {
 			_ = cs.Close()
 			return fmt.Errorf("editor: MCP generator %q advertises no tools", cfg.Name)
 		}
+	}
+	var toolSchema GeneratorParameterSchema
+	for _, tool := range tools {
+		if tool == nil || tool.Name != toolName || tool.InputSchema == nil {
+			continue
+		}
+		raw, marshalErr := json.Marshal(tool.InputSchema)
+		if marshalErr != nil {
+			_ = cs.Close()
+			return fmt.Errorf("editor: encode schema for MCP generator %q: %w", cfg.Name, marshalErr)
+		}
+		toolSchema, marshalErr = ParseGeneratorParameterSchema(raw)
+		if marshalErr != nil {
+			_ = cs.Close()
+			return fmt.Errorf("editor: parse schema for MCP generator %q: %w", cfg.Name, marshalErr)
+		}
+		break
 	}
 
 	e.assetGen.mu.Lock()
@@ -741,6 +768,7 @@ func (e *Editor) ConnectAssetGenerator(ctx context.Context, cfg GeneratorServerC
 		config:  cfg,
 		session: cs,
 		tool:    toolName,
+		schema:  toolSchema,
 	})
 	e.assetGen.rev++
 	e.assetGen.mu.Unlock()
@@ -895,6 +923,14 @@ func (e *Editor) SetGeneratorServerConfigs(servers []GeneratorServerConfig) erro
 		if !g.Kind.Valid() {
 			return fmt.Errorf("editor: generator server %q has invalid kind %q (want images or sound)", g.Name, g.Kind)
 		}
+		for canonical, wire := range g.Params {
+			if !isCanonicalKey(canonical) {
+				return fmt.Errorf("editor: generator server %q has unknown canonical parameter %q", g.Name, canonical)
+			}
+			if strings.TrimSpace(wire) == "" {
+				return fmt.Errorf("editor: generator server %q has empty wire key for %q", g.Name, canonical)
+			}
+		}
 	}
 	e.assetGen.mu.Lock()
 	e.assetGen.configured = cloneGeneratorConfigs(servers)
@@ -911,6 +947,7 @@ func cloneGeneratorConfigs(in []GeneratorServerConfig) []GeneratorServerConfig {
 	out := make([]GeneratorServerConfig, len(in))
 	for i, c := range in {
 		c.Args = slices.Clone(c.Args)
+		c.Params = maps.Clone(c.Params)
 		out[i] = c
 	}
 	return out
@@ -1148,6 +1185,26 @@ func (e *Editor) prepareAssetGenCall(params GenerateAssetParams) (*preparedAsset
 	if r := strings.TrimSpace(params.Refine); r != "" {
 		args["refine"] = r
 	}
+	canonical := map[string]any{string(ParamPrompt): prompt, string(ParamCount): count}
+	if len(params.References) > 0 {
+		canonical[string(ParamReferenceImages)] = slices.Clone(params.References)
+	}
+	if params.BaseSeed != nil {
+		canonical[string(ParamSeed)] = *params.BaseSeed
+	}
+	canonical = mergeAnyMaps(canonical, params.Params)
+	if len(canonical) > 0 {
+		mapped, mapErr := MapGeneratorParameters(conn.schema, canonical, conn.config.Params)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		for key, value := range mapped {
+			args[key] = value
+		}
+	}
+	if err := ValidateGeneratorArguments(conn.schema, args); err != nil {
+		return nil, err
+	}
 
 	return &preparedAssetGenCall{
 		params:     params,
@@ -1163,6 +1220,17 @@ func (e *Editor) prepareAssetGenCall(params GenerateAssetParams) (*preparedAsset
 		epoch:      epoch,
 		args:       args,
 	}, nil
+}
+
+func mergeAnyMaps(base, extra map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(extra))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range extra {
+		out[key] = value
+	}
+	return out
 }
 
 // executeAssetGenCall performs the MCP RPC and untrusted in-memory decoding without accessing any non-thread-safe Editor fields.
