@@ -153,6 +153,10 @@ Run headless tests with `go tool nsgo test`, or run tests on a real platform wit
 
 ## Build release packages
 
+### Reproducible store screenshots
+
+Keep store stills in `store/capture.yaml`. Each `version: 1` shot names a scene, optionally a `.replay.yaml` recording and fixed-step `frame` or `time`, an output stem, and `sizes` using `app_store`, `google_play`, `itch_cover`, `minigame_share`, or explicit `width` and `height` values. Unknown fields and unsupported versions are refused. Run `go tool game capture` to write deterministic PNGs under `store/media`; pass `-shot name` to rebuild one shot.
+
 `go tool game release` (and the scene editor's Export / Build and Release screens) runs `nsgo build` with `GOFLAGS=-tags=release`, compiling out development-only packages (`pkg/tooling/gamedebug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing), verifying built desktop binaries against leaked debug symbols, and writing `CREDITS.md` beside the packages:
 
 ```sh

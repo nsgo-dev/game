@@ -31,6 +31,8 @@ claude mcp add nsgo -- go tool nsgo mcp
 
 ## 典型智能体工作流
 
+处理商店媒体时，应读取并更新 `store/capture.yaml`，不要手工抓图。场景或录制变化后运行 `go tool game capture -shot <name>`，检查确定性的 PNG 差异，并且只根据 `game.yaml`、输入绑定和 changelog 片段中的事实起草商店文案。
+
 1. 使用 `go run github.com/nsgo-dev/game/cmd/game@latest new` 创建项目，并用 `go tool game generate`、`go tool game assets` 与 `go tool game check` 搭建组件并校验资源和引用。
 2. 在游戏的 `*core.Scope` 上挂载 `mcp.Bridge`，并运行 `go tool nsgo dev -automation`（或在测试中使用 `nsgotest.Start`）。
 3. 通过 MCP 执行可复现验证：调用 `game_loop_pause` 暂停、`game_loop_seed` 设定随机种子、注入输入或生成实体、调用 `game_loop_step` 同步推进步数、通过 `game_entities_list` / `game_entity_inspect` / `game_component_get` 检查实体状态，并用 `game_screenshot` 截取叠加层画面。

@@ -44,6 +44,7 @@ go get -tool github.com/nsgo-dev/game/cmd/game@latest
 | Command | Usage | Purpose |
 | --- | --- | --- |
 | `game replay` | `game replay [-run Replay] [dir ...]` | Validate YAML input recordings and run their headless replay tests |
+| `game capture` | `game capture [-plan file] [-shot name] [-out directory] [project]` | Render deterministic store screenshots and covers from a YAML capture plan |
 | `game playtest` | `game playtest [-config -out -recordings -run -count -seeds -check] [dir ...]` | Validate `playtest.yaml`, run headless bot playtests with replays, write a YAML report and fail on missed goals |
 | `game bench` | `game bench [-baseline -bench -benchtime -count -in -update] [dir ...]` | Run headless benchmarks and fail on regressions against a YAML baseline |
 | `game wire` | `game wire [-in dir\|file -out dir\|file -pkg -lang go\|ts -self -check] [schema.wire.yaml ...]` | Generate deterministic Go or TypeScript codecs from `*.wire.yaml` schemas, or with `-check` fail when the committed ones are stale |
