@@ -55,6 +55,7 @@ type RoomInfo struct {
 	Tick     uint64
 	Members  int
 	Private  bool
+	Label    map[string]string
 }
 
 // Join reports a peer's admission and, for a running match, the full snapshot
@@ -83,6 +84,8 @@ type Room struct {
 	members map[netplay.PeerID]struct{}
 	order   []netplay.PeerID // members in join order
 	inbox   map[netplay.PeerID][]netplay.Packet
+	handler MatchHandler
+	label   map[string]string
 
 	perPeer  int // resolved RoomLimits.PerPeer, 0 for none
 	warning  int // resolved RoomLimits.Warning, 0 for none
@@ -259,13 +262,18 @@ func (rs *Rooms) Create(capacity int, private bool) (*Room, error) {
 // Join admits peer to room id. A join to a running match carries the full
 // snapshot from Snapshot, so the joiner applies it before any delta.
 func (rs *Rooms) Join(id uint64, peer netplay.PeerID) (Join, error) {
+	return rs.JoinWithMeta(id, peer, "", nil)
+}
+
+// JoinWithMeta admits a peer after the match handler approves account and metadata.
+func (rs *Rooms) JoinWithMeta(id uint64, peer netplay.PeerID, account string, meta []byte) (Join, error) {
 	rs.mu.Lock()
 	r, ok := rs.rooms[id]
 	rs.mu.Unlock()
 	if !ok {
 		return Join{}, ErrRoomNotFound
 	}
-	return rs.join(r, peer)
+	return rs.join(r, peer, account, meta)
 }
 
 // JoinCode admits peer to the private room with code.
@@ -276,10 +284,18 @@ func (rs *Rooms) JoinCode(code string, peer netplay.PeerID) (Join, error) {
 	if !ok {
 		return Join{}, ErrRoomNotFound
 	}
-	return rs.join(r, peer)
+	return rs.join(r, peer, "", nil)
 }
 
-func (rs *Rooms) join(r *Room, peer netplay.PeerID) (Join, error) {
+func (rs *Rooms) join(r *Room, peer netplay.PeerID, details ...any) (Join, error) {
+	var account string
+	var meta []byte
+	if len(details) > 0 {
+		account, _ = details[0].(string)
+	}
+	if len(details) > 1 {
+		meta, _ = details[1].([]byte)
+	}
 	if rs.beforeJoin != nil {
 		rs.beforeJoin(r)
 	}
@@ -292,6 +308,21 @@ func (rs *Rooms) join(r *Room, peer netplay.PeerID) (Join, error) {
 		r.mu.Unlock()
 		return Join{}, ErrRoomEnded
 	}
+	h := r.handler
+	if h != nil {
+		r.mu.Unlock()
+		if ok, reason := h.JoinAttempt(peer, account, append([]byte(nil), meta...)); !ok {
+			if reason == "" {
+				reason = "join rejected"
+			}
+			return Join{}, fmt.Errorf("gameserver: join rejected: %s", reason)
+		}
+		r.mu.Lock()
+		if r.closed || r.state == RoomEnded {
+			r.mu.Unlock()
+			return Join{}, ErrRoomEnded
+		}
+	}
 	if _, exists := r.members[peer]; !exists {
 		if len(r.members) >= r.capacity {
 			r.mu.Unlock()
@@ -303,6 +334,9 @@ func (rs *Rooms) join(r *Room, peer netplay.PeerID) (Join, error) {
 	r.emptyAt = time.Time{}
 	state, epoch, tick := r.state, r.epoch, r.tick
 	r.mu.Unlock()
+	if h != nil {
+		h.Joined(peer)
+	}
 
 	join := Join{Room: r, Epoch: epoch, Tick: tick}
 	if state == RoomRunning && rs.Snapshot != nil {
@@ -314,6 +348,11 @@ func (rs *Rooms) join(r *Room, peer netplay.PeerID) (Join, error) {
 // Leave removes peer from room id and reports whether it was a member. The
 // room closes after EmptyTimeout once its last member leaves.
 func (rs *Rooms) Leave(id uint64, peer netplay.PeerID) bool {
+	return rs.LeaveWithReason(id, peer, LeaveQuit)
+}
+
+// LeaveWithReason removes a peer and notifies the match handler.
+func (rs *Rooms) LeaveWithReason(id uint64, peer netplay.PeerID, reason LeaveReason) bool {
 	rs.mu.Lock()
 	r, ok := rs.rooms[id]
 	rs.mu.Unlock()
@@ -327,10 +366,14 @@ func (rs *Rooms) Leave(id uint64, peer netplay.PeerID) bool {
 		r.order = slices.Delete(r.order, i, i+1)
 	}
 	r.dropQueueLocked(peer)
+	h := r.handler
 	if member && len(r.members) == 0 {
 		r.emptyAt = rs.now()
 	}
 	r.mu.Unlock()
+	if member && h != nil {
+		h.Left(peer, reason)
+	}
 	return member
 }
 
@@ -341,9 +384,13 @@ func (rs *Rooms) List() []RoomInfo {
 	out := make([]RoomInfo, 0, len(rs.rooms))
 	for _, r := range rs.rooms {
 		r.mu.Lock()
+		label := make(map[string]string, len(r.label))
+		for k, v := range r.label {
+			label[k] = v
+		}
 		out = append(out, RoomInfo{
 			ID: r.id, Capacity: r.capacity, State: r.state, Epoch: r.epoch,
-			Tick: r.tick, Members: len(r.members), Private: r.private,
+			Tick: r.tick, Members: len(r.members), Private: r.private, Label: label,
 		})
 		r.mu.Unlock()
 	}
@@ -399,4 +446,19 @@ func (rs *Rooms) code() string {
 		out[i] = letters[int(b[i])%len(letters)]
 	}
 	return string(out)
+}
+
+// SetLabel replaces the searchable metadata copied into RoomInfo snapshots.
+func (r *Room) SetLabel(label map[string]string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.label = make(map[string]string, len(label))
+	for k, v := range label {
+		if k != "" {
+			r.label[k] = v
+		}
+	}
 }
