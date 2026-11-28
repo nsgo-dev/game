@@ -5,12 +5,20 @@ package netplay
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // outboxFrame is one encoded frame waiting for a client's writer.
 type outboxFrame struct {
 	reliable bool
 	data     []byte
+}
+
+// outboxItem is what the writer takes from an outbox: a queued frame, or, once finish was called and the queue has drained, the final frame. flushBy is finish's deadline, zero until finish is called.
+type outboxItem struct {
+	data    []byte
+	final   bool
+	flushBy time.Time
 }
 
 // outboxCounters are a server's outbox counters, shared by the outboxes of all its clients so that they outlive any one connection. The server counts overflows itself, once per session it ends.
@@ -29,7 +37,7 @@ const (
 	pushClosed                     // the outbox is closed because the connection ended
 )
 
-// outbox is one client's queue of frames that Send has encoded and its writer goroutine has not written yet (see OutboxLimits). Send pushes without blocking, the writer takes frames with next, and close ends both.
+// outbox is one client's queue of frames that Send has encoded and its writer goroutine has not written yet (see OutboxLimits). Send pushes without blocking, the writer takes frames with next, finish has the writer drain the queue and then write a final frame, and close ends both at once.
 type outbox struct {
 	mu         sync.Mutex
 	q          fifo[outboxFrame]
@@ -37,6 +45,9 @@ type outbox struct {
 	bytes      int // bytes of the frames in q
 	seq        [2]uint32
 	closed     bool
+	finishing  bool          // finish was called: push refuses frames, and next returns final once q is empty
+	final      []byte        // the frame next returns after the queue, set by finish
+	flushBy    time.Time     // finish's deadline for the queue and final
 	wake       chan struct{} // signalled when a frame is queued or the outbox closes; the writer is its only receiver
 	counters   *outboxCounters
 }
@@ -49,7 +60,7 @@ func newOutbox(counters *outboxCounters) *outbox {
 func (o *outbox) push(ch Channel, payload []byte, limits OutboxLimits, encode func(ch Channel, seq uint32, payload []byte) []byte) pushResult {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.closed {
+	if o.closed || o.finishing {
 		return pushClosed
 	}
 	o.seq[ch]++
@@ -109,25 +120,48 @@ func (o *outbox) dropOldestUnreliable() bool {
 	return false
 }
 
-// next waits for the oldest queued frame and removes it, reporting false once the outbox is closed.
-func (o *outbox) next() ([]byte, bool) {
+// next waits for the oldest queued frame and removes it, reporting false once the outbox is closed. After finish, next returns the queued frames, then the final frame, which closes the outbox.
+func (o *outbox) next() (outboxItem, bool) {
 	for {
 		o.mu.Lock()
 		if o.closed {
 			o.mu.Unlock()
-			return nil, false
+			return outboxItem{}, false
 		}
 		if f, ok := o.q.pop(); ok {
 			o.bytes -= len(f.data)
 			if !f.reliable {
 				o.unreliable--
 			}
+			item := outboxItem{data: f.data, flushBy: o.flushBy}
 			o.mu.Unlock()
-			return f.data, true
+			return item, true
+		}
+		if o.finishing {
+			o.closed = true
+			item := outboxItem{data: o.final, final: true, flushBy: o.flushBy}
+			o.mu.Unlock()
+			return item, true
 		}
 		o.mu.Unlock()
 		<-o.wake
 	}
+}
+
+// finish refuses further frames and has the writer write the frames already queued, then final, all by flushBy. It reports false when the outbox is already closed, so no writer will write final. A second finish keeps the first one's frame and deadline.
+func (o *outbox) finish(final []byte, flushBy time.Time) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.closed {
+		return false
+	}
+	if !o.finishing {
+		o.finishing = true
+		o.final = final
+		o.flushBy = flushBy
+		o.signal()
+	}
+	return true
 }
 
 // close discards the queued frames and stops the writer; later pushes report pushClosed.
