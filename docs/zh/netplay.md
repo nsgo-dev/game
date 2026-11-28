@@ -123,6 +123,21 @@ if st.UnreliableDropped != lastDropped {
 lastWarnings, lastDropped = st.ReliableWarnings, st.UnreliableDropped
 ```
 
+### 发件队列上限
+
+`WebSocketServer.Send` 与 `WebTransportServer.Send` 从不在调用方的 goroutine 上写客户端的连接。每个客户端有一个发件队列：`Send` 编码帧、放入队列后立即返回，由该客户端自己的 goroutine 按顺序写出，因此网络慢的玩家或不再读取的客户端只会拖慢自己的帧，不会拖住对局的 tick，也不会影响其他玩家。`WebTransportServer` 只把共用一条 QUIC 流的 `ChannelReliableOrdered` 帧放入队列，不可靠数据报直接交给 QUIC。
+
+每个发件队列最多保留 `DefaultOutboxFrames`（256）帧、共 `DefaultOutboxBytes`（4 MiB）。放不下的帧会先丢弃该客户端队列中最旧的 `ChannelUnreliable` 帧腾出空间，记入 `OutboxStats().UnreliableDropped`；仍放不下的不可靠帧本身被丢弃。放不下的 `ChannelReliableOrdered` 帧会结束该客户端的会话，因为丢弃它会破坏通道的顺序：`NextEvent` 报告 `PeerLeft`，`Reason` 为 `"outbox full"`，`Send` 对该客户端返回 `ErrDisconnected`，并记入 `OutboxStats().Overflows`。无论多大，空队列总能放下一帧。写入失败或超过 10 秒写超时时，服务端会关闭该客户端的连接，而不是在线路上留下半个帧，`NextEvent` 像对任何断开的连接一样报告 `PeerDropped`。
+
+两个服务端都实现 `OutboxReporter`：`SetOutboxLimits` 随时修改上限，对之后排队的帧生效；`OutboxStats` 报告所有已连接客户端合计排队的帧数和字节数，以及只增不减的计数器。`OutboxLimits` 中零表示使用默认值，负值表示取消上限。游戏需要一次发送大量可靠数据（例如关卡的初始状态）时，应调高上限而不是取消它：没有上限时，不再读取的客户端会让发给它的每一帧都留在服务端内存里，直到写超时关闭它的连接。
+
+```go
+srv.SetOutboxLimits(netplay.OutboxLimits{Frames: 512, Bytes: 8 << 20})
+
+st := srv.OutboxStats()
+log.Printf("%d frames (%d bytes) queued, %d sessions ended for overflow", st.Frames, st.Bytes, st.Overflows)
+```
+
 ## 连接握手与重连
 
 `WebSocketServer`、`WebTransportServer` 和 `UDPServer` 只在握手之后接纳客户端：客户端出示应用自定义的令牌，由 `Auth.Verify` 校验，服务端分配该客户端的 `PeerID` 并回传给它，或附带原因拒绝。被拒绝的客户端永远不会出现在 `Recv` 或 `Peers` 中。
@@ -146,7 +161,7 @@ for ev, ok := srv.NextEvent(); ok; ev, ok = srv.NextEvent() {
 	case netplay.PeerJoined: // new ID
 	case netplay.PeerDropped: // connection lost; ID and state kept for GracePeriod
 	case netplay.PeerResumed: // same ID back within GracePeriod
-	case netplay.PeerLeft: // 客户端关闭、宽限期到期，或被 Kick 移除（此时 ev.Reason 说明原因）
+	case netplay.PeerLeft: // 客户端关闭、宽限期到期、被 Kick 移除，或发件队列溢出（此时 ev.Reason 说明原因）
 		rooms.Leave(roomOf(ev.Peer), ev.Peer)
 		guard.Reset(ev.Peer)
 	}

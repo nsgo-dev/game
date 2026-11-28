@@ -541,14 +541,16 @@ type wtClientConn struct {
 	sess     *webtransport.Session
 	stream   *webtransport.Stream
 	writeMu  sync.Mutex
-	closing  atomic.Bool
-	relSeq   uint32
+	closing  atomic.Bool // set by WebTransportServer.Close and an outbox overflow
+	out      *outbox     // the reliable frames Send queued and writeClientLoop has not written yet
 	unrelSeq atomic.Uint32
 }
 
 // WebTransportServer accepts WebTransport clients over HTTP/3 and QUIC and exposes them through the standard Transport and RelayServer interfaces.
 //
 // ChannelReliableOrdered packets travel over each client's bidirectional QUIC stream, and ChannelUnreliable packets travel as independent QUIC datagrams. Every client runs the connection handshake on the bidirectional stream before its packets reach Recv: Auth.Verify checks its token, the server assigns its ID and tells the client, and NextEvent reports joins, drops, resumes and leaves.
+//
+// Send queues each client's reliable frames in an outbox that a goroutine of the client's own writes to its stream, so a client that stops reading the stream never blocks Send or delays the other clients (see OutboxLimits). Unreliable datagrams are handed to QUIC directly and never wait in the outbox.
 type WebTransportServer struct {
 	pc        stdnet.PacketConn
 	wtSrv     *webtransport.Server
@@ -557,11 +559,14 @@ type WebTransportServer struct {
 	serveDone chan struct{}
 	closeCh   chan struct{}
 
-	mu      sync.Mutex
-	table   *sessionTable
-	inbox   packetQueue
-	closed  bool
-	changed chan struct{}
+	mu        sync.Mutex
+	table     *sessionTable
+	inbox     packetQueue
+	outLimits OutboxLimits
+	closed    bool
+	changed   chan struct{}
+
+	outCounters outboxCounters
 }
 
 // ListenWebTransport starts a WebTransport server over QUIC/HTTP/3 on addr. serverID is the server's own PeerID (1 when zero); clients get the IDs after it. auth decides who may connect and how long a dropped client keeps its ID. cfg provides the TLS 1.3 certificate and is required. allowedOrigins lists the browser Origins allowed to connect; empty allows any, "*" allows all, and an Origin outside the list is refused with 403 before the handshake.
@@ -687,8 +692,9 @@ func (s *WebTransportServer) handleSession(sess *webtransport.Session) {
 		return
 	}
 
-	client := &wtClientConn{sess: sess, stream: stream}
-	// Hold the client's write lock until the welcome is out, so no game packet overtakes it once the session is visible to Send.
+	client := &wtClientConn{sess: sess, stream: stream, out: newOutbox(&s.outCounters)}
+	defer client.out.close()
+	// Hold the client's write lock until the welcome is out. Send only queues reliable frames, and the writer that writes them starts after the welcome, so no game packet overtakes it once the session is visible to Send.
 	client.writeMu.Lock()
 	reply, ok := s.admit(h, client)
 	if reply != nil {
@@ -717,8 +723,31 @@ func (s *WebTransportServer) handleSession(sess *webtransport.Session) {
 		defer close(dgramDone)
 		s.readDatagramLoop(client)
 	}()
+	go s.writeClientLoop(client)
 	s.readReliableLoop(client)
 	<-dgramDone
+}
+
+// writeClientLoop writes the reliable frames Send queued for a client until its outbox closes, which happens when the session ends. A write that fails or times out may have left part of a frame on the stream, so it closes the session instead of writing the next frame after it: the read loop then reports the drop, and no later frame reaches the client misframed.
+func (s *WebTransportServer) writeClientLoop(c *wtClientConn) {
+	for {
+		frame, ok := c.out.next()
+		if !ok {
+			return
+		}
+		c.writeMu.Lock()
+		err := writeWTStreamFrame(c.stream, &c.closing, frame)
+		c.writeMu.Unlock()
+		if err == nil {
+			continue
+		}
+		c.out.close()
+		if c.closing.Load() {
+			return // Close or an outbox overflow owns the session and closes it
+		}
+		_ = c.sess.CloseWithError(0, "write failed")
+		return
+	}
 }
 
 // waitRejectDrain gives the client a short window to read the rejection frame from the closed reliable stream before CloseWithError cancels the session.
@@ -866,6 +895,9 @@ func (s *WebTransportServer) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch != ChannelReliableOrdered && ch != ChannelUnreliable {
 		return ErrInvalidPacket
 	}
+	if ch == ChannelReliableOrdered && wireHeaderSize+len(payload) > wtMaxStreamMessageSize {
+		return ErrPayloadTooLarge
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -883,17 +915,20 @@ func (s *WebTransportServer) Send(to PeerID, ch Channel, payload []byte) error {
 		}
 		targets = []*wtClientConn{s.table.sessions[to].link.(*wtClientConn)}
 	}
+	limits := s.outLimits
 	s.mu.Unlock()
 
 	var firstErr error
 	for _, c := range targets {
 		var err error
 		if ch == ChannelReliableOrdered {
-			c.writeMu.Lock()
-			c.relSeq++
-			frame := encodeWireFrame(ch, c.relSeq, payload)
-			err = writeWTStreamFrame(c.stream, &c.closing, frame)
-			c.writeMu.Unlock()
+			switch c.out.push(ch, payload, limits, encodeWireFrame) {
+			case pushOverflow:
+				s.endOverflowed(c)
+				err = ErrDisconnected
+			case pushClosed:
+				err = ErrDisconnected
+			}
 		} else {
 			seq := c.unrelSeq.Add(1)
 			frame := encodeWireFrame(ch, seq, payload)
@@ -904,6 +939,45 @@ func (s *WebTransportServer) Send(to PeerID, ch Channel, payload []byte) error {
 		}
 	}
 	return firstErr
+}
+
+// endOverflowed ends the session of a client whose reliable frame did not fit its outbox, as if it had left, so its reliable stream never resumes with a gap. It does not wait on the client: it breaks a stream write in progress and closes the session on a goroutine of its own.
+func (s *WebTransportServer) endOverflowed(c *wtClientConn) {
+	s.mu.Lock()
+	if sess := s.table.sessions[c.id]; !s.closed && sess != nil && sess.link == c {
+		s.table.leaveReason(sess, reasonOutboxFull)
+		s.outCounters.overflows.Add(1)
+	}
+	s.mu.Unlock()
+	c.out.close()
+	c.closing.Store(true)
+	_ = c.stream.SetWriteDeadline(time.Now())
+	go func() { _ = c.sess.CloseWithError(0, reasonOutboxFull) }()
+	s.notify()
+}
+
+// SetOutboxLimits bounds the reliable frames the server holds for each client before they are written (see OutboxLimits).
+func (s *WebTransportServer) SetOutboxLimits(l OutboxLimits) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.outLimits = l
+}
+
+// OutboxStats reports what the connected clients' outboxes hold and what their limits dropped.
+func (s *WebTransportServer) OutboxStats() OutboxStats {
+	s.mu.Lock()
+	var st OutboxStats
+	for _, sess := range s.table.sessions {
+		if c, ok := sess.link.(*wtClientConn); ok {
+			frames, bytes := c.out.stats()
+			st.Frames += frames
+			st.Bytes += bytes
+		}
+	}
+	s.mu.Unlock()
+	st.UnreliableDropped = s.outCounters.dropped.Load()
+	st.Overflows = s.outCounters.overflows.Load()
+	return st
 }
 
 // SetInboxLimits bounds the packets the server keeps until Recv takes them (see InboxLimits). A client whose queued reliable packets would pass InboxLimits.Reliable has its session ended, as if it had left.

@@ -65,7 +65,7 @@ func (k PeerEventKind) String() string {
 type PeerEvent struct {
 	Kind PeerEventKind
 	Peer PeerID
-	// Reason is why a server removed the peer with WebSocketServer.Kick or UDPServer.Kick; it is empty for every other event.
+	// Reason is why a server removed the peer: the reason given to WebSocketServer.Kick or UDPServer.Kick, or "outbox full" when a WebSocketServer or WebTransportServer ended the session because the client's reliable frames no longer fit its outbox (see OutboxLimits). It is empty for every other event.
 	Reason string
 }
 
