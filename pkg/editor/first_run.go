@@ -1187,9 +1187,10 @@ func (e *Editor) defaultFirstRunConnectAgent(ctx context.Context, kind, _ string
 	}
 	var streamErr string
 	runErr := runner.Run(ctx, AgentRequest{
-		Prompt:    "Connection check for NSGo Game Editor. Reply with READY. Do not modify any files or run commands.",
-		AgentKind: agentKind,
-		Route:     AgentRouteLocal,
+		Prompt:     "Connection check for NSGo Game Editor. Reply with READY. Do not modify any files or run commands.",
+		AgentKind:  agentKind,
+		Route:      AgentRouteLocal,
+		MCPServers: e.AgentMCPServers(),
 	}, func(ev AgentEvent) {
 		if ev.Kind == AgentEventError && strings.TrimSpace(ev.Err) != "" && streamErr == "" {
 			streamErr = strings.TrimSpace(ev.Err)
@@ -1810,10 +1811,11 @@ func (e *Editor) defaultFirstRunPlan(ctx context.Context, req FirstRunPlanReques
 	var replyBuf strings.Builder
 	var streamErr string
 	runErr := runner.Run(ctx, AgentRequest{
-		Prompt:    prompt,
-		AgentKind: extKind,
-		Route:     route,
-		Task:      AgentTaskSceneEdit,
+		Prompt:     prompt,
+		AgentKind:  extKind,
+		Route:      route,
+		Task:       AgentTaskSceneEdit,
+		MCPServers: e.AgentMCPServers(),
 	}, func(ev AgentEvent) {
 		switch ev.Kind {
 		case AgentEventMessage:
@@ -2830,6 +2832,7 @@ func (e *Editor) defaultFirstRunBuilder(ctx context.Context, req FirstRunBuildRe
 	var streamErr string
 	buildPrompt := buildFirstRunBuildPrompt(req, sceneRel)
 	runErr := runner.Run(ctx, AgentRequest{
+		MCPServers:  e.AgentMCPServers(),
 		Prompt:      buildPrompt,
 		ProjectRoot: req.ProjectDir,
 		ScenePath:   sceneRel,

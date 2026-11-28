@@ -361,7 +361,7 @@ claude mcp add game-editor -- go tool game mcp
 | `phone_sessions_list` | read | `{}` | 列出连接到编辑器局域网二维码 MCP 桥接的 Play 模式 Web 构建会话，包含服务状态、局域网 URL 与每个已连接手机/浏览器会话的信息。 |
 | `phone_call_tool` | run | `tool`（必填）；`session_id`、`arguments`、`timeout_ms`（可选） | 经由 `Editor.CallWebBridgeTool` 向已连接的手机/浏览器会话转发游戏 MCP 工具调用（如 `game_state_dump`、`game_scenes_list`、`game_entities_list`、`game_loop_step`、`game_input_action`、`game_screenshot`），遵循 `permissions.yaml`（`playtests: phone/<tool>`）权限规则与隐私策略。 |
 
-编辑器 MCP 服务器注册的每个工具都可在**设置 › 工具**中按电脑独立开关（`Editor.SetMCPToolEnabled`）：关闭后会从服务器公布的工具列表中移除（发送 `tools/list_changed`），被直接调用时返回可读的拒绝原因。**设置 › 用量与隐私**中的四项**允许离开此计算机的内容**开关（场景与数据文件、视口画面、Go 源代码、美术与音频文件）对所有已连接智能体的全部工具调用（包含符号链接解析后的真实路径）与全部资源读取（`editor://scene`、`editor://selection`、`editor://agent/turn`、`editor://brief`、`editor://rules`、`editor://context`）强制生效，只要对应内容类型已关闭即返回拒绝原因。在**设置 › 工具**中配置的其他 MCP 服务器（默认包含经由 `go tool nsgo mcp` 访问运行中游戏的 `nsgo-game`）会通过 `editormcp.InstallWithServers` 自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`。
+编辑器 MCP 服务器注册的每个工具都可在**设置 › 工具**中按电脑独立开关（`Editor.SetMCPToolEnabled`）：关闭后会从服务器公布的工具列表中移除（发送 `tools/list_changed`），被直接调用时返回可读的拒绝原因。**设置 › 用量与隐私**中的四项**允许离开此计算机的内容**开关（场景与数据文件、视口画面、Go 源代码、美术与音频文件）对所有已连接智能体的全部工具调用（包含符号链接解析后的真实路径）与全部资源读取（`editor://scene`、`editor://selection`、`editor://agent/turn`、`editor://brief`、`editor://rules`、`editor://context`）强制生效，只要对应内容类型已关闭即返回拒绝原因。在**设置 › 工具**中配置的其他 MCP 服务器（默认包含经由 `go tool nsgo mcp` 访问运行中游戏的 `nsgo-game`）会通过 `editormcp.InstallWithServers` 自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`，供你自己启动的智能体使用。编辑器从输入框启动 Claude Code 或 Codex 时，会以内联方式传入编辑器服务器与这些服务器，并忽略项目的 `.mcp.json`、`.codex/config.toml`、项目设置与钩子（见编辑器指南中的“本地智能体启动策略”）。
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

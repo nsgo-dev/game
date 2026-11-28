@@ -3,6 +3,8 @@ package editor
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -96,9 +98,13 @@ type automationCheckpointManifest struct {
 }
 
 type automationRuntimeState struct {
-	mu            sync.Mutex
-	file          *AutomationsFile
-	loadErr       error
+	mu      sync.Mutex
+	file    *AutomationsFile
+	loadErr error
+	// fileDigest is the SHA-256 (lowercase hex) of the project's automations.yaml as last loaded or saved, or "" when the project has no such file.
+	fileDigest string
+	// held is true while the project's automations.yaml has enabled rules the person has not allowed on this computer (ApprovedAutomations in editor.yaml); no automation starts while it is set.
+	held          bool
 	pausedDate    string // "YYYY-MM-DD" in editor clock location; empty when not paused
 	lastDailyRun  map[string]string
 	runHistory    map[string][]time.Time
@@ -189,6 +195,8 @@ func (e *Editor) resetAutomationsForProject() {
 	e.automations.mu.Lock()
 	e.automations.file = DefaultAutomations()
 	e.automations.loadErr = nil
+	e.automations.fileDigest = ""
+	e.automations.held = false
 	e.automations.pausedDate = ""
 	e.automations.lastDailyRun = make(map[string]string)
 	e.automations.runHistory = make(map[string][]time.Time)
@@ -212,18 +220,25 @@ func (e *Editor) loadAutomationsForOpenProject() {
 	}
 	autoPath := filepath.Join(root, AutomationsFileName)
 	var (
-		f   *AutomationsFile
-		err error
+		f      *AutomationsFile
+		err    error
+		digest string
 	)
 	if !isAutomationPathWithinRoot(root, autoPath) {
 		err = fmt.Errorf("editor: %s resolves outside project root", AutomationsFileName)
 	} else {
 		f, err = LoadAutomationsFile(autoPath)
+		if err == nil {
+			digest, err = automationsFileDigest(autoPath)
+		}
 	}
+	held := err == nil && automationsHaveEnabledRule(f) && !e.automationsApproved(root, digest)
 	e.automations.mu.Lock()
 	switch {
 	case err == nil:
 		e.automations.file = f
+		e.automations.fileDigest = digest
+		e.automations.held = held
 	case errors.Is(err, fs.ErrNotExist):
 		e.automations.file = DefaultAutomations()
 	default:
@@ -234,6 +249,117 @@ func (e *Editor) loadAutomationsForOpenProject() {
 	e.loadAutomationLocalState(root)
 	// Restart the daily scheduler if a UI scope is already attached (resetAutomationsForProject stopped it).
 	e.startAutomationScheduler()
+}
+
+// automationsFileDigest returns the lowercase hex SHA-256 of the automations file at path.
+func automationsFileDigest(path string) (string, error) {
+	fp, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer fp.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, io.LimitReader(fp, maxAutomationsFileBytes+1)); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func automationsHaveEnabledRule(f *AutomationsFile) bool {
+	if f == nil {
+		return false
+	}
+	for _, r := range f.Automations {
+		if r.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+// automationsApproved reports whether the person allowed the automations.yaml with digest in the project at root on this computer.
+func (e *Editor) automationsApproved(root, digest string) bool {
+	if digest == "" {
+		return false
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
+	if e.settings.Agent == nil {
+		return false
+	}
+	for _, ap := range e.settings.Agent.ApprovedAutomations {
+		if ap.Project == abs {
+			return ap.SHA256 == digest
+		}
+	}
+	return false
+}
+
+// recordAutomationsApproval stores in editor.yaml that the person allowed the project's automations.yaml with digest, replacing any earlier entry for the project.
+func (e *Editor) recordAutomationsApproval(root, digest string) error {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	e.settingsMu.Lock()
+	a := e.ensureAgentSettings()
+	replaced := false
+	for i := range a.ApprovedAutomations {
+		if a.ApprovedAutomations[i].Project == abs {
+			a.ApprovedAutomations[i].SHA256 = digest
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		a.ApprovedAutomations = append(a.ApprovedAutomations, ApprovedAutomations{Project: abs, SHA256: digest})
+		slices.SortFunc(a.ApprovedAutomations, func(x, y ApprovedAutomations) int {
+			return strings.Compare(x.Project, y.Project)
+		})
+	}
+	e.settingsMu.Unlock()
+	return e.persistEditorSettings()
+}
+
+// AutomationsHeld reports whether the open project's automations.yaml has enabled rules that stay off on this computer until the person allows them (AllowProjectAutomations). A project's file is held when it first arrives with a clone, template or pack and whenever it changes outside the editor, for example after a git pull.
+func (e *Editor) AutomationsHeld() bool {
+	if e == nil {
+		return false
+	}
+	e.automations.mu.Lock()
+	defer e.automations.mu.Unlock()
+	return e.automations.held
+}
+
+// AllowProjectAutomations lets the open project's automations.yaml, as it is now, run on this computer and records that in editor.yaml. Refuses agent actors (ErrAutomationYouOnly).
+func (e *Editor) AllowProjectAutomations() error {
+	if e == nil {
+		return errors.New("editor: nil editor")
+	}
+	if e.AgentActorActive() {
+		return ErrAutomationYouOnly
+	}
+	root := e.automationsProjectRoot()
+	e.automations.mu.Lock()
+	digest := e.automations.fileDigest
+	e.automations.mu.Unlock()
+	if root == "" || digest == "" {
+		return nil
+	}
+	if err := e.recordAutomationsApproval(root, digest); err != nil {
+		return err
+	}
+	e.automations.mu.Lock()
+	if e.automations.fileDigest == digest {
+		e.automations.held = false
+	}
+	e.automations.mu.Unlock()
+	e.notify()
+	return nil
 }
 
 func (e *Editor) automationsProjectRoot() string {
@@ -472,6 +598,19 @@ func (e *Editor) saveAutomationsIfProjectOpen(f *AutomationsFile) error {
 	}
 	e.filesRev++
 	e.snapshotProjectTree()
+	// Only the person saves automations.yaml through the editor (agents are refused above), so a save keeps an allowed file allowed. A held file stays held, so editing one rule never silently allows the others.
+	digest, err := automationsFileDigest(p)
+	if err != nil {
+		return err
+	}
+	e.automations.mu.Lock()
+	wasHeld := e.automations.held
+	e.automations.fileDigest = digest
+	e.automations.held = wasHeld && automationsHaveEnabledRule(f)
+	e.automations.mu.Unlock()
+	if !wasHeld {
+		return e.recordAutomationsApproval(root, digest)
+	}
 	return nil
 }
 
@@ -1721,7 +1860,7 @@ func (e *Editor) automationRunner() AgentRunner {
 // and a matching TaskSourceAutomation entry in the shared background task list, and executes the automation
 // under bounded concurrency, WithAgentActor, and the project's permission rules.
 func (e *Editor) startAutomationTask(rule AutomationRule, triggerDetail string) bool {
-	if e == nil || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() {
+	if e == nil || e.AutomationsHeld() || e.AutomationsPausedToday() || e.agent.mode == AgentModeNone || e.playing || e.HistoryPreviewActive() {
 		return false
 	}
 	runner := e.automationRunner()
@@ -1789,6 +1928,7 @@ func (e *Editor) startAutomationTask(rule AutomationRule, triggerDetail string) 
 		TriggerKind:    rule.Trigger.Event,
 		TriggerDetail:  triggerDetail,
 		CheckpointID:   cp.ID,
+		MCPServers:     e.AgentMCPServers(),
 	}
 	scenePath := e.ScenePath
 

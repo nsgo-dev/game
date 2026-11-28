@@ -564,10 +564,6 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 	if kind == "codex" {
 		bin = "codex"
 	}
-	displayPath := ed.StartNameStatus().DisplayPath
-	if displayPath == "" {
-		displayPath = "~/games/" + ed.StartProjectName()
-	}
 	copied := ed.FirstRunDiagnosticsCopied()
 	copyText := ed.T("firstRun.copyDiagnostics")
 	var copyIcon func() *core.SVG
@@ -577,7 +573,7 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 	}
 	connectErr := strings.TrimSpace(ed.FirstRunConnectError())
 	headline := ed.T("firstRun.timeoutHeading", l10n.Param("agent", agentName))
-	body := ed.T("firstRun.timeoutInstructions", l10n.Param("bin", bin), l10n.Param("path", displayPath))
+	body := ed.T("firstRun.timeoutInstructions", l10n.Param("bin", bin))
 	if connectErr != "" && !strings.Contains(strings.ToLower(connectErr), "timed out") && !strings.Contains(strings.ToLower(connectErr), "deadline exceeded") {
 		headline = ed.T("firstRun.connectFailedHeading", l10n.Param("agent", agentName))
 		body = connectErr + "\n\n" + body

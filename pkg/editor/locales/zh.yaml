@@ -2020,8 +2020,7 @@ strings:
   firstRun.timeoutHeading: 30 秒内未收到 {agent} 的响应
   firstRun.timeoutInstructions: |-
     1. 打开终端，运行一次 {bin} 并登录。
-    2. 出现提示时，信任文件夹 {path}。
-    3. 回到此处重试。
+    2. 回到此处重试。
   firstRun.tip1Body: 在此逐项保留或还原更改。在你确认保留之前，一切都尚未最终生效。
   firstRun.tip2Body: 按住 B 键可查看这些更改之前的场景状态。
   firstRun.tip3Body: 选中任意对象，然后按 {shortcut} 即可专门就此向智能体提问。
@@ -3831,6 +3830,7 @@ strings:
   settings.automations.agentNotePaused: 今天已暂停全部自动化，明天将自动恢复。
   settings.automations.agentNoteRuns: “{name}”本周已运行 {count} 次。每次运行开始前都会自动创建检查点。
   settings.automations.agentNoteRunsOne: “{name}”本周已运行 1 次。每次运行开始前都会自动创建检查点。
+  settings.automations.allow: 允许自动化
   settings.automations.askLabel: 询问自动化设置
   settings.automations.askPlaceholder: 询问关于自动化的问题…
   settings.automations.default.beforeExportInstruction: 在低端手机配置下检查帧时间与内存
@@ -3850,6 +3850,8 @@ strings:
   settings.automations.draftPlaceholder: 例如：导出前，在低端手机配置下检查帧耗时与内存
   settings.automations.fileKindPrefab: 预制体
   settings.automations.fileKindScene: 场景
+  settings.automations.heldHelp: 它们随项目而来，或在编辑器之外被修改过。请先阅读下方每条指令，再允许它们运行。
+  settings.automations.heldTitle: 此项目的自动化在这台电脑上处于关闭状态
   settings.automations.keepDraft: 保留
   settings.automations.loadErrorTitle: 无法加载 automations.yaml（已使用默认配置）
   settings.automations.metaOn: '{count} 项开启'

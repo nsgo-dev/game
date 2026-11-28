@@ -760,6 +760,7 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		builtIn.turnID = turnID
 		builtIn.retryNow = e.agent.activeRetryNow
 	}
+	req.MCPServers = e.AgentMCPServers()
 
 	go func() {
 		runErr := runner.Run(ctx, req, func(ev AgentEvent) {
@@ -1598,6 +1599,7 @@ func buildBuiltInSystemPrompt(req AgentRequest, input AgentModelInput, serverIns
 	var sections []string
 	var header strings.Builder
 	header.WriteString("You are the NSGo Game Editor's built-in agent. Use the editor's MCP tools to read and edit the open game project cleanly as undoable editor commands.")
+	header.WriteString("\n" + agentUntrustedContentNotice)
 	if req.ScenePath != "" {
 		fmt.Fprintf(&header, "\nOpen scene: %s", req.ScenePath)
 	}

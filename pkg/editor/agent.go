@@ -386,6 +386,8 @@ type AgentRequest struct {
 	ViewportHeight   int
 	HasViewportImg   bool
 	AssembledContext string
+	// MCPServers are the external MCP servers the person configured in Settings › Tools (editor.yaml) that a local agent CLI gets besides the editor's own server; the project's .mcp.json is never used for this, because a cloned project controls it.
+	MCPServers []AgentMCPServer
 }
 
 // AgentEventKind classifies one streamed event from an AgentRunner.

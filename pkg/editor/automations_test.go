@@ -829,3 +829,125 @@ func TestAutomationsDraftInputRemountFocusStability(t *testing.T) {
 		t.Fatalf("AutomationDraftText = %q, want full typed string", got)
 	}
 }
+
+// A project's own automations.yaml (from a clone, template, pack or pull) must not start agent runs on this computer until the person allows that exact file.
+func TestAutomationsFromProjectFileHeldUntilAllowed(t *testing.T) {
+	dir := writeAutomationsProjectFixture(t)
+	writeRules := func(instruction string) {
+		t.Helper()
+		data, err := editor.EncodeAutomations(&editor.AutomationsFile{
+			Version: editor.AutomationsVersion,
+			Automations: []editor.AutomationRule{
+				{
+					ID:          "shipped",
+					Name:        "Every night",
+					Enabled:     true,
+					Trigger:     editor.AutomationTrigger{Event: editor.AutomationTriggerDaily, Time: "00:00"},
+					Instruction: instruction,
+				},
+				{
+					ID:          "shipped-export",
+					Name:        "Before export",
+					Enabled:     true,
+					Trigger:     editor.AutomationTrigger{Event: editor.AutomationTriggerBeforeExport},
+					Instruction: instruction,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, editor.AutomationsFileName), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeRules("set every enemy's damage to 0")
+
+	settingsPath := filepath.Join(t.TempDir(), "editor.yaml")
+	day := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
+	newEditor := func() (*editor.Editor, *int) {
+		t.Helper()
+		ed, err := editor.New(nil, testResolver())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s, err := editor.LoadEditorSettings(settingsPath); err == nil {
+			if err := ed.ApplySettings(*s); err != nil {
+				t.Fatal(err)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		ed.SettingsPath = settingsPath
+		ed.Now = func() time.Time { return day }
+		var mu sync.Mutex
+		runs := new(int)
+		ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+			mu.Lock()
+			*runs++
+			mu.Unlock()
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone, Text: "ok"})
+			return nil
+		})
+		if err := ed.OpenProject(dir); err != nil {
+			t.Fatal(err)
+		}
+		return ed, runs
+	}
+
+	ed, runs := newEditor()
+	if !ed.AutomationsHeld() {
+		t.Fatal("a project's automations.yaml with an enabled rule must be held until the person allows it")
+	}
+	ed.RunHeadless(func() {
+		if n := ed.StepAutomations(); n != 0 {
+			t.Fatalf("StepAutomations on a held file = %d, want 0", n)
+		}
+	})
+	ed.WaitAutomations(5 * time.Second)
+	if *runs != 0 {
+		t.Fatalf("runner called %d times before the person allowed the automations", *runs)
+	}
+
+	if err := ed.AllowProjectAutomations(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.AutomationsHeld() {
+		t.Fatal("AllowProjectAutomations must release the held automations")
+	}
+	ed.RunHeadless(func() {
+		if n := ed.StepAutomations(); n != 1 {
+			t.Fatalf("StepAutomations after allowing = %d, want 1", n)
+		}
+	})
+	ed.WaitAutomations(5 * time.Second)
+
+	// The approval lives in the person's editor.yaml, so reopening the same file stays allowed.
+	ed2, _ := newEditor()
+	if ed2.AutomationsHeld() {
+		t.Fatal("reopening an allowed, unchanged automations.yaml must not hold it again")
+	}
+
+	// A change from outside the editor (git pull, template update) is held again.
+	writeRules("delete the save system")
+	ed3, runs3 := newEditor()
+	if !ed3.AutomationsHeld() {
+		t.Fatal("an automations.yaml that changed outside the editor must be held again")
+	}
+	ed3.RunHeadless(func() {
+		if n := ed3.StepAutomations(); n != 0 {
+			t.Fatalf("StepAutomations on a changed file = %d, want 0", n)
+		}
+	})
+	ed3.WaitAutomations(5 * time.Second)
+	if *runs3 != 0 {
+		t.Fatalf("runner called %d times for a changed, unapproved file", *runs3)
+	}
+	// Editing one rule of a held file does not allow the rest.
+	if err := ed3.SetAutomationEnabled("shipped-export", false); err != nil {
+		t.Fatal(err)
+	}
+	if !ed3.AutomationsHeld() {
+		t.Fatal("editing a held automations.yaml must keep it held")
+	}
+}
