@@ -8,8 +8,6 @@ import "github.com/nsgo-dev/game/pkg/tooling/playtest"
 
 ## `playtest.yaml`
 
-An optional `baselines` section declares the three policy checks. `idle` requires no-input play to `lose` or `stall` within a duration no longer than `runs.maxDuration`; `reference.winRate` records the minimum skilled-route win rate; `degraded` records deterministic reaction scaling or dropped actions and its allowed win-rate ceiling or margin. The config is validated and round-tripped as ordinary version 1 YAML. This release adds the declaration and report contract, while template runners continue to own their gameplay-specific simulation wiring.
-
 `playtest.yaml` is a versioned plain-text YAML file with a published JSON Schema (`https://game.nsgo.dev/schemas/playtest.v1.json`). Unknown fields, missing or unsupported versions, duplicate metric names and invalid goals are refused; `EncodeConfig` writes canonical deterministic YAML that round-trips without changes.
 
 ```yaml
@@ -97,6 +95,12 @@ metrics:
   - `measure.aggregate` is `count`, `sum`, `mean`, `median`, `min`, `max`, `p95`, `p99`, or `rate`.
   - `measure.heatMap: true` on an `event` metric emits all recorded `(x, y)` coordinates into the report's `heatMaps` section.
   - `goal` specifies `source` (such as `brief.yaml`, `game.yaml`, or `playtest.yaml`), an optional `summary`, and `min`, `max` (or both for a range), or `equal`.
+- **`baselines`** (optional): the outcome policies the game must show besides the configured bot's metrics.
+  - `idle.outcome` is `lose` or `stall`, the result a run with no input must reach, within `idle.within`, a duration no longer than `runs.maxDuration`.
+  - `reference.winRate` is the minimum share of seeded runs, from `0` to `1`, the configured bot must win.
+  - `degraded` weakens the same bot with `reactionScale` (a multiplier on `reactionMin` / `reactionMax`), `dropRate` (the share of its actions discarded, from `0` to `1`), or both, and limits its win rate with `maxWinRate`, `margin` (the minimum gap below the reference win rate), or both.
+
+  `playtest.report.yaml` has a matching optional `baselines` list, one entry per policy with its `name` (`idle`, `reference` or `degraded`), `passed`, and the measured `outcome` or `winRate`. The runner does not run the policies yet: `playtest.Run` and `go tool game playtest` validate and keep the section but do not fill the report's `baselines` or fail on them.
 
 ## Reporting metrics from Go
 
