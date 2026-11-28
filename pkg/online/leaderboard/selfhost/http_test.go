@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 )
 
@@ -42,11 +42,11 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ks, err := token.ParseKeySet(ksYAML)
+	ks, err := authtoken.ParseKeySet(ksYAML)
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := token.NewVerifier(ks)
+	v, err := authtoken.NewVerifier(ks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,11 +330,11 @@ func TestHTTPCORS(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ks, err := token.ParseKeySet(ksYAML)
+		ks, err := authtoken.ParseKeySet(ksYAML)
 		if err != nil {
 			t.Fatal(err)
 		}
-		v, err := token.NewVerifier(ks)
+		v, err := authtoken.NewVerifier(ks)
 		if err != nil {
 			t.Fatal(err)
 		}

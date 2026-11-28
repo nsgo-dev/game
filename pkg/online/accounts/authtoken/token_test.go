@@ -1,4 +1,4 @@
-package token_test
+package authtoken_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 var t0 = time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
@@ -24,10 +24,10 @@ func seedKey(b byte) ed25519.PrivateKey {
 	return ed25519.NewKeyFromSeed(bytes.Repeat([]byte{b}, ed25519.SeedSize))
 }
 
-func newPair(t testing.TB, ttl time.Duration) (*token.Signer, *token.Verifier, *clock) {
+func newPair(t testing.TB, ttl time.Duration) (*authtoken.Signer, *authtoken.Verifier, *clock) {
 	t.Helper()
 	c := &clock{t0}
-	s, err := token.NewSigner(seedKey(1), "https://accounts.example.com", "my-game", ttl)
+	s, err := authtoken.NewSigner(seedKey(1), "https://accounts.example.com", "my-game", ttl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,11 +37,11 @@ func newPair(t testing.TB, ttl time.Duration) (*token.Signer, *token.Verifier, *
 	if err != nil {
 		t.Fatal(err)
 	}
-	ks, err := token.ParseKeySet(data)
+	ks, err := authtoken.ParseKeySet(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := token.NewVerifier(ks)
+	v, err := authtoken.NewVerifier(ks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestTokenExpiresAfterTTL(t *testing.T) {
 		t.Fatalf("just before expiry: %v", err)
 	}
 	c.t = t0.Add(90 * time.Second)
-	if _, err := v.Verify(tok); !errors.Is(err, token.ErrExpired) {
+	if _, err := v.Verify(tok); !errors.Is(err, authtoken.ErrExpired) {
 		t.Fatalf("at expiry: %v, want ErrExpired", err)
 	}
 	v.Leeway = 5 * time.Second
@@ -92,7 +92,7 @@ func TestTokenExpiresAfterTTL(t *testing.T) {
 		t.Fatalf("within leeway: %v", err)
 	}
 	c.t = t0.Add(95 * time.Second)
-	if _, err := v.Verify(tok); !errors.Is(err, token.ErrExpired) {
+	if _, err := v.Verify(tok); !errors.Is(err, authtoken.ErrExpired) {
 		t.Fatalf("past leeway: %v, want ErrExpired", err)
 	}
 }
@@ -101,7 +101,7 @@ func TestTokenFromTheFutureIsRefused(t *testing.T) {
 	s, v, c := newPair(t, time.Minute)
 	tok, _, _ := s.Issue("acct-1")
 	c.t = t0.Add(-2 * time.Second)
-	if _, err := v.Verify(tok); !errors.Is(err, token.ErrNotYetValid) {
+	if _, err := v.Verify(tok); !errors.Is(err, authtoken.ErrNotYetValid) {
 		t.Fatalf("Verify = %v, want ErrNotYetValid", err)
 	}
 	v.Leeway = 2 * time.Second
@@ -113,7 +113,7 @@ func TestTokenFromTheFutureIsRefused(t *testing.T) {
 func TestVerifyRefusesOtherIssuersAudiencesAndKeys(t *testing.T) {
 	_, v, c := newPair(t, time.Minute)
 	sign := func(key ed25519.PrivateKey, iss, aud string) string {
-		s, err := token.NewSigner(key, iss, aud, time.Minute)
+		s, err := authtoken.NewSigner(key, iss, aud, time.Minute)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -129,9 +129,9 @@ func TestVerifyRefusesOtherIssuersAudiencesAndKeys(t *testing.T) {
 		tok  string
 		want error
 	}{
-		{"issuer", sign(seedKey(1), "https://evil.example.com", "my-game"), token.ErrIssuer},
-		{"audience", sign(seedKey(1), "https://accounts.example.com", "other-game"), token.ErrAudience},
-		{"key", sign(seedKey(2), "https://accounts.example.com", "my-game"), token.ErrUnknownKey},
+		{"issuer", sign(seedKey(1), "https://evil.example.com", "my-game"), authtoken.ErrIssuer},
+		{"audience", sign(seedKey(1), "https://accounts.example.com", "other-game"), authtoken.ErrAudience},
+		{"key", sign(seedKey(2), "https://accounts.example.com", "my-game"), authtoken.ErrUnknownKey},
 	}
 	for _, tc := range cases {
 		if _, err := v.Verify(tc.tok); !errors.Is(err, tc.want) {
@@ -155,16 +155,16 @@ func TestVerifyRefusesTamperedTokens(t *testing.T) {
 		tok  string
 		want error
 	}{
-		"payload swapped":   {parts[0] + "." + forged + "." + parts[2], token.ErrSignature},
-		"signature flipped": {parts[0] + "." + parts[1] + "." + enc.EncodeToString(sig), token.ErrSignature},
-		"alg none":          {none + "." + parts[1] + ".", token.ErrMalformed},
-		"header field":      {extra + "." + parts[1] + "." + parts[2], token.ErrMalformed},
-		"two parts":         {parts[0] + "." + parts[1], token.ErrMalformed},
-		"four parts":        {tok + ".x", token.ErrMalformed},
-		"padded signature":  {parts[0] + "." + parts[1] + "." + parts[2] + "=", token.ErrMalformed},
-		"trailing brace":    {trailingBrace + "." + parts[1] + "." + parts[2], token.ErrMalformed},
-		"empty":             {"", token.ErrMalformed},
-		"too long":          {strings.Repeat("a", token.MaxLength+1), token.ErrMalformed},
+		"payload swapped":   {parts[0] + "." + forged + "." + parts[2], authtoken.ErrSignature},
+		"signature flipped": {parts[0] + "." + parts[1] + "." + enc.EncodeToString(sig), authtoken.ErrSignature},
+		"alg none":          {none + "." + parts[1] + ".", authtoken.ErrMalformed},
+		"header field":      {extra + "." + parts[1] + "." + parts[2], authtoken.ErrMalformed},
+		"two parts":         {parts[0] + "." + parts[1], authtoken.ErrMalformed},
+		"four parts":        {tok + ".x", authtoken.ErrMalformed},
+		"padded signature":  {parts[0] + "." + parts[1] + "." + parts[2] + "=", authtoken.ErrMalformed},
+		"trailing brace":    {trailingBrace + "." + parts[1] + "." + parts[2], authtoken.ErrMalformed},
+		"empty":             {"", authtoken.ErrMalformed},
+		"too long":          {strings.Repeat("a", authtoken.MaxLength+1), authtoken.ErrMalformed},
 	}
 	for name, tc := range cases {
 		if _, err := v.Verify(tc.tok); !errors.Is(err, tc.want) {
@@ -175,8 +175,8 @@ func TestVerifyRefusesTamperedTokens(t *testing.T) {
 
 func TestKeyRotation(t *testing.T) {
 	c := &clock{t0}
-	oldSigner, _ := token.NewSigner(seedKey(1), "iss", "aud", time.Hour)
-	newSigner, _ := token.NewSigner(seedKey(2), "iss", "aud", time.Hour)
+	oldSigner, _ := authtoken.NewSigner(seedKey(1), "iss", "aud", time.Hour)
+	newSigner, _ := authtoken.NewSigner(seedKey(2), "iss", "aud", time.Hour)
 	oldSigner.Now, newSigner.Now = c.Now, c.Now
 	both, err := oldSigner.KeySet().Merge(newSigner.KeySet())
 	if err != nil {
@@ -185,12 +185,12 @@ func TestKeyRotation(t *testing.T) {
 	if len(both.Keys) != 2 {
 		t.Fatalf("merged keys = %d", len(both.Keys))
 	}
-	v, err := token.NewVerifier(both)
+	v, err := authtoken.NewVerifier(both)
 	if err != nil {
 		t.Fatal(err)
 	}
 	v.Now = c.Now
-	for _, s := range []*token.Signer{oldSigner, newSigner} {
+	for _, s := range []*authtoken.Signer{oldSigner, newSigner} {
 		tok, _, _ := s.Issue("acct")
 		if _, err := v.Verify(tok); err != nil {
 			t.Fatalf("key %s: %v", s.KeyID(), err)
@@ -199,7 +199,7 @@ func TestKeyRotation(t *testing.T) {
 	if again, _ := both.Merge(newSigner.KeySet()); len(again.Keys) != 2 {
 		t.Fatalf("merging a key twice gave %d keys", len(again.Keys))
 	}
-	other, _ := token.NewSigner(seedKey(3), "iss", "other", time.Hour)
+	other, _ := authtoken.NewSigner(seedKey(3), "iss", "other", time.Hour)
 	if _, err := both.Merge(other.KeySet()); err == nil {
 		t.Fatal("merged key sets of different audiences")
 	}
@@ -208,22 +208,22 @@ func TestKeyRotation(t *testing.T) {
 func TestNewSignerRefusesBadSettings(t *testing.T) {
 	key := seedKey(1)
 	for name, f := range map[string]func() error{
-		"short key":      func() error { _, err := token.NewSigner(key[:10], "i", "a", time.Minute); return err },
-		"no issuer":      func() error { _, err := token.NewSigner(key, "", "a", time.Minute); return err },
-		"no audience":    func() error { _, err := token.NewSigner(key, "i", "", time.Minute); return err },
-		"sub-second ttl": func() error { _, err := token.NewSigner(key, "i", "a", 500*time.Millisecond); return err },
-		"fractional ttl": func() error { _, err := token.NewSigner(key, "i", "a", 1500*time.Millisecond); return err },
+		"short key":      func() error { _, err := authtoken.NewSigner(key[:10], "i", "a", time.Minute); return err },
+		"no issuer":      func() error { _, err := authtoken.NewSigner(key, "", "a", time.Minute); return err },
+		"no audience":    func() error { _, err := authtoken.NewSigner(key, "i", "", time.Minute); return err },
+		"sub-second ttl": func() error { _, err := authtoken.NewSigner(key, "i", "a", 500*time.Millisecond); return err },
+		"fractional ttl": func() error { _, err := authtoken.NewSigner(key, "i", "a", 1500*time.Millisecond); return err },
 		"empty subject": func() error {
-			s, _ := token.NewSigner(key, "i", "a", time.Minute)
+			s, _ := authtoken.NewSigner(key, "i", "a", time.Minute)
 			_, _, err := s.Issue("")
 			return err
 		},
 		"empty key set": func() error {
-			_, err := token.NewVerifier(&token.KeySet{Version: 1, Issuer: "i", Audience: "a"})
+			_, err := authtoken.NewVerifier(&authtoken.KeySet{Version: 1, Issuer: "i", Audience: "a"})
 			return err
 		},
-		"nil key set":     func() error { _, err := token.NewVerifier(nil); return err },
-		"key set version": func() error { ks := mustKeySet(t); ks.Version = 2; _, err := token.NewVerifier(ks); return err },
+		"nil key set":     func() error { _, err := authtoken.NewVerifier(nil); return err },
+		"key set version": func() error { ks := mustKeySet(t); ks.Version = 2; _, err := authtoken.NewVerifier(ks); return err },
 	} {
 		if f() == nil {
 			t.Errorf("%s: no error", name)
@@ -231,8 +231,8 @@ func TestNewSignerRefusesBadSettings(t *testing.T) {
 	}
 }
 
-func mustKeySet(t *testing.T) *token.KeySet {
-	s, err := token.NewSigner(seedKey(1), "https://accounts.example.com", "my-game", time.Minute)
+func mustKeySet(t *testing.T) *authtoken.KeySet {
+	s, err := authtoken.NewSigner(seedKey(1), "https://accounts.example.com", "my-game", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestKeySetYAMLRoundTrip(t *testing.T) {
 	if string(data) != want {
 		t.Fatalf("Marshal =\n%s\nwant\n%s", data, want)
 	}
-	back, err := token.ParseKeySet(data)
+	back, err := authtoken.ParseKeySet(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,25 +286,25 @@ func TestParseKeySetRefuses(t *testing.T) {
 		"audience absent": strings.Replace(good, "audience: my-game\n", "", 1),
 	}
 	for name, data := range cases {
-		if _, err := token.ParseKeySet([]byte(data)); err == nil {
+		if _, err := authtoken.ParseKeySet([]byte(data)); err == nil {
 			t.Errorf("%s: parsed", name)
 		}
 	}
 }
 
 func TestPrivateKeyPEM(t *testing.T) {
-	key, err := token.GenerateKey(nil)
+	key, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pemData, err := token.MarshalPrivateKey(key)
+	pemData, err := authtoken.MarshalPrivateKey(key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.HasPrefix(pemData, []byte("-----BEGIN PRIVATE KEY-----\n")) {
 		t.Fatalf("PEM = %q", pemData[:30])
 	}
-	back, err := token.ParsePrivateKey(pemData)
+	back, err := authtoken.ParsePrivateKey(pemData)
 	if err != nil || !back.Equal(key) {
 		t.Fatalf("ParsePrivateKey = %v", err)
 	}
@@ -314,7 +314,7 @@ func TestPrivateKeyPEM(t *testing.T) {
 		"garbage":    []byte("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"),
 		"trailing":   append(append([]byte{}, pemData...), "x"...),
 	} {
-		if _, err := token.ParsePrivateKey(data); err == nil {
+		if _, err := authtoken.ParsePrivateKey(data); err == nil {
 			t.Errorf("%s: parsed", name)
 		}
 	}
@@ -354,7 +354,7 @@ func FuzzParseKeySet(f *testing.F) {
 	f.Add(data)
 	f.Add([]byte("version: 1\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		ks, err := token.ParseKeySet(data)
+		ks, err := authtoken.ParseKeySet(data)
 		if err != nil {
 			return
 		}
@@ -362,7 +362,7 @@ func FuzzParseKeySet(f *testing.F) {
 		if err != nil {
 			t.Fatalf("Marshal of a parsed key set: %v", err)
 		}
-		back, err := token.ParseKeySet(out)
+		back, err := authtoken.ParseKeySet(out)
 		if err != nil {
 			t.Fatalf("reparse: %v", err)
 		}
@@ -373,8 +373,8 @@ func FuzzParseKeySet(f *testing.F) {
 	})
 }
 
-func mustKeySetF(f *testing.F) *token.KeySet {
-	s, err := token.NewSigner(seedKey(1), "https://accounts.example.com", "my-game", time.Minute)
+func mustKeySetF(f *testing.F) *authtoken.KeySet {
+	s, err := authtoken.NewSigner(seedKey(1), "https://accounts.example.com", "my-game", time.Minute)
 	if err != nil {
 		f.Fatal(err)
 	}

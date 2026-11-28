@@ -26,7 +26,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave/sqlstore"
 )
@@ -98,11 +98,11 @@ func runServe(ctx context.Context, args []string, stderr io.Writer, ready func(s
 	if err != nil {
 		return err
 	}
-	ks, err := token.ParseKeySet(ksData)
+	ks, err := authtoken.ParseKeySet(ksData)
 	if err != nil {
 		return fmt.Errorf("%s: %w", *keySetPath, err)
 	}
-	verifier, err := token.NewVerifier(ks)
+	verifier, err := authtoken.NewVerifier(ks)
 	if err != nil {
 		return fmt.Errorf("%s: %w", *keySetPath, err)
 	}

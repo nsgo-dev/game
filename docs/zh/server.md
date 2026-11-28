@@ -263,10 +263,10 @@ ENTRYPOINT ["/server"]
 
 ## 玩家令牌
 
-专用服务器通过玩家设备从[账号服务](accounts.md)拿到的令牌识别玩家。它只需加载一次服务的密钥集文件，再用 `accounts/token` 离线校验每个令牌；该包不会链接账号服务的密码哈希或数据库驱动：
+专用服务器通过玩家设备从[账号服务](accounts.md)拿到的令牌识别玩家。它只需加载一次服务的密钥集文件，再用 `accounts/authtoken` 离线校验每个令牌；该包不会链接账号服务的密码哈希或数据库驱动：
 
 ```go
-ks, err := token.ParseKeySet(keysYAML)
-v, err := token.NewVerifier(ks)
+ks, err := authtoken.ParseKeySet(keysYAML)
+v, err := authtoken.NewVerifier(ks)
 claims, err := v.Verify(tok) // claims.Subject 是账号 ID
 ```

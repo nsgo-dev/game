@@ -6,7 +6,7 @@
 //	leaderboardd genkey -key server.pem
 //	leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
 //
-// init writes a configuration with one all-time high-score board to edit. genkey writes a new game server signing key for score proofs and prints the serverKeys entry to add to the configuration; the game server reads the key with token.ParsePrivateKey and signs with selfhost.NewProofSigner. serve runs the service until SIGINT or SIGTERM, verifying player tokens with the account service's key set file (accountsd genkey writes it).
+// init writes a configuration with one all-time high-score board to edit. genkey writes a new game server signing key for score proofs and prints the serverKeys entry to add to the configuration; the game server reads the key with authtoken.ParsePrivateKey and signs with selfhost.NewProofSigner. serve runs the service until SIGINT or SIGTERM, verifying player tokens with the account service's key set file (accountsd genkey writes it).
 package main
 
 import (
@@ -23,7 +23,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 )
 
@@ -84,7 +84,7 @@ func runGenkey(args []string, stdout, stderr io.Writer) error {
 	if err := fl.Parse(args); err != nil {
 		return err
 	}
-	key, err := token.GenerateKey(nil)
+	key, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func runGenkey(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	pemData, err := token.MarshalPrivateKey(key)
+	pemData, err := authtoken.MarshalPrivateKey(key)
 	if err != nil {
 		return err
 	}
@@ -121,11 +121,11 @@ func service(ctx context.Context, configPath, keySetPath, dataDir string, syncWr
 	if err != nil {
 		return nil, nil, err
 	}
-	ks, err := token.ParseKeySet(ksData)
+	ks, err := authtoken.ParseKeySet(ksData)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", keySetPath, err)
 	}
-	verifier, err := token.NewVerifier(ks)
+	verifier, err := authtoken.NewVerifier(ks)
 	if err != nil {
 		return nil, nil, err
 	}

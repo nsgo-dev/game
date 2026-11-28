@@ -2,12 +2,12 @@
 
 `github.com/nsgo-dev/game/pkg/online/accounts` 是可自行部署的玩家账号服务。玩家以游客身份开始，之后可升级为邮箱账号，或绑定 OAuth 与平台身份（Game Center、Play Games、Steam），数据不会丢失；每台设备都会拿到短时效令牌，游戏服务器离线即可校验。
 
-该服务是服务端代码，放在独立的包里。不导入它们的游戏客户端或游戏服务器不会链接它们的任何依赖（`golang.org/x/crypto` 的 argon2id、SQLite 与 Postgres 驱动）；只校验令牌的游戏服务器只导入 `accounts/token`，它只依赖标准库和 YAML 包。
+该服务是服务端代码，放在独立的包里。不导入它们的游戏客户端或游戏服务器不会链接它们的任何依赖（`golang.org/x/crypto` 的 argon2id、SQLite 与 Postgres 驱动）；只校验令牌的游戏服务器只导入 `accounts/authtoken`，它只依赖标准库和 YAML 包。
 
 | 包 | 内容 |
 | --- | --- |
 | `accounts` | `Service`、`Config`、`Store` 接口、`MemoryStore`、argon2id 密码哈希与 HTTP `Handler` |
-| `accounts/token` | Ed25519 令牌 `Signer` 与离线 `Verifier`、`KeySet` YAML 文件和 PEM 签名密钥 |
+| `accounts/authtoken` | Ed25519 令牌 `Signer` 与离线 `Verifier`、`KeySet` YAML 文件和 PEM 签名密钥 |
 | `accounts/sqlitestore` | 存于 SQLite 文件的 `Store`（纯 Go，无 cgo）；Web 以外的所有目标 |
 | `accounts/pgstore` | 存于 Postgres 的 `Store`，可供多个服务进程共享 |
 | `accounts/sqlstore` | 两种存储共用的 SQL 表结构与查询 |
@@ -27,7 +27,7 @@
 ```go
 svc, err := accounts.New(cfg, accounts.Options{
 	Store:      store,
-	Key:        key, // 来自 token.ParsePrivateKey
+	Key:        key, // 来自 authtoken.ParsePrivateKey
 	Identities: map[string]accounts.IdentityVerifier{"gamecenter": gameCenter, "steam": steam},
 	Logger:     slog.Default(),
 })
@@ -73,8 +73,8 @@ Game Center 的校验器用 Apple 的证书校验签名身份，Play Games 的�
 
 ```go
 data, _ := os.ReadFile("keys.yaml")
-ks, err := token.ParseKeySet(data)
-v, err := token.NewVerifier(ks)
+ks, err := authtoken.ParseKeySet(data)
+v, err := authtoken.NewVerifier(ks)
 v.Leeway = 5 * time.Second // 两台机器之间的时钟偏差
 
 claims, err := v.Verify(tok)

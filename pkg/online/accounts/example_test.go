@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 // exampleConfig keeps the argon2id cost low so the examples run quickly; a real service uses DefaultConfig's cost.
@@ -88,12 +88,12 @@ func ExampleService_KeySet() {
 
 	// The game server loads the key set from the YAML file the service published.
 	data, _ := svc.KeySet().Marshal()
-	ks, err := token.ParseKeySet(data)
+	ks, err := authtoken.ParseKeySet(data)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	v, _ := token.NewVerifier(ks)
+	v, _ := authtoken.NewVerifier(ks)
 	v.Now = func() time.Time { return time.Date(2026, 11, 23, 12, 5, 0, 0, time.UTC) }
 	claims, err := v.Verify(creds.Token.Reveal())
 	fmt.Println(err, claims.Subject == creds.AccountID, claims.Audience, claims.Expires.Format(time.RFC3339))

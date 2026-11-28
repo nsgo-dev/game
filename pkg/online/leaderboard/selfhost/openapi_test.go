@@ -26,7 +26,7 @@ import (
 	"github.com/pb33f/libopenapi-validator/config"
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 
-	acctoken "github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 func loadOpenAPI(t *testing.T) (libopenapi.Document, *v3.Document, validator.Validator) {
@@ -69,22 +69,22 @@ func TestOpenAPIDocumentValid(t *testing.T) {
 
 type contractFixture struct {
 	svc       *Service
-	tokenSign *acctoken.Signer
+	tokenSign *authtoken.Signer
 	proofSign *ProofSigner
 	now       time.Time
 }
 
 func newContractFixture(t *testing.T, store Store) *contractFixture {
 	t.Helper()
-	accKey, err := acctoken.GenerateKey(nil)
+	accKey, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokenSign, err := acctoken.NewSigner(accKey, "https://accounts.example.com", "test-game", 15*time.Minute)
+	tokenSign, err := authtoken.NewSigner(accKey, "https://accounts.example.com", "test-game", 15*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := acctoken.NewVerifier(tokenSign.KeySet())
+	verifier, err := authtoken.NewVerifier(tokenSign.KeySet())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func newContractFixture(t *testing.T, store Store) *contractFixture {
 			{Name: "speedrun", Order: Ascending, Reset: Daily, Keep: 2, Min: &minScore, Max: &maxScore},
 			{Name: "ranked", Order: Descending, Reset: AllTime, Validation: SignedByServer},
 		},
-		ServerKeys: []acctoken.PublicKey{proofSign.PublicKey()},
+		ServerKeys: []authtoken.PublicKey{proofSign.PublicKey()},
 	}
 	if store == nil {
 		store = NewMemoryStore()

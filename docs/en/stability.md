@@ -112,11 +112,11 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/mcp` | Experimental | [mcp](mcp.md) |
 | `game/pkg/modding` | Experimental | [modding](modding.md) |
 | `game/pkg/online/accounts` | Experimental | [accounts](accounts.md) |
+| `game/pkg/online/accounts/authtoken` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/pgstore` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/sqlitestore` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/sqlstore` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/storetest` | Experimental | [accounts](accounts.md) |
-| `game/pkg/online/accounts/token` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/achievements` | Experimental | [achievements](achievements.md) |
 | `game/pkg/online/audit` | Experimental | [server](server.md) |
 | `game/pkg/online/cloudsave` | Experimental | [cloudsave](cloudsave.md) |

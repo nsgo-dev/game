@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/leaderboard/selfhost"
 )
 
@@ -52,11 +52,11 @@ func TestInitGenkeyAndServe(t *testing.T) {
 	}
 
 	// The account service's signing key and the key set file it publishes.
-	accountKey, err := token.GenerateKey(nil)
+	accountKey, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := token.NewSigner(accountKey, "https://accounts.example.com", "my-game", time.Minute)
+	signer, err := authtoken.NewSigner(accountKey, "https://accounts.example.com", "my-game", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestInitGenkeyAndServe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverKey, err := token.ParsePrivateKey(pemData)
+	serverKey, err := authtoken.ParsePrivateKey(pemData)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,9 +28,9 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/accounts/pgstore"
 	"github.com/nsgo-dev/game/pkg/online/accounts/sqlitestore"
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
 )
 
 // dsnEnv is the environment variable serve -postgres reads the database URL from, so the password stays off the command line.
@@ -93,17 +93,17 @@ func runGenkey(args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	key, err := token.GenerateKey(nil)
+	key, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		return err
 	}
-	signer, err := token.NewSigner(key, cfg.Issuer, cfg.Audience, time.Duration(cfg.TokenTTL))
+	signer, err := authtoken.NewSigner(key, cfg.Issuer, cfg.Audience, time.Duration(cfg.TokenTTL))
 	if err != nil {
 		return err
 	}
 	ks := signer.KeySet()
 	if old, err := os.ReadFile(*keySetPath); err == nil {
-		existing, err := token.ParseKeySet(old)
+		existing, err := authtoken.ParseKeySet(old)
 		if err != nil {
 			return fmt.Errorf("%s: %w", *keySetPath, err)
 		}
@@ -113,7 +113,7 @@ func runGenkey(args []string, stderr io.Writer) error {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	pemData, err := token.MarshalPrivateKey(key)
+	pemData, err := authtoken.MarshalPrivateKey(key)
 	if err != nil {
 		return err
 	}
@@ -151,17 +151,17 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	key, err := token.ParsePrivateKey(pemData)
+	key, err := authtoken.ParsePrivateKey(pemData)
 	if err != nil {
 		return fmt.Errorf("%s: %w", *keyPath, err)
 	}
-	var keySet *token.KeySet
+	var keySet *authtoken.KeySet
 	if *keySetPath != "" {
 		data, err := os.ReadFile(*keySetPath)
 		if err != nil {
 			return err
 		}
-		if keySet, err = token.ParseKeySet(data); err != nil {
+		if keySet, err = authtoken.ParseKeySet(data); err != nil {
 			return fmt.Errorf("%s: %w", *keySetPath, err)
 		}
 	}

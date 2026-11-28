@@ -2,12 +2,12 @@
 
 `github.com/nsgo-dev/game/pkg/online/accounts` is a self-hostable player account service. A player starts as a guest, upgrades to an email address or links an OAuth or platform identity (Game Center, Play Games, Steam) without losing their data, and every device gets short-lived tokens a game server verifies offline.
 
-The service is server-side code in its own packages. A game client or game server that does not import them links none of their dependencies (argon2id from `golang.org/x/crypto`, the SQLite and Postgres drivers); a game server that verifies tokens imports only `accounts/token`, which needs the standard library and the YAML package.
+The service is server-side code in its own packages. A game client or game server that does not import them links none of their dependencies (argon2id from `golang.org/x/crypto`, the SQLite and Postgres drivers); a game server that verifies tokens imports only `accounts/authtoken`, which needs the standard library and the YAML package.
 
 | Package | What it holds |
 | --- | --- |
 | `accounts` | `Service`, `Config`, the `Store` interface, `MemoryStore`, argon2id password hashing and the HTTP `Handler` |
-| `accounts/token` | Ed25519 token `Signer` and offline `Verifier`, the `KeySet` YAML file and PEM signing keys |
+| `accounts/authtoken` | Ed25519 token `Signer` and offline `Verifier`, the `KeySet` YAML file and PEM signing keys |
 | `accounts/sqlitestore` | A `Store` in a SQLite file (pure Go, no cgo); every target but the web |
 | `accounts/pgstore` | A `Store` in Postgres, shared by several service processes |
 | `accounts/sqlstore` | The SQL schema and queries both stores share |
@@ -27,7 +27,7 @@ Every sign-in returns `Credentials`:
 ```go
 svc, err := accounts.New(cfg, accounts.Options{
 	Store:      store,
-	Key:        key, // from token.ParsePrivateKey
+	Key:        key, // from authtoken.ParsePrivateKey
 	Identities: map[string]accounts.IdentityVerifier{"gamecenter": gameCenter, "steam": steam},
 	Logger:     slog.Default(),
 })
@@ -73,8 +73,8 @@ A token is a compact JWT signed with Ed25519 (`"alg": "EdDSA"`) holding the issu
 
 ```go
 data, _ := os.ReadFile("keys.yaml")
-ks, err := token.ParseKeySet(data)
-v, err := token.NewVerifier(ks)
+ks, err := authtoken.ParseKeySet(data)
+v, err := authtoken.NewVerifier(ks)
 v.Leeway = 5 * time.Second // clock skew between the two machines
 
 claims, err := v.Verify(tok)

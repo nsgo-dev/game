@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 func TestRotatedServiceStillAcceptsOldTokens(t *testing.T) {
@@ -36,8 +36,8 @@ func TestRotatedServiceStillAcceptsOldTokens(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/v1/keys", nil))
-	ks, err := token.ParseKeySet(rec.Body.Bytes())
-	if err != nil || len(ks.Keys) != 2 || ks.Keys[0].ID != token.KeyID(newKey.Public().(ed25519.PublicKey)) || ks.Keys[1] != oldKeys.Keys[0] {
+	ks, err := authtoken.ParseKeySet(rec.Body.Bytes())
+	if err != nil || len(ks.Keys) != 2 || ks.Keys[0].ID != authtoken.KeyID(newKey.Public().(ed25519.PublicKey)) || ks.Keys[1] != oldKeys.Keys[0] {
 		t.Fatalf("keys after rotation = %+v, %v", ks, err)
 	}
 	fresh, err := after.svc.Refresh(context.Background(), guest.Session)

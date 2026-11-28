@@ -1,9 +1,9 @@
-// Package token issues and verifies the short-lived player tokens of the accounts service.
+// Package authtoken issues and verifies the short-lived player tokens of the accounts service.
 //
 // A token is a compact JWT (RFC 7519) signed with Ed25519 ("alg": "EdDSA"). The account service holds the private key and issues tokens with a Signer; a game server holds only the public keys, as a KeySet loaded from a YAML file, and checks tokens with a Verifier. Verifying makes no network call: it decodes the token, checks the signature against a known key, then the issuer, audience and expiry.
 //
 // The package depends on the standard library and go.yaml.in/yaml/v3 only, so a game server that verifies tokens links none of the account service's password hashing or database drivers.
-package token
+package authtoken
 
 import (
 	"bytes"
@@ -26,19 +26,19 @@ const MaxLength = 4096
 
 var (
 	// ErrMalformed reports a token that is not a well-formed token of this package.
-	ErrMalformed = errors.New("token: malformed")
+	ErrMalformed = errors.New("authtoken: malformed")
 	// ErrUnknownKey reports a token signed with a key ID the verifier does not hold.
-	ErrUnknownKey = errors.New("token: unknown signing key")
+	ErrUnknownKey = errors.New("authtoken: unknown signing key")
 	// ErrSignature reports a token whose signature does not match its contents.
-	ErrSignature = errors.New("token: bad signature")
+	ErrSignature = errors.New("authtoken: bad signature")
 	// ErrIssuer reports a token from another issuer.
-	ErrIssuer = errors.New("token: wrong issuer")
+	ErrIssuer = errors.New("authtoken: wrong issuer")
 	// ErrAudience reports a token meant for another audience.
-	ErrAudience = errors.New("token: wrong audience")
+	ErrAudience = errors.New("authtoken: wrong audience")
 	// ErrExpired reports a token past its expiry.
-	ErrExpired = errors.New("token: expired")
+	ErrExpired = errors.New("authtoken: expired")
 	// ErrNotYetValid reports a token issued after the verifier's current time.
-	ErrNotYetValid = errors.New("token: not yet valid")
+	ErrNotYetValid = errors.New("authtoken: not yet valid")
 )
 
 // b64 is the strict unpadded base64url encoding of JWTs; Strict refuses non-canonical trailing bits, so one token has one spelling.
@@ -101,13 +101,13 @@ type Signer struct {
 // NewSigner returns a signer that issues tokens for audience from issuer, each valid for ttl (at least one second, in whole seconds).
 func NewSigner(key ed25519.PrivateKey, issuer, audience string, ttl time.Duration) (*Signer, error) {
 	if len(key) != ed25519.PrivateKeySize {
-		return nil, errors.New("token: signer needs an Ed25519 private key")
+		return nil, errors.New("authtoken: signer needs an Ed25519 private key")
 	}
 	if issuer == "" || audience == "" {
-		return nil, errors.New("token: signer needs an issuer and an audience")
+		return nil, errors.New("authtoken: signer needs an issuer and an audience")
 	}
 	if ttl < time.Second || ttl%time.Second != 0 {
-		return nil, fmt.Errorf("token: ttl %v must be a whole number of seconds, at least 1s", ttl)
+		return nil, fmt.Errorf("authtoken: ttl %v must be a whole number of seconds, at least 1s", ttl)
 	}
 	pub := key.Public().(ed25519.PublicKey)
 	return &Signer{key: key, keyID: KeyID(pub), issuer: issuer, audience: audience, ttl: ttl}, nil
@@ -133,7 +133,7 @@ func (s *Signer) KeySet() *KeySet {
 // Issue returns a token for subject, valid from now for the signer's TTL, and its claims.
 func (s *Signer) Issue(subject string) (string, Claims, error) {
 	if subject == "" {
-		return "", Claims{}, errors.New("token: empty subject")
+		return "", Claims{}, errors.New("authtoken: empty subject")
 	}
 	now := time.Now
 	if s.Now != nil {
@@ -145,7 +145,7 @@ func (s *Signer) Issue(subject string) (string, Claims, error) {
 	}
 	var id [16]byte
 	if _, err := io.ReadFull(r, id[:]); err != nil {
-		return "", Claims{}, fmt.Errorf("token: id: %w", err)
+		return "", Claims{}, fmt.Errorf("authtoken: id: %w", err)
 	}
 	iat := now().Unix()
 	c := claims{Iss: s.issuer, Sub: subject, Aud: s.audience, Iat: iat, Exp: iat + int64(s.ttl/time.Second), Jti: b64.EncodeToString(id[:])}
@@ -161,7 +161,7 @@ func (s *Signer) Issue(subject string) (string, Claims, error) {
 	sig := ed25519.Sign(s.key, []byte(signed))
 	tok := signed + "." + b64.EncodeToString(sig)
 	if len(tok) > MaxLength {
-		return "", Claims{}, fmt.Errorf("token: %d bytes is longer than %d", len(tok), MaxLength)
+		return "", Claims{}, fmt.Errorf("authtoken: %d bytes is longer than %d", len(tok), MaxLength)
 	}
 	return tok, c.public(s.keyID), nil
 }

@@ -125,11 +125,11 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/online/liveops/crashreport` | Experimental | NSGo-free crash report JSON schema (`CrashReport`, `StepRecord`) shared by `liveops` and `server` |
 | `game/pkg/online/accounts` | Experimental | Self-hosted player accounts, guest upgrades, OAuth/email, argon2id passwords |
 | `game/cmd/accountsd` | Experimental | Self-hosted accounts daemon |
+| `game/pkg/online/accounts/authtoken` | Experimental | Ed25519 account tokens verified offline by game servers |
 | `game/pkg/online/accounts/pgstore` | Experimental | PostgreSQL store backend for `game/online/accounts` |
 | `game/pkg/online/accounts/sqlitestore` | Experimental | SQLite store backend for `game/online/accounts` |
 | `game/pkg/online/accounts/sqlstore` | Experimental | Shared SQL helpers for `game/online/accounts` stores |
 | `game/pkg/online/accounts/storetest` | Experimental | Conformance test suite for `game/online/accounts` stores |
-| `game/pkg/online/accounts/token` | Experimental | Ed25519 account tokens verified offline by game servers |
 | `game/pkg/online/cloudsave` | Experimental | Self-hosted HTTPS cloud save service behind `liveops.CloudSync` |
 | `game/cmd/cloudsaved` | Experimental | Self-hosted cloud save daemon |
 | `game/pkg/online/cloudsave/sqlstore` | Experimental | SQL store backend for `game/online/cloudsave` |

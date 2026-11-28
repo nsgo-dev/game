@@ -6,7 +6,7 @@
 //
 // # Submitting
 //
-// Service.Submit records a score for an account. Over HTTP (Service.Handler) the account is the subject of the player's account token, which the handler verifies offline with an accounts/token Verifier, so a player can only submit their own scores.
+// Service.Submit records a score for an account. Over HTTP (Service.Handler) the account is the subject of the player's account token, which the handler verifies offline with an accounts/authtoken Verifier, so a player can only submit their own scores.
 //
 // A board with validation: signed accepts a score only with a proof from the game server: after deciding a match or checking a replay, the server signs the board, account and score with a ProofSigner, and the client submits the proof beside the score. The configuration lists the servers' public keys and how long a proof stays valid.
 //

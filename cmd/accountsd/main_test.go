@@ -12,7 +12,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 func TestInitAndKeyRotation(t *testing.T) {
@@ -34,7 +34,7 @@ func TestInitAndKeyRotation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ks, err := token.ParseKeySet(data)
+		ks, err := authtoken.ParseKeySet(data)
 		if err != nil || len(ks.Keys) != i+1 || ks.Issuer != "https://accounts.example.com" {
 			t.Fatalf("key set after %s: %+v, %v", key, ks, err)
 		}

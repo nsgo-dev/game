@@ -25,7 +25,7 @@ import (
 	"github.com/pb33f/libopenapi-validator/config"
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 
-	acctoken "github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 func loadOpenAPI(t *testing.T) (libopenapi.Document, *v3.Document, validator.Validator) {
@@ -66,17 +66,17 @@ func TestOpenAPIDocumentValid(t *testing.T) {
 	}
 }
 
-func newContractService(t *testing.T, store Store, mutate func(*Config)) (*Service, *acctoken.Signer) {
+func newContractService(t *testing.T, store Store, mutate func(*Config)) (*Service, *authtoken.Signer) {
 	t.Helper()
-	key, err := acctoken.GenerateKey(nil)
+	key, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := acctoken.NewSigner(key, "https://accounts.example.com", "test-game", 15*time.Minute)
+	signer, err := authtoken.NewSigner(key, "https://accounts.example.com", "test-game", 15*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := acctoken.NewVerifier(signer.KeySet())
+	verifier, err := authtoken.NewVerifier(signer.KeySet())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func newContractService(t *testing.T, store Store, mutate func(*Config)) (*Servi
 	return svc, signer
 }
 
-func issueToken(t *testing.T, signer *acctoken.Signer, account string) string {
+func issueToken(t *testing.T, signer *authtoken.Signer, account string) string {
 	t.Helper()
 	tok, _, err := signer.Issue(account)
 	if err != nil {

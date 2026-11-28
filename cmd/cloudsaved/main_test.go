@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 	"github.com/nsgo-dev/game/pkg/online/cloudsave"
 )
 
@@ -42,11 +42,11 @@ func TestServeAnswersWithSQLite(t *testing.T) {
 	if err := run(context.Background(), []string{"init", "-config", cfgPath}, io.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
-	key, err := token.GenerateKey(nil)
+	key, err := authtoken.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := token.NewSigner(key, "https://accounts.example.com", "game", time.Minute)
+	signer, err := authtoken.NewSigner(key, "https://accounts.example.com", "game", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,8 +108,8 @@ func TestServeRefusesBadSetups(t *testing.T) {
 	if err := run(context.Background(), []string{"init", "-config", cfgPath}, io.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
-	key, _ := token.GenerateKey(nil)
-	signer, _ := token.NewSigner(key, "https://accounts.example.com", "game", time.Minute)
+	key, _ := authtoken.GenerateKey(nil)
+	signer, _ := authtoken.NewSigner(key, "https://accounts.example.com", "game", time.Minute)
 	ks, _ := signer.KeySet().Marshal()
 	ksPath := filepath.Join(dir, "keys.yaml")
 	if err := os.WriteFile(ksPath, ks, 0o644); err != nil {

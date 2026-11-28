@@ -24,7 +24,6 @@ var uncatalogedGroups = map[string]string{
 // stdNameExemptions are the module's packages allowed, for now, to share their name with a standard library package, by package name, with the reason. A rename that ends the clash must delete its entry, which the test enforces.
 var stdNameExemptions = map[string]string{
 	"plugin": "pkg/plugin, renamed in a later commit",
-	"token":  "pkg/online/accounts/token, renamed in a later commit",
 }
 
 var (

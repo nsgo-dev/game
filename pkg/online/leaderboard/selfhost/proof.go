@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/accounts/token"
+	"github.com/nsgo-dev/game/pkg/online/accounts/authtoken"
 )
 
 // proofPrefix starts every proof, naming its format.
@@ -30,18 +30,18 @@ type ProofSigner struct {
 	Now func() time.Time
 }
 
-// NewProofSigner returns a signer for key, such as one read with token.ParsePrivateKey from the PEM file leaderboardd genkey writes.
+// NewProofSigner returns a signer for key, such as one read with authtoken.ParsePrivateKey from the PEM file leaderboardd genkey writes.
 func NewProofSigner(key ed25519.PrivateKey) (*ProofSigner, error) {
 	if len(key) != ed25519.PrivateKeySize {
 		return nil, errors.New("selfhost: not an Ed25519 private key")
 	}
-	return &ProofSigner{key: key, keyID: token.KeyID(key.Public().(ed25519.PublicKey))}, nil
+	return &ProofSigner{key: key, keyID: authtoken.KeyID(key.Public().(ed25519.PublicKey))}, nil
 }
 
 // PublicKey returns the signer's public key as a serverKeys entry for the leaderboard configuration.
-func (s *ProofSigner) PublicKey() token.PublicKey {
+func (s *ProofSigner) PublicKey() authtoken.PublicKey {
 	pub := s.key.Public().(ed25519.PublicKey)
-	return token.PublicKey{ID: s.keyID, Key: base64.StdEncoding.EncodeToString(pub)}
+	return authtoken.PublicKey{ID: s.keyID, Key: base64.StdEncoding.EncodeToString(pub)}
 }
 
 // Sign returns a proof that the account scored score on the board now.

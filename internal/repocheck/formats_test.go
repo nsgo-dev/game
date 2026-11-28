@@ -47,7 +47,7 @@ const jsonImport = "encoding/json"
 var notJSONFormats = map[string]string{
 	".":                               "decodes JSON arguments of live web Play-mode MCP bridge tool calls in loop_web_js.go, which are RPC payloads on the wire",
 	"online/accounts":                 "decodes the JSON bodies of its HTTP API, which is data on the wire",
-	"online/accounts/token":           "decodes the JSON payload of a signed token, which is data on the wire",
+	"online/accounts/authtoken":       "decodes the JSON payload of a signed token, which is data on the wire",
 	"editor":                          "reads meta.image from packed sprite atlas JSON files and decodes JSON RPC payloads of remote MCP profiler tool calls",
 	"editor/editormcp":                "decodes JSON arguments of the editor's MCP tool calls, which are RPC payloads on the wire",
 	"gameui":                          "marshals and unmarshals settings values inside save.Settings.Custom, the format of the save#settings entry",
@@ -114,7 +114,7 @@ var formatVersions = map[string]string{
 	"ability.CurrentVersion":                        "ability",
 	"online/accounts.ConfigVersion":                 "online/accounts",
 	"online/accounts/sqlstore.SchemaVersion":        "",
-	"online/accounts/token.KeySetVersion":           "online/accounts/token",
+	"online/accounts/authtoken.KeySetVersion":       "online/accounts/authtoken",
 	"online/achievements.CurrentVersion":            "online/achievements",
 	"online/audit.SchemaVersion":                    "online/audit",
 	"ai.BTFormatVersion":                            "ai#bt",
