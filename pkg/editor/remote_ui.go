@@ -1736,7 +1736,7 @@ func remoteVarsSection(cx *core.Scope, ed *Editor, dataMemo *core.Memo[*remoteIn
 	colors := ui.ColorsOf(cx)
 	rows := []core.Node{
 		core.Text{
-			Content: fmt.Sprintf("VARIABLES (%d)", len(vars)),
+			Content: ed.T("remote.varsTitle", l10n.Param("count", len(vars))),
 			Style:   core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()},
 		},
 	}
@@ -1851,7 +1851,7 @@ func remoteVarsSection(cx *core.Scope, ed *Editor, dataMemo *core.Memo[*remoteIn
 		}
 		slices.Sort(objIDs)
 		rows = append(rows, core.Text{
-			Content: fmt.Sprintf("SELF VARIABLES (%d)", len(objIDs)),
+			Content: ed.T("remote.selfVarsTitle", l10n.Param("count", len(objIDs))),
 			Style:   core.Style{FontSize: 10, FontWeight: 700, Color: colors.Muted()},
 		})
 		for _, id := range objIDs {

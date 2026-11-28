@@ -3517,6 +3517,7 @@ strings:
   remote.rowLabel.taken: Taken {id}
   remote.sceneActiveHeader: SCENE · {scene} ({count})
   remote.scenesHeader: SCENES · {count}
+  remote.selfVarsTitle: SELF VARIABLES ({count})
   remote.setTimeScaleLabel: Set remote time scale to {scale}
   remote.spawnedHeader: SPAWNED AT RUNTIME
   remote.spawnedNote: Spawned while running; not in the open scene file.
@@ -3537,6 +3538,7 @@ strings:
   remote.tunablesTitle: TUNABLES ({count})
   remote.undo: Undo
   remote.undoLabel: Put back the scene value
+  remote.varsTitle: VARIABLES ({count})
   remote.wasValue: was {value}
   review.deleteThisFile: Delete this file
   review.keepTheFile: Keep the file
