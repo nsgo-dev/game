@@ -148,6 +148,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/online/leaderboard` | Experimental | YAML leaderboards for Game Center and Play Games |
 | `game/pkg/online/leaderboard/selfhost` | Experimental | Self-hosted cross-platform leaderboards (all-time/daily/weekly, signed scores) |
 | `game/cmd/leaderboardd` | Experimental | Self-hosted leaderboard daemon |
+| `game/pkg/online/eos` | Experimental | Epic Online Services boundary (`Platform`, `Driver`): exchange-code login, achievements, leaderboards, presence |
 | `game/pkg/online/presence` | Experimental | Provider-neutral rich presence (`Activity`, `Manager`) on Steam and Discord |
 | `game/pkg/modding` | Experimental | Capability-sandboxed TSX `"game"` modding API and `mod.yaml` lifecycle manager |
 
