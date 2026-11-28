@@ -128,3 +128,7 @@ loop := &game.Loop{
 	},
 }
 ```
+
+### Performance regression benchmarks
+
+The solver performs broadphase candidate generation and narrow-phase contact detection once per `RigidWorld.Step`, then reuses the prepared manifolds across substeps. `rigid_perf_test.go` includes the 2,000-box pile, a 10,000-body sparse field and a 10,000-static-body scene so changes to pair generation remain visible in benchmark runs. Sleeping islands skip integration and solving after they settle, while the deterministic pair order and contact cache remain unchanged.
