@@ -2,6 +2,8 @@
 
 Create an NSGo game, run it on desktop, web, iOS and Android, draw an animated sprite on a fixed-step loop, handle touch and mouse input, and play sound.
 
+For setup failures, see [Troubleshooting](troubleshooting.md).
+
 ## Requirements
 
 - **Go 1.27** or later.

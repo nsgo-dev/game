@@ -249,3 +249,6 @@ if jump != nil {
 - 试玩并阅读示例平台跳跃游戏 [Cave Run](https://github.com/nsgo-dev/game/tree/main/examples/caverun)：它用到了 Loop、键盘、游戏手柄和屏幕触控控件上的输入动作、精灵批次、带镜头的 Tiled 地图、场景、声音分组以及原生 HUD 和暂停菜单，带有 1000 个精灵的压力模式，以及在无界面环境中把关卡一直玩到终点的测试。
 - 探索 3D glTF 场景示例 [Lantern 3D](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d)：在 NSGo 的 `gpu.View` 上通过 `game/gltf` 加载内嵌的二进制 glTF 2.0 庭院场景，使用 `render3d.UploadMesh` 与 `render3d.UploadTexture` 上传网格与纹理，通过 `render3d.LightRig`（定向主光、环绕暖色点光源、神龛光晕与环境光）和 render3d 的金属度-粗糙度 PBR 着色照亮场景，并配有 `scene3d.OrbitController` 轨道相机与原生 `scene.HUD3D` 界面叠层。
 - 准备好检查所有目标平台并构建 macOS、Windows、Linux、Web、iOS 和 Android 发布包时，阅读[构建与发布](shipping.md)。
+
+
+See [Troubleshooting](troubleshooting.md) for setup and first-run errors.
