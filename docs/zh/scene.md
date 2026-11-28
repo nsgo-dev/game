@@ -301,7 +301,7 @@ components:
 
 `sceneformat.Partition` 是按网格单元流式加载大型场景所用的单元计算：`CellSize` 为每个正方形单元的世界单位边长，`LoadRadius` 与 `UnloadRadius` 以单元数计；`Validate` 要求单元边长为有限正数且 `0 <= LoadRadius <= UnloadRadius`，使位于单元边界上的来源不会每帧反复加载、卸载同一单元。`Cells(sceneformat.CellObject{...})` 把对象分配到其边界触及的每个单元，而不只是原点所在单元，因此一座长桥属于它跨越的每个单元；恰好落在边界上的边不会延伸到下一个单元，`AlwaysLoaded` 对象不属于任何单元。`Needed(sources)` 返回距任一 `StreamingSource` 不超过 `LoadRadius` 的单元（每个来源的 `RadiusScale` 会乘到半径上），`Retained(sources)` 返回不超过 `UnloadRadius` 的单元；已加载但不在 `Retained` 中的单元即可卸载。三者返回的单元都按 Y、再按 X 排序，与输入顺序无关。
 
-这里只提供单元计算：场景文件目前还没有 `partition:` 段，单元的加载、实例化与卸载由游戏自行完成。
+这里只提供单元计算：场景文件目前还没有 `partition:` 段，单元的加载、实例化与卸载由游戏自行完成。`Partition.Cells` 按对象包围范围分配跨多个单元的对象，`Needed` 和 `Retained` 使用确定性的行优先顺序与分离半径，避免边界抖动。
 
 ## 输入驱动行为配置
 
