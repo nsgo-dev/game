@@ -35,3 +35,7 @@ UPDATE_GOLDEN=1 go tool nsgo test ./pkg/gametest
 ## 比较图像绘制
 
 若测试只需验证精灵落点与属性而非逐像素比对，`ImageDraws(ops)` 会回放变换、透明度、混合模式与裁剪路径，返回每一条绘制出的图像矩形——无论它们是逐个 `DrawImageFrom` 录制，还是合批在 `DrawAtlas` 中。`AssertSameImages(t, got, want)` 在 `1e-3` 浮点容差内断言两份绘制操作序列输出相同的图像绘制列表。
+
+## 光敏安全分析
+
+`AnalyzePhotosensitivity` 检查渲染帧序列，发现滚动一秒内超过三次的全屏亮度变化，以及覆盖至少 20% 画面的高对比条纹。若序列不是默认 60 Hz，请传入 `PhotosensitivityOptions{FrameRate: 60}`。报告会标出 `flash` 或 `pattern` 类型及受影响的帧范围。
