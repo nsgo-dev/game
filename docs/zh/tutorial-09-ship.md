@@ -6,23 +6,7 @@
 
 ## 名称、版本和图标
 
-对于用 `game new` 创建的项目，在 `game.yaml` 中修改商店身份，不要直接改 `nsgo.yaml`：
-
-```yaml
-version: 1
-name: Star Catcher
-id: dev.nsgo.starcatcher
-appVersion: 1.0.0
-```
-
-首次上传前，把生成的 `dev.nsgo.starcatcher` 换成你拥有的域名的反向 DNS 名称，然后同步并检查两个项目文件：
-
-```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
-```
-
-对应的 `nsgo.yaml` 保存同步后的值、构建号和图标：
+`nsgo.yaml` 现在写明商店里显示的内容：
 
 ```yaml
 name: Star Catcher
@@ -42,9 +26,11 @@ build:
   targets: [macos, windows, linux, android, web, ios]
 ```
 
-- `id` 在每次发布中都必须保持不变：App Store、Google Play 和 Microsoft Store 都靠它识别应用。
-- `game.yaml` 的 `appVersion` 会同步为 `nsgo.yaml` 的 `version`，是玩家看到的版本；`build_number` 留在 `nsgo.yaml` 中，每次上传商店加一。
-- `icon.png` 是边长 1024 像素的正方形 PNG，`nsgo build` 会把它转换成各平台需要的所有尺寸。若要 macOS 和 iOS 的分层图标，再加上 `icon.apple`，一个 Icon Composer `.icon` 文件；`icon.android.foreground`、`background` 和 `monochrome` 则提供 Android 自适应和主题图标。所有权与同步规则见[构建与发布](shipping.md#名称标识符和版本)。
+- `id` 在每次发布中都必须保持不变：App Store、Google Play 和 Microsoft Store 都靠它识别应用。首次上传前，把 `dev.nsgo.starcatcher` 换成你拥有的域名的反向 DNS 名称。
+- `version` 是玩家看到的版本；`build_number` 每次上传商店加一。
+- `icon.png` 是边长 1024 像素的正方形 PNG，`nsgo build` 会把它转换成各平台需要的所有尺寸。若要 macOS 和 iOS 的分层图标，再加上 `icon.apple`，一个 Icon Composer `.icon` 文件；`icon.android.foreground`、`background` 和 `monochrome` 则提供 Android 自适应和主题图标。
+
+Star Catcher 没有 `game.yaml`，所以这些字段只写在 `nsgo.yaml` 中。用 `game new` 创建的项目由 `game.yaml` 掌管 `name`、`id` 和版本（`appVersion`）：在那里修改，再运行 `go tool game project sync`，详见[构建与发布](shipping.md#名称标识符和版本)；`build_number` 和图标仍留在 `nsgo.yaml` 中。
 
 ## 用代码画图标
 

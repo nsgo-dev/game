@@ -33,8 +33,8 @@ export:
 After editing `game.yaml`, synchronize the fields NSGo reads instead of editing them in `nsgo.yaml` yourself:
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
+go tool game project sync
+go tool game project check
 ```
 
 `sync` keeps the other `nsgo.yaml` settings and comments. `build_number` is not part of `game.yaml`: leave it in `nsgo.yaml` and increment it for every store upload. `nsgo build` reads the synchronized files; its `-name`, `-id`, `-version`, `-build-number`, `-output`, `-target` and `-channel` flags override the corresponding values for one build without rewriting either file.

@@ -6,23 +6,7 @@ The finished game is in [`examples/tutorial/ch09-ship`](../../examples/tutorial/
 
 ## Name, version and icon
 
-In a project made with `game new`, edit the store identity in `game.yaml`, not directly in `nsgo.yaml`:
-
-```yaml
-version: 1
-name: Star Catcher
-id: dev.nsgo.starcatcher
-appVersion: 1.0.0
-```
-
-Replace the generated `dev.nsgo.starcatcher` with a reverse-DNS name of a domain you own before the first upload, then synchronize and check the two project files:
-
-```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
-```
-
-The corresponding `nsgo.yaml` holds the synchronized values, the build number and the icon:
+`nsgo.yaml` now says what the stores show:
 
 ```yaml
 name: Star Catcher
@@ -42,9 +26,11 @@ build:
   targets: [macos, windows, linux, android, web, ios]
 ```
 
-- `id` must stay the same in every release: the App Store, Google Play and the Microsoft Store know the app by it.
-- `appVersion` in `game.yaml`, synchronized to `version` in `nsgo.yaml`, is what players see; `build_number` stays in `nsgo.yaml` and goes up by one for every upload to a store.
-- `icon.png` is a 1024-pixel square PNG, which `nsgo build` turns into every size each platform wants. Add `icon.apple`, an Icon Composer `.icon`, for the layered icons of macOS and iOS, and `icon.android.foreground`, `background` and `monochrome` for adaptive and themed Android icons. [Building and Shipping](shipping.md#name-identifier-and-version) explains the ownership and synchronization rules.
+- `id` must stay the same in every release: the App Store, Google Play and the Microsoft Store know the app by it. Replace `dev.nsgo.starcatcher` with a reverse-DNS name of a domain you own before the first upload.
+- `version` is what players see; `build_number` goes up by one for every upload to a store.
+- `icon.png` is a 1024-pixel square PNG, which `nsgo build` turns into every size each platform wants. Add `icon.apple`, an Icon Composer `.icon`, for the layered icons of macOS and iOS, and `icon.android.foreground`, `background` and `monochrome` for adaptive and themed Android icons.
+
+Star Catcher has no `game.yaml`, so `nsgo.yaml` is the only place for these fields. In a project made with `game new`, `game.yaml` owns `name`, `id` and the version (`appVersion`): edit them there and run `go tool game project sync`, as [Building and Shipping](shipping.md#name-identifier-and-version) explains; `build_number` and the icon stay in `nsgo.yaml`.
 
 ## An icon from code
 
