@@ -33,8 +33,8 @@ export:
 编辑 `game.yaml` 后，同步 NSGo 读取的字段，不要直接修改 `nsgo.yaml` 中的这些字段：
 
 ```sh
-go run github.com/nsgo-dev/game/cmd/gameproject sync
-go run github.com/nsgo-dev/game/cmd/gameproject check
+go tool game project sync
+go tool game project check
 ```
 
 `sync` 会保留 `nsgo.yaml` 的其他设置和注释。`build_number` 不属于 `game.yaml`：把它留在 `nsgo.yaml` 中，并在每次上传商店时递增。`nsgo build` 读取同步后的文件；它的 `-name`、`-id`、`-version`、`-build-number`、`-output`、`-target` 和 `-channel` 参数只覆盖本次构建的对应值，不会改写这两个文件。
