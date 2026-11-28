@@ -1,17 +1,3 @@
-# steam
+# Steamworks client
 
-```go
-import "github.com/nsgo-dev/game/pkg/online/steam"
-```
-
-`steam` is the engine-facing boundary for Steam achievements, stats, leaderboards and rich presence. It defines a `Driver` interface that a Steamworks adapter implements and a `Platform` that wraps the driver for one `core.Scope`. This package ships no native adapter: a game injects its own `Driver`, and until one exists `New` with a nil driver returns `ErrUnavailable`. To ship a build on Steam, see [Shipping on Steam](steam.md).
-
-## Using a Platform
-
-Create the platform with `steam.New(cx, driver)`; it closes itself when the scope is disposed. Call `Init` to sign the user in, pump `Tick` from the fixed loop so the driver can run Steam's callbacks, and use `Unlock`, `SetStatInt`, `SetStatFloat`, `StoreStats`, `UploadScore`, `Scores` and `SetPresence`. Achievements and stats reach Steam only when `StoreStats` commits them.
-
-Every call takes a completion callback that runs on the scope's goroutine through `Scope.Post`, and none runs after the scope is disposed. `Init` reports `ErrUnauthenticated` when the driver returns no Steam ID, and every call on a closed platform reports `ErrClosed` at once.
-
-## Testing
-
-Implement `Driver` with a fake in tests: the fake records the achievements, stats and scores it receives, and `nsgotest.Start` runs the posted callbacks on `Advance`.
+`game/online/steamworks` owns one process-wide Steamworks client while any game scope is attached. It loads the platform library through purego, pumps manual-dispatch callbacks once per frame, exposes overlay and rich-presence helpers, handles `+connect` and `+connect_lobby` launch joins, and provides Web API auth tickets and Steam Deck text input. Use `NewFakeDriver` in tests and handle `ErrUnavailable` on unsupported targets.

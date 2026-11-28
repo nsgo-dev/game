@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ebitengine/purego"
+	"github.com/nsgo-dev/game/pkg/online/steamworks"
 )
 
 // Steamworks SDK constants (ISteamUGC / EResult / callback IDs).
@@ -50,6 +51,7 @@ type steamParamStringArray struct {
 // purego and the Steamworks flat C API without CGo.
 type SteamWorkshop struct {
 	mu           sync.Mutex
+	client       *steamworks.Client
 	lib          *steamLibrary
 	ownsInit     bool
 	closed       bool
@@ -90,11 +92,55 @@ type SteamWorkshop struct {
 	releaseQueryRequest func(self uintptr, handle uint64) bool
 }
 
-// NewSteamWorkshop loads the Steamworks shared library via purego, initializes Steamworks
-// (unless opts.SkipInit is set), and binds the flat ISteamUGC and ISteamUtils APIs.
-// When the Steamworks library or running Steam client is absent, it returns an error matching
-// [ErrWorkshopUnavailable].
+// NewSteamWorkshop attaches to opts.Client (recommended) or loads the Steamworks
+// shared library via purego, initializes Steamworks (unless opts.SkipInit is set),
+// and binds the flat ISteamUGC APIs. When opts.Client is set, SteamWorkshop does
+// not open the library again and never calls SteamAPI_Init, SteamAPI_Shutdown,
+// or SteamAPI_RunCallbacks.
+// When the Steamworks library or running Steam client is absent, it returns an
+// error matching [ErrWorkshopUnavailable].
 func NewSteamWorkshop(opts SteamWorkshopOptions) (*SteamWorkshop, error) {
+	poll := opts.PollInterval
+	if poll <= 0 {
+		poll = defaultSteamPoll
+	}
+
+	if opts.Client != nil {
+		if opts.Client.Closed() {
+			return nil, fmt.Errorf("%w: shared steamworks client is closed", ErrWorkshopUnavailable)
+		}
+		w := &SteamWorkshop{
+			client:       opts.Client,
+			pollInterval: poll,
+		}
+		resolve := func(names ...string) (uintptr, error) {
+			return opts.Client.ResolveSymbol(names...)
+		}
+		if err := w.bindUGCSymbols(resolve); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrWorkshopUnavailable, err)
+		}
+		ugcAccessor, err := resolve(
+			"SteamAPI_SteamUGC_v021",
+			"SteamAPI_SteamUGC_v020",
+			"SteamAPI_SteamUGC_v018",
+			"SteamAPI_SteamUGC_v017",
+			"SteamAPI_SteamUGC_v016",
+			"SteamAPI_SteamUGC_v015",
+			"SteamAPI_SteamUGC_v014",
+			"SteamUGC",
+		)
+		if err != nil {
+			return nil, fmt.Errorf("%w: ISteamUGC accessor not found: %v", ErrWorkshopUnavailable, err)
+		}
+		var getUGC func() uintptr
+		purego.RegisterFunc(&getUGC, ugcAccessor)
+		w.ugc = getUGC()
+		if w.ugc == 0 {
+			return nil, fmt.Errorf("%w: Steamworks returned nil ISteamUGC interface", ErrWorkshopUnavailable)
+		}
+		return w, nil
+	}
+
 	candidates := defaultSteamLibraryNames()
 	if opts.LibraryPath != "" {
 		candidates = []string{opts.LibraryPath}
@@ -114,17 +160,12 @@ func NewSteamWorkshop(opts SteamWorkshopOptions) (*SteamWorkshop, error) {
 		return nil, fmt.Errorf("%w: could not load Steamworks library: %v", ErrWorkshopUnavailable, openErr)
 	}
 
-	poll := opts.PollInterval
-	if poll <= 0 {
-		poll = defaultSteamPoll
-	}
-
 	w := &SteamWorkshop{
 		lib:          lib,
 		pollInterval: poll,
 	}
 
-	if err := w.bindSymbols(); err != nil {
+	if err := w.bindLegacySymbols(); err != nil {
 		_ = lib.close()
 		return nil, fmt.Errorf("%w: %v", ErrWorkshopUnavailable, err)
 	}
@@ -175,25 +216,11 @@ func NewSteamWorkshop(opts SteamWorkshopOptions) (*SteamWorkshop, error) {
 	return w, nil
 }
 
-func (w *SteamWorkshop) bindSymbols() error {
-	bind := func(fnPtr any, name string) error {
-		sym, err := w.lib.sym(name)
-		if err != nil {
-			return fmt.Errorf("missing symbol %s: %w", name, err)
-		}
-		purego.RegisterFunc(fnPtr, sym)
-		return nil
-	}
-
+func (w *SteamWorkshop) bindUGCSymbols(resolve func(names ...string) (uintptr, error)) error {
 	required := []struct {
 		ptr  any
 		name string
 	}{
-		{&w.apiInit, "SteamAPI_Init"},
-		{&w.apiShutdown, "SteamAPI_Shutdown"},
-		{&w.apiRunCallbacks, "SteamAPI_RunCallbacks"},
-		{&w.isAPICallCompleted, "SteamAPI_ISteamUtils_IsAPICallCompleted"},
-		{&w.getAPICallResult, "SteamAPI_ISteamUtils_GetAPICallResult"},
 		{&w.createItem, "SteamAPI_ISteamUGC_CreateItem"},
 		{&w.startItemUpdate, "SteamAPI_ISteamUGC_StartItemUpdate"},
 		{&w.setItemTitle, "SteamAPI_ISteamUGC_SetItemTitle"},
@@ -219,11 +246,37 @@ func (w *SteamWorkshop) bindSymbols() error {
 		{&w.releaseQueryRequest, "SteamAPI_ISteamUGC_ReleaseQueryUGCRequest"},
 	}
 	for _, r := range required {
-		if err := bind(r.ptr, r.name); err != nil {
-			return err
+		sym, err := resolve(r.name)
+		if err != nil {
+			return fmt.Errorf("missing symbol %s: %w", r.name, err)
 		}
+		purego.RegisterFunc(r.ptr, sym)
 	}
 	return nil
+}
+
+func (w *SteamWorkshop) bindLegacySymbols() error {
+	resolve := func(names ...string) (uintptr, error) {
+		return w.resolveFirstSymbol(names...)
+	}
+	legacy := []struct {
+		ptr  any
+		name string
+	}{
+		{&w.apiInit, "SteamAPI_Init"},
+		{&w.apiShutdown, "SteamAPI_Shutdown"},
+		{&w.apiRunCallbacks, "SteamAPI_RunCallbacks"},
+		{&w.isAPICallCompleted, "SteamAPI_ISteamUtils_IsAPICallCompleted"},
+		{&w.getAPICallResult, "SteamAPI_ISteamUtils_GetAPICallResult"},
+	}
+	for _, r := range legacy {
+		sym, err := resolve(r.name)
+		if err != nil {
+			return fmt.Errorf("missing symbol %s: %w", r.name, err)
+		}
+		purego.RegisterFunc(r.ptr, sym)
+	}
+	return w.bindUGCSymbols(resolve)
 }
 
 func (w *SteamWorkshop) resolveFirstSymbol(names ...string) (uintptr, error) {
@@ -238,7 +291,10 @@ func (w *SteamWorkshop) resolveFirstSymbol(names ...string) (uintptr, error) {
 	return 0, lastErr
 }
 
-// Close shuts down Steamworks (if initialized by [NewSteamWorkshop]) and unloads the library.
+// Close releases Workshop resources. When attached to a shared
+// [*steamworks.Client], Close does not shut down Steamworks or unload the
+// shared library. In legacy standalone mode it shuts down Steamworks (if
+// initialized by [NewSteamWorkshop]) and unloads the library.
 func (w *SteamWorkshop) Close() error {
 	if w == nil {
 		return nil
@@ -249,6 +305,12 @@ func (w *SteamWorkshop) Close() error {
 		return nil
 	}
 	w.closed = true
+	if w.client != nil {
+		w.client = nil
+		w.ugc = 0
+		w.utils = 0
+		return nil
+	}
 	if w.ownsInit && w.apiShutdown != nil {
 		w.apiShutdown()
 		w.ownsInit = false
@@ -262,16 +324,52 @@ func (w *SteamWorkshop) Close() error {
 }
 
 func (w *SteamWorkshop) checkOpenLocked() error {
-	if w == nil || w.closed || w.ugc == 0 || w.utils == 0 {
+	if w == nil || w.closed || w.ugc == 0 {
+		return ErrWorkshopUnavailable
+	}
+	if w.client != nil {
+		if w.client.Closed() {
+			return ErrWorkshopUnavailable
+		}
+		return nil
+	}
+	if w.utils == 0 {
 		return ErrWorkshopUnavailable
 	}
 	return nil
+}
+
+func (w *SteamWorkshop) callbackPack() int {
+	if w.client != nil {
+		return w.client.CallbackPack()
+	}
+	return steamCallbackPack
 }
 
 func (w *SteamWorkshop) awaitAPICallLocked(ctx context.Context, call uint64, expectedCallback int32, buf []byte) error {
 	if call == 0 {
 		return errors.New("modding: steamworks returned invalid SteamAPICall_t handle")
 	}
+	if client := w.client; client != nil {
+		// Release w.mu while awaiting the shared client's manual-dispatch pump
+		// so Close or concurrent calls do not block behind network I/O.
+		w.mu.Unlock()
+		data, err := client.AwaitCall(ctx, call, expectedCallback)
+		w.mu.Lock()
+		if err != nil {
+			if errors.Is(err, steamworks.ErrClosed) {
+				return ErrWorkshopUnavailable
+			}
+			return err
+		}
+		if err := w.checkOpenLocked(); err != nil {
+			return err
+		}
+		clear(buf)
+		copy(buf, data)
+		return nil
+	}
+
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
@@ -313,7 +411,7 @@ func (w *SteamWorkshop) CreateItem(ctx context.Context, appID uint32) (Published
 	if err := w.awaitAPICallLocked(ctx, call, steamCallbackCreateItemResult, buf[:]); err != nil {
 		return 0, err
 	}
-	eResult, id, _ := decodeCreateItemResult(buf[:], steamCallbackPack)
+	eResult, id, _ := decodeCreateItemResult(buf[:], w.callbackPack())
 	if eResult != steamResultOK {
 		return 0, fmt.Errorf("modding: steamworks CreateItem failed (EResult=%d)", eResult)
 	}
@@ -396,7 +494,7 @@ func (w *SteamWorkshop) SubmitUpdate(ctx context.Context, req PublishRequest) (P
 	if err := w.awaitAPICallLocked(ctx, call, steamCallbackSubmitItemUpdateResult, buf[:]); err != nil {
 		return PublishResult{}, err
 	}
-	eResult, needsLegal, id := decodeSubmitItemUpdateResult(buf[:], steamCallbackPack)
+	eResult, needsLegal, id := decodeSubmitItemUpdateResult(buf[:], w.callbackPack())
 	if eResult != steamResultOK {
 		return PublishResult{}, fmt.Errorf("modding: steamworks SubmitItemUpdate failed (EResult=%d)", eResult)
 	}
@@ -429,7 +527,7 @@ func (w *SteamWorkshop) Subscribe(ctx context.Context, id PublishedFileID) error
 	if err := w.awaitAPICallLocked(ctx, call, steamCallbackSubscribeItemResult, buf[:]); err != nil {
 		return err
 	}
-	eResult, _ := decodeSubscribeResult(buf[:], steamCallbackPack)
+	eResult, _ := decodeSubscribeResult(buf[:], w.callbackPack())
 	if eResult != steamResultOK {
 		if eResult == steamResultFileNone {
 			return fmt.Errorf("%w: %s", ErrWorkshopNotFound, id)
@@ -455,7 +553,7 @@ func (w *SteamWorkshop) Unsubscribe(ctx context.Context, id PublishedFileID) err
 	if err := w.awaitAPICallLocked(ctx, call, steamCallbackUnsubscribeItemResult, buf[:]); err != nil {
 		return err
 	}
-	eResult, _ := decodeSubscribeResult(buf[:], steamCallbackPack)
+	eResult, _ := decodeSubscribeResult(buf[:], w.callbackPack())
 	if eResult != steamResultOK {
 		return fmt.Errorf("modding: steamworks UnsubscribeItem failed (EResult=%d)", eResult)
 	}
@@ -526,11 +624,59 @@ func (w *SteamWorkshop) DownloadItem(ctx context.Context, id PublishedFileID, hi
 		return err
 	}
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if err := w.checkOpenLocked(); err != nil {
+		w.mu.Unlock()
 		return err
 	}
 
+	if client := w.client; client != nil {
+		pack := client.CallbackPack()
+		installedCh := make(chan struct{}, 1)
+		unsub := client.OnCallback(steamworks.CallbackItemInstalled, func(data []byte) {
+			if _, fileID, ok := decodeItemInstalled(data, pack); ok && fileID == id {
+				select {
+				case installedCh <- struct{}{}:
+				default:
+				}
+			}
+		})
+		defer unsub()
+
+		if !w.downloadItem(w.ugc, uint64(id), highPriority) {
+			w.mu.Unlock()
+			return fmt.Errorf("modding: steamworks DownloadItem(%s) failed", id)
+		}
+
+		poll := w.pollInterval
+		if poll <= 0 {
+			poll = defaultSteamPoll
+		}
+		ticker := time.NewTicker(poll)
+		defer ticker.Stop()
+
+		for {
+			if err := w.checkOpenLocked(); err != nil {
+				w.mu.Unlock()
+				return err
+			}
+			state := w.getItemState(w.ugc, uint64(id))
+			pending := state&(steamItemStateDownloading|steamItemStateDownloadPending|steamItemStateNeedsUpdate) != 0
+			if state&steamItemStateInstalled != 0 && !pending {
+				w.mu.Unlock()
+				return nil
+			}
+			w.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-installedCh:
+			case <-ticker.C:
+			}
+			w.mu.Lock()
+		}
+	}
+
+	defer w.mu.Unlock()
 	if !w.downloadItem(w.ugc, uint64(id), highPriority) {
 		return fmt.Errorf("modding: steamworks DownloadItem(%s) failed", id)
 	}
@@ -594,7 +740,11 @@ func (w *SteamWorkshop) QueryItems(ctx context.Context, query WorkshopQuery) ([]
 	if handle == 0 {
 		return nil, errors.New("modding: steamworks failed to create UGC query")
 	}
-	defer w.releaseQueryRequest(w.ugc, handle)
+	defer func() {
+		if !w.closed && w.ugc != 0 && w.releaseQueryRequest != nil {
+			w.releaseQueryRequest(w.ugc, handle)
+		}
+	}()
 
 	call := w.sendQueryUGCRequest(w.ugc, handle)
 	var completedBuf [32]byte
@@ -606,6 +756,7 @@ func (w *SteamWorkshop) QueryItems(ctx context.Context, query WorkshopQuery) ([]
 		return nil, fmt.Errorf("modding: steamworks SendQueryUGCRequest failed (EResult=%d)", eResult)
 	}
 
+	pack := w.callbackPack()
 	detailsBuf := make([]byte, steamUGCDetailsBufSize)
 	items := make([]WorkshopItem, 0, numReturned)
 	for i := uint32(0); i < numReturned; i++ {
@@ -613,7 +764,7 @@ func (w *SteamWorkshop) QueryItems(ctx context.Context, query WorkshopQuery) ([]
 		if !w.getQueryUGCResult(w.ugc, handle, i, &detailsBuf[0]) {
 			continue
 		}
-		item, ok := decodeUGCDetails(detailsBuf, steamCallbackPack)
+		item, ok := decodeUGCDetails(detailsBuf, pack)
 		if ok {
 			items = append(items, item)
 		}
@@ -670,6 +821,17 @@ func decodeSubscribeResult(buf []byte, pack int) (eResult int32, id PublishedFil
 	idOff := alignOffset(4, min(8, pack))
 	id = PublishedFileID(binary.LittleEndian.Uint64(buf[idOff : idOff+8]))
 	return eResult, id
+}
+
+// decodeItemInstalled decodes Steamworks ItemInstalled_t under pack (4 on Unix, 8 on Windows).
+func decodeItemInstalled(buf []byte, pack int) (appID uint32, id PublishedFileID, ok bool) {
+	idOff := alignOffset(4, min(8, pack))
+	if len(buf) < idOff+8 {
+		return 0, 0, false
+	}
+	appID = binary.LittleEndian.Uint32(buf[0:4])
+	id = PublishedFileID(binary.LittleEndian.Uint64(buf[idOff : idOff+8]))
+	return appID, id, true
 }
 
 // decodeQueryCompleted decodes SteamUGCQueryCompleted_t.

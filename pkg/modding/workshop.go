@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
+	"github.com/nsgo-dev/game/pkg/online/steamworks"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -352,15 +353,28 @@ type WorkshopBackend interface {
 
 // SteamWorkshopOptions configures [NewSteamWorkshop].
 type SteamWorkshopOptions struct {
+	// Client is the shared process-wide Steamworks client returned by
+	// [steamworks.Open]. When set, SteamWorkshop resolves ISteamUGC symbols from
+	// Client, awaits SteamAPICall_t handles and ItemInstalled_t callbacks through
+	// Client's manual-dispatch pump, and never calls SteamAPI_Init,
+	// SteamAPI_Shutdown, or SteamAPI_RunCallbacks.
+	Client *steamworks.Client
 	// LibraryPath optionally specifies the exact path to the Steamworks shared library
 	// (libsteam_api.dylib on macOS, libsteam_api.so on Linux, steam_api64.dll on Windows).
 	// When empty, standard Steamworks library names are probed.
+	//
+	// Ignored when Client is set. Prefer opening one shared [steamworks.Client]
+	// and passing it in Client.
 	LibraryPath string
 	// SkipInit skips calling SteamAPI_Init and SteamAPI_Shutdown when the host game
 	// already manages Steamworks initialization elsewhere.
+	//
+	// Ignored when Client is set. Prefer opening one shared [steamworks.Client]
+	// and passing it in Client.
 	SkipInit bool
 	// PollInterval sets how often async SteamAPICall_t handles pump SteamAPI_RunCallbacks
-	// while waiting for completion. Defaults to 10ms when <= 0.
+	// while waiting for completion (legacy mode without Client) or fallback-check
+	// download state. Defaults to 10ms when <= 0.
 	PollInterval time.Duration
 }
 
