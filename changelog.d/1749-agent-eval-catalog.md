@@ -1,1 +1,3 @@
-Agent eval 新增 editor-workflow 任务和 required_tools 工具覆盖目录校验。
+### Added
+
+- `tools/agenteval`: tasks can declare the editor and runtime MCP tools they exercise in `checks.required_tools`, validated against a known tool catalog, and a new `editor-workflow` task covers scene and layer inspection, `scene_edit` and `game_check` (#1749).
