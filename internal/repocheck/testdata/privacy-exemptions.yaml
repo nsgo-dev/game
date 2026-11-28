@@ -1,0 +1,11 @@
+version: 1
+entries:
+  - path: docs/en/formats.md
+    pattern: /home/you/
+    reason: documentation uses a generic placeholder path
+  - path: docs/zh/formats.md
+    pattern: /Users/alex/
+    reason: documentation uses a synthetic example path
+  - path: internal/gamecli/new_test.go
+    pattern: /Users/me/
+    reason: shell quoting fixture uses a synthetic user name

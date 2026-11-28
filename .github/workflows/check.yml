@@ -16,6 +16,18 @@ permissions:
   contents: read
 
 jobs:
+  secrets:
+    name: Secrets and private path scan
+    runs-on: depot-ubuntu-24.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with: {go-version-file: go.mod, cache: true}
+      - name: Scan repository privacy findings
+        run: go tool nsgo test ./internal/repocheck -run 'TestNoPrivate|TestPrivacyExemptions'
   # iOS builds need cgo against Xcode's SDKs, which Linux has none of, so Linux vets every other target and a Mac vets iOS, side by side.
   check:
     name: Build and vet

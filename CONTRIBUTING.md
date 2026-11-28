@@ -89,3 +89,6 @@ The site is [TanStack Start](https://tanstack.com/start) and React, every page p
 ## Engine-level issues
 
 Bugs or missing primitives in NSGo itself (such as display frame times, input primitives, audio backends, or the GPU view) belong in [nsgo-dev/nsgo](https://github.com/nsgo-dev/nsgo/issues).
+## Secrets and private paths
+
+CI scans tracked files for private filenames, personal home-directory paths, private-key blocks, and secret-like values. Findings must be removed and any exposed credential rotated. Synthetic documentation fixtures may use `internal/repocheck/testdata/privacy-exemptions.yaml`, where every exact path or pattern carries a reason. Do not add broad patterns or exemptions for real credentials.
