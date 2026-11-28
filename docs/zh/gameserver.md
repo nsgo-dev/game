@@ -287,3 +287,9 @@ claims, err := v.Verify(tok) // claims.Subject 是账号 ID
 ```
 
 玩家发来的令牌属于游戏服务器，即密钥集的受众；运营服务器的人在它过期前都可以重放它。云存档、排行榜和账号服务都拒绝这种令牌，所以服务器无法用它触及玩家的存档、成绩或账号（见[令牌受众](accounts.md#令牌受众)）。不要把玩家的令牌转发给其他服务，也不要向玩家索要其他受众的令牌或会话。
+
+### Ticket 属性与人数边界
+
+`gameserver.Ticket` 接受复制保存的字符串和数值属性，以及类型化的 `Query`。`Must` 与 `MustNot` 条件由双方票据对称检查，`Should` 条件可由队列规则用于确定性评分。数值条件使用闭区间 `NumericRange`，可用于 `Numbers["ping.eu"]` 这样的延迟属性。
+
+`MinCount`、`MaxCount` 和 `CountMultiple` 允许队列在较少玩家时开局，并且只形成保持队伍完整的合法人数。零值保持之前严格使用 `RoomSize` 的行为。Matchmaker 的入队、取消、列表和匹配操作支持并发调用。

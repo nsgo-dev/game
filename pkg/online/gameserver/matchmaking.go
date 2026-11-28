@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -14,6 +15,65 @@ var (
 	// ErrDuplicateTicket reports a ticket ID already waiting in the queue.
 	ErrDuplicateTicket = errors.New("gameserver: duplicate matchmaking ticket")
 )
+
+// Ticket is one matchmaking request. A party stays together in a room.
+type TermKind uint8
+
+const (
+	Must TermKind = iota
+	MustNot
+	Should
+)
+
+type NumericRange struct{ Min, Max float64 }
+type Term struct {
+	Kind  TermKind
+	Field string
+	In    []string
+	Range *NumericRange
+	Boost float64
+}
+type Query []Term
+
+func (q Query) matches(t *Ticket) (bool, float64) {
+	score := 0.0
+	for _, term := range q {
+		if term.Field == "" {
+			continue
+		}
+		ok := false
+		if v, exists := t.Strings[term.Field]; exists {
+			for _, want := range term.In {
+				if v == want {
+					ok = true
+					break
+				}
+			}
+		}
+		if n, exists := t.Numbers[term.Field]; exists && term.Range != nil {
+			ok = n >= term.Range.Min && n <= term.Range.Max
+		}
+		switch term.Kind {
+		case Must:
+			if !ok {
+				return false, 0
+			}
+		case MustNot:
+			if ok {
+				return false, 0
+			}
+		case Should:
+			if ok {
+				if term.Boost > 0 {
+					score += term.Boost
+				} else {
+					score++
+				}
+			}
+		}
+	}
+	return true, score
+}
 
 // Ticket is one matchmaking request. A party stays together in a room.
 type Ticket struct {
@@ -29,7 +89,11 @@ type Ticket struct {
 	Party []string
 	// EnqueuedAt is when the ticket started waiting; zero uses the time it was
 	// enqueued.
-	EnqueuedAt time.Time
+	EnqueuedAt                        time.Time
+	Strings                           map[string]string
+	Numbers                           map[string]float64
+	Query                             Query
+	MinCount, MaxCount, CountMultiple int
 }
 
 // Match is a set of tickets assigned to one room.
@@ -62,6 +126,7 @@ type Matchmaker struct {
 
 	Rule  Rule
 	queue map[uint64]*Ticket
+	mu    sync.Mutex
 }
 
 // NewMatchmaker returns a matchmaker for rooms of roomSize players.
@@ -79,6 +144,8 @@ func (m *Matchmaker) Len() int {
 	if m == nil {
 		return 0
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return len(m.queue)
 }
 
@@ -90,6 +157,8 @@ func (m *Matchmaker) Enqueue(t Ticket) error {
 	if len(t.Party) == 0 {
 		return fmt.Errorf("%w: ticket %d has no players", ErrInvalidTicket, t.ID)
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, ok := m.queue[t.ID]; ok {
 		return fmt.Errorf("%w: %d", ErrDuplicateTicket, t.ID)
 	}
@@ -104,6 +173,9 @@ func (m *Matchmaker) Enqueue(t Ticket) error {
 	}
 	cp := t
 	cp.Party = append([]string(nil), t.Party...)
+	cp.Strings = cloneStrings(t.Strings)
+	cp.Numbers = cloneNumbers(t.Numbers)
+	cp.Query = append(Query(nil), t.Query...)
 	m.queue[t.ID] = &cp
 	return nil
 }
@@ -113,6 +185,8 @@ func (m *Matchmaker) Cancel(id uint64) bool {
 	if m == nil {
 		return false
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, ok := m.queue[id]; !ok {
 		return false
 	}
@@ -125,10 +199,15 @@ func (m *Matchmaker) Waiting() []Ticket {
 	if m == nil {
 		return nil
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	out := make([]Ticket, 0, len(m.queue))
 	for _, t := range m.queue {
 		cp := *t
 		cp.Party = append([]string(nil), t.Party...)
+		cp.Strings = cloneStrings(t.Strings)
+		cp.Numbers = cloneNumbers(t.Numbers)
+		cp.Query = append(Query(nil), t.Query...)
 		out = append(out, cp)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -143,7 +222,12 @@ func (m *Matchmaker) Waiting() []Ticket {
 // Match forms rooms from the waiting tickets, removes their tickets and
 // returns the matches. Tickets that cannot fill a room stay queued.
 func (m *Matchmaker) Match() []Matchup {
-	if m == nil || len(m.queue) == 0 {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.queue) == 0 {
 		return nil
 	}
 	now := m.now()
@@ -196,6 +280,57 @@ func (m *Matchmaker) Match() []Matchup {
 
 // defaultRule fills rooms oldest-first, adding whole parties whose ratings fit
 // within both the oldest ticket's current window and their own.
+func cloneStrings(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+func cloneNumbers(in map[string]float64) map[string]float64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+func ticketCounts(t *Ticket, roomSize int) (minCount, maxCount, multiple int) {
+	minCount = t.MinCount
+	maxCount = t.MaxCount
+	multiple = t.CountMultiple
+	if minCount <= 0 {
+		minCount = roomSize
+	}
+	if maxCount <= 0 {
+		maxCount = roomSize
+	}
+	if multiple <= 0 {
+		multiple = 1
+	}
+	if maxCount < minCount {
+		maxCount = minCount
+	}
+	return
+}
+func compatible(a, b *Ticket, window func(*Ticket) float64) bool {
+	if math.Abs(a.Rating-b.Rating) > math.Min(window(a), window(b)) {
+		return false
+	}
+	if ok, _ := a.Query.matches(b); !ok {
+		return false
+	}
+	if ok, _ := b.Query.matches(a); !ok {
+		return false
+	}
+	return true
+}
+
 func defaultRule(tickets []*Ticket, roomSize int, window func(*Ticket) float64) []Matchup {
 	if roomSize <= 0 || len(tickets) == 0 {
 		return nil
@@ -214,27 +349,39 @@ func defaultRule(tickets []*Ticket, roomSize int, window func(*Ticket) float64) 
 	room := make([]*Ticket, 0, capHint)
 	for i := 0; i < len(remaining); {
 		anchor := remaining[i]
-		if len(anchor.Party) == 0 || len(anchor.Party) > roomSize {
+		minCount, maxCount, multiple := ticketCounts(anchor, roomSize)
+		if len(anchor.Party) == 0 || len(anchor.Party) > maxCount || minCount > maxCount {
 			i++
 			continue
 		}
 		chosen = append(chosen[:0], i)
 		room = append(room[:0], anchor)
 		count := len(anchor.Party)
-		for j := i + 1; j < len(remaining) && count < roomSize; j++ {
+		type candidate struct {
+			index int
+			score float64
+		}
+		candidates := make([]candidate, 0, len(remaining)-i-1)
+		for j := i + 1; j < len(remaining); j++ {
 			t := remaining[j]
-			if len(t.Party) == 0 || count+len(t.Party) > roomSize {
+			if len(t.Party) == 0 || count+len(t.Party) > maxCount || !compatible(anchor, t, window) {
 				continue
 			}
-			limit := math.Min(window(anchor), window(t))
-			if math.Abs(t.Rating-anchor.Rating) > limit {
+			_, aScore := anchor.Query.matches(t)
+			_, bScore := t.Query.matches(anchor)
+			candidates = append(candidates, candidate{index: j, score: aScore + bScore})
+		}
+		sort.SliceStable(candidates, func(a, b int) bool { return candidates[a].score > candidates[b].score })
+		for _, candidate := range candidates {
+			t := remaining[candidate.index]
+			if count+len(t.Party) > maxCount {
 				continue
 			}
-			chosen = append(chosen, j)
+			chosen = append(chosen, candidate.index)
 			room = append(room, t)
 			count += len(t.Party)
 		}
-		if count != roomSize {
+		if count < minCount || count > maxCount || count%multiple != 0 {
 			i++
 			continue
 		}

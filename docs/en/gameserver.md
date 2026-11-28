@@ -287,3 +287,9 @@ claims, err := v.Verify(tok) // claims.Subject is the account ID
 ```
 
 The token a player sends is for the game's servers, the key set's audience, and whoever runs a server can replay it until it expires; cloud save, the leaderboard and the account service refuse it, so a server cannot reach the player's saves, scores or account with it (see [Token audiences](accounts.md#token-audiences)). Never forward a player's token to another service, and never ask a player for a token for another audience or for their session.
+
+### Ticket properties and count bounds
+
+`gameserver.Ticket` accepts copied string and numeric properties plus a typed `Query`. `Must` and `MustNot` terms are checked symmetrically by both tickets, while `Should` terms can contribute a deterministic score for queue rules. Numeric terms use inclusive `NumericRange` values, which is suitable for latency properties such as `Numbers["ping.eu"]`.
+
+`MinCount`, `MaxCount` and `CountMultiple` let a queue start with fewer players and fill only valid party-preserving sizes. Zero values retain the previous exact `RoomSize` behavior. Matchmaker queue operations are safe for concurrent enqueue, cancel, listing and matching.
