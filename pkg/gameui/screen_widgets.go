@@ -369,7 +369,7 @@ func (b *TouchButton) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 		drawFocusRing(d, rect, r, theme)
 	}
 	if b.Text != "" {
-		font := resolveFont(b.Font, theme.Font)
+		font := resolveFont(b.Font, theme.Font, theme.TextScale)
 		drawText(d, b.TextDrawer, theme, TextDrawParams{
 			Text:     b.Text,
 			X:        cx,

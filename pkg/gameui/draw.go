@@ -156,7 +156,7 @@ func (l *Label) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	y := float32(b.Origin.Y) + float32(l.Padding.Top)
 	innerW := max(0, w-float32(l.Padding.Left+l.Padding.Right))
 	innerH := max(0, h-float32(l.Padding.Top+l.Padding.Bottom))
-	font := resolveFont(l.Font, theme.Font)
+	font := resolveFont(l.Font, theme.Font, theme.TextScale)
 	col := l.Color
 	if col == 0 {
 		col = theme.Text
@@ -226,7 +226,7 @@ func (b *Button) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	}
 
 	if b.Text != "" {
-		font := resolveFont(b.Font, theme.Font)
+		font := resolveFont(b.Font, theme.Font, theme.TextScale)
 		drawText(d, b.TextDrawer, theme, TextDrawParams{
 			Text:     b.Text,
 			X:        x + w/2,
@@ -261,7 +261,7 @@ func (t *Toggle) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 		drawFocusRing(d, rect, radius, theme)
 	}
 
-	font := resolveFont(t.Font, theme.Font)
+	font := resolveFont(t.Font, theme.Font, theme.TextScale)
 	pad := min(max(theme.Padding*0.5, 4), w*0.25)
 	boxSize := min(max(float32(font.Size)*1.15, 16), max(h-4, 8))
 	cy := y + h/2
@@ -384,7 +384,7 @@ func (s *Slider) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 
 	cy := y + h/2
 	if s.Label != "" {
-		font := resolveFont(s.Font, theme.Font)
+		font := resolveFont(s.Font, theme.Font, theme.TextScale)
 		drawText(d, s.TextDrawer, theme, TextDrawParams{
 			Text:     s.Label,
 			X:        x + 4,
@@ -461,7 +461,7 @@ func (p *ProgressBar) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	}
 
 	if p.Label != "" {
-		font := resolveFont(p.Font, theme.Font)
+		font := resolveFont(p.Font, theme.Font, theme.TextScale)
 		drawText(d, p.TextDrawer, theme, TextDrawParams{
 			Text:     p.Label,
 			X:        x + w/2,
@@ -616,7 +616,7 @@ func (l *List) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 		}
 	}
 
-	font := resolveFont(l.Font, theme.Font)
+	font := resolveFont(l.Font, theme.Font, theme.TextScale)
 	itemR := min(radius*0.75, 4)
 	padX := max(theme.Padding*0.6, 6)
 
