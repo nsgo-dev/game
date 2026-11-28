@@ -1,4 +1,4 @@
-package server
+package gameserver
 
 import (
 	"errors"
@@ -10,9 +10,9 @@ import (
 
 var (
 	// ErrInvalidTicket reports a ticket with no player or a non-positive room size.
-	ErrInvalidTicket = errors.New("server: invalid matchmaking ticket")
+	ErrInvalidTicket = errors.New("gameserver: invalid matchmaking ticket")
 	// ErrDuplicateTicket reports a ticket ID already waiting in the queue.
-	ErrDuplicateTicket = errors.New("server: duplicate matchmaking ticket")
+	ErrDuplicateTicket = errors.New("gameserver: duplicate matchmaking ticket")
 )
 
 // Ticket is one matchmaking request. A party stays together in a room.

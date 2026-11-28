@@ -1,4 +1,4 @@
-package server_test
+package gameserver_test
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/online/gameserver"
 	"github.com/nsgo-dev/game/pkg/online/netplay"
-	"github.com/nsgo-dev/game/pkg/online/server"
 )
 
 type fakeInbox struct{ stats netplay.InboxStats }
@@ -24,7 +24,7 @@ type fakeInbox struct{ stats netplay.InboxStats }
 func (f fakeInbox) SetInboxLimits(netplay.InboxLimits) {}
 func (f fakeInbox) InboxStats() netplay.InboxStats     { return f.stats }
 
-func scrapeMetrics(t *testing.T, h *server.Health) string {
+func scrapeMetrics(t *testing.T, h *gameserver.Health) string {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	rec := httptest.NewRecorder()
@@ -58,7 +58,7 @@ func labeledValue(t *testing.T, samples map[string][]sample, name string, labels
 }
 
 func TestMatchTickHistogram(t *testing.T) {
-	h := server.NewHealth(nil, nil)
+	h := gameserver.NewHealth(nil, nil)
 	h.ObserveMatchTick("beta", 300*time.Microsecond)
 	h.ObserveMatchTick("beta", 2*time.Millisecond)
 	h.ObserveMatchTick("beta", 500*time.Millisecond) // past the last bucket
@@ -96,14 +96,14 @@ func TestMatchTickHistogram(t *testing.T) {
 
 func TestRunnerRecordsMatchTicksAndOverruns(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		health := server.NewHealth(nil, nil)
+		health := gameserver.NewHealth(nil, nil)
 		var ticks, nextCalls int
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		r := &server.Runner{
+		r := &gameserver.Runner{
 			Health:    health,
-			OnOverrun: health.OnOverrun(func(*server.Match, time.Duration, int) { nextCalls++ }),
-			Matches: []*server.Match{{
+			OnOverrun: health.OnOverrun(func(*gameserver.Match, time.Duration, int) { nextCalls++ }),
+			Matches: []*gameserver.Match{{
 				Rate: 20, // 50ms step; each update takes 80ms, an overrun missing 1 tick
 				Update: func(time.Duration) {
 					ticks++
@@ -140,7 +140,7 @@ func TestRunnerRecordsMatchTicksAndOverruns(t *testing.T) {
 }
 
 func TestGuardTotalsAcrossPeersLeaving(t *testing.T) {
-	g := server.NewGuard(server.Limits{PacketsPerSecond: 100, BurstPackets: 100, MaxMessageSize: 64}, server.LimitThrottle)
+	g := gameserver.NewGuard(gameserver.Limits{PacketsPerSecond: 100, BurstPackets: 100, MaxMessageSize: 64}, gameserver.LimitThrottle)
 	packet := netplay.Packet{Payload: make([]byte, 10)}
 	for i := 0; i < 3; i++ {
 		g.Check(1, packet)
@@ -150,7 +150,7 @@ func TestGuardTotalsAcrossPeersLeaving(t *testing.T) {
 	if err := g.ReserveReliable(1, 5); err != nil {
 		t.Fatal(err)
 	}
-	want := server.PeerStats{Packets: 4, Bytes: 40, Dropped: 1, Violations: 1, PendingBytes: 5}
+	want := gameserver.PeerStats{Packets: 4, Bytes: 40, Dropped: 1, Violations: 1, PendingBytes: 5}
 	if got := g.Totals(); got != want {
 		t.Fatalf("totals = %+v, want %+v", got, want)
 	}
@@ -160,7 +160,7 @@ func TestGuardTotalsAcrossPeersLeaving(t *testing.T) {
 	if got := g.Totals(); got != want {
 		t.Fatalf("totals after Reset = %+v, want %+v", got, want)
 	}
-	if got := g.Stats(1); got != (server.PeerStats{}) {
+	if got := g.Stats(1); got != (gameserver.PeerStats{}) {
 		t.Fatalf("reset peer stats = %+v, want zero", got)
 	}
 	g.Reset(2)
@@ -170,11 +170,11 @@ func TestGuardTotalsAcrossPeersLeaving(t *testing.T) {
 }
 
 func TestHealthCollectors(t *testing.T) {
-	health := server.NewHealth(nil, nil)
-	g := server.NewGuard(server.Limits{}, server.LimitThrottle)
+	health := gameserver.NewHealth(nil, nil)
+	g := gameserver.NewGuard(gameserver.Limits{}, gameserver.LimitThrottle)
 	g.Check(1, netplay.Packet{Payload: []byte("hello")})
-	health.AddCollector(server.GuardCollector(g))
-	health.AddCollector(server.InboxCollector("loop", fakeInbox{netplay.InboxStats{
+	health.AddCollector(gameserver.GuardCollector(g))
+	health.AddCollector(gameserver.InboxCollector("loop", fakeInbox{netplay.InboxStats{
 		UnreliableDropped: 2, ReliableRefused: 3, ReliableWarnings: 1,
 	}}))
 	health.AddCollector(func(w io.Writer) {
@@ -208,7 +208,7 @@ func TestHealthCollectors(t *testing.T) {
 }
 
 func TestMetricsLabelEscaping(t *testing.T) {
-	h := server.NewHealth(nil, nil)
+	h := gameserver.NewHealth(nil, nil)
 	name := "a\"b\\c\nd"
 	h.ObserveMatchTick(name, time.Millisecond)
 	body := scrapeMetrics(t, h)

@@ -1,10 +1,7 @@
-// Package server runs one or more matches of a game at fixed tick rates in a
-// plain Go process, without an NSGo app, window or core.Scope.
+// Package gameserver runs one or more matches of a game at fixed tick rates in a plain Go process, without an NSGo app, window or core.Scope.
 //
-// The Update function a game gives game.Loop runs unchanged here: each match
-// steps it with the same fixed dt, so dedicated-server code and client-side
-// prediction share one simulation.
-package server
+// The Update function a game gives game.Loop runs unchanged here: each match steps it with the same fixed dt, so dedicated-server code and client-side prediction share one simulation.
+package gameserver
 
 import (
 	"context"
@@ -72,11 +69,11 @@ func (m *Match) interval() time.Duration {
 // starting anything when a match has no Update.
 func (r *Runner) Run(ctx context.Context) error {
 	if len(r.Matches) == 0 {
-		return errors.New("server: no matches to run")
+		return errors.New("gameserver: no matches to run")
 	}
 	for _, m := range r.Matches {
 		if m == nil || m.Update == nil {
-			return errors.New("server: a match has no Update function")
+			return errors.New("gameserver: a match has no Update function")
 		}
 	}
 	for i, m := range r.Matches {

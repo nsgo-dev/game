@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nsgo-dev/game/pkg/online/server"
+	"github.com/nsgo-dev/game/pkg/online/gameserver"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 	defer stop()
 
 	var ticks uint64
-	match := &server.Match{
+	match := &gameserver.Match{
 		Name: "example",
 		Rate: 60,
 		Update: func(dt time.Duration) {
@@ -25,9 +25,9 @@ func main() {
 		},
 		OnStop: func() { log.Printf("match stopped after %d ticks", ticks) },
 	}
-	r := &server.Runner{
-		Matches: []*server.Match{match},
-		OnOverrun: func(m *server.Match, lag time.Duration, missed int) {
+	r := &gameserver.Runner{
+		Matches: []*gameserver.Match{match},
+		OnOverrun: func(m *gameserver.Match, lag time.Duration, missed int) {
 			log.Printf("match %q overran its tick by %v (%d missed)", m.Name, lag, missed)
 		},
 	}

@@ -15,6 +15,7 @@
 - Project file checks exit with 2, not 1, when they are called wrongly, such as with an unknown verb, more than one directory or `-check` where it does not apply, and print the usage of `game project`; their errors start with `game project:` instead of `gameproject:`.
 - `vehicle` is renamed `vehicle3d` so its name says it is the 3D raycast car on `physics3d`, as `physics3d` and `world3d` do: import `github.com/nsgo-dev/game/pkg/vehicle3d` and write `vehicle3d.New`, `vehicle3d.Config`, `vehicle3d.Race` and so on. Its errors start with `vehicle3d:` instead of `vehicle:`, and its File Formats entries are now `vehicle3d` and `vehicle3d#ghost`. Car files, ghost laps and snapshot checksums are unchanged. The guide moves to `vehicle3d.md`.
 - `effects` is renamed `postfx` so its name says it is the full-frame shader passes drawn over the game's frame, apart from the per-sprite `Sprite.Effect` and the sound mixer's DSP effects: import `github.com/nsgo-dev/game/pkg/postfx` and write `postfx.Compile`, `postfx.View`, `postfx.Bloom` and so on. Its errors and panics start with `postfx:` instead of `effects:`. The guide moves to `postfx.md`.
+- `online/server` is renamed `gameserver` and moves to `github.com/nsgo-dev/game/pkg/online/gameserver`, so its name says what it serves instead of colliding with every variable called `server`: write `gameserver.Runner`, `gameserver.NewMatchmaker`, `gameserver.NewRooms` and so on where code wrote `server.Runner`. Its errors start with `gameserver:` instead of `server:`, and the guide moves to `gameserver.md`.
 
 ### Removed
 

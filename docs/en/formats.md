@@ -2874,7 +2874,7 @@ Each line records one plaintext transport packet (`t` elapsed nanoseconds since 
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `<yyyy-mm-dd>.jsonl` in the directory `audit.Options.Dir` names, one file per UTC day, appended to only | `v: 1` on each line | `audit.Open`, `audit.Writer.Log` | [server](server.md#audit-log) |
+| `<yyyy-mm-dd>.jsonl` in the directory `audit.Options.Dir` names, one file per UTC day, appended to only | `v: 1` on each line | `audit.Open`, `audit.Writer.Log` | [gameserver](gameserver.md#audit-log) |
 
 ```json
 {"v":1,"time":"2026-11-28T09:15:02.500Z","actor":"admin:ada","action":"peer.kick","subject":"peer:42","data":{"reason":"cheating"}}

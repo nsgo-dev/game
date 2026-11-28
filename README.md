@@ -75,7 +75,7 @@ Import only what you need from `github.com/nsgo-dev/game`. Browse the full inter
 | **Animation & Visual FX** | `tween`, `animclip`, `skeletal`, `particles`, `pixelfx`, `lights2d`, `postfx`, `cutscene`, `quality` |
 | **Gameplay & Genre Kits** | `flow`, `entities`, `platformer`, `rooms`, `worldmap`, `fog`, `procgen`, `stats`, `inventory`, `ability`, `quest`, `loot`, `cards`, `bullets`, `fighting`, `framedata`, `rts`, `rhythm`, `idle`, `vn`, `undo` |
 | **UI, L10n & Accessibility** | `gameui`, `l10n`, `a11y`, `perf` |
-| **Multiplayer & Online** | `online/netplay`, `online/server`, `online/accounts`, `online/cloudsave`, `online/leaderboard`, `online/leaderboard/selfhost`, `online/achievements`, `online/presence`, `online/liveops`, `online/audit`, `online/wsclient`, `modding`, `plugin` |
+| **Multiplayer & Online** | `online/netplay`, `online/gameserver`, `online/accounts`, `online/cloudsave`, `online/leaderboard`, `online/leaderboard/selfhost`, `online/achievements`, `online/presence`, `online/liveops`, `online/audit`, `online/wsclient`, `modding`, `plugin` |
 | **Editor, Tooling & Testing** | `editor`, `project`, `tooling/refs`, `tooling/gamedebug`, `mcp`, `replay`, `statedump`, `tooling/playtest`, `gametest`, `placeholder`, `datatable`, `jsonschema`, `importsettings`, `tooling/library` |
 
 ## Starter Templates

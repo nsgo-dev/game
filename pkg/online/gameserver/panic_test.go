@@ -1,4 +1,4 @@
-package server_test
+package gameserver_test
 
 import (
 	"context"
@@ -10,25 +10,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/pkg/online/gameserver"
 	"github.com/nsgo-dev/game/pkg/online/liveops/crashreport"
-	"github.com/nsgo-dev/game/pkg/online/server"
 )
 
 type panicRecorder struct {
 	mu     sync.Mutex
-	panics []server.Panic
+	panics []gameserver.Panic
 }
 
-func (p *panicRecorder) record() func(server.Panic) server.PanicAction {
-	return func(got server.Panic) server.PanicAction {
+func (p *panicRecorder) record() func(gameserver.Panic) gameserver.PanicAction {
+	return func(got gameserver.Panic) gameserver.PanicAction {
 		p.mu.Lock()
 		p.panics = append(p.panics, got)
 		p.mu.Unlock()
-		return server.StopMatch
+		return gameserver.StopMatch
 	}
 }
 
-func (p *panicRecorder) one(t *testing.T) server.Panic {
+func (p *panicRecorder) one(t *testing.T) gameserver.Panic {
 	t.Helper()
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -43,9 +43,9 @@ func TestRunnerRecoversPanickingMatch(t *testing.T) {
 	var aTicks, bTicks, aStops, bStops atomic.Int64
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	r := &server.Runner{
+	r := &gameserver.Runner{
 		OnPanic: rec.record(),
-		Matches: []*server.Match{
+		Matches: []*gameserver.Match{
 			{Name: "panic", Rate: 100, Update: func(time.Duration) {
 				if aTicks.Add(1) == 2 {
 					panic("boom")
@@ -91,7 +91,7 @@ func TestRunnerRecoversPanickingMatchWithoutOnPanic(t *testing.T) {
 	var aTicks, bTicks atomic.Int64
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	r := &server.Runner{Matches: []*server.Match{
+	r := &gameserver.Runner{Matches: []*gameserver.Match{
 		{Rate: 100, Update: func(time.Duration) {
 			if aTicks.Add(1) == 1 {
 				panic("boom")
@@ -112,9 +112,9 @@ func TestRunnerRecoversPanickingMatchWithoutOnPanic(t *testing.T) {
 
 func TestRunnerCrashActionStopsAllAndRepanics(t *testing.T) {
 	var aTicks, stops atomic.Int64
-	r := &server.Runner{
-		OnPanic: func(server.Panic) server.PanicAction { return server.Crash },
-		Matches: []*server.Match{
+	r := &gameserver.Runner{
+		OnPanic: func(gameserver.Panic) gameserver.PanicAction { return gameserver.Crash },
+		Matches: []*gameserver.Match{
 			{Rate: 100, Update: func(time.Duration) {
 				if aTicks.Add(1) == 2 {
 					panic("boom")
@@ -142,9 +142,9 @@ func TestRunnerRecoversOnStopPanic(t *testing.T) {
 	var otherStop atomic.Int64
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
 	defer cancel()
-	r := &server.Runner{
+	r := &gameserver.Runner{
 		OnPanic: rec.record(),
-		Matches: []*server.Match{
+		Matches: []*gameserver.Match{
 			{Name: "bad-stop", Rate: 100, Update: func(time.Duration) {}, OnStop: func() { panic("stop boom") }},
 			{Name: "ok", Rate: 100, Update: func(time.Duration) {}, OnStop: func() { otherStop.Add(1) }},
 		},
@@ -169,8 +169,8 @@ func TestRunnerRecoversOnStopPanic(t *testing.T) {
 
 func TestPanicReportMatchesCrashSchema(t *testing.T) {
 	ts := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
-	p := server.Panic{
-		Match: &server.Match{Name: "lobby"},
+	p := gameserver.Panic{
+		Match: &gameserver.Match{Name: "lobby"},
 		Value: errors.New("boom"),
 		Stack: []byte("goroutine 7 [running]:..."),
 		Tick:  7,

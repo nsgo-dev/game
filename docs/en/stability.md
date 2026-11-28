@@ -115,10 +115,11 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/online/accounts/sqlstore` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/accounts/storetest` | Experimental | [accounts](accounts.md) |
 | `game/pkg/online/achievements` | Experimental | [achievements](achievements.md) |
-| `game/pkg/online/audit` | Experimental | [server](server.md) |
+| `game/pkg/online/audit` | Experimental | [gameserver](gameserver.md) |
 | `game/pkg/online/cloudsave` | Experimental | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/sqlstore` | Experimental | [cloudsave](cloudsave.md) |
 | `game/pkg/online/cloudsave/storetest` | Experimental | [cloudsave](cloudsave.md) |
+| `game/pkg/online/gameserver` | Experimental | [gameserver](gameserver.md) |
 | `game/pkg/online/leaderboard` | Experimental | [leaderboard](leaderboard.md) |
 | `game/pkg/online/leaderboard/selfhost` | Experimental | [leaderboard/selfhost](leaderboard-selfhost.md) |
 | `game/pkg/online/liveops` | Experimental | [liveops](liveops.md) |
@@ -126,7 +127,6 @@ Paths are relative to `github.com/nsgo-dev`. The table is checked by a test in t
 | `game/pkg/online/netplay` | Experimental | [netplay](netplay.md) |
 | `game/pkg/online/netplay/wire` | Experimental | [netplay/wire](netplay-wire.md) |
 | `game/pkg/online/presence` | Experimental | [presence](presence.md) |
-| `game/pkg/online/server` | Experimental | [server](server.md) |
 | `game/pkg/online/wsclient` | Experimental | [wsclient](wsclient.md) |
 | `game/pkg/particles` | Experimental | [particles](particles.md) |
 | `game/pkg/perf` | Experimental | [perf](perf.md) |

@@ -80,8 +80,8 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `idle` | `github.com/nsgo-dev/game/pkg/idle` | [idle](idle.md) | 超出 float64 范围的 `Number`、带上限的离线收益，以及大数字的缩写、科学计数法与本地化格式 |
 | `netplay` | `github.com/nsgo-dev/game/pkg/online/netplay` | [netplay](netplay.md) | 跨平台 WebSocket/UDP/回环传输、服务端权威增量复制与锁步/回滚同步 |
 | `wsclient` | `github.com/nsgo-dev/game/pkg/online/wsclient` | [wsclient](wsclient.md) | 连接第三方服务器的朴素 WebSocket 客户端，原生与 Web 平台同一套 API |
-| `server` | `github.com/nsgo-dev/game/pkg/online/server` | [server](server.md) | 专用服务器无头固定步长 `Runner`：多场比赛独立速率、超时报告与有界信号停止 |
-| `audit` | `github.com/nsgo-dev/game/pkg/online/audit` | [server](server.md) | 服务器管理事件的只追加 JSON Lines 审计日志：每个 UTC 日一个文件、不阻塞的队列与丢弃计数、按天保留 |
+| `gameserver` | `github.com/nsgo-dev/game/pkg/online/gameserver` | [gameserver](gameserver.md) | 专用服务器无头固定步长 `Runner`：多场比赛独立速率、超时报告与有界信号停止 |
+| `audit` | `github.com/nsgo-dev/game/pkg/online/audit` | [gameserver](gameserver.md) | 服务器管理事件的只追加 JSON Lines 审计日志：每个 UTC 日一个文件、不阻塞的队列与丢弃计数、按天保留 |
 | `accounts` | `github.com/nsgo-dev/game/pkg/online/accounts` | [accounts](accounts.md) | 可自行部署的玩家账号：游客升级为邮箱或绑定平台/OAuth 身份、argon2id 密码、SQLite/Postgres 存储，以及游戏服务器离线校验的 Ed25519 令牌 |
 | `cloudsave` | `github.com/nsgo-dev/game/pkg/online/cloudsave` | [cloudsave](cloudsave.md) | 置于 `liveops.CloudSync` 之后的自部署云存档：经 HTTPS 按账号划分的槽位、把并发保存变成冲突的条件写入、大小上限、可恢复的历史版本，以及 SQLite/Postgres 存储 |
 | `leaderboard` | `github.com/nsgo-dev/game/pkg/online/leaderboard` | [leaderboard](leaderboard.md) | 在 YAML 里一次性声明排行榜，通过 Game Center 或 Play 游戏服务提交分数并显示原生排行榜 |

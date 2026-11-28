@@ -29,7 +29,7 @@ import "github.com/nsgo-dev/game/pkg/online/liveops"
 - `RunSafe(fn)` 防护任意回调并报告是否发生 panic。
 - 发生 panic 时，报告器构造可 JSON 序列化的 `CrashReport`（包含 `Timestamp`、`Panic`、`Message`、`Stack`、`Step`、按时间从旧到新排列的 `LastSteps`、来自 `CaptureState` 的可选 `State` 以及 `Metadata` 副本），并交给 `Reporter`。
 - 需要上报后继续抛出 panic 时，可设置 `Rethrow: true`。
-- `CrashReport` 和 `StepRecord` 是 `pkg/online/liveops/crashreport` 中类型的别名；该包不依赖任何 NSGo 或 game 包，因此无头专用服务器也能构造同样的报告结构（`server.Panic.Report`，见[服务器指南](server.md#停止)）。已有代码无需改动。
+- `CrashReport` 和 `StepRecord` 是 `pkg/online/liveops/crashreport` 中类型的别名；该包不依赖任何 NSGo 或 game 包，因此无头专用服务器也能构造同样的报告结构（`gameserver.Panic.Report`，见[服务器指南](gameserver.md#停止)）。已有代码无需改动。
 
 ```go
 reporter := liveops.NewCrashReporter(liveops.CrashOptions{
