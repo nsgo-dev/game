@@ -149,7 +149,7 @@ font.DrawWorld(d, cam, viewport, text.WorldText{
 
 ```go
 style := text.PlatformStyle{
-	Font:        core.Font{Size: 14, Weight: core.FontBold},
+	Font:        core.Font{Size: 14, Weight: core.FontWeightBold},
 	Color:       core.RGB(0xf8fafc),
 	Align:       text.AlignCenter,
 	MaxWidth:    240,

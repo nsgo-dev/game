@@ -990,9 +990,9 @@ err = renderer.RenderFrame(frame, render3d.SurfaceDesc{HasDepth: true}, views, f
 
 ```go
 var dbg render3d.DebugDraw
-dbg.Grid(math3d.Vec3Zero(), 10, 20, core.RGBA(120, 130, 150, 0.4))
-dbg.AABB(enemyBounds, core.RGB(255, 80, 80))
-dbg.Sphere(alertCenter, 4, core.RGB(255, 200, 60), 24)
+dbg.Grid(math3d.Vec3Zero(), 10, 20, core.RGBA(0x788296, 0.4))
+dbg.AABB(enemyBounds, core.RGB(0xff5050))
+dbg.Sphere(alertCenter, 4, core.RGB(0xffc83c), 24)
 dbg.Axes(selectedPos, 1.5)
 dbg.Flush(d, cam.ViewProj(), viewportBounds)
 dbg.Clear()
@@ -1032,7 +1032,7 @@ basis, _ := render3d.NewCameraBasis(cam.ViewMatrix(), cam.ProjMatrix())
 The view-plane and view-point modes face the camera at every angle, including looking straight up and down; an axial quad faces it as far as its axis allows and turns edge-on when the camera looks along the axis. `Pivot` places the quad relative to `Center` (`{Y: -0.5}` stands it on its bottom edge) and `Rotation` rolls it counter-clockwise on screen.
 
 ```go
-smoke := render3d.Billboard{Center: pos, Width: 1, Height: 1, Rotation: spin, Color: core.RGBA(200, 200, 200, 0.6)}
+smoke := render3d.Billboard{Center: pos, Width: 1, Height: 1, Rotation: spin, Color: core.RGBA(0xc8c8c8, 0.6)}
 tree := render3d.Billboard{Center: base, Width: 2, Height: 4, Pivot: math3d.Vec2{Y: -0.5}, Mode: render3d.BillboardAxial, Texture: treeImage}
 
 quad, ok := smoke.Quad(basis)                                   // corners BL, BR, TR, TL, counter-clockwise toward the camera
@@ -1053,7 +1053,7 @@ sword := render3d.NewTrail(render3d.TrailConfig{
 	Width:         0.3,
 	Lifetime:      250 * time.Millisecond,
 	WidthCurve:    particles.Curve{{T: 0, Value: 1}, {T: 1, Value: 0}},
-	ColorGradient: particles.ColorCurve{{T: 0, Color: core.RGB(0xffe080)}, {T: 1, Color: core.RGBA(255, 80, 0, 0)}},
+	ColorGradient: particles.ColorCurve{{T: 0, Color: core.RGB(0xffe080)}, {T: 1, Color: core.RGBA(0xff5000, 0)}},
 })
 
 // In Update:

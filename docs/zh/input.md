@@ -17,22 +17,22 @@ actions := input.NewActions()
 
 // 虚拟画布坐标（例如 320×180）下的触摸区域
 actions.Bind("left",
-	input.TouchRegion(core.Bounds{X: 0, Y: 100, Width: 70, Height: 80}),
+	input.TouchRegion(core.Bounds{Origin: core.Point{X: 0, Y: 100}, Size: core.Size{Width: 70, Height: 80}}),
 	input.Key("left"),     // 按名称，随键盘布局而定
 	input.KeyCode("KeyA"), // 按物理位置
 )
 actions.Bind("right",
-	input.TouchRegion(core.Bounds{X: 70, Y: 100, Width: 70, Height: 80}),
+	input.TouchRegion(core.Bounds{Origin: core.Point{X: 70, Y: 100}, Size: core.Size{Width: 70, Height: 80}}),
 	input.Key("right"),
 	input.KeyCode("KeyD"),
 )
 actions.Bind("jump",
-	input.TouchRegion(core.Bounds{X: 220, Y: 100, Width: 100, Height: 80}),
+	input.TouchRegion(core.Bounds{Origin: core.Point{X: 220, Y: 100}, Size: core.Size{Width: 100, Height: 80}}),
 	input.MouseButton(core.MouseButtonLeft),
 	input.Key("space"),
 )
 actions.Bind("interact",
-	input.MouseRegion(core.Bounds{X: 260, Y: 10, Width: 50, Height: 30}, core.MouseButtonLeft),
+	input.MouseRegion(core.Bounds{Origin: core.Point{X: 260, Y: 10}, Size: core.Size{Width: 50, Height: 30}}, core.MouseButtonLeft),
 )
 
 // 将一对反向动作组合为 [-1, 1] 的轴

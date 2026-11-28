@@ -17,22 +17,22 @@ actions := input.NewActions()
 
 // Touch zones in virtual canvas coordinates (e.g. 320×180)
 actions.Bind("left",
-	input.TouchRegion(core.Bounds{X: 0, Y: 100, Width: 70, Height: 80}),
+	input.TouchRegion(core.Bounds{Origin: core.Point{X: 0, Y: 100}, Size: core.Size{Width: 70, Height: 80}}),
 	input.Key("left"),     // by name, following the keyboard layout
 	input.KeyCode("KeyA"), // by physical position
 )
 actions.Bind("right",
-	input.TouchRegion(core.Bounds{X: 70, Y: 100, Width: 70, Height: 80}),
+	input.TouchRegion(core.Bounds{Origin: core.Point{X: 70, Y: 100}, Size: core.Size{Width: 70, Height: 80}}),
 	input.Key("right"),
 	input.KeyCode("KeyD"),
 )
 actions.Bind("jump",
-	input.TouchRegion(core.Bounds{X: 220, Y: 100, Width: 100, Height: 80}),
+	input.TouchRegion(core.Bounds{Origin: core.Point{X: 220, Y: 100}, Size: core.Size{Width: 100, Height: 80}}),
 	input.MouseButton(core.MouseButtonLeft),
 	input.Key("space"),
 )
 actions.Bind("interact",
-	input.MouseRegion(core.Bounds{X: 260, Y: 10, Width: 50, Height: 30}, core.MouseButtonLeft),
+	input.MouseRegion(core.Bounds{Origin: core.Point{X: 260, Y: 10}, Size: core.Size{Width: 50, Height: 30}}, core.MouseButtonLeft),
 )
 
 // Combine two opposing actions into a [-1, 1] axis

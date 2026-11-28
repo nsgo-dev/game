@@ -11,16 +11,16 @@ import "github.com/nsgo-dev/game/pkg/lights2d"
 创建带有 `Ambient` 环境色与 `*Light` 列表的 `Scene`，在 `Canvas.Draw` 中绘制完 2D 世界后叠加绘制：
 
 ```go
-torch := lights2d.NewLight(160, 120, 180, core.RGB(255, 196, 120))
+torch := lights2d.NewLight(160, 120, 180, core.RGB(0xffc478))
 torch.CastShadows = true
 
-flashlight := lights2d.NewLight(240, 140, 260, core.RGB(220, 235, 255))
+flashlight := lights2d.NewLight(240, 140, 260, core.RGB(0xdcebff))
 flashlight.ConeAngle = 0          // 弧度：0 为 +X，pi/2 为 +Y
 flashlight.ConeSpread = math.Pi / 3
 flashlight.CastShadows = true
 
 lighting := &lights2d.Scene{
-	Ambient: core.RGBA(12, 16, 30, 0.85),
+	Ambient: core.RGBA(0x0c101e, 0.85),
 	Lights:  []*lights2d.Light{torch, flashlight},
 }
 

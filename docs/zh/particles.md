@@ -81,8 +81,8 @@ fire.Draw(d)
 
 ```go
 glow := particles.ColorCurve{
-	{T: 0, Color: core.RGBA(0xff, 0xd1, 0x66, 0xff)},
-	{T: 1, Color: core.RGBA(0xef, 0x47, 0x6f, 0x00)},
+	{T: 0, Color: core.RGBA(0xffd166, 1)},
+	{T: 1, Color: core.RGBA(0xef476f, 0)},
 }
 ```
 

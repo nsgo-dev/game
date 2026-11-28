@@ -11,16 +11,16 @@ import "github.com/nsgo-dev/game/pkg/lights2d"
 Create a `Scene` with an `Ambient` color and a slice of `*Light`, then draw it over your 2D world inside `Canvas.Draw`:
 
 ```go
-torch := lights2d.NewLight(160, 120, 180, core.RGB(255, 196, 120))
+torch := lights2d.NewLight(160, 120, 180, core.RGB(0xffc478))
 torch.CastShadows = true
 
-flashlight := lights2d.NewLight(240, 140, 260, core.RGB(220, 235, 255))
+flashlight := lights2d.NewLight(240, 140, 260, core.RGB(0xdcebff))
 flashlight.ConeAngle = 0          // radians: 0 = +X, pi/2 = +Y
 flashlight.ConeSpread = math.Pi / 3
 flashlight.CastShadows = true
 
 lighting := &lights2d.Scene{
-	Ambient: core.RGBA(12, 16, 30, 0.85),
+	Ambient: core.RGBA(0x0c101e, 0.85),
 	Lights:  []*lights2d.Light{torch, flashlight},
 }
 

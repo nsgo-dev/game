@@ -81,8 +81,8 @@ if pt, ok := vp.ViewToGame(windowSize, ev.Position); ok {
 ```go
 safe := vp.SafeGameRectForEnv(cx.Env())
 // safe 已裁剪到可见虚拟画布内，并换算为虚拟游戏坐标
-scoreX := safe.X + 8
-scoreY := safe.Y + 8
+scoreX := safe.Origin.X + 8
+scoreY := safe.Origin.Y + 8
 ```
 
 在响应式计算或 `core.Canvas.Draw` 中调用 `SafeGameRectForEnv` / `SafeRectForEnv` 会自动订阅窗口尺寸与安全区边距的变化。若是在原生 NSGo 视图坐标中布局，请使用 `screen.SafeRect(window, insets)` 或 `screen.SafeRectForEnv(cx.Env())`。

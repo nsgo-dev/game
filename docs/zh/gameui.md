@@ -19,7 +19,7 @@ muteToggle := &gameui.Toggle{Label: "静音", Style: gameui.ToggleSwitch, OnChan
 
 menu := &gameui.Panel{
 	Width:   320,
-	Padding: core.EdgesAll(16),
+	Padding: core.All(16),
 	Child: &gameui.VBox{
 		Spacing: 10,
 		Align:   gameui.AlignStretch,
@@ -62,7 +62,7 @@ bossBar := &gameui.ImageProgress{
 
 ```go
 vp := gameui.NewViewport(1280, 720, gameui.ScaleFit) // ScaleFit、ScaleFill、ScaleStretch、ScaleInteger
-vp.LetterboxColor = core.RGB(8, 10, 16)
+vp.LetterboxColor = core.RGB(0x080a10)
 uiRoot.Viewport = &vp
 
 // 在 Canvas.Draw 中：
@@ -160,7 +160,7 @@ overlay.Add(&gameui.WorldAnchor{
 	AnchorY: 1,
 	Visible: true,
 	View: func(cx *core.Scope) core.View {
-		return core.Text(cx, "铁匠")
+		return core.View{Children: []core.Node{core.Text{Content: "铁匠"}}}
 	},
 })
 
