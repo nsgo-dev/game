@@ -224,6 +224,13 @@
               "$ref": "#/definitions/AgentUsageStats"
             }
           ]
+        },
+        "approvedAutomations": {
+          "description": "ApprovedAutomations lists the projects whose automations.yaml the person allowed to run on this computer, one entry per project folder in canonical sorted order. A project's automations stay off until its file's current SHA-256 is listed here, because a cloned or pulled project writes that file.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApprovedAutomations"
+          }
         }
       },
       "additionalProperties": false
@@ -261,6 +268,25 @@
           "maximum": 9223372036854776000
         }
       },
+      "additionalProperties": false
+    },
+    "ApprovedAutomations": {
+      "description": "ApprovedAutomations records that the person allowed one project's automations.yaml, exactly as it was when they allowed it, to run on this computer.",
+      "type": "object",
+      "properties": {
+        "project": {
+          "description": "Project is the absolute path of the project folder.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA256 is the lowercase hexadecimal SHA-256 of the automations.yaml bytes the person allowed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "sha256"
+      ],
       "additionalProperties": false
     },
     "SnapSettings": {

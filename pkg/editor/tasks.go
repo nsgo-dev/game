@@ -1793,6 +1793,7 @@ func (e *Editor) launchDefaultTaskRunner(task AgentTask) {
 	e.tasks.mu.Unlock()
 	e.notify()
 
+	req.MCPServers = e.AgentMCPServers()
 	go func() {
 		runCtx := WithTaskToolContext(ctx, task.ID)
 		runErr := runner.Run(runCtx, req, func(ev AgentEvent) {

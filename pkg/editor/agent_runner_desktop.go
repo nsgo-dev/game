@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -56,7 +57,7 @@ func (b *cappedBuffer) String() string {
 	return s
 }
 
-// CLIAgentRunner runs an external agent CLI (Claude Code or Codex) non-interactively per composer request with streamed JSON output and the project's MCP config.
+// CLIAgentRunner runs an external agent CLI (Claude Code or Codex) non-interactively per composer request with streamed JSON output, connected to the editor's MCP server and the person's servers from editor.yaml, never to agent configuration the project itself carries.
 type CLIAgentRunner struct {
 	// ClaudeBinary overrides the "claude" executable path (defaults to PATH lookup).
 	ClaudeBinary string
@@ -304,11 +305,16 @@ func buildCLIArgsForInput(kind ExternalAgentKind, req AgentRequest, input AgentM
 	}
 
 	if kind == ExternalAgentCodex {
-		prompt := input.FullPrompt
-		if req.SessionID != "" {
-			return []string{"exec", "resume", "--json", "--", req.SessionID, appendRefPrompt(prompt)}, nil
+		policy, err := codexLaunchPolicyArgs(req.ProjectRoot, req.MCPServers)
+		if err != nil {
+			return nil, err
 		}
-		args := []string{"exec", "--json"}
+		prompt := agentUntrustedContentNotice + "\n\n" + input.FullPrompt
+		if req.SessionID != "" {
+			args := append([]string{"exec", "resume", "--json"}, policy...)
+			return append(args, "--", req.SessionID, appendRefPrompt(prompt)), nil
+		}
+		args := append([]string{"exec", "--json"}, policy...)
 		if req.ProjectRoot != "" {
 			args = append(args, "-C", req.ProjectRoot)
 		}
@@ -318,18 +324,155 @@ func buildCLIArgsForInput(kind ExternalAgentKind, req AgentRequest, input AgentM
 		return append(args, "--", prompt), nil
 	}
 	args := []string{"--print", "--output-format=stream-json", "--verbose"}
-	if req.ProjectRoot != "" {
-		cfg := filepath.Join(req.ProjectRoot, ".mcp.json")
-		if _, err := os.Stat(cfg); err == nil {
-			args = append(args, "--mcp-config", cfg)
-		}
+	policy, err := claudeLaunchPolicyArgs(req.MCPServers)
+	if err != nil {
+		return nil, err
 	}
+	args = append(args, policy...)
 	if req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)
 	}
+	sysPrompt := agentUntrustedContentNotice
 	if input.AlwaysContext != "" {
-		args = append(args, "--append-system-prompt="+input.AlwaysContext)
+		sysPrompt += "\n\n" + input.AlwaysContext
 	}
+	args = append(args, "--append-system-prompt="+sysPrompt)
 	prompt := appendRefPrompt(input.TurnPrompt)
 	return append(args, "--", prompt), nil
+}
+
+// claudeDeniedBuiltinTools are Claude Code's built-in tools that change files or run commands directly. The composer denies them, even when the person's own Claude Code settings allow them, so every change goes through the editor's MCP tools, turns and permissions.yaml.
+var claudeDeniedBuiltinTools = []string{"Bash", "PowerShell", "Edit", "Write", "NotebookEdit"}
+
+// codexLaunchPolicyArgs returns the Codex flags that keep a project's own agent configuration from running, even in a folder the person once trusted in Codex: every folder from the project root up is marked untrusted for this run only (so no project .codex/config.toml, MCP servers or hooks load), execpolicy .rules files are ignored, the editor's server and the person's enabled servers from editor.yaml are passed inline (so Codex has the editor's tools without folder trust), and the sandbox is pinned read-only with no approval prompts so edits go through the editor's MCP tools.
+func codexLaunchPolicyArgs(projectRoot string, servers []AgentMCPServer) ([]string, error) {
+	args := []string{"--ignore-rules", "-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}
+	untrusted, err := codexUntrustedProjectsOverride(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, "-c", untrusted)
+	editorCmd, editorArgs := EditorMCPServerCommand()
+	seen := map[string]bool{editorMCPServerName: true}
+	add := func(name, command string, cmdArgs []string) error {
+		cmdTOML, err := json.Marshal(command)
+		if err != nil {
+			return fmt.Errorf("agent runner: encode MCP server %s: %w", name, err)
+		}
+		if cmdArgs == nil {
+			cmdArgs = []string{}
+		}
+		argsTOML, err := json.Marshal(cmdArgs)
+		if err != nil {
+			return fmt.Errorf("agent runner: encode MCP server %s: %w", name, err)
+		}
+		args = append(args, "-c", "mcp_servers."+name+".command="+string(cmdTOML), "-c", "mcp_servers."+name+".args="+string(argsTOML))
+		return nil
+	}
+	if err := add(editorMCPServerName, editorCmd, editorArgs); err != nil {
+		return nil, err
+	}
+	for _, srv := range servers {
+		if seen[srv.Name] || !srv.IsEnabled() || !validLocalAgentServerName(srv.Name) || strings.TrimSpace(srv.Command) == "" {
+			continue
+		}
+		seen[srv.Name] = true
+		if err := add(srv.Name, srv.Command, srv.Args); err != nil {
+			return nil, err
+		}
+	}
+	return args, nil
+}
+
+// codexUntrustedProjectsOverride returns a `projects={...}` Codex config override that marks the project root and each of its parent folders, both as given and with symlinks resolved, untrusted for one run. Codex loads a .codex/config.toml layer for every trusted folder between the working directory and the repository root, so each one is covered. JSON strings are valid TOML basic strings, so the paths are quoted with encoding/json.
+func codexUntrustedProjectsOverride(projectRoot string) (string, error) {
+	dir := projectRoot
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("agent runner: working directory: %w", err)
+		}
+		dir = wd
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("agent runner: project root: %w", err)
+	}
+	starts := []string{abs}
+	if real, err := filepath.EvalSymlinks(abs); err == nil && real != abs {
+		starts = append(starts, real)
+	}
+	var b strings.Builder
+	b.WriteString("projects={")
+	seen := map[string]bool{}
+	for _, start := range starts {
+		for d := start; ; d = filepath.Dir(d) {
+			if !seen[d] {
+				seen[d] = true
+				key, err := json.Marshal(d)
+				if err != nil {
+					return "", fmt.Errorf("agent runner: encode project path: %w", err)
+				}
+				if len(seen) > 1 {
+					b.WriteByte(',')
+				}
+				b.Write(key)
+				b.WriteString(`={trust_level="untrusted"}`)
+			}
+			if filepath.Dir(d) == d {
+				break
+			}
+		}
+	}
+	b.WriteByte('}')
+	return b.String(), nil
+}
+
+// claudeLaunchPolicyArgs returns the Claude Code flags that keep a project's own agent configuration from running: only the person's user settings load (no project or local .claude/settings*.json, so no project hooks or permission rules), only the editor's server and the person's enabled servers from editor.yaml connect (never the project's .mcp.json), and tools outside those servers are denied rather than asked about.
+func claudeLaunchPolicyArgs(servers []AgentMCPServer) ([]string, error) {
+	editorCmd, editorArgs := EditorMCPServerCommand()
+	cfg := map[string]map[string]any{
+		editorMCPServerName: {"command": editorCmd, "args": editorArgs},
+	}
+	allowed := []string{"mcp__" + editorMCPServerName + "__*"}
+	for _, srv := range servers {
+		if srv.Name == editorMCPServerName || !srv.IsEnabled() || !validLocalAgentServerName(srv.Name) || strings.TrimSpace(srv.Command) == "" {
+			continue
+		}
+		if _, dup := cfg[srv.Name]; dup {
+			continue
+		}
+		entry := map[string]any{"command": srv.Command}
+		if len(srv.Args) > 0 {
+			entry["args"] = srv.Args
+		}
+		cfg[srv.Name] = entry
+		allowed = append(allowed, "mcp__"+srv.Name+"__*")
+	}
+	cfgJSON, err := json.Marshal(map[string]any{"mcpServers": cfg})
+	if err != nil {
+		return nil, fmt.Errorf("agent runner: encode MCP config: %w", err)
+	}
+	return []string{
+		"--setting-sources=user",
+		"--strict-mcp-config",
+		"--mcp-config=" + string(cfgJSON),
+		"--permission-mode=dontAsk",
+		"--allowedTools=" + strings.Join(allowed, ","),
+		"--disallowedTools=" + strings.Join(claudeDeniedBuiltinTools, ","),
+	}, nil
+}
+
+// validLocalAgentServerName reports whether name is a safe MCP server identifier (letters, digits, '_', '-') that cannot alter a Claude Code tool rule list.
+func validLocalAgentServerName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }

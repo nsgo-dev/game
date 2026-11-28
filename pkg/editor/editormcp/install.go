@@ -46,7 +46,7 @@ type InstallResult struct {
 
 // InstallCommand returns the command and arguments an external MCP client runs in the project root to connect to the open editor.
 func InstallCommand() (string, []string) {
-	return "go", []string{"tool", "game", "mcp"}
+	return editor.EditorMCPServerCommand()
 }
 
 // Install writes the project-level MCP configuration files that Claude Code (.mcp.json) and Codex (.codex/config.toml) read so they find the editor's MCP server automatically.

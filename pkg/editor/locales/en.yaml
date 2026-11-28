@@ -2020,8 +2020,7 @@ strings:
   firstRun.timeoutHeading: No answer from {agent} after 30 s
   firstRun.timeoutInstructions: |-
     1. Open Terminal, run {bin} once and sign in.
-    2. When it asks, trust the folder {path}.
-    3. Come back here and try again.
+    2. Come back here and try again.
   firstRun.tip1Body: Keep or revert each change here. Nothing is final until you keep it.
   firstRun.tip2Body: Hold B to see the scene as it was before these changes.
   firstRun.tip3Body: Select anything, then press {shortcut} to ask the agent about just that.
@@ -3831,6 +3830,7 @@ strings:
   settings.automations.agentNotePaused: Automations are paused for today and will resume automatically tomorrow.
   settings.automations.agentNoteRuns: “{name}” has run {count} times this week. Every run takes a checkpoint before it starts.
   settings.automations.agentNoteRunsOne: “{name}” has run once this week. Every run takes a checkpoint before it starts.
+  settings.automations.allow: Allow automations
   settings.automations.askLabel: Ask about Automations
   settings.automations.askPlaceholder: Ask about Automations…
   settings.automations.default.beforeExportInstruction: checks frame time and memory on a low-end phone profile
@@ -3850,6 +3850,8 @@ strings:
   settings.automations.draftPlaceholder: e.g. Before export, check frame time on a phone profile
   settings.automations.fileKindPrefab: prefab
   settings.automations.fileKindScene: scene
+  settings.automations.heldHelp: They came with the project or changed outside the editor. Read each instruction below before you allow them to run.
+  settings.automations.heldTitle: This project's automations are off on this computer
   settings.automations.keepDraft: Keep
   settings.automations.loadErrorTitle: Couldn't load automations.yaml (using defaults)
   settings.automations.metaOn: '{count} on'
