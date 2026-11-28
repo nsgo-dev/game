@@ -3143,6 +3143,32 @@ vars:
     doc: Player gold coins.
 ```
 
+<!-- format: flow#mapevent -->
+### Map events
+
+| Files | Version | Read / written by | Guide |
+| --- | --- | --- | --- |
+| A map event's pages, each with `when` conditions on self switches, switches and variables, a trigger (`action`, `touch`, `autorun`, `parallel`) and `say`, `wait`, `set` and `self` commands | `1` (`flow.MapEventVersion`) | `flow.ParseMapEvent`, `flow.EncodeMapEvent` | [flow](flow.md#map-events-parsemapevent-eventrunner) |
+
+```yaml
+version: 1
+pages:
+  - when:
+      self:
+        opened: false
+    trigger: action
+    commands:
+      - say:
+          text: chest.found_potion
+      - self:
+          name: opened
+          value: true
+  - when:
+      self:
+        opened: true
+    trigger: action
+```
+
 <!-- format: dialogue -->
 ### Yarn dialogue script
 

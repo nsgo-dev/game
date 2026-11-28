@@ -15,3 +15,12 @@ func TestVarsFormatConformance(t *testing.T) {
 		Doc:    "flow#vars",
 	})
 }
+
+func TestMapEventFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[flow.MapEventDoc]{
+		Decode: flow.ParseMapEvent,
+		Encode: flow.EncodeMapEvent,
+		Files:  []string{"testdata/mapevent/*.yaml"},
+		Doc:    "flow#mapevent",
+	})
+}

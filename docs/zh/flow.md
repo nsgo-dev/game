@@ -259,3 +259,37 @@ opened := vars.Self("chest_01").Bool("opened")
 - **保存与恢复**：`snap := vars.Snapshot()` 返回可直接序列化为 JSON 或 YAML 的 `flow.VarsSnapshot`（`Version`、`Vars`、`Self`），可直接存入 `save.Store`。`vars.Restore(snap)` 会先原子校验版本号、变量名、类型和范围，校验失败时返回 `flow.ErrInvalidSnapshot` 且不改动原状态，并在恢复期间不触发 `OnChange` 回调。后续版本新增的变量在读取旧存档时自动保持声明默认值，零值 `VarsSnapshot` 会重置为默认值并清空对象独立变量。
 - **静态检查**：`go tool game check` 会校验每个 `vars.yaml` / `*.vars.yaml` 文件，并核对 `.yarn` 对话脚本中的每个 `$name` 和 `{name}` 变量引用，对未声明名称报告精确的文件路径与行号。
 - **实时远程检查**：将 `Vars: vars`（或 `VarsFunc`）配置到 `mcp.Config` 即可注册 `game_vars_list`、`game_var_get` 与 `game_var_set`；编辑器的远程检查器会实时列出并允许编辑所有已声明变量，同时展示当前活跃的对象独立变量。
+
+## 地图事件（`ParseMapEvent`、`EventRunner`）
+
+地图事件把宝箱、告示牌、门和一次性触发写成 YAML，而不是 Go 代码：一个按顺序排列的页面列表，每页有条件、触发方式和一串命令。
+
+```yaml
+version: 1
+pages:
+  - when:
+      self:
+        opened: false
+    trigger: action
+    commands:
+      - say:
+          text: chest.found_potion
+      - wait:
+          seconds: 0.5
+      - self:
+          name: opened
+          value: true
+  - when:
+      self:
+        opened: true
+    trigger: action
+```
+
+- **格式**：`flow.ParseMapEvent` 读取第 1 版（`flow.MapEventVersion`），`flow.EncodeMapEvent` 写出它的规范形式。未知字段和命令、没有命令或有多个命令的列表项、未知触发方式、负数、无穷大或 NaN 的等待时长，以及没有名字的 `set` 或 `self`，都会在加载时被拒绝，并返回指明字段和行号的 `loaderr.Error`。没有写 `trigger` 的页面按 `action` 读取。
+- **页面**：`doc.ActivePage(self, switches, variables)` 与 RPG Maker 一样，返回 `when` 条件全部成立的最后一页，没有成立的页面时返回 -1：每个 `self` 和 `switches` 条目等于给定值，每个 `variables` 条目不小于给定值。缺少的名字读作 false 或 0。
+- **触发方式**：页面的触发方式是 `action`、`touch`、`autorun` 或 `parallel`（`flow.TriggerAction` 等）。运行器不监听输入或移动，由游戏在触发条件满足时启动该页，例如玩家面对事件按下按键时启动 `action` 页。
+- **命令**：`say` 把文本（通常是本地化键）传给 `EventRunner.Say`；`wait` 按游戏时间暂停若干秒；`set` 把整数写入 `EventRunner.Variables`；`self` 把独立开关写入 `EventRunner.Self`。
+- **运行**：`flow.NewEventRunner(doc)` 在调用 `Start(page)` 之前处于空闲状态。每个固定步调用 `Update(dt)`，依次执行命令，直到遇到等待或页面结束，从不阻塞循环，运行器空闲后返回 true；等待结束时剩余的时间会继续用于后面的命令。
+- **事件中途存档**：`Snapshot` 返回可序列化为 YAML 或 JSON 的 `flow.EventSnapshot`（当前页，空闲时为 -1、下一条命令、等待剩余时间，以及独立开关和变量）。`Restore` 遇到与运行器文档不匹配的快照时返回 `flow.ErrInvalidEventSnapshot`，并保持运行器不变。
+
+目前只有第一批命令。选项、条件分支、物品与传送命令、游戏注册的命令以及与 `Vars` 的集成还不在格式中。
