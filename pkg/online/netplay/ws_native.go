@@ -601,6 +601,17 @@ func ListenWebSocket(addr string, serverID PeerID, auth Auth) (*WebSocketServer,
 	return listenWebSocket(addr, serverID, auth, nil, nil, serverKeepAlive(auth))
 }
 
+// ServeWebSocket serves WebSocket clients on an already-open listener. The
+// caller owns the listener and may pass one inherited through systemd or an
+// exec handoff. Closing the listener stops new accepts while existing sessions
+// continue until Close is called.
+func ServeWebSocket(ln stdnet.Listener, serverID PeerID, auth Auth) (*WebSocketServer, error) {
+	if ln == nil {
+		return nil, errors.New("net: websocket listener is nil")
+	}
+	return newWebSocketServer(ln, serverID, auth, nil, nil, serverKeepAlive(auth)), nil
+}
+
 // ListenWebSocketTLS starts the server with TLS, so a browser on an HTTPS page can connect with wss:// without a reverse proxy. auth is as for ListenWebSocket. allowedOrigins lists the browser Origins allowed to upgrade; empty allows any, "*" allows all, and an Origin outside the list is refused before the handshake.
 func ListenWebSocketTLS(addr string, serverID PeerID, auth Auth, config *tls.Config, allowedOrigins []string) (*WebSocketServer, error) {
 	if config == nil {
@@ -633,6 +644,10 @@ func listenWebSocket(addr string, serverID PeerID, auth Auth, config *tls.Config
 	if config != nil {
 		ln = tls.NewListener(ln, config)
 	}
+	return newWebSocketServer(ln, serverID, auth, origins, nil, ka), nil
+}
+
+func newWebSocketServer(ln stdnet.Listener, serverID PeerID, auth Auth, origins []string, _ *tls.Config, ka wsKeepAlive) *WebSocketServer {
 	s := &WebSocketServer{
 		ln:           ln,
 		serverID:     serverID,
@@ -643,7 +658,7 @@ func listenWebSocket(addr string, serverID PeerID, auth Auth, config *tls.Config
 		changed:      make(chan struct{}, 1),
 	}
 	go s.acceptLoop()
-	return s, nil
+	return s
 }
 
 // normalizeOrigins checks every allowed Origin and stores it as scheme://host, so an entry that names more than an Origin is refused at start-up instead of silently denying every upgrade.
@@ -693,6 +708,15 @@ func (s *WebSocketServer) originAllowed(origin string) bool {
 // Addr returns the listener's network address.
 func (s *WebSocketServer) Addr() stdnet.Addr {
 	return s.ln.Addr()
+}
+
+// StopAccepting closes the listening socket while leaving connected sessions
+// and their queued frames alive for a graceful handoff.
+func (s *WebSocketServer) StopAccepting() error {
+	if s == nil || s.ln == nil {
+		return nil
+	}
+	return s.ln.Close()
 }
 
 func (s *WebSocketServer) acceptLoop() {
