@@ -285,7 +285,7 @@ game check: 1 problem
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-当 `game.yaml` 记录的 [`origin`](project.md#文件内容) 类型为 `template`，并且指向当前版本的 `game` 内置的模板时，`game check` 还会逐字节比较项目与该模板，把仍未改动的内容作为警告打印在问题之后，格式为 `file:line: warning: message`：与模板相同的规则 Go 文件（`main.go` 和测试除外）和数据文件（YAML、JSON、CSV 和 Yarn 文件，`game.yaml`、`nsgo.yaml`、`game.index.yaml`、`playtest.yaml` 和触控布局除外）合并为一条警告列出；`name` 或窗口标题仍是模板的；`README.md` 或 `CREDITS.md` 仍是模板的。警告不会让命令失败：没有问题时命令以 0 退出，摘要中会统计警告数。若有意原样复制，在 `origin.keep` 中列出不再报告的警告：`rules`、`data`、`name`、`readme` 或 `credits`。
+当 `game.yaml` 记录的 [`origin`](project.md#文件内容) 类型为 `template`，并且指向当前版本的 `game` 内置的模板时，`game check` 还会逐字节比较项目与该模板，把仍未改动的内容作为警告打印在问题之后，格式为 `file:line: warning: message`：与模板相同的规则 Go 文件（`main.go` 和测试除外）和数据文件（YAML、JSON、CSV 和 Yarn 文件，`game.yaml`、`nsgo.yaml`、`game.index.yaml`、`brief.yaml`、`playtest.yaml` 和触控布局除外）合并为一条警告列出；`name` 或窗口标题仍是模板的；`README.md` 或 `CREDITS.md` 仍是模板的。警告不会让命令失败：没有问题时命令以 0 退出，摘要中会统计警告数。若有意原样复制，在 `origin.keep` 中列出不再报告的警告：`rules`、`data`、`name`、`readme` 或 `credits`。
 
 ```text
 game.yaml:20: warning: 9 rule and data files still equal template "cards2d": board.yaml, game.go, hud.go, project.go, render.go, rules.go, rules.yaml, save.go, table.go; change them, or add rules or data to origin.keep for a deliberate copy
