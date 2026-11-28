@@ -494,3 +494,6 @@ _ = found
 Explicit unbindings made with `Unbind`, `UnbindAxis`, `UnbindMotionAxis`, `UnbindPointerAxis` or `UnbindGamepadAxis` (or `Bind` with no inputs) are written by `Save` (`[{"kind":"none"}]` for an action, `{}` for an opposite-action axis, and `{"axis":"none"}` for a motion, pointer or gamepad axis), so `Load` keeps them unbound rather than restoring the default. Call `LoadReplace` instead when you want to replace all bindings wholesale with the saved snapshot and drop any binding absent from it.
 
 When `key` is absent, both `Load` and `LoadReplace` return `(false, nil)` and leave existing default bindings intact. If the stored JSON is invalid, has a field they do not know or uses an unknown format, they leave bindings untouched and return `(false, err)`.
+# Steam Deck
+
+`input.DetectGamepadKind` identifies Steam Deck and Valve handheld controllers as `DeviceGamepadSteamDeck`, allowing prompt providers to select Deck glyphs while retaining normal gamepad input.

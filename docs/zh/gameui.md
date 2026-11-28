@@ -257,3 +257,6 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 - `image_progress` 节点引用的 `under`、`progress` 或 `over` 图片缺失。
 
 `tooling/refs` 与 `game mv` 会追踪 `*.screen.yaml` 中的 `sprite` 路径、`image_progress` 图层路径和 `textKey` 引用：`game mv art/heart.png art/ui/heart.png` 会原地更新 `sprite:`，而 `game mv -text-key hud.hint.lever hud.tip.lever` 会同步重命名所有 `*.screen.yaml` 与 YAML 本地化字符串表中的键。
+# Steam Deck 提示
+
+当 Deck 控制器处于活动状态时，使用输入设备跟踪器选择 Deck 专用图标。
