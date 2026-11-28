@@ -133,6 +133,7 @@ func briefSettingsPageView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 			Scene:   strings.TrimSpace(targetScene.Get()),
 			Unit:    strings.TrimSpace(targetUnit.Get()),
 			Summary: strings.TrimSpace(targetSummary.Get()),
+			Basis:   "target",
 		}
 		if s := strings.TrimSpace(targetMin.Get()); s != "" {
 			v, err := strconv.ParseFloat(s, 64)
@@ -956,6 +957,9 @@ func formatBriefTargetBadge(t project.BriefPlaytestTarget) string {
 		name = t.Scene + " · " + name
 	}
 	parts = append(parts, name)
+	if t.Basis != "" {
+		parts = append(parts, "["+t.Basis+"]")
+	}
 	switch {
 	case t.Equal != nil:
 		parts = append(parts, fmt.Sprintf("= %g%s", *t.Equal, unitSuffix(t.Unit)))

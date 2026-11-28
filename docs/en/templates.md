@@ -139,3 +139,7 @@ CI's `templates` job needs no edit for a new template: it lists `template/templa
 ## Template gallery media
 
 A template card can show a cover image. On the editor Start Screen, `editor.ProjectTemplate.Cover` is the URI of the image drawn over the card's color swatch; a template without one keeps the swatch. On the website showcase, a `ShowcaseEntry` in `website/src/content/showcase.ts` takes an optional `cover` image and an optional `preview` clip: the cover loads lazily, and the clip, muted and declared with `preload="none"`, is fetched and played only while the pointer is over the card or focus is inside it, and paused when they leave. No template ships a cover or a clip yet; capturing them from each template's deterministic run is tracked in #1962.
+
+## Template briefs
+
+Every template includes a versioned `brief.yaml` with its pitch, platforms, feel targets, and target provenance. A `basis` of `locked` is a person decision, `target` is an experience goal, and `assumption` is a default the project may revise. Playtest goals whose source is `brief.yaml` resolve against these targets, and `playtest.report.yaml` keeps targets that were not measured in `pending` status.

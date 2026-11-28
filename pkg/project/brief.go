@@ -57,6 +57,8 @@ var BriefSections = []BriefSection{
 type Brief struct {
 	// Version is the schema version; it must equal BriefVersion (1).
 	Version int `yaml:"version" schema:"required"`
+	// Basis records whether the brief section is locked by the person, an experience target, or an assumption that may be revised.
+	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Pitch describes what the game is meant to be in a sentence or two.
 	Pitch string `yaml:"pitch,omitempty"`
 	// Genre lists the game's primary genre labels, such as "2D platformer" and "action".
@@ -73,10 +75,22 @@ type Brief struct {
 	ToneAndAudio string `yaml:"toneAndAudio,omitempty"`
 	// Feel describes game feel, difficulty pacing, and structured playtest targets.
 	Feel *BriefFeel `yaml:"feel,omitempty"`
+	// Changes records explicit edits to brief intent in deterministic order.
+	Changes []BriefChange `yaml:"changes,omitempty"`
+}
+
+// BriefChange records why a brief field changed.
+type BriefChange struct {
+	Date   string `yaml:"date" schema:"required"`
+	Field  string `yaml:"field" schema:"required"`
+	From   string `yaml:"from,omitempty"`
+	To     string `yaml:"to,omitempty"`
+	Reason string `yaml:"reason,omitempty"`
 }
 
 // BriefArt holds structured art direction notes and pinned project-relative reference images.
 type BriefArt struct {
+	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Direction optionally describes visual direction inline under art.direction.
 	Direction string `yaml:"direction,omitempty"`
 	// References lists pinned project-relative reference images included with every agent request.
@@ -93,6 +107,7 @@ type BriefArtReference struct {
 
 // BriefFeel describes game feel, difficulty expectations, and machine-readable playtest targets.
 type BriefFeel struct {
+	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Summary describes target game feel, controls responsiveness, and difficulty pacing in plain language.
 	Summary string `yaml:"summary,omitempty"`
 	// Targets lists structured playtest targets readable by playtest runners and the editor.
@@ -101,6 +116,8 @@ type BriefFeel struct {
 
 // BriefPlaytestTarget declares one measurable playtest target in brief.yaml's feel and difficulty section.
 type BriefPlaytestTarget struct {
+	// Basis identifies provenance of this target.
+	Basis string `yaml:"basis,omitempty" schema:"enum=locked|target|assumption"`
 	// Metric is the playtest metric name this target constrains, such as "median_time", "deaths", or "finished".
 	Metric string `yaml:"metric" schema:"required,minLength=1"`
 	// Scene optionally restricts this target to a specific scene or level name, such as "floor_01".
@@ -308,6 +325,9 @@ func ValidateBrief(b *Brief) error {
 			Fix:      fixBriefVersion,
 		}
 	}
+	if err := validateBriefBasis("basis", b.Basis); err != nil {
+		return err
+	}
 	if err := validateBriefMultiline("pitch", b.Pitch); err != nil {
 		return err
 	}
@@ -324,6 +344,9 @@ func ValidateBrief(b *Brief) error {
 		return err
 	}
 	if b.Art != nil {
+		if err := validateBriefBasis("art.basis", b.Art.Basis); err != nil {
+			return err
+		}
 		if err := validateBriefMultiline("art.direction", b.Art.Direction); err != nil {
 			return err
 		}
@@ -343,6 +366,9 @@ func ValidateBrief(b *Brief) error {
 		return err
 	}
 	if b.Feel != nil {
+		if err := validateBriefBasis("feel.basis", b.Feel.Basis); err != nil {
+			return err
+		}
 		if err := validateBriefMultiline("feel.summary", b.Feel.Summary); err != nil {
 			return err
 		}
@@ -359,7 +385,28 @@ func ValidateBrief(b *Brief) error {
 			seen[key] = struct{}{}
 		}
 	}
+	for i, change := range b.Changes {
+		at := loaderr.Path("changes", i)
+		if strings.TrimSpace(change.Date) == "" || strings.TrimSpace(change.Field) == "" {
+			return loaderr.Errorf(at, "set date and field on each brief change", "project: brief change requires date and field")
+		}
+		if strings.TrimSpace(change.Date) != change.Date || strings.TrimSpace(change.Field) != change.Field || strings.IndexFunc(change.Date, unicode.IsControl) >= 0 || strings.IndexFunc(change.Field, unicode.IsControl) >= 0 {
+			return loaderr.Errorf(at, "use clean date and field values", "project: brief change has invalid date or field")
+		}
+	}
 	return nil
+}
+
+func validateBriefBasis(field, basis string) error {
+	if basis == "" {
+		return nil
+	}
+	switch basis {
+	case "locked", "target", "assumption":
+		return nil
+	default:
+		return loaderr.Errorf(field, "use locked, target, or assumption", "project: unknown brief basis %q", basis)
+	}
 }
 
 func validateBriefMultiline(field, s string) error {
@@ -412,6 +459,9 @@ func validateBriefArtReference(at string, ref BriefArtReference) error {
 }
 
 func validateBriefTarget(at string, t BriefPlaytestTarget) error {
+	if err := validateBriefBasis(loaderr.Join(at, "basis"), t.Basis); err != nil {
+		return err
+	}
 	if strings.TrimSpace(t.Metric) == "" || strings.TrimSpace(t.Metric) != t.Metric || strings.IndexFunc(t.Metric, unicode.IsControl) >= 0 {
 		return loaderr.Errorf(loaderr.Join(at, "metric"), "set metric to a non-empty metric name such as median_time or deaths", "project: brief playtest target metric %q is invalid", t.Metric)
 	}
@@ -603,8 +653,10 @@ func (b *Brief) Clone() *Brief {
 	cp.Genre = slices.Clone(b.Genre)
 	cp.Tags = slices.Clone(b.Tags)
 	cp.Platforms = slices.Clone(b.Platforms)
+	cp.Changes = slices.Clone(b.Changes)
 	if b.Art != nil {
 		artCopy := BriefArt{
+			Basis:      b.Art.Basis,
 			Direction:  b.Art.Direction,
 			References: slices.Clone(b.Art.References),
 		}
@@ -612,6 +664,7 @@ func (b *Brief) Clone() *Brief {
 	}
 	if b.Feel != nil {
 		f := BriefFeel{
+			Basis:   b.Feel.Basis,
 			Summary: b.Feel.Summary,
 		}
 		if len(b.Feel.Targets) > 0 {

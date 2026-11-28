@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/loaderr"
+	"github.com/nsgo-dev/game/pkg/project"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -43,6 +44,8 @@ type Report struct {
 	Passed bool `yaml:"passed"`
 	// Metrics holds the aggregated value and goal check for every metric in the playtest config.
 	Metrics []MetricReport `yaml:"metrics,omitempty"`
+	// BriefTargets lists every brief target covered by this report, including targets that were not measured.
+	BriefTargets []BriefTargetReport `yaml:"briefTargets,omitempty"`
 	// HeatMaps holds world-space position data collected from positioned events for heat maps.
 	HeatMaps []HeatMap `yaml:"heatMaps,omitempty"`
 	// Series holds labeled bar or per-level numeric series (such as hits per wave or shortest solution per level).
@@ -74,6 +77,63 @@ type BaselineReport struct {
 	WinRate *float64 `yaml:"winRate,omitempty"`
 	// Note is an optional one-line explanation, such as why the policy failed.
 	Note string `yaml:"note,omitempty"`
+}
+
+// BriefTargetReport records verification status for one project brief target.
+type BriefTargetReport struct {
+	Metric string `yaml:"metric"`
+	Scene  string `yaml:"scene,omitempty"`
+	Basis  string `yaml:"basis,omitempty"`
+	Status string `yaml:"status"` // pending, met, or missed
+	Run    string `yaml:"run,omitempty"`
+}
+
+const (
+	BriefTargetPending = "pending"
+	BriefTargetMet     = "met"
+	BriefTargetMissed  = "missed"
+)
+
+// ApplyBriefTargetStatuses adds every target from b to r. Targets without a corresponding
+// measured metric remain pending, so a report cannot imply evidence that was not collected.
+func ApplyBriefTargetStatuses(r *Report, b *project.Brief) {
+	if r == nil || b == nil {
+		return
+	}
+	existing := make(map[string]BriefTargetReport, len(r.BriefTargets))
+	for _, t := range r.BriefTargets {
+		existing[t.Scene+"\x00"+t.Metric] = t
+	}
+	for _, t := range b.TargetsForScene(r.Scope.Scene) {
+		key := t.Scene + "\x00" + t.Metric
+		if _, ok := existing[key]; ok {
+			continue
+		}
+		status := BriefTargetPending
+		if m := metricByName(r.Metrics, t.Metric); m != nil {
+			if m.Status == StatusMet {
+				status = BriefTargetMet
+			} else if m.Status == StatusMissed {
+				status = BriefTargetMissed
+			}
+		}
+		r.BriefTargets = append(r.BriefTargets, BriefTargetReport{Metric: t.Metric, Scene: t.Scene, Basis: t.Basis, Status: status})
+	}
+	slices.SortFunc(r.BriefTargets, func(a, b BriefTargetReport) int {
+		if a.Scene != b.Scene {
+			return strings.Compare(a.Scene, b.Scene)
+		}
+		return strings.Compare(a.Metric, b.Metric)
+	})
+}
+
+func metricByName(metrics []MetricReport, name string) *MetricReport {
+	for i := range metrics {
+		if metrics[i].Name == name {
+			return &metrics[i]
+		}
+	}
+	return nil
 }
 
 // SeriesChart holds labeled numeric bars or per-bucket aggregates across runs (such as hits per wave or shortest solution moves per level).
@@ -305,6 +365,21 @@ func ValidateReport(r *Report) error {
 				return err
 			}
 		}
+	}
+	seenBrief := make(map[string]struct{}, len(r.BriefTargets))
+	for i, t := range r.BriefTargets {
+		at := loaderr.Path("briefTargets", i)
+		if strings.TrimSpace(t.Metric) == "" {
+			return loaderr.Errorf(loaderr.Join(at, "metric"), "set a brief target metric", "brief target metric is required")
+		}
+		if !slices.Contains([]string{BriefTargetPending, BriefTargetMet, BriefTargetMissed}, t.Status) {
+			return loaderr.Errorf(loaderr.Join(at, "status"), "use pending, met, or missed", "unknown brief target status %q", t.Status)
+		}
+		key := t.Scene + "\x00" + t.Metric
+		if _, dup := seenBrief[key]; dup {
+			return loaderr.Errorf(loaderr.Join(at, "metric"), "list each brief target once", "duplicate brief target %q", t.Metric)
+		}
+		seenBrief[key] = struct{}{}
 	}
 	for i, hm := range r.HeatMaps {
 		at := loaderr.Path("heatMaps", i)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/pkg/project"
+	"github.com/nsgo-dev/game/pkg/tooling/playtest"
 )
 
 // repoRoot is this repository's root, relative to this package.
@@ -312,6 +313,44 @@ func TestTemplatesMatchTemplateModules(t *testing.T) {
 	needRepo(t)
 	for _, problem := range checkTemplateModules(repoRoot, projectTemplates) {
 		t.Error(problem)
+	}
+}
+
+func TestTemplatesShipBriefsAndResolveBriefPlaytestGoals(t *testing.T) {
+	for _, tmpl := range projectTemplates {
+		raw, err := fs.ReadFile(tmpl.files, "brief.yaml")
+		if err != nil {
+			t.Errorf("%s brief.yaml: %v", tmpl.name, err)
+			continue
+		}
+		brief, err := project.ParseBrief(raw)
+		if err != nil {
+			t.Errorf("%s brief.yaml: %v", tmpl.name, err)
+			continue
+		}
+		cfgRaw, err := fs.ReadFile(tmpl.files, "playtest.yaml")
+		if err != nil {
+			continue
+		}
+		cfg, err := playtest.ParseConfig(cfgRaw)
+		if err != nil {
+			continue
+		}
+		for _, metric := range cfg.Metrics {
+			if metric.Goal == nil || metric.Goal.Source != project.BriefFileName {
+				continue
+			}
+			found := false
+			for _, target := range brief.TargetsForScene(cfg.Scope.Scene) {
+				if target.Metric == metric.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s playtest metric %q references missing brief target", tmpl.name, metric.Name)
+			}
+		}
 	}
 }
 
