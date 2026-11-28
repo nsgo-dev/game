@@ -276,12 +276,10 @@ type AgentTurnContext struct {
 	ViewMode       string   `json:"viewMode,omitempty"`
 }
 
-// captureAgentTurnContext snapshots the request scene and selection. The
-// snapshot remains the stable target while the person can select other objects
-// during foreground, background, or automation work.
+// captureAgentTurnContext snapshots the open scene's selection, active layer and view mode for a turn about scenePath, so the turn keeps pinning what was selected when it started while the person selects other objects during foreground, background or automation work. When scenePath names a scene other than the open one, as a background task queued from another scene can, the open scene's selection is not about that scene and nothing is pinned.
 func (e *Editor) captureAgentTurnContext(scenePath string) AgentTurnContext {
 	ctx := AgentTurnContext{ScenePath: scenePath}
-	if e == nil {
+	if e == nil || (scenePath != "" && scenePath != e.effectiveScenePath()) {
 		return ctx
 	}
 	if e.Doc != nil {

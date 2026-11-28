@@ -1434,6 +1434,7 @@ func main() {
 - **右键菜单联动**：视口右键菜单与场景树右键菜单中的**向智能体询问此项**（`AskAgentAboutObject`）都会打开同一个锚定就地提问框（目标对象属于多选时自动带入整个选区）。
 - **智能体面板与 MCP 上下文投递**：发送后会创建标记为 `SkipPlan: true` 的 `AgentTurn`（遵循 `Plan.dc.html`：“使用 ⌘L 发起的小修改会跳过计划”），附带选中对象 ID 与名称、打开的场景文件路径与 YAML 以及实时渲染的视口 PNG（`RenderViewportPNG`），将右侧栏（`RightRailView` / `RightRailTab`，可通过 `⌘1` / `⌘2` 切换）切至**智能体**标签页（`AgentPanelView`）展示该条对话与上下文标签，并通过 `editormcp` 的 `editor://agent/turn` 资源与 `agent_turn_get` / `agent_turn_reply` 工具推送给已连接的 MCP 客户端。
 - **固定的选区才是智能体的编辑目标，实时选区只是上下文**：回合打开期间，省略 `id` 调用的 `object_set_field`、`object_duplicate`、`object_group`、`object_move_under` 与 `object_visibility` 会编辑该回合发送时固定的对象（`Editor.OpenAgentTurnPin`），因此智能体工作期间选中别的对象绝不会改变它写入的对象，并行任务持有的对象也就是它写入的对象。在回合之外这些工具必须传入 `id`；固定的对象已被删除或改名时会以单独的错误拒绝（[mcp](mcp.md#编辑目标)）。
+- **哪些回合会固定选区**：`⌘L` 提问框固定它打开时针对的对象；智能体面板请求、后台任务与自动化运行在回合开始时固定打开场景中选中的对象，没有选中对象或任务所属场景不是当前打开的场景时不固定任何对象。之后选中别的对象只改变编辑器的选区，绝不改变回合的选区；`agent_turn_get`（`selectionIds`、`selectionNames`）与智能体面板中该回合的选区标签会显示固定的内容。
 ## 后台任务列表：排队与并行智能体请求（#1022）
 
 请求、计划步骤与自动化任务共享智能体面板中的同一个后台任务列表（`TasksPanelView`，严格使用 `design/editor/Spec.dc.html` 令牌并对应 `Tasks.dc.html`），可通过状态栏任务指示器（`status-tasks`）、`View > 后台任务` 菜单或 `CmdToggleTasks`（`mod+shift+t`）打开：
@@ -1750,4 +1751,3 @@ func main() {
   - 圆角与几何：控件 `6`（`theme.RadiusControl`）、按钮 `8`（`theme.RadiusButton`）、卡片与轻提示 `12`（`theme.RadiusCard`）、对话框 `18`（`theme.RadiusDialog`）；行与工具按钮高 `28`（`theme.RowHeight`，最小命中热区 `theme.MinHitSize = 28`）、按钮高 `30`–`32`（`theme.ButtonHeight`、`theme.ButtonTallHeight`）、顶栏高 `44`（`theme.HeaderHeight`）；`1` px 内描边（`theme.BorderWidth`）。
   - 动效：悬停与按压 `120 ms`（`theme.MotionHover`）、面板/浮层/轻提示 `180 ms`（`theme.MotionPanel`）、智能体叠加层淡入 `240 ms`（`theme.MotionOverlay`）、智能体脉冲 `1.6 s`（`theme.MotionAgentPulse`，透明度 `100%` ↔ `45%`）。开启 `Env.ReduceMotion` 时，`theme.MotionDuration` 返回 `0`，`theme.AgentPulseOpacity` 保持 `1.0` 不闪烁。
 - **禁止硬编码 UI 颜色字面量与仅深色包级别名**：`pkg/editor` 中除 `theme/theme.go` 外的所有非测试 `.go` 文件在绘制界面元素、操纵杆、叠加层与调试视图时仅使用响应式的 `theme.Palette` 令牌（`ed.Palette(cx)` / `e.activePalette()`，场景内容数据如 `scene.BackgroundColor` 保留为场景数据）。`TestSpecNoHardcodedColorLiteralsInEditor` 拒绝在 `theme/theme.go` 之外出现任何 `core.RGB`/`core.RGBA` 调用或硬编码 UI 十六进制颜色，`TestSpecNoDarkOnlyPackageColorVarsInEditor` 拒绝由 `theme.Dark()`/`theme.Light()` 初始化的包级颜色变量，确保所有编辑器页面在深色与浅色外观下均可实时重绘。
-Agent 面板、后台任务和自动化回合会在开始时记录场景中选中的对象。之后的点击只改变编辑器当前选择，不会改变回合上下文，也不会把省略 ID 的 MCP 编辑重定向到另一个对象。`agent_turn_get` 和 Agent 面板会显示这份已记录的选择。

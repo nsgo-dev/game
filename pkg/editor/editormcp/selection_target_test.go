@@ -311,3 +311,29 @@ func TestEditToolsRefuseARemovedPinnedTarget(t *testing.T) {
 		t.Fatalf("explicit unknown id error = %q, want the plain unknown-object error", text(res))
 	}
 }
+
+// #1983 Acceptance: an Agent panel turn pins the object selected when it was sent, so an id-less object_set_field in that turn edits it after the person selects another object.
+func TestAgentPanelTurnPinsTheSelectionItStartedWith(t *testing.T) {
+	ed := newSlimesEditor(t)
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	ed.SelectObject("slime_01")
+	ed.StartAgentRequest("make this one faster")
+	ed.SelectObject("slime_02")
+
+	pin, ok := ed.OpenAgentTurnPin("")
+	if !ok || !slices.Equal(pin.SelectionIDs, []string{"slime_01"}) {
+		t.Fatalf("OpenAgentTurnPin = %+v, %v; want the panel turn pinning [slime_01]", pin, ok)
+	}
+	res := call(t, cs, editormcp.ToolObjectSetField, map[string]any{"field": "x", "value": 77})
+	mustOK(t, res)
+	var out editormcp.ObjectFieldResult
+	structured(t, res, &out)
+	a, _, _ := ed.FindObject("slime_01")
+	b, _, _ := ed.FindObject("slime_02")
+	if out.Object != "slime_01" || a.X != 77 || b.X != 292 {
+		t.Fatalf("wrote %q (slime_01.x=%v, slime_02.x=%v), want slime_01 only", out.Object, a.X, b.X)
+	}
+}
