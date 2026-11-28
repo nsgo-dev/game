@@ -115,6 +115,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/ability` | Experimental | YAML ability sets and per-step `Caster` (costs, cooldowns, charges, cast/channel times) |
 | `game/pkg/quest` | Experimental | YAML quest books with objectives, prerequisites, rewards and event-bus progression |
 | `game/pkg/loot` | Experimental | Nested weighted drop tables in YAML with guaranteed drops and hard/soft pity |
+| `game/pkg/rpgdata` | Experimental | RPG database YAML (classes, actors, skills, enemies, troops) with checked references and level progression |
 | `game/pkg/vn` | Experimental | Visual novel presenter (YAML cast, portraits, typewriter text, choices, backlog, auto/skip) |
 | `game/pkg/idle` | Experimental | Big `Number` beyond float64, capped offline progress and localized formatting |
 

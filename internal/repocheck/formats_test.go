@@ -161,6 +161,7 @@ var formatVersions = map[string]string{
 	"online/liveops.RemindersVersion":               "online/liveops#reminders",
 	"online/liveops.ReviewPromptStateVersion":       "online/liveops#review",
 	"loot.CurrentVersion":                           "loot",
+	"rpgdata.CurrentVersion":                        "rpgdata",
 	"modding.ManifestVersion":                       "modding",
 	"modding.MinManifestVersion":                    "modding",
 	"modding.WorkshopMetadataVersion":               "modding#workshop",

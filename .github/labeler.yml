@@ -302,6 +302,11 @@ pkg/rooms:
       - any-glob-to-any-file:
           - pkg/rooms/**
 
+pkg/rpgdata:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/rpgdata/**
+
 pkg/rts:
   - changed-files:
       - any-glob-to-any-file:

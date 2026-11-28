@@ -98,6 +98,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `ability` | `github.com/nsgo-dev/game/pkg/ability` | [ability](ability.md) | YAML 技能集与逐步推进的 `Caster`：由输入动作触发的消耗、冷却、充能、施法与引导时间以及条件 |
 | `quest` | `github.com/nsgo-dev/game/pkg/quest` | [quest](quest.md) | YAML 任务书：收集/到达/击败/对话目标、前置任务与奖励，由总线事件推进并以快照存档 |
 | `loot` | `github.com/nsgo-dev/game/pkg/loot` | [loot](loot.md) | YAML 编写的可嵌套加权掉落表，支持保底掉落与基于种子随机流的硬/软保底计数 |
+| `rpgdata` | `github.com/nsgo-dev/game/pkg/rpgdata` | [rpgdata](rpgdata.md) | YAML 编写的 RPG 数据库：带等级曲线和习得技能的职业、角色、技能、敌人和敌群，加载时检查引用，并提供线性经验升级 |
 | `vn` | `github.com/nsgo-dev/game/pkg/vn` | [vn](vn.md) | 视觉小说演出：YAML 角色表的立绘与表情、名牌、打字机文本框、选项、回看记录、自动/快进模式与语音 |
 | `modding` | `github.com/nsgo-dev/game/pkg/modding` | [modding](modding.md) | 能力沙箱隔离的 TSX `"game"` 模组 API 与 `mod.yaml` 依赖/生命周期管理器 |
 | `gameplugin` | `github.com/nsgo-dev/game/pkg/gameplugin` | [插件](plugins.md) | 运行时插件契约与确定性安装器：API 版本校验、冲突检测，以及组件、系统、效果、数据表与控制台命令的有序注册 |
