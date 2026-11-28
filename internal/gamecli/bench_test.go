@@ -95,6 +95,36 @@ func TestBenchReadsResultsFromBothStreams(t *testing.T) {
 	}
 }
 
+func TestBenchRetriesATimingOnlyRegressionOnce(t *testing.T) {
+	baseline := writeFile(t, filepath.Join(t.TempDir(), "baseline.yaml"), testBaseline)
+	a, stdout, stderr := newTestApp(t)
+	calls := fakeBench(a, map[string][]float64{"BenchmarkDraw": {1600, 1000}, "BenchmarkLoad": {500}})
+	if code := run([]string{"bench", "-baseline", baseline, "-count", "1", "./sprite"}, a); code != 0 {
+		t.Fatalf("exit %d (stdout: %s, stderr: %s)", code, stdout, stderr)
+	}
+	if len(*calls) != 2 {
+		t.Fatalf("nsgo calls = %d, want an initial run and one retry", len(*calls))
+	}
+	if !strings.Contains(stdout.String(), "ns/op-only regression did not reproduce on retry") {
+		t.Fatalf("stdout = %q, want a warning for the noisy first run", stdout)
+	}
+}
+
+func TestBenchFailsWhenATimingRegressionReproduces(t *testing.T) {
+	baseline := writeFile(t, filepath.Join(t.TempDir(), "baseline.yaml"), testBaseline)
+	a, stdout, stderr := newTestApp(t)
+	calls := fakeBench(a, map[string][]float64{"BenchmarkDraw": {1600}, "BenchmarkLoad": {500}})
+	if code := run([]string{"bench", "-baseline", baseline, "-count", "1", "./sprite"}, a); code != 1 {
+		t.Fatalf("exit %d, want 1 (stdout: %s, stderr: %s)", code, stdout, stderr)
+	}
+	if len(*calls) != 2 {
+		t.Fatalf("nsgo calls = %d, want an initial run and one retry", len(*calls))
+	}
+	if !strings.Contains(stdout.String(), "ns/op regressed by +60.0%") {
+		t.Fatalf("stdout = %q, want the reproduced regression", stdout)
+	}
+}
+
 func TestBenchFailsOnARegression(t *testing.T) {
 	baseline := writeFile(t, filepath.Join(t.TempDir(), "baseline.yaml"), testBaseline)
 	a, stdout, stderr := newTestApp(t)

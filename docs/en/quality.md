@@ -145,3 +145,13 @@ adapt:
 cd examples/starburst
 go tool nsgo test -bench BenchmarkArenaPresets ./...
 ```
+
+## Performance regression checks
+
+Unit tests assert deterministic correctness, never wall-clock speed alone. Do not fail a test because `time.Since` exceeds a frame budget, an average latency, or a speedup ratio; keep assertions such as HPA*'s path-cost bound and put the performance claim in a tracked benchmark, or use a deterministic proxy such as nodes expanded. For example, `BenchmarkAStar1024` and `BenchmarkHPA1024` measure the two searches without making the unit test depend on runner load, and the Performance baselines job checks them against `benchmarks/hpa-baseline.yaml`:
+
+```sh
+go tool nsgo test -run '^$' -bench 'Benchmark(AStar|HPA)1024$' ./pkg/pathfind
+```
+
+`game bench` runs each benchmark three times by default and compares the median with its baseline. If the median ns/op regresses while B/op and allocs/op are identical to the baseline, it retries the measurement once. A first failure that does not reproduce is reported as a warning; a reproduced regression still fails. Missing benchmarks and allocation regressions fail immediately. `-in` only evaluates the supplied results and cannot retry them.

@@ -145,3 +145,13 @@ adapt:
 cd examples/starburst
 go tool nsgo test -bench BenchmarkArenaPresets ./...
 ```
+
+## 性能回归检查
+
+单元测试断言确定性的正确性，绝不只凭墙钟耗时判定快慢。不要因为 `time.Since` 超过帧预算、平均延迟或加速比阈值而让测试失败；保留 HPA* 路径代价上界等正确性断言，把性能声明放进受跟踪的 benchmark，或者使用扩展节点数等确定性代理。例如，`BenchmarkAStar1024` 与 `BenchmarkHPA1024` 分别测量两种搜索，单元测试不再受 runner 负载影响，Performance baselines 任务会将它们与 `benchmarks/hpa-baseline.yaml` 比较：
+
+```sh
+go tool nsgo test -run '^$' -bench 'Benchmark(AStar|HPA)1024$' ./pkg/pathfind
+```
+
+`game bench` 默认将每个 benchmark 运行三次，并取中位数与基线比较。如果 ns/op 中位数发生回归，而 B/op 和 allocs/op 与基线完全一致，会重试一次完整测量。第一次失败但没有复现时只报告警告；复现的回归仍然失败。benchmark 缺失或分配指标回归会立即失败。`-in` 只评估提供的结果，无法重试。

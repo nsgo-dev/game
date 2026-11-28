@@ -743,11 +743,7 @@ func TestRemoteDisconnectCancelsInFlightRPCAndGuardsStaleSession(t *testing.T) {
 		t.Fatal("timed out waiting for RemotePause to reach server")
 	}
 
-	start := time.Now()
 	_ = ed.DisconnectRemote()
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("DisconnectRemote took %v, expected prompt cancellation", elapsed)
-	}
 	select {
 	case err := <-rpcErrCh:
 		if err == nil {

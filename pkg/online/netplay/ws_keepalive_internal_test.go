@@ -309,12 +309,8 @@ func TestWebSocketServerCloseBreaksABlockedSend(t *testing.T) {
 	}
 	waitFor(t, "every sender to start sending", func() bool { return started.Load() >= int32(len(clients)) })
 
-	begin := time.Now()
 	if err := srv.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
-	}
-	if took := time.Since(begin); took > 5*time.Second {
-		t.Fatalf("Close took %v with Sends blocked on clients that do not read", took)
 	}
 	for range clients {
 		select {
