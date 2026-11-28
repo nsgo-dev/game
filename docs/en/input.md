@@ -497,3 +497,5 @@ When `key` is absent, both `Load` and `LoadReplace` return `(false, nil)` and le
 # Steam Deck
 
 `input.DetectGamepadKind` identifies Steam Deck and Valve handheld controllers as `DeviceGamepadSteamDeck`, allowing prompt providers to select Deck glyphs while retaining normal gamepad input.
+
+The Deck slice is provider-neutral. A game registers a Deck-specific `Prompt` in `PromptTable`, and `DeviceTracker` selects it reactively when the controller name identifies a Deck. Steam keyboard invocation, Steam Input action-set files, and the 1280×800 fullscreen default require separate Steamworks and platform integration layers.

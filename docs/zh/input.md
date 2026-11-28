@@ -497,3 +497,5 @@ _ = found
 # Steam Deck
 
 `input.DetectGamepadKind` 会把 Steam Deck 和 Valve 手持控制器识别为 `DeviceGamepadSteamDeck`，提示系统可选择 Deck 图标，同时继续使用标准手柄输入。
+
+该 Deck 切片保持提供商无关。游戏可以在 `PromptTable` 中注册 Deck 专用 `Prompt`，由 `DeviceTracker` 在控制器名称识别为 Deck 时响应式地选择它。Steam 键盘调用、Steam Input 动作集文件以及 1280×800 全屏默认值仍需独立的 Steamworks 和平台集成层。

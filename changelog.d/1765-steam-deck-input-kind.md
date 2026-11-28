@@ -1,4 +1,4 @@
-# Steam Deck input kind
+### Added
 
-Steam Deck and Valve handheld controllers now have a dedicated input device kind for prompts and platform-specific integrations.
+- `input`: identify Steam Deck controllers as `DeviceGamepadSteamDeck` and allow prompt tables to select Deck-specific glyphs (#1765).
 

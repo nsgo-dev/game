@@ -429,6 +429,8 @@ func (t *PromptTable) PromptFor(action string, tracker *DeviceTracker) Prompt {
 
 func deviceFallbackChain(d DeviceKind) []DeviceKind {
 	switch d {
+	case DeviceGamepadSteamDeck:
+		return []DeviceKind{DeviceGamepadSteamDeck, DeviceGamepadGeneric, DeviceKeyboard}
 	case DeviceGamepadPlayStation:
 		return []DeviceKind{DeviceGamepadPlayStation, DeviceGamepadGeneric, DeviceKeyboard}
 	case DeviceGamepadXbox:

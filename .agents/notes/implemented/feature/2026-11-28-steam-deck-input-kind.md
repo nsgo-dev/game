@@ -18,3 +18,5 @@ Treating Deck as Xbox preserves existing glyphs but cannot distinguish a Deck fo
 
 Prompt providers can opt into Deck glyphs without changing generic gamepad behavior. Runtime integrations can use the device kind as a capability hint while still receiving standard gamepad axes and buttons.
 
+Steam keyboard invocation, action-set files, and fullscreen defaults remain platform integration work.
+
