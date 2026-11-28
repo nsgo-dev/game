@@ -443,6 +443,9 @@ func (s *Effect) PlayAt3DWith(l Listener3D, pos Vec3, v audio.Voice, opts PlayOp
 	}
 	v.Pan = sp.Pan
 	_, ok := s.playInternal(v, sp.Distance, nil, opts)
+	if ok {
+		s.emitCaption(sp.Pan)
+	}
 	return ok
 }
 

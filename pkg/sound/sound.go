@@ -373,6 +373,23 @@ type Effect struct {
 	sound    *audio.Sound
 	// live are the active non-fading playbacks that have not ended, oldest first.
 	live []*playback
+	// caption and captionLabel are the optional callback SetCaption installs for positional plays.
+	caption      func(label string, pan float32)
+	captionLabel string
+}
+
+// SetCaption installs callback to run with label and the listener pan each time PlayAt, PlayAt3D, or their With and Cue forms start a playback of the effect, so an a11y.CaptionEmitter can show a caption in the direction the player hears without the sound package depending on a11y. A nil callback removes it. Plain Play has no position and does not call it.
+func (s *Effect) SetCaption(label string, callback func(label string, pan float32)) {
+	if s == nil {
+		return
+	}
+	s.captionLabel, s.caption = label, callback
+}
+
+func (s *Effect) emitCaption(pan float32) {
+	if s.caption != nil {
+		s.caption(s.captionLabel, pan)
+	}
 }
 
 // playback is a playback of an effect and its voice's own volume, base pan, concurrency metadata, and duck envelope.
