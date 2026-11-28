@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## Unreleased
 
+## [0.2.2] - 2026-11-28
+
+### Security
+
+- `cmd/game`: projects that `game new` creates, and the template modules under `template/`, now require `github.com/nsgo-dev/game v0.2.1` instead of `v0.1.0`, so a new project starts with the 0.2.1 security fixes. Existing projects should run `go get github.com/nsgo-dev/game@v0.2.1`.
+- `github.com/nsgo-dev/game/packages/game`, the module path before 0.2.0, is deprecated in its own v0.1.1, which retracts v0.1.0 (it has every vulnerability 0.2.1 fixes) and whose `cmd/game` only prints where the tool moved. NSGo 0.3.4's `nsgo game` runs that module outside a project, so it now prints that message instead of starting the old editor; run `go run github.com/nsgo-dev/game/cmd/game@latest` instead.
+
 ## [0.2.1] - 2026-11-28
 
 ### Fixed
