@@ -66,6 +66,19 @@ type Effect struct {
 	Steps int `yaml:"steps,omitempty"`
 	// Modifiers are the effect's modifiers, applied in order.
 	Modifiers []Modifier `yaml:"modifiers"`
+	// Kind is instant, timed or infinite. Empty preserves the version 1 timed behavior.
+	Kind string `yaml:"kind,omitempty"`
+	// Period is the fixed-step interval for periodic effects.
+	Period      int       `yaml:"period,omitempty"`
+	TickOnApply bool      `yaml:"tickOnApply,omitempty"`
+	GrantTags   []string  `yaml:"grantTags,omitempty"`
+	Stacking    *Stacking `yaml:"stacking,omitempty"`
+}
+
+type Stacking struct {
+	Limit     int    `yaml:"limit,omitempty"`
+	By        string `yaml:"by,omitempty"`
+	OnReapply string `yaml:"onReapply,omitempty"`
 }
 
 // File is the root of a versioned YAML stats file: stat definitions and the effects that modify them.

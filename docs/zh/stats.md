@@ -171,3 +171,6 @@ hero.Apply("equip:weapon", sword)
 | `effects[].modifiers[].op` | `add`、`mul` 或 `override` | 改变属性的方式 |
 | `effects[].modifiers[].value` | number | 加数、乘数或覆盖值 |
 | `effects[].modifiers[].priority` | int，可选 | 覆盖优先级，最高者生效 |
+# 游戏效果
+
+Stats effect 可声明 `kind`、`period`、`tickOnApply`、`grantTags` 和 `stacking` 元数据。`Sheet.ApplyEffect` 通过固定步长状态应用修饰器。
