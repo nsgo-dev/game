@@ -16,12 +16,21 @@ import (
 	"sort"
 )
 
-// Safety bounds enforced when decoding untrusted KTX2 containers.
+// Safety bounds enforced when decoding untrusted KTX2 containers. maxUncompressedLevelBytes bounds every decoded level, both its de-supercompressed payload and the RGBA image DecodeLevelRGBA builds from it, so a few kilobytes of Zstandard RLE blocks cannot make the decoder allocate gigabytes.
 const (
 	maxTextureDimension       = 16384
 	maxLevelCount             = 16
 	maxUncompressedLevelBytes = 256 * 1024 * 1024
 )
+
+// kvdBinaryKeys are the keys the KTX2 specification (§3.11) defines with binary values, which carry no NUL terminator: buildKVD writes them and DecodeKVD reads them back byte for byte, while every other value is a string whose one terminating NUL is added on write and dropped on read.
+var kvdBinaryKeys = map[string]bool{
+	"KTXcubemapIncomplete": true,
+	"KTXglFormat":          true,
+	"KTXdxgiFormat__":      true,
+	"KTXmetalPixelFormat":  true,
+	"KTXanimData":          true,
+}
 
 // Options configures KTX2 texture encoding.
 type Options struct {
@@ -452,13 +461,19 @@ func buildKVD(extra map[string]string) []byte {
 	var lenBuf [4]byte
 	for _, k := range keys {
 		val := kv[k]
-		entryLen := uint32(len(k) + 1 + len(val) + 1) // key + NUL + string value + NUL
+		term := 1 // string values end in one NUL, binary values in none
+		if kvdBinaryKeys[k] {
+			term = 0
+		}
+		entryLen := uint32(len(k) + 1 + len(val) + term)
 		binary.LittleEndian.PutUint32(lenBuf[:], entryLen)
 		buf.Write(lenBuf[:])
 		buf.WriteString(k)
 		buf.WriteByte(0)
 		buf.WriteString(val)
-		buf.WriteByte(0)
+		if term == 1 {
+			buf.WriteByte(0)
+		}
 		if rem := int(entryLen % 4); rem != 0 {
 			for range 4 - rem {
 				buf.WriteByte(0)
@@ -604,8 +619,10 @@ func DecodeKVD(kvdBytes []byte) (map[string][]byte, error) {
 		prevKey = key
 		val := make([]byte, len(entry)-(nul+1))
 		copy(val, entry[nul+1:])
-		// buildKVD writes a NUL terminator after each value, and the reader must drop it or every value read back carries a trailing zero byte.
-		val = bytes.TrimRight(val, "\x00")
+		// A string value ends in one NUL terminator, which is dropped; any zero bytes before it are part of the value. A binary value the specification defines has no terminator and is kept byte for byte.
+		if !kvdBinaryKeys[key] && len(val) > 0 && val[len(val)-1] == 0 {
+			val = val[:len(val)-1]
+		}
 		out[key] = val
 
 		pos += n
@@ -849,10 +866,13 @@ func (t *Texture) DecodeLevelRGBA(level int) (*image.NRGBA, error) {
 	if level < 0 || level >= len(t.Levels) {
 		return nil, fmt.Errorf("ktx2: level %d out of range [0, %d)", level, len(t.Levels))
 	}
+	lvl := t.Levels[level]
+	if err := checkRGBALevelSize(lvl.Width, lvl.Height); err != nil {
+		return nil, err
+	}
 	if t.Format == FormatETC1S {
 		return t.decodeETC1SLevelRGBA(level)
 	}
-	lvl := t.Levels[level]
 	return decodeLevelToRGBA(t.Format, lvl.Data, lvl.Width, lvl.Height, t.SRGB)
 }
 
@@ -928,11 +948,29 @@ func decodeLevelToRGBA(format Format, raw []byte, w, ht int, srgb bool) (*image.
 
 // DecodeRGBA decodes the specified mip level (0 = base) of a KTX2 texture into *image.NRGBA. Supports RGBA8, BC1, BC3, BC7, ETC2 RGB8/RGBA8, ASTC 4x4, Basis Universal UASTC 4x4, and BasisLZ/ETC1S with uncompressed, BasisLZ, Zstandard, or ZLIB supercompression.
 func DecodeRGBA(data []byte, level int) (*image.NRGBA, error) {
+	// Refuse an oversized level from the header alone, before Decode decompresses anything.
+	if h, levels, err := DecodeHeader(data); err == nil && level >= 0 && level < len(levels) {
+		w, ht := MipDimensions(int(h.PixelWidth), int(h.PixelHeight), level)
+		if err := checkRGBALevelSize(w, ht); err != nil {
+			return nil, err
+		}
+	}
 	tex, err := Decode(data)
 	if err != nil {
 		return nil, err
 	}
 	return tex.DecodeLevelRGBA(level)
+}
+
+// checkRGBALevelSize refuses a w x ht level whose RGBA image would exceed maxUncompressedLevelBytes, that is one larger than 8192x8192.
+func checkRGBALevelSize(w, ht int) error {
+	if w < 0 || ht < 0 {
+		return fmt.Errorf("ktx2: invalid level dimensions %dx%d", w, ht)
+	}
+	if n := uint64(w) * uint64(ht) * 4; n > maxUncompressedLevelBytes {
+		return fmt.Errorf("ktx2: %dx%d level decodes to %d RGBA bytes, over the %d-byte limit", w, ht, n, maxUncompressedLevelBytes)
+	}
+	return nil
 }
 
 func alignUp(v, align uint64) uint64 {

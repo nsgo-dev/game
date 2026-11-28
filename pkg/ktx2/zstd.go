@@ -1088,7 +1088,12 @@ func decompressZstd(src []byte, maxOut uint64) ([]byte, error) {
 		if hasFCS && uint64(len(frame)) != fcs {
 			return nil, fmt.Errorf("ktx2/zstd: decoded %d bytes, frame header declared %d", len(frame), fcs)
 		}
-		out = append(out, frame...)
+		// The first frame becomes the output itself, so a single-frame level is held once rather than copied into a second buffer of the same size.
+		if out == nil {
+			out = frame
+		} else {
+			out = append(out, frame...)
+		}
 	}
 	return out, nil
 }

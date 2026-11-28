@@ -394,7 +394,7 @@ func TestZstandardSupercompressedKTX2(t *testing.T) {
 	}
 }
 
-func repackKTX2Supercompressed(t *testing.T, base []byte, scheme uint32, compressedLevels [][]byte) []byte {
+func repackKTX2Supercompressed(t testing.TB, base []byte, scheme uint32, compressedLevels [][]byte) []byte {
 	t.Helper()
 	h, baseLevels, err := ktx2.DecodeHeader(base)
 	if err != nil {
@@ -464,6 +464,11 @@ func FuzzDecodeKTX2(f *testing.F) {
 		if raw, err := os.ReadFile(filepath.Join("testdata", "ref", name)); err == nil {
 			f.Add(raw)
 		}
+	}
+	// A few kilobytes of Zstandard RLE blocks declaring a level whose RGBA image would be 1 GiB, and binary KVD values ending in zero bytes.
+	f.Add(hugeZstdBC1(f))
+	if raw, err := ktx2.Encode(img, ktx2.Options{KVD: map[string]string{"KTXdxgiFormat__": "\x1c\x00\x00\x00", "Padded": "tail\x00"}}); err == nil {
+		f.Add(raw)
 	}
 	f.Add([]byte{})
 	f.Add(ktx2.Identifier[:])
