@@ -161,6 +161,7 @@ group.Step(dt)
 
 - **Local corridor repair & vertical separation**: `NavAgent` checks connected shared-edge neighbors first so agents on upper bridges never snap down to floors underneath, and repairs pushed start positions (`SetPosition`) or shifted targets locally within `MaxRepairDepth` (default 2) without a full A* replan.
 - **Throttled & staggered replanning**: `NavAgentGroup.Step(dt)` strictly bounds full A* replans to `MaxReplansPerStep` per fixed step in deterministic round-robin order (optionally staggered by `StaggerStride`), and automatically detects mesh changes (including runtime area/flag updates and off-mesh links) via `NavMesh.Revision()`.
+- **External avoidance velocity**: `DesiredVelocity()` returns the XZ velocity `Step` would steer toward (zero when idle, unreachable, arrived or traversing a link) for a solver such as `ai.ORCASolver`'s XZ step, and `StepWithVelocity(v, dt)` moves a standalone agent with the chosen velocity instead: `v.Y` is ignored because elevation follows the walked surface, the velocity is reached under `MaxAcceleration` and clamped to `MaxSpeed`, and corridor repair, surface tracking, link traversal and arrival work as in `Step`. A `NavAgentGroup` moves its agents in `group.Step`.
 - **Deterministic fixed-step replay**: replaying the same inputs produces bit-identical 3D positions every step.
 
 ## Tiled 3D NavMesh, dynamic obstacles, and chunk streaming (`TiledNavMesh`, `NavTileStreamer`)

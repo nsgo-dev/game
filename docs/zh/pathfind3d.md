@@ -161,6 +161,7 @@ group.Step(dt)
 
 - **局部走廊修复与多层高度隔离**：`NavAgent` 优先检查通过共享边相连的邻居，确保桥面上的智能体不会误吸到下方地面；被推离走廊（`SetPosition`）或目标移至邻近多边形时，在 `MaxRepairDepth`（默认 2）跳范围内局部修复走廊，无需执行完整 A* 重规划。
 - **节流与错峰规划**：`NavAgentGroup.Step(dt)` 按确定性轮询顺序（可选配合 `StaggerStride` 错峰）严格将每步完整 A* 重规划次数限制在 `MaxReplansPerStep` 以内，并通过 `NavMesh.Revision()` 自动感知导航网格变更（包含运行时区域/标志修改与离网连接）。
+- **外部避障速度**：`DesiredVelocity()` 返回 `Step` 本步要转向的 XZ 速度（空闲、不可达、已到达或正在穿越连接时为零），供 `ai.ORCASolver` 的 XZ 求解使用；`StepWithVelocity(v, dt)` 则让独立智能体改用选定的速度移动：`v.Y` 被忽略，因为高度跟随所走的表面；速度在 `MaxAcceleration` 限制下趋近、上限为 `MaxSpeed`，走廊修复、表面高度跟踪、连接穿越与到达判定与 `Step` 一致。`NavAgentGroup` 中的智能体由 `group.Step` 移动。
 - **确定性固定步长重放**：重放相同输入序列时，每一步 3D 坐标均按位完全一致。
 
 ## 分块 3D NavMesh、动态障碍物与区块流式加载（`TiledNavMesh`、`NavTileStreamer`）
