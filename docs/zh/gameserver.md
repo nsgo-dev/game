@@ -274,7 +274,7 @@ COPY --from=build /out/server /server
 ENTRYPOINT ["/server"]
 ```
 
-使用 `SIGTERM` 作为停止信号（`docker stop` 默认发送 SIGTERM）。示例用 `signal.NotifyContext`；`Runner.Run` 会等当前 tick 完成、调用每场比赛的 `OnStop` 通知对端并落盘后退出，因此容器可以优雅排空而不是丢掉一个 tick。示例不打开网络监听端口，因此镜像不声明端口；若要暴露健康检查端口或配置容器健康检查，请在你自己的服务器里按上文在 `:8080` 上挂载 `server.NewHealth`。
+使用 `SIGTERM` 作为停止信号（`docker stop` 默认发送 SIGTERM）。示例用 `signal.NotifyContext`；`Runner.Run` 会等当前 tick 完成、调用每场比赛的 `OnStop` 通知对端并落盘后退出，因此容器可以优雅排空而不是丢掉一个 tick。示例不打开网络监听端口，因此镜像不声明端口；若要暴露健康检查端口或配置容器健康检查，请在你自己的服务器里按上文在 `:8080` 上挂载 `gameserver.NewHealth`。
 
 ## 玩家令牌
 

@@ -274,7 +274,7 @@ COPY --from=build /out/server /server
 ENTRYPOINT ["/server"]
 ```
 
-Run it with `SIGTERM` as the stop signal (`docker stop` sends SIGTERM by default). The example uses `signal.NotifyContext`; `Runner.Run` lets the current tick finish, runs each match's `OnStop` to notify peers and flush state, then exits, so the container drains instead of losing a tick. The example opens no network listener, so the image declares no port; to expose a health port or add a container health check, mount `server.NewHealth` on `:8080` in your own server (see above).
+Run it with `SIGTERM` as the stop signal (`docker stop` sends SIGTERM by default). The example uses `signal.NotifyContext`; `Runner.Run` lets the current tick finish, runs each match's `OnStop` to notify peers and flush state, then exits, so the container drains instead of losing a tick. The example opens no network listener, so the image declares no port; to expose a health port or add a container health check, mount `gameserver.NewHealth` on `:8080` in your own server (see above).
 
 ## Player tokens
 
