@@ -6,6 +6,12 @@
 import "github.com/nsgo-dev/game/pkg/assets"
 ```
 
+## Seamless tiles and derived maps
+
+`github.com/nsgo-dev/game/pkg/tooling/texseam` provides deterministic image tooling for tiles and lit sprites. `texseam.Check` compares each wrap edge with interior neighbor differences and reports a pass when both ratios are at most `1.3`; `texseam.Fix` feathers opposite edges toward a matching seam. `texseam.Merge` limits an edited tile to a feathered center cross, preserving the original outside that band.
+
+Use `texseam.Height` to derive grayscale height from luminance, `texseam.Normal` to make an RGBA8 tangent-space map, and `texseam.Roughness` to make an inverted contrast-stretched grayscale map. `Normal` accepts `texseam.Wrap` for repeating textures or `texseam.Clamp` for sprites and emits the renderer's flat normal `(128, 128, 255)`.
+
 All `Manager` and `Group` methods run on the engine goroutine; file reading and parsing run in background goroutines and post results back via `core.Scope.Post` so animations and `game.Loop` never hitch.
 
 ## Creating a Manager and defining groups
