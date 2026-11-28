@@ -209,6 +209,20 @@
           "minimum": -9223372036854776000,
           "maximum": 9223372036854776000
         },
+        "weeklySpendLimitUSD": {
+          "description": "WeeklySpendLimitUSD sets the weekly estimated spend cap in US dollars (0 or omitted disables the cap).",
+          "type": "number"
+        },
+        "requestSpendLimitUSD": {
+          "description": "RequestSpendLimitUSD sets the estimated spend cap in US dollars for one request (0 or omitted disables the cap).",
+          "type": "number"
+        },
+        "toolCallLimit": {
+          "description": "ToolCallLimit sets the most tool calls one request may make (0 or omitted disables the cap).",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
         "privacy": {
           "description": "Privacy controls WHAT MAY LEAVE THIS COMPUTER across every connected agent.",
           "allOf": [
@@ -266,6 +280,28 @@
           "type": "integer",
           "minimum": -9223372036854776000,
           "maximum": 9223372036854776000
+        },
+        "inputTokens": {
+          "description": "InputTokens is the number of uncached model input tokens used during WeekStart's week.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "cachedInputTokens": {
+          "description": "CachedInputTokens is the number of model input tokens read from the prompt cache during WeekStart's week.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "outputTokens": {
+          "description": "OutputTokens is the number of model output tokens used during WeekStart's week.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "estimatedCostUSD": {
+          "description": "EstimatedCostUSD is the estimated model spend in US dollars during WeekStart's week.",
+          "type": "number"
         }
       },
       "additionalProperties": false

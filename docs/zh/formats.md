@@ -116,6 +116,7 @@ agent:
         - mcp
       enabled: true
   weeklyRequestLimit: 300
+  weeklySpendLimitUSD: 20
   privacy:
     sceneAndData: true
     viewportImages: true
