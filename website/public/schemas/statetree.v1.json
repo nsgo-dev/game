@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/statetree.v1.json",
+  "title": "NSGo game AI state tree (version 1)",
+  "description": "StateTree is a versioned YAML tree of enter conditions, tasks and prioritized transitions.",
+  "type": "object",
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "parameters": { "type": "object", "additionalProperties": { "type": "string" } },
+    "states": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/State" } }
+  },
+  "required": ["version", "states"],
+  "additionalProperties": false,
+  "definitions": {
+    "Condition": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "op": { "type": "string", "enum": ["eq", "ne", "lt", "lte", "gt", "gte", "set", "unset"] },
+        "value": {}
+      },
+      "required": ["key", "op"],
+      "additionalProperties": false
+    },
+    "Task": {
+      "type": "object",
+      "properties": { "name": { "type": "string", "minLength": 1 }, "params": { "type": "object" } },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "Transition": {
+      "type": "object",
+      "properties": {
+        "on": { "type": "string", "enum": ["completed", "succeeded", "failed", "condition", "event"] },
+        "to": { "type": "string", "minLength": 1 },
+        "priority": { "type": "integer" },
+        "delay": { "type": "integer", "minimum": 0 },
+        "restart": { "type": "boolean" }
+      },
+      "required": ["on", "to"],
+      "additionalProperties": false
+    },
+    "State": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "enter": { "type": "array", "items": { "$ref": "#/definitions/Condition" } },
+        "tasks": { "type": "array", "items": { "$ref": "#/definitions/Task" } },
+        "completeWhen": { "type": "string", "enum": ["any", "all"] },
+        "transitions": { "type": "array", "items": { "$ref": "#/definitions/Transition" } },
+        "children": { "type": "array", "items": { "$ref": "#/definitions/State" } }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -201,6 +201,12 @@ tree, err := ai.BuildBehaviorTree(doc, ai.BTBindings{
 - `ParseBehaviorTreeWith`, `LoadBehaviorTreeFS`, and `BuildBehaviorTree` refuse unknown fields, unknown node types, invalid operators or abort modes, trailing YAML documents, and circular subtree references, reporting file, line, column, field path, and fix hints via `*loaderr.Error`.
 - `EncodeBehaviorTree` writes canonical 2-space YAML prefixed with `BTSchemaComment` in fixed key order so load-and-save round trips change nothing.
 
+### State trees in YAML
+
+State trees describe designer-authored phases such as idle, patrol and combat in strict version 1 `*.statetree.yaml` files. `ParseStateTree`, `LoadStateTreeFS`, `ValidateStateTree` and `EncodeStateTree` support nested states, blackboard enter conditions, behavior-tree task names and parameters, `any` / `all` completion modes, and prioritized transitions triggered by completion, success, failure, conditions or events. Child order is preserved for deterministic selection tie-breaks, and transition delays are measured in steps.
+
+Unknown fields, trailing documents, duplicate state IDs, invalid condition operators, missing comparison values, negative delays and unsupported versions are refused. The parser and encoder cover the data contract. Runtime stepping, task binding, snapshots and AI inspector integration remain follow-up work.
+
 ### Timeouts, retries, deterministic random choices, and services
 
 - **`TimeLimit(d, child)`** fails and calls `child.Reset()` if `child` is still `StatusRunning` once `d` of game time has elapsed.

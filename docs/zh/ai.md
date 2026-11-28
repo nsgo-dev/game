@@ -201,6 +201,12 @@ tree, err := ai.BuildBehaviorTree(doc, ai.BTBindings{
 - `ParseBehaviorTreeWith`、`LoadBehaviorTreeFS` 与 `BuildBehaviorTree` 会拒绝未知字段、未知节点类型、非法运算符或中断模式、尾随 YAML 文档以及子树循环引用，并通过 `*loaderr.Error` 报告文件、行号、列号、字段路径与修复提示。
 - `EncodeBehaviorTree` 以固定键顺序写出带 `BTSchemaComment` 前缀的规范 2 空格 YAML，确保加载再保存不产生任何字节差异。
 
+### YAML 状态树
+
+状态树用严格的版本 1 `*.statetree.yaml` 文件描述 idle、patrol、combat 等设计阶段。`ParseStateTree`、`LoadStateTreeFS`、`ValidateStateTree` 与 `EncodeStateTree` 支持嵌套状态、黑板进入条件、复用行为树任务名与参数、`any` / `all` 完成模式，以及由完成、成功、失败、条件或事件触发的带优先级转换。子状态顺序会保留，作为确定性的选择平局规则；转换延迟以步数计算。
+
+未知字段、尾随文档、重复状态 ID、非法条件运算符、缺失比较值、负延迟和不支持的版本都会被拒绝。解析器与编码器覆盖数据契约；运行时步进、任务绑定、快照和 AI 检查器集成留待后续工作。
+
 ### 超时、重试、确定性随机选择与服务节点
 
 - **`TimeLimit(d, child)`**：在累计游戏时间达到 `d` 且 `child` 仍处于 `StatusRunning` 时调用 `child.Reset()` 并返回 `StatusFailure`。

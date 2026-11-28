@@ -1,1 +1,7 @@
-新增严格校验的 YAML AI 状态树格式，支持嵌套状态、任务和优先级转换。
+### Added
+
+- `game/pkg/ai`: add a strict versioned YAML state-tree format with nested states, enter conditions, tasks, completion modes and prioritized transitions (#1725).
+
+### Changed
+
+- `game/pkg/ai`: add canonical encoding, filesystem loading, field-level validation, trailing-document rejection and fuzz coverage for state-tree documents (#1725).
