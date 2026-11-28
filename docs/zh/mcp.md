@@ -411,6 +411,7 @@ claude mcp add game-editor -- go tool game mcp
 | `plan_step_update` | read | `step`、`status`、`complete`（可选） | 更新已批准计划步骤的执行状态（`pending`、`running`、`done`、`failed`、`skipped`）或结束计划并将步骤完成清单附加到回合审查，同时回报用户是否已按下停止。 |
 | `phone_sessions_list` | read | `{}` | 列出连接到编辑器局域网二维码 MCP 桥接的 Play 模式 Web 构建会话，包含服务状态、局域网 URL 与每个已连接手机/浏览器会话的信息。 |
 | `phone_call_tool` | run | `tool`（必填）；`session_id`、`arguments`、`timeout_ms`（可选） | 经由 `Editor.CallWebBridgeTool` 向已连接的手机/浏览器会话转发游戏 MCP 工具调用（如 `game_state_dump`、`game_scenes_list`、`game_entities_list`、`game_loop_step`、`game_input_action`、`game_screenshot`），遵循 `permissions.yaml`（`playtests: phone/<tool>`）权限规则与隐私策略。 |
+| `skill_get` | read | `file`、`section`（均必填） | 返回编辑器内置的 `nsgo-game` 智能体技能中的一节：`file` 是技能内的路径，例如 `SKILL.md` 或 `references/mcp-tools.md`，`section` 是按原文书写的 Markdown 标题文字。该节一直延续到下一个同级或更高级的标题；围栏代码块里以 `#` 开头的行不算标题。未知文件、未知小节或未知参数一律拒绝。供无法读取 `skill://nsgo-game/...` 资源的客户端使用。 |
 
 编辑器 MCP 服务器注册的每个工具都可在**设置 › 工具**中按电脑独立开关（`Editor.SetMCPToolEnabled`）：关闭后会从服务器公布的工具列表中移除（发送 `tools/list_changed`），被直接调用时返回可读的拒绝原因。**设置 › 用量与隐私**中的四项**允许离开此计算机的内容**开关（场景与数据文件、视口画面、Go 源代码、美术与音频文件）对所有已连接智能体的全部工具调用（包含符号链接解析后的真实路径）与全部资源读取（`editor://scene`、`editor://selection`、`editor://agent/turn`、`editor://brief`、`editor://rules`、`editor://context`）强制生效，只要对应内容类型已关闭即返回拒绝原因。在**设置 › 工具**中配置的其他 MCP 服务器（默认包含经由 `go tool nsgo mcp` 访问运行中游戏的 `nsgo-game`）会通过 `editormcp.InstallWithServers` 自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`，供你自己启动的智能体使用。编辑器从输入框启动 Claude Code 或 Codex 时，会以内联方式传入编辑器服务器与这些服务器，并忽略项目的 `.mcp.json`、`.codex/config.toml`、项目设置与钩子（见编辑器指南中的“本地智能体启动策略”）。
 
@@ -464,7 +465,7 @@ claude mcp add game-editor -- go tool game mcp
 
 ### 变更流
 
-服务器暴露六个资源：`editor://scene`（编辑器当前持有的打开场景 YAML）、`editor://selection`（`selection_get` 报告的选择内容 JSON）、`editor://agent/turn`（通过 `⌘L` 就地提问框或智能体面板发起的最新请求，包含 `selectionIds`、`scenePath`、`sceneYaml` 与 `skipPlan` 的 JSON 载荷，以及捕获的 `image/png` 视口二进制图像）、`editor://brief`（当前项目的 `brief.yaml` 规范 YAML）、`editor://rules`（当前项目的 `AGENTS.md` 纯 Markdown）以及 `editor://context`（与 `project_context` 一致的综合 JSON 项目上下文）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下（`editor://agent/turn` 通知还会附带 `"nsgo.dev/turnId"` 与 `"nsgo.dev/skipPlan"`）。一连串变化可能合并为一条通知。
+服务器暴露六个资源：`editor://scene`（编辑器当前持有的打开场景 YAML）、`editor://selection`（`selection_get` 报告的选择内容 JSON）、`editor://agent/turn`（通过 `⌘L` 就地提问框或智能体面板发起的最新请求，包含 `selectionIds`、`scenePath`、`sceneYaml` 与 `skipPlan` 的 JSON 载荷，以及捕获的 `image/png` 视口二进制图像）、`editor://brief`（当前项目的 `brief.yaml` 规范 YAML）、`editor://rules`（当前项目的 `AGENTS.md` 纯 Markdown）以及 `editor://context`（与 `project_context` 一致的综合 JSON 项目上下文），另有[有版本的智能体技能资源](#有版本的智能体技能资源)中所述的技能文件。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下（`editor://agent/turn` 通知还会附带 `"nsgo.dev/turnId"` 与 `"nsgo.dev/skipPlan"`）。一连串变化可能合并为一条通知。
 
 ### 添加工具
 
@@ -520,4 +521,4 @@ NSGo 的 `automation` 只在 `nsgo dev -automation` 和测试构建中注册应�
 
 ## 有版本的智能体技能资源
 
-编辑器 MCP 服务器通过 `skill://nsgo-game/SKILL.md` 及其参考文档提供与当前版本绑定的 `nsgo-game` 技能。不支持资源的客户端可以调用只读 `skill_get` 工具，传入 `file` 和精确的 Markdown `section`。这样工作流说明会与编辑器二进制保持一致。
+编辑器服务器和 `go tool game mcp` 代理还会提供其二进制内置的 `nsgo-game` 智能体技能，每个文件一个 `text/markdown` 资源：`skill://nsgo-game/SKILL.md` 与 `skill://nsgo-game/references/<file>`（`packages.md`、`cli-and-formats.md` 与 `mcp-tools.md`）。代理从自身内置的副本读取，因此在编辑器打开项目之前也能读取。由于它们来自响应工具调用的同一个二进制，描述的就是该版本的工具，并优先于通过 `bunx skills add` 安装的较旧副本。无法读取资源的客户端可调用只读工具 `skill_get`，传入 `file` 和 `section` 中按原文书写的标题。

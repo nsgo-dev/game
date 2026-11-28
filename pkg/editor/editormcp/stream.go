@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/nsgo-dev/game/pkg/editor"
-	"github.com/nsgo-dev/game/skills"
 )
 
 // The resources of the editor's server, which a client reads and subscribes to for the change stream and shared project context.
@@ -87,18 +85,8 @@ func (s *Server) addResources() {
 	s.sdk.AddResource(resources[7], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: req.Params.URI, MIMEType: mcpAppsMIME, Text: viewportWidgetHTML}}}, nil
 	})
-	for _, file := range skills.Files() {
-		rel := strings.TrimPrefix(file, "nsgo-game/")
-		uri := "skill://nsgo-game/" + rel
-		resource := &mcp.Resource{URI: uri, Name: rel, Title: "nsgo-game skill " + rel, Description: "Versioned agent skill section", MIMEType: "text/markdown"}
-		f := file
-		s.sdk.AddResource(resource, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-			data, err := skills.FS.ReadFile(f)
-			if err != nil {
-				return nil, err
-			}
-			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: uri, MIMEType: "text/markdown", Text: string(data)}}}, nil
-		})
+	for _, r := range skillResources() {
+		s.sdk.AddResource(r, readSkillResource)
 	}
 	s.sdk.AddResource(resources[0], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var data []byte

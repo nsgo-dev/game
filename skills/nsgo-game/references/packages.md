@@ -175,6 +175,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/editor/editormcp` | Experimental | The editor's MCP server for reviewable scene and file edits, turns and reviews, history, checks, playtests and other editor workflows on the open project, served on a per-project local endpoint that `go tool game mcp` forwards to; see the [complete editor tool reference](https://game.nsgo.dev/docs/mcp/#editor-tools) |
 | `game/pkg/editor/keychain` | Experimental | The editor's OS secret storage behind `keychain.Store` (macOS Keychain, Linux Secret Service, Windows Credential Manager) and the in-memory `keychain.Memory` for tests |
 | `game/pkg/editor/theme` | Experimental | The editor's design tokens: the embedded YAML theme (`theme.Core`), the dark and light `theme.Palette`, type, spacing, shape and motion constants, and the WCAG 2.2 `theme.ContrastTable` |
+| `game/skills` | Experimental | This skill embedded with `go:embed` (`skills.Files`, `skills.ReadFile`), which the editor's MCP server and the `go tool game mcp` proxy serve as `skill://nsgo-game/...` resources and through `skill_get` |
 
 ## Project, CLI and asset tooling
 

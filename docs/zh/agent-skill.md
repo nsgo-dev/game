@@ -37,4 +37,4 @@ claude mcp add nsgo -- go tool nsgo mcp
 
 处理商店媒体时，让 `store/capture.yaml`（[商店截图计划](shipping.md#商店截图计划)）始终记录每张截图的场景、录像和帧，用 `game_screenshot` 按计划写明的尺寸截取每张图片，并运行 `go tool game capture`，直到它不再报告缺失或尺寸不对的文件。起草商店文案时只使用 `game.yaml`、输入绑定和 `changelog.d` 片段中的事实。
 
-编辑器 MCP 服务器还通过 `skill://nsgo-game/...` 提供当前版本的技能和参考文档；客户端无法读取 MCP 资源时使用 `skill_get`。服务器副本优先于本地较旧的安装副本。
+编辑器的 MCP 服务器和 `go tool game mcp` 代理还会以 `skill://nsgo-game/SKILL.md` 与 `skill://nsgo-game/references/<file>` 资源提供项目固定版本的 `go tool game` 内置的技能，无法读取资源的客户端可通过 `skill_get` 工具一次获取一节（[有版本的智能体技能资源](mcp.md#有版本的智能体技能资源)）。该副本描述的是响应调用的那个版本的工具，因此优先于通过 `bunx skills add` 安装的较旧副本。

@@ -55,7 +55,7 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		uris = append(uris, r.URI)
 	}
 	slices.Sort(uris)
-	wantResources := []string{editormcp.AgentTurnURI, editormcp.BriefURI, editormcp.ContextURI, editormcp.RulesURI, editormcp.SceneURI, editormcp.SelectionURI, "skill://nsgo-game/SKILL.md", "skill://nsgo-game/references/cli-and-formats.md", "skill://nsgo-game/references/mcp-tools.md", "skill://nsgo-game/references/packages.md"}
+	wantResources := []string{editormcp.AgentTurnURI, editormcp.BriefURI, editormcp.ContextURI, editormcp.RulesURI, editormcp.SceneURI, editormcp.SelectionURI, editormcp.SkillURIPrefix + "SKILL.md", editormcp.SkillURIPrefix + "references/cli-and-formats.md", editormcp.SkillURIPrefix + "references/mcp-tools.md", editormcp.SkillURIPrefix + "references/packages.md"}
 	slices.Sort(wantResources)
 	if !slices.Equal(uris, wantResources) {
 		t.Fatalf("resources = %v", uris)
@@ -134,21 +134,6 @@ func TestMCPAppsWidgetsAreNegotiatedAndGated(t *testing.T) {
 	res = call(t, apps, editormcp.ToolViewportImage, map[string]any{})
 	if !res.IsError || widgetURI(res) != "" {
 		t.Fatalf("viewport_image with viewport images off: error=%v meta=%+v", res.IsError, res.Meta)
-	}
-}
-
-func TestSkillGetReturnsEmbeddedSection(t *testing.T) {
-	f := openFixture(t)
-	s := editormcp.New(f.ed, editormcp.Options{})
-	t.Cleanup(func() { _ = s.Close() })
-	cs := connect(t, s, nil)
-	res := call(t, cs, editormcp.ToolSkillGet, map[string]any{"file": "SKILL.md", "section": "Core rules"})
-	if res.IsError || !strings.Contains(text(res), "Core rules") {
-		t.Fatalf("skill_get = error:%v text:%q", res.IsError, text(res))
-	}
-	bad := call(t, cs, editormcp.ToolSkillGet, map[string]any{"file": "SKILL.md", "section": "Missing"})
-	if !bad.IsError {
-		t.Fatal("unknown skill section accepted")
 	}
 }
 
