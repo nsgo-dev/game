@@ -656,3 +656,6 @@ ln -s game.fish ~/.config/fish/completions/nsgo.fish
 ```
 
 如果那里已有 `nsgo` 自己的补全，就不要创建 `nsgo` 的链接。想单独输入 `game` 时，用 `go install github.com/nsgo-dev/game/cmd/game@latest` 安装命令，或者把 `game` 定义为运行 `go tool game` 的 shell 函数，这样在模块内它沿用 `go.mod` 固定的版本：zsh 和 bash 中写 `game() { go tool game "$@"; }`，fish 中写 `function game; go tool game $argv; end`。
+# 模板残留警告
+
+当 `game.yaml` 记录了 `template` 类型的来源时，`game check` 会将项目与内置模板基线比较。如果规则或数据文件、项目名称或 `README.md` 仍与模板完全相同，就会报告建议性警告。只有警告时命令仍以成功状态退出。若确实要原样复制，可将发现名称（`rules`、`data`、`name`、`readme` 或 `credits`）加入 `origin.keep`。
