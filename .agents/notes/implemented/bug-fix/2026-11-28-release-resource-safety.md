@@ -8,7 +8,7 @@ Every file under `resources/` is copied into release packages, so a project coul
 
 ## Decision
 
-`releaseplan.CheckResources` walks `resources/` with `WalkDir` and refuses symlinks, dotfiles, known credential names, private-key PEM headers, and service-account JSON. `export.allowResources` permits an intentional dot path while retaining a warning. The CLI checks before dry-run or `nsgo build`, and editor readiness uses the same function.
+`releaseplan.CheckResources` walks `resources/` with `WalkDir` and refuses symlinks, non-regular files such as named pipes, dotfiles, known credential names, PEM private-key headers of any kind, and service-account JSON. Contents are scanned only in regular files up to 1 MiB, because the editor reruns the check on every preflight refresh for every preset and must not read a project's video and audio each time; an unsaved editor project without a directory skips the check rather than walking the working directory. `export.allowResources` permits an intentional dot path while retaining a warning. The CLI checks before dry-run or `nsgo build`, and editor readiness uses the same function.
 
 ## Alternatives considered
 
