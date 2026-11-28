@@ -116,3 +116,13 @@ func TestParsePlacementErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestPlacementDeterministicAcrossRepeatedRuns(t *testing.T) {
+	p := loadForest(t)
+	first := p.Points(37, 29)
+	for i := 0; i < 20; i++ {
+		if got := p.Points(37, 29); !slices.Equal(got, first) {
+			t.Fatalf("run %d changed placement", i)
+		}
+	}
+}
