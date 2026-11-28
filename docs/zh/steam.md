@@ -85,7 +85,7 @@ go tool game release -channel steam -target macos_universal,windows_x64,linux_x6
 - `macos_universal` 必须在 macOS 主机上构建；在 Linux 或 Windows 主机上可只构建 `-target windows_x64,linux_x64`，再在 macOS 上构建 `macos_universal`。
 - 如果项目仅通过 Steam 分发，也可以在 `nsgo.yaml` 中设置 `updates: { channel: steam }`，将 `-channel steam` 设为默认渠道。
 
-`go tool game release` 会自动以 `GOFLAGS=-tags=release` 调用 `nsgo build`（裁剪 `pkg/debug`、`pkg/tooling/hotreload`、`pkg/tooling/devstate` 以及物理与 AI 调试绘制），构建后校验桌面端二进制不含泄漏的调试符号，检查资源署名并在 Depot 旁写出 `CREDITS.md`（若要随每个 Depot 一起打包，请在构建前先运行 `go tool game credits -out resources/CREDITS.md`），并在 `nsgo.yaml` 的 `compliance.steam.content_survey` 仍为 `false` 时输出提醒。
+`go tool game release` 会自动以 `GOFLAGS=-tags=release` 调用 `nsgo build`（裁剪 `pkg/tooling/gamedebug`、`pkg/tooling/hotreload`、`pkg/tooling/devstate` 以及物理与 AI 调试绘制），构建后校验桌面端二进制不含泄漏的调试符号，检查资源署名并在 Depot 旁写出 `CREDITS.md`（若要随每个 Depot 一起打包，请在构建前先运行 `go tool game credits -out resources/CREDITS.md`），并在 `nsgo.yaml` 的 `compliance.steam.content_survey` 仍为 `false` 时输出提醒。
 
 每个 Depot 会输出到 `<output>/<name>-<version>-<target>/`，不含安装器、自更新器或 `steam_appid.txt`：
 
