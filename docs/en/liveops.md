@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - `Pause(true)` and `ResetInput` run before the ad shows and `Pause(false)` before the result is reported, so the loop and the mixer stay paused and no key stays held while the ad covers the game.
 
 Not yet available: an `ads.yaml` declaring unit IDs and placements, banner ads, and the mini-game `AdHost`, which waits on NSGo's mini-game ad API ([nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)). Grant currency rewards on the server, keyed by your own show ID, so a reward is not granted twice.
+
+### Ads configuration
+
+`AdsConfig` and `ParseAdsConfig` read strict version-1 `ads.yaml` documents with platform rewarded, interstitial, and banner unit IDs plus interstitial interval and session caps. Unknown fields, empty placements, negative limits, and trailing documents are rejected. `Ads` applies the policy over an `AdHost`, granting rewarded results only on completed playback.
