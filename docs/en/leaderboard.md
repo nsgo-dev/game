@@ -74,6 +74,8 @@ Inside a mini program host (`cx.Env().CanSignInMiniProgram()`), `ProviderFor(cx.
 
 - On `js/wasm` builds, `New` automatically bridges `nsgoMP.api`, `wx` or `tt` when `setUserCloudStorage` is present. `Submit` encodes each score in WeChat's `{"wxgame":{"score":...,"update_time":...}}` format (`EncodeMiniGameScore` / `DecodeMiniGameScore`) within the 1 KiB KV pair limit (`MaxMiniGameValueBytes`), and `Show` / `ShowIn` / `Hide` forward layout and key messages to `getOpenDataContext().postMessage` (or NSGo's open data context bridge when present).
 - Because a mini program's friend data cannot be read from the main game scope, use `Show` / `ShowIn` and `Hide` to display the host's open data context ranking rather than `Scores`.
+- `SignIn` asks the host for a login (`cx.SignInMiniProgram`) and, on success, signs in a `Player` with `Authenticated` set and an empty `ID` and `DisplayName`: the host's login code is a short-lived credential for the game's server, not a player identity. A game that needs the player's identity calls `cx.SignInMiniProgram` itself and exchanges the code on its server. `Submit` does not need `SignIn` here.
+- Until NSGo composites the open data context itself (nsgo-dev/nsgo#2672), the game ships the open data context script: it receives `{type: "nsgo.leaderboard.show", key, order, x, y, width, height}` and `{type: "nsgo.leaderboard.hide"}` messages and draws the ranking from `getFriendCloudStorage`. The `setUserCloudStorage` and `getOpenDataContext` APIs exist only in mini games; in a mini program, which is what NSGo builds today, no host is found, `Available` is false, and every call reports `ErrUnsupported`.
 
 ## Platforms without a game service
 

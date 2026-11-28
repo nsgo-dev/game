@@ -74,6 +74,8 @@ if err := boards.Show("high-score"); err != nil { ... }
 
 - 在 `js/wasm` 构建中，只要宿主提供 `setUserCloudStorage`，`New` 会自动对接 `nsgoMP.api`、`wx` 或 `tt`。`Submit` 按微信的 `{"wxgame":{"score":...,"update_time":...}}` 格式编码分数（`EncodeMiniGameScore` / `DecodeMiniGameScore`）并校验 1 KiB 键值对上限（`MaxMiniGameValueBytes`）；`Show` / `ShowIn` / `Hide` 将区域和键消息发往 `getOpenDataContext().postMessage`（或在宿主提供 NSGo 开放数据域桥接时走该桥接）。
 - 由于主游戏作用域无法读取好友云数据，请使用 `Show` / `ShowIn` 和 `Hide` 展示宿主开放数据域排行，而不是调用 `Scores`。
+- `SignIn` 向宿主请求登录（`cx.SignInMiniProgram`），成功后登录的 `Player` 设置了 `Authenticated`，`ID` 与 `DisplayName` 为空：宿主的登录 code 是交给游戏服务器换取会话的短期凭据，不是玩家身份。需要玩家身份的游戏自行调用 `cx.SignInMiniProgram`，在服务器上换取 code。这里的 `Submit` 不需要先 `SignIn`。
+- 在 NSGo 自己合成开放数据域之前（nsgo-dev/nsgo#2672），开放数据域脚本由游戏提供：它接收 `{type: "nsgo.leaderboard.show", key, order, x, y, width, height}` 与 `{type: "nsgo.leaderboard.hide"}` 消息，并用 `getFriendCloudStorage` 绘制排行。`setUserCloudStorage` 与 `getOpenDataContext` 只在小游戏中存在；在小程序（NSGo 目前构建的形态）中找不到宿主，`Available` 为 false，所有调用都报告 `ErrUnsupported`。
 
 ## 没有游戏服务的平台
 
