@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"math"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/game/pkg/gltf"
@@ -23,12 +24,22 @@ const LayerAll uint32 = ^uint32(0)
 //
 // The Add methods read the level from the sources a 3D game builds it from: glTF models, scene3d scenes and sceneformat scene files, world3d terrain heightmaps and GridMaps, and physics3d static colliders.
 type Geometry struct {
-	verts  []math3d.Vec3 // three per triangle
-	layers []uint32      // one per triangle
+	verts     []math3d.Vec3 // three per triangle
+	layers    []uint32      // one per triangle
+	triBounds []math3d.AABB
+	grid      map[geometryCell][]int
 	// solids are the ranges of triangles, as [first, end) triangle indices, that are the surfaces of closed convex solids, such as collider boxes: a bake fills them, where it takes other triangles as surfaces only.
 	solids [][2]int
 	// links are point-to-point off-mesh links carried into every baked Mesh.
 	links []OffMeshLink
+}
+
+const geometryIndexCellSize float32 = 32
+
+type geometryCell struct{ X, Z int32 }
+
+func geometryCellFor(x, z float32) geometryCell {
+	return geometryCell{X: int32(math.Floor(float64(x / geometryIndexCellSize))), Z: int32(math.Floor(float64(z / geometryIndexCellSize)))}
 }
 
 // AddOffMeshLink registers a point-to-point off-mesh connection to be stored on every Mesh baked from g.
@@ -77,6 +88,47 @@ func (g *Geometry) AddTriangle(a, b, c math3d.Vec3, layer uint32) {
 	}
 	g.verts = append(g.verts, a, b, c)
 	g.layers = append(g.layers, layer)
+	minv, maxv := a.Min(b).Min(c), a.Max(b).Max(c)
+	g.triBounds = append(g.triBounds, math3d.AABB{Min: minv, Max: maxv})
+	if g.grid == nil {
+		g.grid = make(map[geometryCell][]int)
+	}
+	idx := len(g.layers) - 1
+	lo, hi := geometryCellFor(minv.X, minv.Z), geometryCellFor(maxv.X, maxv.Z)
+	for x := lo.X; x <= hi.X; x++ {
+		for z := lo.Z; z <= hi.Z; z++ {
+			g.grid[geometryCell{X: x, Z: z}] = append(g.grid[geometryCell{X: x, Z: z}], idx)
+		}
+	}
+}
+
+func (g *Geometry) trianglesInBounds(b math3d.AABB) []int {
+	if g == nil || len(g.layers) == 0 {
+		return nil
+	}
+	if len(g.triBounds) != len(g.layers) || len(g.grid) == 0 {
+		out := make([]int, len(g.layers))
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+	lo, hi := geometryCellFor(b.Min.X, b.Min.Z), geometryCellFor(b.Max.X, b.Max.Z)
+	seen := make([]bool, len(g.layers))
+	out := make([]int, 0)
+	for x := lo.X; x <= hi.X; x++ {
+		for z := lo.Z; z <= hi.Z; z++ {
+			for _, i := range g.grid[geometryCell{X: x, Z: z}] {
+				if seen[i] || !g.triBounds[i].Intersects(b) {
+					continue
+				}
+				seen[i] = true
+				out = append(out, i)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func finiteVec(v math3d.Vec3) bool {
