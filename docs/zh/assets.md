@@ -181,3 +181,6 @@ mgr := assets.NewManager(cx, assets.WithRemote(assets.RemoteOptions{
 - 对同一内容哈希的并发加载会合并为单次在途请求；取消其中一个等待者不影响其他等待者，只有最后一个等待者取消时才会中止底层请求。
 - `RemoteOptions.Fetch`（`func(ctx context.Context, url string) (io.ReadCloser, int64, error)`）是传输扩展点，默认使用 `net/http`，小游戏等不使用 `net/http` 的目标可直接接入宿主请求接口。
 - `DirRemoteCache` 按 `Quota`（默认 200 MiB，对齐小游戏本地文件系统上限）执行最近最少使用（LRU）淘汰，且绝不移除正在加载或已加载的 `Group` 所固定的文件；它通过临时文件原子写入，将访问时间持久化在紧凑的 `index.yaml` 文本索引中，并提供 `Usage()`（`Bytes`、`Quota`、`Files`、`PinnedBytes`）与 `Clear()` 供设置界面展示与清理。在没有本地磁盘的目标（如 Web）上可使用 `MemoryRemoteCache`。
+# 资源交付预设
+
+导出预设可使用 `delivery.main`、`delivery.subpackages` 和 `delivery.remote` 映射资源组，并在 `delivery.caps` 设置字节上限。每个资源组只能出现在一个位置。

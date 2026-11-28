@@ -181,3 +181,6 @@ mgr := assets.NewManager(cx, assets.WithRemote(assets.RemoteOptions{
 - Concurrent loads for the same content digest share a single in-flight request; cancelling one waiter leaves sibling waiters running, and cancelling the last waiter aborts the underlying fetch.
 - `RemoteOptions.Fetch` (`func(ctx context.Context, url string) (io.ReadCloser, int64, error)`) is the transport seam, defaulting to `net/http`. Targets without `net/http` (such as mini-program runtimes) can plug in their host request API directly.
 - `DirRemoteCache` enforces `Quota` (200 MiB by default, matching mini-game filesystem caps) with least-recently-used eviction that never removes files pinned by a loaded or loading `Group`, writes files atomically via temporary files, persists access times in a small `index.yaml` text index, and exposes `Usage()` (`Bytes`, `Quota`, `Files`, `PinnedBytes`) and `Clear()` for a settings screen. Use `MemoryRemoteCache` on targets without local disk storage (such as the web).
+# Asset delivery presets
+
+An export preset may map asset groups through `delivery.main`, `delivery.subpackages`, and `delivery.remote`, with byte caps under `delivery.caps`. A group may appear in only one location.
