@@ -265,3 +265,7 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 `ScreenCheckOptions.TextScale` names the largest scale the game supports. `CheckScreen` then lays the screen out at that scale as well as the theme's own and reports a `text_overflow` that appears only at the larger one with the scale in its message (`at text scale 200%`).
 
 The settings menu's Text Scale row does not drive `Root.TextScale` yet, and nothing reads `core.Env().FontScale()` for it; wire the player's setting in yourself (#1772).
+
+### Binding conflicts
+
+`ResolveBindingConflict` applies a captured binding only within the action's conflict group. `ConflictSwap` moves the binding from the other action, `ConflictClear` removes it, and `ConflictRefuse` leaves both actions unchanged. Actions in different groups may intentionally share a binding.
