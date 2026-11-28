@@ -79,3 +79,5 @@ wall_jump_lock: 150ms
 ```
 
 `ground_accel` and `air_accel` move the horizontal speed toward `move * run_speed`, and `ground_decel` slows it on the ground without input; 0 reaches the target at once. `max_fall_speed: 0` leaves the fall uncapped.
+
+Scene objects may declare the shared `platform` behavior schema with named left, right, and jump actions. The schema is validated by `sceneformat`; runtime stepping is supplied by the platform behavior integration.
