@@ -280,7 +280,7 @@ credit:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `<asset>.source.yaml` beside a generated image or sound, such as `slime_frost.png.source.yaml` | `version: 1` | `importsettings.ParseAssetSource`, `importsettings.EncodeAssetSource` | [Editor](editor.md); schema `https://game.nsgo.dev/schemas/source.v1.json` |
+| `<asset>.source.yaml` beside a generated image or sound, such as `slime_frost.png.source.yaml` | `version: 1`, optional `sha256`, `parameters`, `derivedFrom`, and `referenceHashes` | `importsettings.ParseAssetSource`, `importsettings.EncodeAssetSource` | [Editor](editor.md); schema `https://game.nsgo.dev/schemas/source.v1.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/source.v1.json

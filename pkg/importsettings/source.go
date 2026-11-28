@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,6 +59,19 @@ type AssetSource struct {
 	CommercialUse bool `yaml:"commercialUse"`
 	// ApprovedBy names the person who picked and approved the generated candidate.
 	ApprovedBy string `yaml:"approvedBy,omitempty"`
+	// SHA256 is the hex SHA-256 digest of the picked asset bytes.
+	SHA256 string `yaml:"sha256,omitempty"`
+	// Parameters records canonical generator parameters sent with the request.
+	Parameters map[string]string `yaml:"parameters,omitempty"`
+	// DerivedFrom records the parent asset used by vary/refine operations.
+	DerivedFrom *AssetSourceParent `yaml:"derivedFrom,omitempty"`
+	// ReferenceHashes records SHA-256 values for references while References remains compatible with version 1 sidecars.
+	ReferenceHashes map[string]string `yaml:"referenceHashes,omitempty"`
+}
+
+type AssetSourceParent struct {
+	Asset  string `yaml:"asset"`
+	SHA256 string `yaml:"sha256"`
 }
 
 // IsUnknownLicense reports whether license is empty or explicitly marks the license as unknown/unasserted (case-insensitive: "", "unknown", "none", "noassertion", "tbd", "unspecified").
@@ -241,6 +255,12 @@ func ValidateAssetSource(s *AssetSource) error {
 	if err := checkLine("approvedBy", s.ApprovedBy, false); err != nil {
 		return loaderr.Errorf("approvedBy", "set approvedBy to a single-line approver name without surrounding spaces", "importsettings: asset source: %w", err)
 	}
+	if s.SHA256 != "" && (len(s.SHA256) != 64 || strings.Trim(s.SHA256, "0123456789abcdefABCDEF") != "") {
+		return loaderr.Errorf("sha256", "set sha256 to a 64-character hexadecimal digest", "importsettings: asset source: sha256 is invalid")
+	}
+	if s.DerivedFrom != nil && strings.TrimSpace(s.DerivedFrom.Asset) == "" {
+		return loaderr.Errorf("derivedFrom.asset", "set the parent asset path", "importsettings: asset source: derivedFrom.asset is required")
+	}
 	return nil
 }
 
@@ -250,14 +270,18 @@ func EncodeAssetSource(s *AssetSource) ([]byte, error) {
 		return nil, err
 	}
 	out := AssetSource{
-		Version:       s.Version,
-		Generator:     s.Generator,
-		Model:         s.Model,
-		Prompt:        s.Prompt,
-		References:    slices.Clone(s.References),
-		License:       s.License,
-		CommercialUse: s.CommercialUse,
-		ApprovedBy:    s.ApprovedBy,
+		Version:         s.Version,
+		Generator:       s.Generator,
+		Model:           s.Model,
+		Prompt:          s.Prompt,
+		References:      slices.Clone(s.References),
+		License:         s.License,
+		CommercialUse:   s.CommercialUse,
+		ApprovedBy:      s.ApprovedBy,
+		SHA256:          s.SHA256,
+		Parameters:      maps.Clone(s.Parameters),
+		DerivedFrom:     s.DerivedFrom,
+		ReferenceHashes: maps.Clone(s.ReferenceHashes),
 	}
 	if s.Seed != nil {
 		v := *s.Seed

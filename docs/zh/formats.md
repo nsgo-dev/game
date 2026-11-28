@@ -280,7 +280,7 @@ credit:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 生成图片或声音旁边的 `<资源>.source.yaml`，如 `slime_frost.png.source.yaml` | `version: 1` | `importsettings.ParseAssetSource`、`importsettings.EncodeAssetSource` | [编辑器](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/source.v1.json` |
+| 生成图片或声音旁边的 `<资源>.source.yaml`，如 `slime_frost.png.source.yaml` | `version: 1`，可选 `sha256`、`parameters`、`derivedFrom` 和 `referenceHashes` | `importsettings.ParseAssetSource`、`importsettings.EncodeAssetSource` | [编辑器](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/source.v1.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/source.v1.json
