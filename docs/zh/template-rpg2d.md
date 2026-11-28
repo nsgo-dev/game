@@ -2,6 +2,8 @@
 
 `rpg2d` 是一个名叫 Hollowbrook 的小型俯视角 RPG：一座小镇和镇门外的草地、三个可以交谈的人物、装着物品与装备的背包、一个任务、回合制战斗和三个存档槽。它是[模板](templates.md)之一，也是这类游戏的起点。
 
+模板包含可由编辑器打开的 `scenes/town.scene.yaml`，用于放置 NPC、物品和出口。在场景迁移期间，`data/world.yaml` 仍是运行时地图数据源。
+
 ```sh
 go run github.com/nsgo-dev/game/cmd/game@latest new -template rpg2d mygame
 cd mygame
