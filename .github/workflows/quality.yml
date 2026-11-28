@@ -117,6 +117,31 @@ jobs:
           GOOS=js GOARCH=wasm go build -trimpath -ldflags='-s -w' -o cave-run.wasm .
           go run ../../cmd/game size -kind wasm -budget ../../benchmarks/caverun-web-budget.json -wasm cave-run.wasm -markdown | tee -a "$GITHUB_STEP_SUMMARY"
 
+  caverun-android-size-budget:
+    name: Cave Run Android AAB size budget
+    runs-on: depot-ubuntu-24.04-4
+    timeout-minutes: 25
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: examples/caverun/go.mod
+          cache: true
+          cache-dependency-path: examples/caverun/go.sum
+      - name: Build and check Cave Run Android AAB
+        working-directory: examples/caverun
+        run: |
+          set -euo pipefail
+          trap 'rm -rf .caverun-sizecheck-android' EXIT
+          GOFLAGS=-tags=release go tool nsgo build -target android -channel store -output .caverun-sizecheck-android .
+          aab=$(find .caverun-sizecheck-android/releases -maxdepth 1 -name '*.aab' | head -n 1)
+          test -n "$aab"
+          go run ../../cmd/game size -kind aab -budget ../../benchmarks/caverun-android-aab-budget.json -markdown "$aab" | tee -a "$GITHUB_STEP_SUMMARY"
+
   android-size-budget:
     name: Android AAB size budget
     runs-on: depot-ubuntu-24.04-4
