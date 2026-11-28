@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"math"
 	"path"
 	"slices"
@@ -417,20 +418,28 @@ type Preset struct {
 	Platform string `yaml:"platform" schema:"required,enum=macos|windows|linux|ios|tvos|watchos|android|harmonyos|web|miniprogram"`
 	// Targets are the NSGo build targets of the platform to build, such as macos_arm64; empty builds the platform name itself, which NSGo expands to its default targets.
 	Targets []string `yaml:"targets,omitempty,flow"`
-	// Delivery places named asset groups into the main package, subpackages or a remote origin.
+	// Delivery places named asset groups into the main package, named subpackages or the remote origin, and sets the package caps; nil keeps every asset in the single package the platform builds.
 	Delivery *AssetDelivery `yaml:"delivery,omitempty"`
 }
 
+// AssetDelivery is where one export preset places its asset groups. Each group may appear in at most one of Main, Subpackages and Remote.
 type AssetDelivery struct {
-	Main        []string            `yaml:"main,omitempty"`
+	// Main lists the asset groups shipped in the main package.
+	Main []string `yaml:"main,omitempty,flow"`
+	// Subpackages maps each subpackage name to the asset groups it ships; a name has no spaces or control characters.
 	Subpackages map[string][]string `yaml:"subpackages,omitempty"`
-	Remote      []string            `yaml:"remote,omitempty"`
-	Caps        *AssetCaps          `yaml:"caps,omitempty"`
+	// Remote lists the asset groups served from the remote origin instead of a package.
+	Remote []string `yaml:"remote,omitempty,flow"`
+	// Caps are the package size limits of the preset in bytes.
+	Caps *AssetCaps `yaml:"caps,omitempty"`
 }
 
+// AssetCaps are the package size limits of one export preset, in bytes; 0 leaves a limit unset.
 type AssetCaps struct {
-	Main  int64 `yaml:"main,omitempty"`
-	Total int64 `yaml:"total,omitempty"`
+	// Main is the largest size of the main package in bytes.
+	Main int64 `yaml:"main,omitempty" schema:"minimum=0"`
+	// Total is the largest size of all packages together in bytes.
+	Total int64 `yaml:"total,omitempty" schema:"minimum=0"`
 }
 
 // Editor is the scene editor's settings for one project.
@@ -1385,11 +1394,12 @@ func validateAssetDelivery(field string, d *AssetDelivery) error {
 			return err
 		}
 	}
-	for name, groups := range d.Subpackages {
+	// Sorted so that the error a file reports is the same on every load.
+	for _, name := range slices.Sorted(maps.Keys(d.Subpackages)) {
 		if err := validateNameAt(field+".subpackages", "subpackage", name); err != nil {
 			return err
 		}
-		for _, g := range groups {
+		for _, g := range d.Subpackages[name] {
 			if err := claim(g, "subpackage "+name); err != nil {
 				return err
 			}

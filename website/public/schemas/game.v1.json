@@ -168,6 +168,64 @@
       },
       "additionalProperties": false
     },
+    "AssetCaps": {
+      "description": "AssetCaps are the package size limits of one export preset, in bytes; 0 leaves a limit unset.",
+      "type": "object",
+      "properties": {
+        "main": {
+          "description": "Main is the largest size of the main package in bytes.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "total": {
+          "description": "Total is the largest size of all packages together in bytes.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        }
+      },
+      "additionalProperties": false
+    },
+    "AssetDelivery": {
+      "description": "AssetDelivery is where one export preset places its asset groups. Each group may appear in at most one of Main, Subpackages and Remote.",
+      "type": "object",
+      "properties": {
+        "main": {
+          "description": "Main lists the asset groups shipped in the main package.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "subpackages": {
+          "description": "Subpackages maps each subpackage name to the asset groups it ships; a name has no spaces or control characters.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "remote": {
+          "description": "Remote lists the asset groups served from the remote origin instead of a package.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "caps": {
+          "description": "Caps are the package size limits of the preset in bytes.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AssetCaps"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "Assets": {
       "description": "Assets declares the targets game assets builds: the sprite atlases to pack, the textures to encode, the audio to convert, the fonts to bake, the models to pack and the asset manifest to generate. Paths in it are slash-separated and relative to the project root, and may not leave it.",
       "type": "object",
@@ -1406,6 +1464,14 @@
           "items": {
             "type": "string"
           }
+        },
+        "delivery": {
+          "description": "Delivery places named asset groups into the main package, named subpackages or the remote origin, and sets the package caps; nil keeps every asset in the single package the platform builds.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AssetDelivery"
+            }
+          ]
         }
       },
       "required": [
