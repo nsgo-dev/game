@@ -183,3 +183,7 @@ if err := entities.LoadWorld(store, "slot1", fresh); err != nil {
 	return err
 }
 ```
+
+## Deterministic system cadence
+
+`Scheduler.Every(n)` runs a system on its first step and then every `n`th scheduler step, preserving registration and dependency order without randomness or allocations in the step path. This is the foundation for time-sliced simulation systems.

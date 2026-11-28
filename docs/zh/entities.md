@@ -183,3 +183,7 @@ if err := entities.LoadWorld(store, "slot1", fresh); err != nil {
 	return err
 }
 ```
+
+## 确定性的系统频率
+
+`Scheduler.Every(n)` 在首次步进运行系统，之后每第 `n` 个调度步运行一次，同时保持注册与依赖顺序，不在步进路径中引入随机性或分配。这是时间切片模拟系统的基础。
