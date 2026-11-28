@@ -185,3 +185,7 @@ mgr := assets.NewManager(cx, assets.WithRemote(assets.RemoteOptions{
 ## Delivery per export preset
 
 An export preset in `game.yaml` can say where each asset group ships: `delivery.main` lists the groups in the main package, `delivery.subpackages` maps each subpackage name to its groups, and `delivery.remote` lists the groups served from the remote origin. `delivery.caps` sets the largest size of the main package (`main`) and of all packages together (`total`) in bytes. A group may appear in only one of these places, and a subpackage name has no spaces; see [Asset delivery](project.md#asset-delivery) for the format. `game.yaml` records and checks this placement only: `game release` does not yet lay files out per package or enforce the caps, and `Manager.LoadGroup` does not yet load a subpackage through the host.
+
+## Signed DLC catalogs
+
+`assets.Catalog` signs the serial and every pack field, including ID, version, URL, build range, size and digest. Verify the catalog before considering updates so a valid pack signature cannot be redirected by a modified manifest.

@@ -48,7 +48,8 @@ var (
 	// PackSpec.Size.
 	ErrSizeMismatch = errors.New("assets: pack size mismatch")
 	// ErrPackTooLarge reports that a pack archive, or a file read from a mounted pack, would exceed PackLimits: a download without a PackSpec.Size that grows past MaxPackBytes, or an entry that decompresses past MaxFileBytes.
-	ErrPackTooLarge = errors.New("assets: pack exceeds its size limit")
+	ErrPackTooLarge            = errors.New("assets: pack exceeds its size limit")
+	ErrInvalidCatalogSignature = errors.New("assets: catalog signature invalid")
 )
 
 // PackSpec describes a downloadable content (DLC) pack archive.
@@ -83,6 +84,39 @@ type PackSpec struct {
 type PackManifest struct {
 	// Packs lists the packs the catalog offers.
 	Packs []PackSpec `json:"packs"`
+}
+
+// Catalog is a signed, monotonically versioned pack manifest.
+type Catalog struct {
+	Serial    uint64     `json:"serial"`
+	Packs     []PackSpec `json:"packs"`
+	Signature string     `json:"signature"`
+}
+
+// EncodeCatalog returns canonical JSON bytes with Signature cleared for signing.
+func EncodeCatalog(c Catalog) ([]byte, error) { c.Signature = ""; return json.Marshal(c) }
+
+// SignCatalog signs the canonical catalog bytes and returns a copy with a hex signature.
+func SignCatalog(priv ed25519.PrivateKey, c Catalog) (Catalog, error) {
+	data, err := EncodeCatalog(c)
+	if err != nil {
+		return Catalog{}, err
+	}
+	c.Signature = hex.EncodeToString(ed25519.Sign(priv, data))
+	return c, nil
+}
+
+// VerifyCatalog verifies the catalog signature over all fields except Signature.
+func VerifyCatalog(pub ed25519.PublicKey, c Catalog) error {
+	sig, err := hex.DecodeString(c.Signature)
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return ErrInvalidCatalogSignature
+	}
+	data, err := EncodeCatalog(c)
+	if err != nil || !ed25519.Verify(pub, data, sig) {
+		return ErrInvalidCatalogSignature
+	}
+	return nil
 }
 
 // ParsePackManifest decodes a JSON pack manifest containing either a

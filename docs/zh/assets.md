@@ -185,3 +185,7 @@ mgr := assets.NewManager(cx, assets.WithRemote(assets.RemoteOptions{
 ## 按导出预设交付
 
 `game.yaml` 中的导出预设可以声明每个资源组放在哪里：`delivery.main` 列出主包中的资源组，`delivery.subpackages` 把每个分包名映射到它的资源组，`delivery.remote` 列出从远程源获取的资源组。`delivery.caps` 以字节为单位设置主包（`main`）和全部包合计（`total`）的大小上限。每个资源组只能出现在其中一个位置，分包名不能包含空白；格式见[资源交付](project.md#资源交付)。`game.yaml` 目前只记录并校验这份布局：`game release` 尚不会按包摆放文件或检查上限，`Manager.LoadGroup` 也尚不会通过宿主加载分包。
+
+## 签名 DLC 目录
+
+`assets.Catalog` 会签名序列号和每个资源包字段，包括 ID、版本、URL、构建范围、大小与摘要。计算更新前先验证目录，避免修改后的清单重新指向仍然有效签名的资源包。
