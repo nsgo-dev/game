@@ -165,10 +165,11 @@ go tool game playtest -check
 
 Each seeded run wraps the bot in a `replay.Recorder` and writes `<recordings>/run_NNN_seed_<seed>.replay.yaml`, so any run can be replayed deterministically with `replay.NewPlayer` or turned into a `game replay` regression test. The YAML report (`playtest.report.yaml`, `version: 1`) records every run's outcome, metrics, goal statuses (`met`, `missed`, `info`), heat-map points and recording paths.
 
+When a `brief.yaml` sits beside `playtest.yaml`, `playtest.RunTest` also lists in the report's `briefTargets` every feel target of the brief that applies to the playtest's scene (`ApplyBriefTargetStatuses`), with its `basis` and a `status`: `pending` when the playtest has no metric of that name, so a target nobody measured is never reported as verified, and otherwise `met` or `missed` by the target's own bounds in the brief, even when `playtest.yaml` gives the metric a different goal.
+
 ## Editor MCP tools
 
 The editor's MCP server (`game/editor/editormcp`, reached via `go tool game mcp`) exposes two playtest tools:
 
 - `game_playtest` (`run`): validates `playtest.yaml`, runs the playtest headless with replays, writes the YAML report, and returns the structured report and summary.
 - `playtest_define` (`edit`): validates a proposed metric and returns a canonical `playtest.yaml` diff queued as a pending review (`Server.PlaytestReviews`, `Server.ApplyPlaytestReview`, `Server.DismissPlaytestReview`) without modifying `playtest.yaml` on disk until reviewed.
-Reports include `briefTargets` when a project brief is available. Each entry is `pending`, `met`, or `missed`, so an unmeasured brief target is never presented as verified.

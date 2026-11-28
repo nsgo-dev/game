@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -459,8 +460,8 @@ func (e *Editor) EditBrief(label string, edit func(b *project.Brief)) error {
 		next = &project.Brief{Version: project.BriefVersion}
 	}
 	edit(next)
-	if before := e.agentDocs.brief; before != nil && briefTargetFingerprint(before) != briefTargetFingerprint(next) {
-		next.Changes = append(next.Changes, project.BriefChange{Date: time.Now().UTC().Format(time.DateOnly), Field: "feel.targets", From: briefTargetFingerprint(before), To: briefTargetFingerprint(next), Reason: label})
+	if e.agentDocs.briefExists && e.agentDocs.brief != nil {
+		next.Changes = append(next.Changes, briefTargetChanges(e.agentDocs.brief, next, time.Now().UTC().Format(time.DateOnly), label)...)
 	}
 	if next.Version == 0 {
 		next.Version = project.BriefVersion
@@ -513,25 +514,62 @@ func (e *Editor) EditBrief(label string, edit func(b *project.Brief)) error {
 	return e.History.execute(cmd)
 }
 
-func briefTargetFingerprint(b *project.Brief) string {
-	if b == nil || b.Feel == nil {
-		return ""
+// briefTargetChanges returns one BriefChange dated date for every feel target, keyed by scene and metric, that edit added, removed or changed between before and after, in the order of before's targets followed by added ones, so brief.yaml records edited targets instead of silently overwriting them.
+func briefTargetChanges(before, after *project.Brief, date, reason string) []project.BriefChange {
+	key := func(t project.BriefPlaytestTarget) string {
+		if t.Scene == "" {
+			return t.Metric
+		}
+		return t.Scene + "." + t.Metric
 	}
-	var out []string
-	for _, t := range b.Feel.Targets {
-		min, max, eq := "", "", ""
-		if t.Min != nil {
-			min = fmt.Sprint(*t.Min)
+	targets := func(b *project.Brief) []project.BriefPlaytestTarget {
+		if b == nil || b.Feel == nil {
+			return nil
 		}
-		if t.Max != nil {
-			max = fmt.Sprint(*t.Max)
-		}
-		if t.Equal != nil {
-			eq = fmt.Sprint(*t.Equal)
-		}
-		out = append(out, strings.Join([]string{t.Scene, t.Metric, t.Basis, min, max, eq, t.Unit, t.Summary}, "|"))
+		return b.Feel.Targets
 	}
-	return strings.Join(out, ";")
+	afterByKey := make(map[string]string)
+	for _, t := range targets(after) {
+		afterByKey[key(t)] = describeBriefTarget(t)
+	}
+	var out []project.BriefChange
+	seen := make(map[string]bool)
+	for _, t := range targets(before) {
+		k := key(t)
+		seen[k] = true
+		from, to := describeBriefTarget(t), afterByKey[k]
+		if from != to {
+			out = append(out, project.BriefChange{Date: date, Field: "feel.targets." + k, From: from, To: to, Reason: reason})
+		}
+	}
+	for _, t := range targets(after) {
+		if k := key(t); !seen[k] {
+			seen[k] = true
+			out = append(out, project.BriefChange{Date: date, Field: "feel.targets." + k, To: describeBriefTarget(t), Reason: reason})
+		}
+	}
+	return out
+}
+
+// describeBriefTarget formats t's bounds, unit and basis on one line, such as "min 8 max 25 s (target)", for a BriefChange's from and to.
+func describeBriefTarget(t project.BriefPlaytestTarget) string {
+	var parts []string
+	if t.Equal != nil {
+		parts = append(parts, "= "+strconv.FormatFloat(*t.Equal, 'g', -1, 64))
+	}
+	if t.Min != nil {
+		parts = append(parts, "min "+strconv.FormatFloat(*t.Min, 'g', -1, 64))
+	}
+	if t.Max != nil {
+		parts = append(parts, "max "+strconv.FormatFloat(*t.Max, 'g', -1, 64))
+	}
+	if t.Unit != "" {
+		parts = append(parts, t.Unit)
+	}
+	if t.Basis != "" {
+		parts = append(parts, "("+t.Basis+")")
+	}
+	return strings.Join(parts, " ")
 }
 
 // CreateBrief creates or replaces brief.yaml with b as one undoable step.

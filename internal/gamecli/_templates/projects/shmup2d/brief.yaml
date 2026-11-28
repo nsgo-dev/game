@@ -1,21 +1,23 @@
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/brief.v1.json
 version: 1
-pitch: 'A shmup2d game template with a deterministic, readable starting experience.'
 basis: assumption
-genre: [shmup2d]
+pitch: 'A vertical scrolling shooter: enemy waves and a stage in YAML, bullet patterns, power-ups, bombs, a boss with phases, lives and a score'
+genre: [vertical scrolling shooter]
 platforms: [desktop, web, mobile]
-artDirection: Clean placeholder art that is easy to replace.
-toneAndAudio: Focused, readable feedback with room for the game's own sound direction.
+artDirection: Placeholder art that is easy to replace with the game's own.
+toneAndAudio: Clear, readable feedback for every action, with room for the game's own sound direction.
 feel:
   basis: target
-  summary: Tune this template's feel targets before shipping.
+  summary: The playtest bot checks these targets, which playtest.yaml cites as its goals; tune them as the game takes shape.
   targets:
     - metric: cleared
       scene: stage_1
       basis: target
+      summary: beatable on a second try
       min: 14
     - metric: hits_per_run
       scene: stage_1
       basis: target
+      summary: tense but fair
       min: 0
       max: 6

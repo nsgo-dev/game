@@ -11,7 +11,7 @@
       "const": 1
     },
     "basis": {
-      "description": "Basis records whether the brief section is locked by the person, an experience target, or an assumption that may be revised.",
+      "description": "Basis records where the brief's statements come from: locked (a decision only the person changes), target (an experience goal to aim for) or assumption (a default an agent may revise).",
       "type": "string",
       "enum": [
         "locked",
@@ -86,6 +86,7 @@
       "type": "object",
       "properties": {
         "basis": {
+          "description": "Basis records where the art direction comes from: locked, target or assumption.",
           "type": "string",
           "enum": [
             "locked",
@@ -127,22 +128,27 @@
       "additionalProperties": false
     },
     "BriefChange": {
-      "description": "BriefChange records why a brief field changed.",
+      "description": "BriefChange records one edit to the brief's intent, listed under changes in brief.yaml.",
       "type": "object",
       "properties": {
         "date": {
+          "description": "Date is the UTC day of the edit, as YYYY-MM-DD.",
           "type": "string"
         },
         "field": {
+          "description": "Field names what changed, such as \"feel.targets.floor_01.median_time\".",
           "type": "string"
         },
         "from": {
+          "description": "From is the value before the edit, empty when the field was added.",
           "type": "string"
         },
         "to": {
+          "description": "To is the value after the edit, empty when the field was removed.",
           "type": "string"
         },
         "reason": {
+          "description": "Reason says why the field changed.",
           "type": "string"
         }
       },
@@ -157,6 +163,7 @@
       "type": "object",
       "properties": {
         "basis": {
+          "description": "Basis records where the feel summary comes from: locked, target or assumption.",
           "type": "string",
           "enum": [
             "locked",
@@ -182,15 +189,6 @@
       "description": "BriefPlaytestTarget declares one measurable playtest target in brief.yaml's feel and difficulty section.",
       "type": "object",
       "properties": {
-        "basis": {
-          "description": "Basis identifies provenance of this target.",
-          "type": "string",
-          "enum": [
-            "locked",
-            "target",
-            "assumption"
-          ]
-        },
         "metric": {
           "description": "Metric is the playtest metric name this target constrains, such as \"median_time\", \"deaths\", or \"finished\".",
           "type": "string",
@@ -199,6 +197,15 @@
         "scene": {
           "description": "Scene optionally restricts this target to a specific scene or level name, such as \"floor_01\".",
           "type": "string"
+        },
+        "basis": {
+          "description": "Basis records where this target comes from: locked (only the person changes it), target (an experience goal) or assumption (a default an agent may tune).",
+          "type": "string",
+          "enum": [
+            "locked",
+            "target",
+            "assumption"
+          ]
         },
         "summary": {
           "description": "Summary is an optional human-readable description of the target, such as \"2–4 deaths on floor 3\".",

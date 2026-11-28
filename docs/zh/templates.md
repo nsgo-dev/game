@@ -142,4 +142,4 @@ internal/gamecli/
 
 ## 模板简报
 
-每个模板都包含版本化的 `brief.yaml`，其中记录简介、平台、手感目标和目标来源。`basis` 为 `locked` 时表示人员决定，`target` 表示体验目标，`assumption` 表示可以调整的默认值。`source: brief.yaml` 的试玩目标必须解析到这些目标，尚未测量的目标会在 `playtest.report.yaml` 中保持 `pending`。
+每个模板都带有规范化的 `brief.yaml`（游戏简报，`project.Brief`），记录简介、类型、平台、美术方向、基调与音频；对于 `playtest.yaml` 从简报取目标的模板，还以手感目标的形式记录这些目标，上下限与 `playtest.yaml` 相同。每项内容都带有 `basis`：`locked` 是只能由人修改的决定，`target` 是要达成的体验目标，`assumption` 是智能体可以调整的默认值。模板把简报标为 `assumption`，把要测量的手感目标标为 `target`。模板的 `brief.yaml` 缺失或不是规范形式，或者 `source: brief.yaml` 的 `playtest.yaml` 目标在简报中找不到对应场景的目标或与之不一致时，`internal/gamecli` 的测试都会失败；`playtest.RunTest` 会在 `playtest.report.yaml` 中列出每个简报目标，尚未测量的目标保持 `pending`（[试玩](playtest.md#无头运行与回放)）。

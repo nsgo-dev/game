@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/pkg/editor"
 	"github.com/nsgo-dev/game/pkg/editor/theme"
@@ -128,6 +129,64 @@ func TestSettingsGameBriefEmptyFillRoundTripUndoAndGaps(t *testing.T) {
 	app.Settle()
 	if got := ed.BriefPlaytestTargets("floor_03"); len(got) != 1 {
 		t.Fatalf("expected 1 target after redo, got %+v", got)
+	}
+}
+
+// #1963: Adding, changing and removing a feel target each append a dated changes entry naming the target and its before and after values, and undo removes the entry with the edit.
+func TestBriefTargetEditsAppendChangesThatUndoRemoves(t *testing.T) {
+	dir := writeMinimalProjectForBrief(t)
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	ed.WaitForProblems()
+	if err := ed.SetBriefPitch("A short dungeon platformer."); err != nil {
+		t.Fatalf("SetBriefPitch: %v", err)
+	}
+	if got := ed.Brief().Changes; len(got) != 0 {
+		t.Fatalf("pitch edit recorded changes %+v, want none", got)
+	}
+	if err := ed.AddBriefPlaytestTarget(project.BriefPlaytestTarget{Metric: "deaths", Scene: "floor_03", Basis: "assumption", Min: project.Float64(2), Max: project.Float64(4)}); err != nil {
+		t.Fatalf("AddBriefPlaytestTarget: %v", err)
+	}
+	if err := ed.SetBriefPlaytestTargets([]project.BriefPlaytestTarget{{Metric: "deaths", Scene: "floor_03", Basis: "target", Min: project.Float64(1), Max: project.Float64(3)}}); err != nil {
+		t.Fatalf("SetBriefPlaytestTargets: %v", err)
+	}
+	changes := ed.Brief().Changes
+	if len(changes) != 2 {
+		t.Fatalf("changes = %+v, want 2 entries", changes)
+	}
+	added, edited := changes[0], changes[1]
+	if added.Field != "feel.targets.floor_03.deaths" || added.From != "" || added.To != "min 2 max 4 (assumption)" || added.Reason != "Add Brief Playtest Target" {
+		t.Fatalf("added change = %+v", added)
+	}
+	if edited.Field != "feel.targets.floor_03.deaths" || edited.From != "min 2 max 4 (assumption)" || edited.To != "min 1 max 3 (target)" || edited.Reason != "Edit Brief Playtest Targets" {
+		t.Fatalf("edited change = %+v", edited)
+	}
+	if _, err := time.Parse(time.DateOnly, edited.Date); err != nil {
+		t.Fatalf("change date %q: %v", edited.Date, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, project.BriefFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed, err := project.ParseBrief(raw); err != nil || len(parsed.Changes) != 2 {
+		t.Fatalf("brief.yaml on disk: changes=%v err=%v\n%s", parsed, err, raw)
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo did nothing")
+	}
+	if got := ed.Brief().Changes; len(got) != 1 || got[0] != added {
+		t.Fatalf("changes after undo = %+v, want only %+v", got, added)
+	}
+	if err := ed.RemoveBriefPlaytestTarget(0); err != nil {
+		t.Fatalf("RemoveBriefPlaytestTarget: %v", err)
+	}
+	if got := ed.Brief().Changes; len(got) != 2 || got[1].From != "min 2 max 4 (assumption)" || got[1].To != "" {
+		t.Fatalf("changes after removal = %+v", got)
 	}
 }
 
