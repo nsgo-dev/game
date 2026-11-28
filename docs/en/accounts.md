@@ -204,3 +204,7 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ```
 
 `init` never overwrites a configuration and writes no `allowedOrigins`; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `accounts.yaml` before `serve`. `genkey` never overwrites a key and adds the new public key to the key set file, the first step of a rotation; it replaces the file through a temporary file and a rename, so a game server reading it never sees half of it, and it removes the new key again when the key set cannot be written. `serve -keyset` accepts and serves every key in the key set, so tokens signed with an old key keep working on the service after a rotation. `serve` logs JSON to stderr and stops on SIGINT or SIGTERM. A game that links platform identities builds its own command around `accounts.New` with its verifiers.
+
+## Public profiles
+
+`accounts.PublicDirectory` stores the public fields shown beside an account ID. `Set` normalizes usernames with NFKC and case folding, enforces the 3–20 character username policy and atomically claims names. `Users` batches lookups by IDs or usernames and returns no email or linked identities. Set `UsernameCooldown` and `NameFilter` for game policy, and use `Now` for deterministic tests. The directory is provider-agnostic and can be backed by the account service or a database adapter.
