@@ -154,6 +154,7 @@ const (
 	CmdBakeProbes3D       = "project.bakeProbes3D"
 	CmdReplayTips         = "help.replayTips"
 	CmdCheckForUpdates    = "help.checkForUpdates"
+	CmdExportDiagnostics  = "help.exportDiagnostics"
 	CmdReviewNext         = "review.next"
 	CmdReviewPrev         = "review.prev"
 	CmdReviewNote         = "review.note"
@@ -2284,6 +2285,15 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdExportDiagnostics,
+			Label:       "Export Diagnostics",
+			Description: "Write redacted editor and child-process logs to a diagnostics zip",
+			Category:    "Help",
+			Keywords:    []string{"help", "diagnostics", "logs", "zip", "bug", "report"},
+			Scope:       ScopeGlobal,
+			Run:         func() error { _, err := e.ExportDiagnostics(); return err },
+		},
+		{
 			ID:          CmdReviewNext,
 			Label:       "Review: Next Change",
 			Description: "Move to the next change in the open agent review and frame it",
@@ -2919,6 +2929,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdToggleAssetsMode:          {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
 	CmdCheckForUpdates:           {"cmd.checkForUpdates.label", "cmd.checkForUpdates.desc", "cmd.category.help"},
 	CmdReplayTips:                {"cmd.replayTips.label", "cmd.replayTips.desc", "cmd.category.help"},
+	CmdExportDiagnostics:         {"cmd.exportDiagnostics.label", "cmd.exportDiagnostics.desc", "cmd.category.help"},
 	CmdReviewNext:                {"cmd.reviewNext.label", "cmd.reviewNext.desc", "cmd.category.review"},
 	CmdReviewPrev:                {"cmd.reviewPrev.label", "cmd.reviewPrev.desc", "cmd.category.review"},
 	CmdReviewNote:                {"cmd.reviewNote.label", "cmd.reviewNote.desc", "cmd.category.review"},
