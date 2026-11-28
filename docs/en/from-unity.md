@@ -103,3 +103,5 @@ Build Settings and Player Settings become `nsgo.yaml` at the project root: produ
 | Store builds (`.aab`, Mac App Store) | `go tool nsgo build -channel store` |
 
 `go tool nsgo check -target all` vets the game for every target before a release. See [Building and Shipping](shipping.md), and [Getting Started](getting-started.md) for a first project.
+
+`scene3d.Director` provides a Cinemachine-style virtual-camera priority and blend layer for 3D scenes.

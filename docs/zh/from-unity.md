@@ -103,3 +103,5 @@ Build Settings 和 Player Settings 变成项目根目录下的 `nsgo.yaml`：产
 | 应用商店构建（`.aab`、Mac App Store） | `go tool nsgo build -channel store` |
 
 发布前用 `go tool nsgo check -target all` 针对每个目标平台检查游戏。见[构建与发布](shipping.md)；第一个项目从[快速开始](getting-started.md)入手。
+
+`scene3d.Director` 为 3D 场景提供类似 Cinemachine 的虚拟摄像机优先级与混合层。
