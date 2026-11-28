@@ -348,3 +348,14 @@ func TestMixerCrossfadeAndMute(t *testing.T) {
 	}
 }
 ```
+
+## Captions for positional sounds
+
+`Effect.SetCaption(label, callback)` calls `callback` with `label` and the listener pan each time `PlayAt`, `PlayAt3D`, their `With` forms, or a `Cue` playing the effect at a position starts a playback, so a caption points where the player hears the sound. Plain `Play` has no position and does not call it; a nil callback removes it. Connect it to `a11y.CaptionEmitter.Emit`, which shows the caption on a `CaptionTrack` and drops a label repeated within `MinInterval` (default `a11y.DefaultCaptionMinInterval`, 250 ms, on the track's clock):
+
+```go
+emitter := a11y.NewCaptionEmitter(captions)
+door.SetCaption("Door creaks", func(label string, pan float32) {
+	emitter.Emit(label, a11y.CaptionSFX, pan, 0)
+})
+```

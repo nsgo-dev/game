@@ -348,3 +348,14 @@ func TestMixerCrossfadeAndMute(t *testing.T) {
 	}
 }
 ```
+
+## 空间声音的字幕
+
+`Effect.SetCaption(label, callback)` 会在 `PlayAt`、`PlayAt3D`、它们的 `With` 形式，或在某个位置播放该音效的 `Cue` 开始一次播放时，以 `label` 和听者的声像值调用 `callback`，字幕的方向因此就是玩家听到声音的方向。普通的 `Play` 没有位置，不会调用它；传入 nil 回调即可移除。把它接到 `a11y.CaptionEmitter.Emit`：它在 `CaptionTrack` 上显示字幕，并丢弃 `MinInterval`（默认 `a11y.DefaultCaptionMinInterval`，250 毫秒，按字幕轨道的时钟计）内重复的同一标签：
+
+```go
+emitter := a11y.NewCaptionEmitter(captions)
+door.SetCaption("门吱呀作响", func(label string, pan float32) {
+	emitter.Emit(label, a11y.CaptionSFX, pan, 0)
+})
+```

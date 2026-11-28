@@ -173,6 +173,9 @@ func (s *Effect) PlayAtWith(l Listener2D, pos math2d.Vec2, v audio.Voice, opts P
 		d = 0
 	}
 	_, ok := s.playInternal(v, float32(d), nil, opts)
+	if ok {
+		s.emitCaption(v.Pan)
+	}
 	return ok
 }
 
