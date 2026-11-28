@@ -189,10 +189,54 @@ func checkPathPrivacy(policy editor.AgentPrivacyPolicy, root, rawPath string) er
 	return nil
 }
 
+// secretPathArgKeys are the argument names under which tools take project file paths, at any depth of the arguments (refactor_rename's from and to are checked by its own case).
+var secretPathArgKeys = map[string]bool{"file": true, "path": true, "files": true}
+
+// refuseSecretPathArgs refuses a call whose arguments name, under any of secretPathArgKeys, a project file that looks like a credential or the editor's private state, directly or through an in-project symlink, before any tool reads, greps, edits, renames or deletes it.
+func refuseSecretPathArgs(root string, args json.RawMessage) error {
+	var v any
+	if len(args) == 0 || json.Unmarshal(args, &v) != nil {
+		return nil
+	}
+	return refuseSecretPathValue(root, v, false)
+}
+
+func refuseSecretPathValue(root string, v any, isPath bool) error {
+	switch x := v.(type) {
+	case string:
+		if !isPath {
+			return nil
+		}
+		clean, err := cleanProjectPath(x)
+		if err != nil {
+			return nil
+		}
+		if slices.Contains(resolveProjectPrivacyKinds(root, clean), editor.PrivacySecrets) {
+			return editor.PrivacyRefusalError(editor.PrivacySecrets, clean)
+		}
+	case []any:
+		for _, e := range x {
+			if err := refuseSecretPathValue(root, e, isPath); err != nil {
+				return err
+			}
+		}
+	case map[string]any:
+		for _, k := range slices.Sorted(maps.Keys(x)) {
+			if err := refuseSecretPathValue(root, x[k], secretPathArgKeys[k]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // checkPrivacyPre enforces WHAT MAY LEAVE THIS COMPUTER before a tool runs.
 func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessage, onEditor bool) error {
 	policy, root, err := s.readPrivacyContext(ctx, onEditor)
 	if err != nil {
+		return err
+	}
+	if err := refuseSecretPathArgs(root, args); err != nil {
 		return err
 	}
 	switch t.Name {
@@ -263,6 +307,9 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 			// art/audio text files are refused in sceneRead right after binary-file detection so binary files still
 			// report "not a text file" while zero art/audio content ever leaves this computer.
 			for _, kind := range resolveProjectPrivacyKinds(root, clean) {
+				if kind == editor.PrivacySecrets {
+					return editor.PrivacyRefusalError(editor.PrivacySecrets, clean)
+				}
 				if kind == editor.PrivacyGoSource && !policy.GoSource {
 					return editor.PrivacyRefusalError(editor.PrivacyGoSource, clean)
 				}
