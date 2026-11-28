@@ -16,4 +16,4 @@ Pre-multiplying `Theme.Font.Size` in `Root.theme` as well as in `resolveFont`, a
 
 ## Consequences
 
-Layouts recompute text metrics at the selected scale while explicit widget bounds and touch targets stay put; `fit_text` nodes grow. The settings menu's Text Scale row, `Env.FontScale()` as the default, a HUD scale and a minimum text size check are not part of this change and remain open under #1772.
+Layouts recompute text metrics at the selected scale while explicit widget bounds and touch targets stay put; `fit_text` nodes grow. The SettingsMenu now applies its persisted Text Scale row through 300%. Other roots still require explicit wiring to `Root.TextScale` or `Theme.TextScale`, while HUD scale and a minimum text size check remain open under #1772.

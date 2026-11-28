@@ -264,4 +264,5 @@ Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically
 
 `ScreenCheckOptions.TextScale` names the largest scale the game supports. `CheckScreen` then lays the screen out at that scale as well as the theme's own and reports a `text_overflow` that appears only at the larger one with the scale in its message (`at text scale 200%`).
 
-The settings menu's Text Scale row does not drive `Root.TextScale` yet, and nothing reads `core.Env().FontScale()` for it; wire the player's setting in yourself (#1772).
+The settings menu applies the player's `TextScale` setting across its own widgets using the full persisted `0.5`–`3.0` range. Other roots still need their `Root.TextScale` or `Theme.TextScale` wired to the same setting, and `ScreenCheckOptions.TextScale` should match the largest supported root scale.
+The settings menu applies the complete validated `save.MinCaptionScale` through `save.MaxCaptionScale` range, including 200% and 300% player text-size choices. Screen files and custom widgets should use the same setting when constructing text so HUD and menu typography remain consistent.

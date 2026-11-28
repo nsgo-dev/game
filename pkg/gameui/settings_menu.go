@@ -2543,7 +2543,7 @@ func (m *SettingsMenu) applyTheme() {
 	} else {
 		th = DefaultTheme()
 	}
-	scale := clampf(float32(m.settings.Accessibility.EffectiveCaptionScale(m.env)), 0.85, 1.35)
+	scale := clampf(float32(m.settings.Accessibility.EffectiveCaptionScale(m.env)), save.MinCaptionScale, save.MaxCaptionScale)
 	if scale <= 0 {
 		scale = 1
 	}

@@ -264,4 +264,5 @@ screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
 
 `ScreenCheckOptions.TextScale` 表示游戏支持的最大缩放比例。`CheckScreen` 会在该比例和主题自身的比例下各布局一次，只在较大比例下出现的 `text_overflow` 会在消息里注明比例（`at text scale 200%`）。
 
-设置菜单的 Text Scale 行目前还不会驱动 `Root.TextScale`，也没有读取 `core.Env().FontScale()`；需要由游戏自己把玩家的设置接进来（#1772）。
+设置菜单会在自身控件上应用玩家的 `TextScale` 设置，使用持久化的完整 `0.5`–`3.0` 范围。其他根节点仍需把 `Root.TextScale` 或 `Theme.TextScale` 接到同一个设置，并让 `ScreenCheckOptions.TextScale` 与根节点支持的最大比例保持一致。
+设置菜单应用经过校验的 `save.MinCaptionScale` 到 `save.MaxCaptionScale` 完整范围，包含 200% 和 300% 的文字大小选项。屏幕文件和自定义控件构建文字时应使用同一设置，以保持 HUD 与菜单字号一致。
