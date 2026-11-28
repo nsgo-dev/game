@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -119,6 +120,31 @@ type AssetStyleBrief struct {
 	LoudnessTolDB float64
 	// Backgrounds are the selectable preview backdrops shown in PREVIEW ON.
 	Backgrounds []AssetPreviewBackground
+}
+
+// ComposeAssetPrompt combines the person's prompt with the brief's stable art
+// direction and kind-specific framing constraints in a deterministic order.
+func ComposeAssetPrompt(prompt string, brief AssetStyleBrief, kind AssetGeneratorKind) string {
+	parts := []string{strings.TrimSpace(prompt), strings.TrimSpace(brief.Summary)}
+	switch kind {
+	case AssetGenImages:
+		parts = append(parts, "transparent background, full subject with comfortable margin")
+	case AssetGenSound:
+		parts = append(parts, "match the brief's tone and audio direction")
+	}
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, "\n\n")
+}
+
+// AssetReferenceHash returns the SHA-256 digest of reference bytes sent to a generator.
+func AssetReferenceHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum[:])
 }
 
 // DefaultAssetStyleBrief returns default art and audio brief checks matching a 16 px pixel-art game.
@@ -1127,9 +1153,10 @@ func (e *Editor) prepareAssetGenCall(params GenerateAssetParams) (*preparedAsset
 		count = maxGeneratedCandidates
 	}
 
+	composedPrompt := ComposeAssetPrompt(prompt, brief, kind)
 	args := map[string]any{
 		"target": target,
-		"prompt": prompt,
+		"prompt": composedPrompt,
 		"count":  count,
 		"kind":   string(kind),
 	}
@@ -1152,7 +1179,7 @@ func (e *Editor) prepareAssetGenCall(params GenerateAssetParams) (*preparedAsset
 	return &preparedAssetGenCall{
 		params:     params,
 		target:     target,
-		prompt:     prompt,
+		prompt:     composedPrompt,
 		kind:       kind,
 		session:    session,
 		toolName:   toolName,
