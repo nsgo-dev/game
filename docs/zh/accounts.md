@@ -204,3 +204,7 @@ ACCOUNTS_POSTGRES_DSN=postgres://... accountsd serve -config accounts.yaml -key 
 ```
 
 `init` 从不覆盖已有配置，且不写入 `allowedOrigins`；如果网页构建需要从其他 origin 调用该服务，请在 `serve` 之前把游戏页面的 origin 加入 `accounts.yaml` 的 `allowedOrigins`。`genkey` 从不覆盖已有密钥，并把新公钥加进密钥集文件，这是轮换的第一步；它先写临时文件再改名替换，游戏服务器读取时不会读到写了一半的文件，密钥集写入失败时还会删掉刚生成的密钥。`serve -keyset` 接受并提供密钥集中的所有公钥，所以轮换后用旧密钥签名的令牌在服务上依然有效。`serve` 把 JSON 日志写到 stderr，收到 SIGINT 或 SIGTERM 时停止。需要绑定平台身份的游戏，用自己的校验器围绕 `accounts.New` 构建自己的命令。
+
+## 公开资料
+
+`accounts.PublicDirectory` 保存显示在账号 ID 旁的公开字段。`Set` 使用 NFKC 与大小写折叠规范化用户名，执行 3–20 个字符的规则并原子占用名称。`Users` 可按账号 ID 或用户名批量查询，不返回邮箱或已绑定身份。可设置 `UsernameCooldown` 与 `NameFilter` 实现游戏策略，并用 `Now` 驱动确定性测试。该目录不依赖具体服务，可接入账号服务或数据库适配器。
