@@ -33,7 +33,7 @@ The holds come from [the background task list](../feature/2026-11-26-editor-back
 
 ### Which turns pin a selection
 
-Only the in-place `⌘L` request (`submitAgentTurn` in `pkg/editor/ask_in_place.go`) records `AgentTurnContext.SelectionIDs` today. Agent panel requests, background tasks and automations open turns with an empty pin, so inside those turns the five tools need `id`; their requests already carry the selected ID in `AgentRequest.SelectedID`, which the agent can pass back explicitly.
+The in-place `⌘L` request (`submitAgentTurn` in `pkg/editor/ask_in_place.go`) pins the objects it was opened for. Agent panel requests, background tasks and automations pin the open scene's selection when their turn starts, as [the turn selection pin note](../feature/2026-11-28-agent-selection-pins.md) records; a turn started with nothing selected pins nothing, so inside it the five tools need `id`.
 
 ## Alternatives considered
 
