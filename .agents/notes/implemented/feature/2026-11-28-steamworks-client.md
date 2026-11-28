@@ -8,7 +8,7 @@ Steam integrations need one initialized client and one callback pump. Presence a
 
 ## Decision
 
-`pkg/online/steamworks` owns a process-wide client with scope attachments. The first `Open` initializes the selected driver and the shared frame pump, later scopes reuse it, and the last scope cleanup shuts it down. Manual-dispatch callbacks are decoded centrally for overlay, joins, shutdown, auth tickets and Steam Deck text input. Purego desktop loading and an in-process fake share the `Driver` contract. Presence and Workshop reuse the client driver where available.
+`pkg/online/steamworks` owns a process-wide client with scope attachments. The first `Open` initializes the selected driver and the shared frame pump, later scopes reuse it, and the last scope cleanup shuts it down. Manual-dispatch callbacks are decoded centrally for overlay, joins, shutdown, auth tickets and Steam Deck text input. Purego desktop loading and an in-process fake share the `Driver` contract. Presence and Workshop reuse the client driver where available. The pump runs from one attached scope's animation frame; when that scope is disposed the pump moves to the next attached scope, and the last disposal fails pending `AwaitCall` and auth ticket waits with `ErrClosed` before `SteamAPI_Shutdown`. A launch `+connect` or `+connect_lobby` is held until the first handler is registered, so a handler registered after `Open` still receives it.
 
 ## Alternatives considered
 

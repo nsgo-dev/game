@@ -154,6 +154,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/online/eos` | Experimental | Epic Online Services boundary (`Platform`, `Driver`): exchange-code login, achievements, leaderboards, presence |
 | `game/pkg/online/presence` | Experimental | Provider-neutral rich presence (`Activity`, `Manager`) on Steam and Discord |
 | `game/pkg/online/steam` | Experimental | Injectable Steamworks `Driver` boundary for achievements, stats, leaderboards and rich presence |
+| `game/pkg/online/steamworks` | Experimental | One process-wide Steamworks client: init, callback pump, overlay and join events, auth tickets, shared by presence and Workshop |
 | `game/pkg/modding` | Experimental | Capability-sandboxed TSX `"game"` modding API and `mod.yaml` lifecycle manager |
 
 ## Debugging, testing, MCP and editor

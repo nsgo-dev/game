@@ -84,7 +84,7 @@ _ = mgr.Clear(ctx)
 
 `NewSteam(SteamConfig{})` 在桌面目标上按需加载 Steamworks 共享库（macOS 为 `libsteam_api.dylib`，Linux 为 `libsteam_api.so`，Windows 为 `steam_api64.dll` / `steam_api.dll`），会依次检查可执行文件同目录、系统加载路径或 `SteamConfig.LibraryPath`，并按新旧顺序查找 `SteamAPI_SteamFriends_v018`、`v017`、`v015`、`SteamFriends` 以及 `SteamAPI_ISteamFriends_SetRichPresence` 和 `SteamAPI_ISteamFriends_ClearRichPresence`。
 
-- 默认假定游戏已在别处初始化 Steamworks；若希望在 `ISteamFriends` 为空时由本包调用 `SteamAPI_Init`（并在 `Close` 时调用 `SteamAPI_Shutdown`），可设置 `SteamConfig.AutoInit: true`。
+- 将 [`steamworks.Open`](steamworks.md) 返回的共享客户端传入 `SteamConfig.Client`：`Steam` 会通过它写入富状态，自身不再加载、初始化或关闭 Steamworks，`Close` 也不会关闭 Steamworks。未设置 `Client` 时，`Steam` 自行加载动态库，并假定游戏已在别处初始化 Steamworks；设置 `SteamConfig.AutoInit: true` 会在 `ISteamFriends` 为空时调用 `SteamAPI_Init`（并在 `Close` 时调用 `SteamAPI_Shutdown`）。设置了 `Client` 或 `Driver` 时，`LibraryPath` 和 `AutoInit` 不再生效。
 - 连续调用 `Set` 时，已移除的旧键会通过 `SetRichPresence(key, "")` 逐个删除而无需 `ClearRichPresence()`，未变化的键则跳过，避免好友列表闪烁。
 - 键名与键数遵循 Steamworks 限制（`SteamMaxKeys = 30`、`SteamMaxKeyLength = 63` 字节，超限或非法键返回 `ErrSteamKeyInvalid` 或 `ErrSteamTooManyKeys`）；超过 `SteamMaxValueLength`（255 字节）的值按 UTF-8 字符边界截断。
 - 在 Web、iOS、Android 上，或缺少 Steamworks 共享库 / Steam 客户端未运行时，`Set` 和 `Clear` 返回 `ErrUnavailable`。

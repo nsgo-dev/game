@@ -251,6 +251,8 @@ Like `mod.yaml`, `ParseWorkshopMetadata` refuses unknown fields, duplicate keys,
 
 Use `NewSteamWorkshop` on macOS, Linux, and Windows to bind `libsteam_api.dylib`, `libsteam_api.so`, or `steam_api64.dll` via `purego` (no CGo). When the Steamworks library or running Steam client is absent—or on web, iOS, and Android—`NewSteamWorkshop` returns `ErrWorkshopUnavailable`. For tests and offline tools, use `NewMemoryWorkshop`, which simulates multi-user publishing, querying, subscribing, downloading, and updates on disk.
 
+Pass the shared client from [`steamworks.Open`](steamworks.md) in `SteamWorkshopOptions.Client` so the Workshop binds `ISteamUGC` from the client's library, waits for `SteamAPICall_t` results and `ItemInstalled_t` through the client's per-frame callback pump, and never calls `SteamAPI_Init`, `SteamAPI_RunCallbacks` or `SteamAPI_Shutdown`; `Close` then leaves Steamworks running. Without `Client`, `NewSteamWorkshop` loads and initializes Steamworks itself as before (`LibraryPath`, `SkipInit`), which conflicts with an open `steamworks.Client`.
+
 ```go
 backend, err := modding.NewSteamWorkshop(modding.SteamWorkshopOptions{})
 if err != nil {

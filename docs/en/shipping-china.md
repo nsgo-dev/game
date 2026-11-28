@@ -92,6 +92,7 @@ Android devices sold in mainland China ship without Google Play Services (GMS), 
 | `pkg/online/netplay` | Works | Pure-Go UDP, WebSocket, WebTransport, and loopback transports (plus `netplay/wire`); no Google dependency. Host mainland servers on ICP-filed domains and mainland infrastructure for reliable latency. |
 | `pkg/online/presence` | Unavailable | Desktop-only rich presence (Steam `ISteamFriends` and Discord local IPC); returns `ErrUnavailable` on Android, iOS, and the web. No Google dependency (Steam works on mainland desktop PCs; Discord is generally unreachable). |
 | `pkg/online/steam` | Unavailable | Steamworks boundary for achievements, stats, leaderboards, and rich presence; it needs a game-supplied desktop Steamworks `Driver` and returns `ErrUnavailable` without one. No Google dependency (Steam works on mainland desktop PCs). |
+| `pkg/online/steamworks` | Unavailable | Desktop-only Steamworks client (purego); returns `ErrUnavailable` on Android, iOS, and the web. No Google dependency (Steam works on mainland desktop PCs). |
 | `pkg/online/storeverify/wechatpay` | Works | Pure server-side signing of WeChat mini game virtual payment orders and once-per-`OutTradeNo` handling of goods delivery pushes ([liveops](liveops.md)); no client or Google dependency. |
 | `pkg/online/wsclient` | Works | Pure-Go RFC 6455 WebSocket client on native targets and browser `js/wasm`; no Google dependency (unavailable in mini programs until [nsgo#1505](https://github.com/nsgo-dev/nsgo/issues/1505)). |
 

@@ -68,7 +68,7 @@ libraries:
   - **Windows**: `steam_api64.dll` beside `<Name>.exe`
   - **Linux**: `libsteam_api.so` beside `<Name>`
 - Because Steamworks redistributables are proprietary, keep them out of public repositories or fetch them in CI from a private artifact store rather than a public URL.
-- Today, [`pkg/online/presence`](presence.md#steam-rich-presence) automatically probes `<exeDir>/../Frameworks/libsteam_api.dylib` on macOS and `<exeDir>` on Windows and Linux, while [`pkg/modding`](modding.md#steam-workshop-workshop) loads by library name or `SteamWorkshopOptions.LibraryPath`. A single shared Steamworks client package that owns `SteamAPI_Init`, the callback pump, overlay pause events and join events for every package is planned in [#1763](https://github.com/nsgo-dev/game/issues/1763).
+- Today, [`pkg/online/presence`](presence.md#steam-rich-presence) automatically probes `<exeDir>/../Frameworks/libsteam_api.dylib` on macOS and `<exeDir>` on Windows and Linux, while [`pkg/modding`](modding.md#steam-workshop-workshop) loads by library name or `SteamWorkshopOptions.LibraryPath`. [`pkg/online/steamworks`](steamworks.md) probes the same locations and is the one shared client that owns `SteamAPI_Init`, the callback pump, overlay pause and join events; pass it to `presence.SteamConfig.Client` and `modding.SteamWorkshopOptions.Client`.
 
 ## Building depots
 
@@ -289,7 +289,7 @@ Save a localization VDF matching the `DisplayToken` passed to `presence.NewSteam
 [`pkg/modding`](modding.md#steam-workshop-workshop) binds `ISteamUGC` via `purego` (`modding.NewSteamWorkshop` and `modding.NewWorkshop`) to publish mods with deterministic `workshop.yaml` metadata and sync subscribed items into `modding.Manager`.
 
 - Enable Workshop in Steamworks under **Application → Workshop → General**, set the Workshop visibility state, and configure the allowed tags that your game passes in `workshop.yaml` / `PublishOptions.Tags`.
-- When bundling `libsteam_api.dylib` with `nsgo-natives.yaml` on macOS, NSGo places it in `<Name>.app/Contents/Frameworks/libsteam_api.dylib`. Pass that path in `modding.SteamWorkshopOptions.LibraryPath` (resolved from `os.Executable()`) until the shared Steamworks client ([#1763](https://github.com/nsgo-dev/game/issues/1763)) unifies library discovery.
+- When bundling `libsteam_api.dylib` with `nsgo-natives.yaml` on macOS, NSGo places it in `<Name>.app/Contents/Frameworks/libsteam_api.dylib`. A shared [`steamworks.Client`](steamworks.md) finds it there; pass the client in `modding.SteamWorkshopOptions.Client`, or, without one, pass that path in `modding.SteamWorkshopOptions.LibraryPath` (resolved from `os.Executable()`).
 
 ### Achievements, stats and leaderboards (planned)
 

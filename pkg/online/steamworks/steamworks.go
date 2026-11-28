@@ -102,6 +102,7 @@ type InitError struct {
 	Message string
 }
 
+// Error returns the init result and Steam's message.
 func (e *InitError) Error() string {
 	if e.Message != "" {
 		return fmt.Sprintf("steamworks: init failed (%s): %s", e.Result, e.Message)
@@ -109,6 +110,7 @@ func (e *InitError) Error() string {
 	return fmt.Sprintf("steamworks: init failed (%s)", e.Result)
 }
 
+// Unwrap returns [ErrUnavailable], so errors.Is(err, ErrUnavailable) matches an init failure.
 func (e *InitError) Unwrap() error { return ErrUnavailable }
 
 // Options configures [Open].
@@ -443,6 +445,7 @@ func (c *Client) startPumpLocked(attachID uint64, cx *core.Scope) {
 		c.mu.Unlock()
 		c.Pump()
 	}
+	// RequestAnimationFrame registers on whichever owner runs now; run it under cx so the pump belongs to the scope that owns it, not to a scope being disposed during a handoff.
 	cx.Run(func() {
 		c.cancelPump = cx.RequestAnimationFrame(frame)
 	})
