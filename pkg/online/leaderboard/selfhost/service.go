@@ -153,6 +153,12 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 	if opts.Store == nil {
 		return nil, errors.New("selfhost: no store")
 	}
+	// SQL stores use the board order when deciding whether a concurrent
+	// submission is an improvement. The optional hook keeps the Store contract
+	// compatible with the file and memory implementations.
+	if configured, ok := opts.Store.(interface{ Configure([]Board) }); ok {
+		configured.Configure(cfg.Boards)
+	}
 	if opts.Leeway < 0 {
 		return nil, errors.New("selfhost: negative leeway")
 	}

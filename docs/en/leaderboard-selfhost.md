@@ -141,3 +141,9 @@ leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -ad
 ```
 
 `init` writes a configuration with one all-time `high-score` board and no `allowedOrigins` to edit; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `leaderboards.yaml` before `serve`. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), accepts only those for the configuration's `audience`, refuses to start when that is the key set's audience, which names the game's servers, keeps scores under `-data`, and stops on SIGINT or SIGTERM. `-sync` flushes every score to the disk before acknowledging it, for a machine that may lose power.
+
+## SQL persistence
+
+`selfhost/sqlitestore.Open` opens a pure-Go SQLite database and `selfhost/pgstore.Open` opens Postgres. Both create and migrate a versioned `leaderboard_records` schema. Each score write is a transaction that keeps the better score for an account, so retries and concurrent writers cannot replace a best score with a worse one. Configure the service with either store and pass the store to `selfhost.New`.
+
+`leaderboardd serve` accepts exactly one of `-data`, `-sqlite` or `-postgres`. The Postgres DSN can be supplied through `LEADERBOARD_POSTGRES_DSN`. SQLite uses a single writer connection and WAL mode. Postgres uses transaction advisory locks for migrations and per-record writes.
