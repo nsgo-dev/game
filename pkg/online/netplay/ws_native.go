@@ -61,7 +61,12 @@ var (
 
 // writeWSFrameDeadline writes one frame with wsWriteTimeout as its deadline, unless closing is set. Close sets closing before it breaks pending writes with a deadline of now, and this checks closing after setting its own deadline, so a writer that takes the lock after Close began either sees closing or set its deadline before Close's: it can never push the deadline past Close's and hold Close up for wsWriteTimeout.
 func writeWSFrameDeadline(conn stdnet.Conn, closing *atomic.Bool, opcode byte, masked bool, payload []byte) error {
-	_ = conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+	return writeWSFrameTimeout(conn, closing, wsWriteTimeout, opcode, masked, payload)
+}
+
+// writeWSFrameTimeout is writeWSFrameDeadline with timeout as the deadline.
+func writeWSFrameTimeout(conn stdnet.Conn, closing *atomic.Bool, timeout time.Duration, opcode byte, masked bool, payload []byte) error {
+	_ = conn.SetWriteDeadline(time.Now().Add(timeout))
 	if closing.Load() {
 		_ = conn.SetWriteDeadline(time.Now())
 		return ErrClosed
@@ -535,8 +540,10 @@ type wsClientConn struct {
 	conn    stdnet.Conn
 	br      *bufio.Reader
 	writeMu sync.Mutex
-	closing atomic.Bool // set by WebSocketServer.Close, see writeWSFrameDeadline
-	seq     [2]uint32
+	closing atomic.Bool // set by WebSocketServer.Close, Kick and an outbox overflow, see writeWSFrameDeadline
+	out     *outbox     // the frames Send queued and writeClientLoop has not written yet
+	// writeTimeout bounds each write of a queued frame; admit copies it from the server.
+	writeTimeout time.Duration
 }
 
 // WebSocketServer accepts RFC 6455 WebSocket clients and exposes them through the standard Transport interface.
@@ -544,17 +551,23 @@ type wsClientConn struct {
 // Every client runs the connection handshake before its packets reach Recv: Auth.Verify checks its token, the server assigns its ID and tells the client, and NextEvent reports joins, drops, resumes and leaves.
 //
 // The server pings every client and reports PeerDropped for one that stays silent for Auth.IdleTimeout. Browsers answer pings on their own, so browser clients need no code for it.
+//
+// Send queues each client's frames in an outbox that a goroutine of the client's own writes out, so a client that reads slowly or not at all never blocks Send or delays the other clients (see OutboxLimits).
 type WebSocketServer struct {
 	ln       stdnet.Listener
 	serverID PeerID
 	origins  []string
 	ka       wsKeepAlive
 
-	mu      sync.Mutex
-	table   *sessionTable
-	inbox   packetQueue
-	closed  bool
-	changed chan struct{}
+	mu           sync.Mutex
+	table        *sessionTable
+	inbox        packetQueue
+	outLimits    OutboxLimits
+	writeTimeout time.Duration // wsWriteTimeout; tests shorten it under mu before clients connect
+	closed       bool
+	changed      chan struct{}
+
+	outCounters outboxCounters
 }
 
 // ListenWebSocket starts a pure-Go RFC 6455 WebSocket server on addr. serverID is the server's own PeerID (1 when zero); clients get the IDs after it. auth decides who may connect and how long a dropped client keeps its ID.
@@ -595,12 +608,13 @@ func listenWebSocket(addr string, serverID PeerID, auth Auth, config *tls.Config
 		ln = tls.NewListener(ln, config)
 	}
 	s := &WebSocketServer{
-		ln:       ln,
-		serverID: serverID,
-		origins:  origins,
-		ka:       ka,
-		table:    newSessionTable(auth, serverID, false),
-		changed:  make(chan struct{}, 1),
+		ln:           ln,
+		serverID:     serverID,
+		origins:      origins,
+		ka:           ka,
+		table:        newSessionTable(auth, serverID, false),
+		writeTimeout: wsWriteTimeout,
+		changed:      make(chan struct{}, 1),
 	}
 	go s.acceptLoop()
 	return s, nil
@@ -737,8 +751,9 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 		return
 	}
 
-	client := &wsClientConn{conn: conn, br: br}
-	// Hold the client's write lock until the welcome is out, so no game packet overtakes it once the session is visible to Send.
+	client := &wsClientConn{conn: conn, br: br, out: newOutbox(&s.outCounters)}
+	defer client.out.close()
+	// Hold the client's write lock until the welcome is out, so no close frame from Kick or Close overtakes it once the session is visible. Send only queues frames, and the writer that writes them starts after the welcome.
 	client.writeMu.Lock()
 	reply, ok := s.admit(h, client)
 	if reply != nil {
@@ -761,7 +776,30 @@ func (s *WebSocketServer) handleConn(conn stdnet.Conn) {
 	stop := make(chan struct{})
 	defer close(stop)
 	go wsPingLoop(conn, &client.writeMu, &client.closing, false, s.ka.ping, stop)
+	go s.writeClientLoop(client)
 	s.readClientLoop(client)
+}
+
+// writeClientLoop writes the frames Send queued for a client until its outbox closes, which happens when the connection ends. A write that fails or times out may have left part of a frame on the wire, so it closes the connection instead of writing the next frame after it: the read loop then reports the drop, and no later frame reaches the client misframed.
+func (s *WebSocketServer) writeClientLoop(c *wsClientConn) {
+	for {
+		frame, ok := c.out.next()
+		if !ok {
+			return
+		}
+		c.writeMu.Lock()
+		err := writeWSFrameTimeout(c.conn, &c.closing, c.writeTimeout, wsOpBinary, false, frame)
+		c.writeMu.Unlock()
+		if err == nil {
+			continue
+		}
+		c.out.close()
+		if c.closing.Load() {
+			return // Close, Kick or an outbox overflow owns the connection and closes it
+		}
+		_ = c.conn.Close()
+		return
+	}
 }
 
 // admit runs the session side of the handshake and returns the reply for the client, and whether the client is now connected.
@@ -777,6 +815,7 @@ func (s *WebSocketServer) admit(h hello, c *wsClientConn) ([]byte, bool) {
 		old, _ := sess.link.(*wsClientConn)
 		sess.link = c
 		c.id = sess.id
+		c.writeTimeout = s.writeTimeout
 		reply := encodeWelcome(s.table.welcomeFor(sess, h.nonce, true))
 		s.mu.Unlock()
 		if old != nil {
@@ -806,6 +845,7 @@ func (s *WebSocketServer) admit(h hello, c *wsClientConn) ([]byte, bool) {
 	sess := s.table.commit(id, s.table.now())
 	sess.link = c
 	c.id = id
+	c.writeTimeout = s.writeTimeout
 	s.notify()
 	return encodeWelcome(s.table.welcomeFor(sess, h.nonce, false)), true
 }
@@ -843,8 +883,11 @@ func (s *WebSocketServer) readClientLoop(c *wsClientConn) {
 		switch op {
 		case wsOpPing:
 			c.writeMu.Lock()
-			_ = writeWSFrameDeadline(c.conn, &c.closing, wsOpPong, false, payload)
+			err := writeWSFrameDeadline(c.conn, &c.closing, wsOpPong, false, payload)
 			c.writeMu.Unlock()
+			if err != nil {
+				return // a pong that failed or timed out may have left part of a frame on the wire, so end the connection
+			}
 		case wsOpPong:
 			continue
 		case wsOpClose:
@@ -937,10 +980,13 @@ func (s *WebSocketServer) notify() {
 	}
 }
 
-// Send transmits payload to a connected client (or all clients when to == PeerBroadcast). It returns ErrDisconnected for a client inside its grace period and ErrUnknownPeer for an ID with no session.
+// Send queues payload for a connected client (or all clients when to == PeerBroadcast) and returns without waiting for the connection: each client's own goroutine writes its frames in order (see OutboxLimits). It returns ErrDisconnected for a client inside its grace period or whose session a full outbox has just ended, ErrUnknownPeer for an ID with no session, and ErrPayloadTooLarge for a payload that does not fit a WebSocket message.
 func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 	if ch != ChannelReliableOrdered && ch != ChannelUnreliable {
 		return ErrInvalidPacket
+	}
+	if wireHeaderSize+len(payload) > maxWSMessageSize {
+		return ErrPayloadTooLarge
 	}
 	s.mu.Lock()
 	if s.closed {
@@ -959,20 +1005,39 @@ func (s *WebSocketServer) Send(to PeerID, ch Channel, payload []byte) error {
 		}
 		targets = []*wsClientConn{s.table.sessions[to].link.(*wsClientConn)}
 	}
+	limits := s.outLimits
 	s.mu.Unlock()
 
 	var firstErr error
 	for _, c := range targets {
-		c.writeMu.Lock()
-		c.seq[ch]++
-		frame := encodeWireFrame(ch, c.seq[ch], payload)
-		err := writeWSFrameDeadline(c.conn, &c.closing, wsOpBinary, false, frame)
-		c.writeMu.Unlock()
+		var err error
+		switch c.out.push(ch, payload, limits, encodeWireFrame) {
+		case pushOverflow:
+			s.endOverflowed(c)
+			err = ErrDisconnected
+		case pushClosed:
+			err = ErrDisconnected
+		}
 		if err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
 	return firstErr
+}
+
+// endOverflowed ends the session of a client whose reliable frame did not fit its outbox, as if it had left, so its reliable stream never resumes with a gap. It does not wait on the connection: it breaks a write in progress and closes the connection on a goroutine of its own, because closing a TLS connection writes an alert to a client that may not be reading.
+func (s *WebSocketServer) endOverflowed(c *wsClientConn) {
+	s.mu.Lock()
+	if sess := s.table.sessions[c.id]; !s.closed && sess != nil && sess.link == c {
+		s.table.leaveReason(sess, reasonOutboxFull)
+		s.outCounters.overflows.Add(1)
+	}
+	s.mu.Unlock()
+	c.out.close()
+	c.closing.Store(true)
+	_ = c.conn.SetWriteDeadline(time.Now())
+	go func() { _ = c.conn.Close() }()
+	s.notify()
 }
 
 // Kick ends peer's session now: a connected client receives a close frame with the wsCloseKicked code and the reason, and the session's resume secret is gone, so the client's Reconnect cannot resume it and joins as a new peer only if Auth.Verify accepts its token again. NextEvent reports PeerLeft with the reason. It returns ErrUnknownPeer for an ID with no session (including a handshake still in Verify) and ErrClosed once the server is closed.
@@ -1019,6 +1084,30 @@ func (s *WebSocketServer) InboxStats() InboxStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.inbox.stats()
+}
+
+// SetOutboxLimits bounds the frames the server holds for each client before they are written (see OutboxLimits).
+func (s *WebSocketServer) SetOutboxLimits(l OutboxLimits) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.outLimits = l
+}
+
+// OutboxStats reports what the connected clients' outboxes hold and what their limits dropped.
+func (s *WebSocketServer) OutboxStats() OutboxStats {
+	s.mu.Lock()
+	var st OutboxStats
+	for _, sess := range s.table.sessions {
+		if c, ok := sess.link.(*wsClientConn); ok {
+			frames, bytes := c.out.stats()
+			st.Frames += frames
+			st.Bytes += bytes
+		}
+	}
+	s.mu.Unlock()
+	st.UnreliableDropped = s.outCounters.dropped.Load()
+	st.Overflows = s.outCounters.overflows.Load()
+	return st
 }
 
 // Recv pops the next received packet from any connected client without blocking.

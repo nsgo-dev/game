@@ -1,0 +1,37 @@
+# Agent Note: Per-client outboxes for the WebSocket and WebTransport servers
+
+Status: implemented
+
+## Problem
+
+`WebSocketServer.Send` and `WebTransportServer.Send` wrote each frame to the client's connection on the caller's goroutine, one client after another, under a 10-second write deadline. The caller is the match: `ServerWorld.Step` sends every peer's snapshot from the tick, and a game's `Update` sends the same way. A client that completed the handshake and then stopped reading filled its socket buffers (or, over WebTransport, its QUIC stream's flow-control window), and the next `Send` to it held the tick for up to 10 seconds, during which no other client received anything. The timed-out write also left part of a frame on the wire while the connection stayed open, so every later frame to that client continued from the middle of it and the client misparsed its stream. The inbound side was already bounded by `InboxLimits`; the outbound side had no bound and no isolation between clients. The relay already isolated its members with a per-member writer goroutine and queue (`relay_server.go`, `startWriterLocked`).
+
+## Decision
+
+- Each server connection (`wsClientConn`, `wtClientConn`) owns an `outbox` (`pkg/online/netplay/outbox_native.go`) and a writer goroutine (`writeClientLoop`) started after the welcome is written. `Send` numbers and encodes the frame under the outbox's lock, queues it and returns; it never touches the connection. Sequence numbers live in the outbox, so concurrent `Send` calls (the game and a relay's member writers) keep sequence order equal to queue order.
+- `OutboxLimits{Frames, Bytes}` bounds each client's outbox: `DefaultOutboxFrames` 256 (the relay's `QueueSize` default) and `DefaultOutboxBytes` 4 MiB, zero for the default and negative for no cap, the same convention as `InboxLimits`. A frame always fits an empty outbox, so a single frame up to the transport's message cap is never refused for size alone.
+- Past the limits, the client's oldest queued `ChannelUnreliable` frames are dropped first; an unreliable frame that still does not fit is dropped itself. A `ChannelReliableOrdered` frame that does not fit ends the session with `leaveReason(sess, "outbox full")`, so `NextEvent` reports `PeerLeft` with that `Reason`, and `Send` returns `ErrDisconnected` for that client. This mirrors the reliable inbox cap, which also ends the session instead of resuming a reliable stream with a gap. `endOverflowed` never waits on the connection: it sets `closing`, breaks any write in progress with a write deadline of now, and closes the connection (or WebTransport session) on its own goroutine, because closing TLS writes an alert to a client that may not be reading.
+- A write that fails or times out closes the connection instead of writing the next frame after a partial one. The read loop then reports `PeerDropped` (or `PeerLeft` with no grace period), as for any lost connection. The WebSocket server's pong write in the read loop follows the same rule. When `closing` is set, Close, Kick or an overflow owns the connection and the writer leaves it to them.
+- `WebTransportServer` queues only reliable frames, which share one QUIC stream. Unreliable datagrams still go to `SendDatagram` directly, so they keep returning `ErrPayloadTooLarge` synchronously and never wait behind a stalled stream.
+- `SetOutboxLimits` / `OutboxStats` (`OutboxReporter`) sit next to `SetInboxLimits` / `InboxStats`. `OutboxStats` sums the queued frames and bytes of the connected clients and reads server-wide counters (`UnreliableDropped`, `Overflows`) that outlive any one connection.
+- `Send` checks the payload against the transport's message cap before numbering it, so an oversized payload returns `ErrPayloadTooLarge` without consuming a sequence number.
+
+## Alternatives considered
+
+- **Shorter write deadline on the caller's goroutine** — the smallest diff, but a deadline of even 100 ms per stalled client multiplies by the number of stalled clients in a broadcast and still blocks the tick, and a timed-out write still leaves a partial frame unless the connection is also closed. Rejected: it bounds the stall instead of removing it.
+- **Unbounded per-client queue** — keeps every frame and never ends a session, but a client that stops reading then holds every frame sent to it in server memory until the write timeout fires, which turns a stall into memory growth an attacker controls. Rejected; a negative limit still allows it explicitly.
+- **Drop the oldest frame of either channel on overflow** — keeps a slow client connected longer, but silently breaks `ChannelReliableOrdered`, and the servers' clients have no retransmission above the transport to repair a gap. Rejected in favour of ending the session, as the reliable inbox cap does.
+- **Route WebTransport datagrams through the outbox too** — one queue per client is uniform, but it puts datagrams behind a reliable stream that is waiting for flow control, which is the head-of-line blocking WebTransport is used to avoid, and makes `ErrPayloadTooLarge` for oversized datagrams asynchronous. Rejected.
+- **Share one encoded payload across a broadcast** — saves a copy per client, but the 5-byte wire header carries a per-client sequence number, so each client needs its own frame or a header written separately at write time. Not done; the per-client copy existed before this change.
+
+## Consequences
+
+- **Benefits**: `Send` costs an encode and a queue push per client whatever the clients do; a stalled client delays only its own frames, is removed once its reliable outbox overflows or a write times out, and never receives a misframed stream. Memory held for one client is bounded by `OutboxLimits` plus one frame in flight.
+- **Costs and known limits**: `Send` no longer reports a write error for a connection that has just failed; the failure surfaces as a `PeerDropped` / `PeerLeft` event instead, and `Send` returns `ErrDisconnected` only once the session is gone or its outbox is closed. A game that sends reliable bursts larger than 256 frames or 4 MiB to one client in less time than the client takes to read them now loses that client; it must raise `OutboxLimits`. Each connection runs one more goroutine. `WebTransportServer` datagrams still rely on quic-go's own bounded datagram queue, whose `SendDatagram` waits when that queue is full; revisit if a client that withholds QUIC acknowledgements is shown to stall it. The client transports (`WebSocketTransport`, `WebTransportTransport`) still write on the caller's goroutine, which is acceptable because their only peer is the game's own server.
+
+## Verification
+
+- `TestWebSocketServerSendDoesNotBlockOnAClientThatStopsReading` and `TestWebTransportServerSendDoesNotBlockOnAClientThatStopsReading` (`pkg/online/netplay/outbox_native_internal_test.go`) broadcast 64 KiB reliable frames to a client that stopped reading and a healthy one: every `Send` returns within 2 s, the healthy client receives every frame in order, and the stalled client leaves with `Reason` `"outbox full"`. Both blocked on the ninth broadcast before this change.
+- `TestWebSocketServerClosesAClientWhoseWriteTimedOut` shortens the write timeout and checks that the client is dropped and that its stream holds only whole, in-order frames before the connection ends.
+- `TestOutboxDropsOldestUnreliableAndRefusesReliable` covers the drop and overflow rules, the byte cap, the empty-outbox rule and close.
+- `go tool nsgo test ./pkg/online/netplay/...`

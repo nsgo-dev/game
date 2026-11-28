@@ -123,6 +123,21 @@ if st.UnreliableDropped != lastDropped {
 lastWarnings, lastDropped = st.ReliableWarnings, st.UnreliableDropped
 ```
 
+### Outbox limits
+
+`WebSocketServer.Send` and `WebTransportServer.Send` never write to a client's connection on the caller's goroutine. Each client has an outbox: `Send` encodes the frame, queues it and returns, and a goroutine of that client's own writes the queue out in order, so a player on a slow link, or a client that stops reading, delays only its own frames and never the match's tick or the other players. `WebTransportServer` queues only `ChannelReliableOrdered` frames, which share one QUIC stream; its unreliable datagrams go to QUIC directly.
+
+Each outbox holds at most `DefaultOutboxFrames` (256) frames and `DefaultOutboxBytes` (4 MiB) of them. A frame that does not fit first makes room by dropping that client's oldest queued `ChannelUnreliable` frames, counted in `OutboxStats().UnreliableDropped`; an unreliable frame that still does not fit is dropped itself. A `ChannelReliableOrdered` frame that does not fit ends the client's session, because dropping it would break the channel's order: `NextEvent` reports `PeerLeft` with `Reason` `"outbox full"`, `Send` returns `ErrDisconnected` for that client, and `OutboxStats().Overflows` counts it. A frame always fits an empty outbox, whatever its size. A write that fails, or takes longer than the 10-second write timeout, closes the client's connection instead of leaving part of a frame on the wire, and `NextEvent` reports `PeerDropped` as for any lost connection.
+
+Both servers implement `OutboxReporter`: `SetOutboxLimits` changes the limits at any time, for the frames queued afterwards, and `OutboxStats` reports the frames and bytes queued across the connected clients with the counters, which only grow. In `OutboxLimits`, zero uses the default and a negative value removes the cap. Raise the limits for a game that sends large reliable bursts, such as a level's initial state, rather than remove them: without a cap a client that stops reading holds every frame sent to it in the server's memory until the write timeout closes its connection.
+
+```go
+srv.SetOutboxLimits(netplay.OutboxLimits{Frames: 512, Bytes: 8 << 20})
+
+st := srv.OutboxStats()
+log.Printf("%d frames (%d bytes) queued, %d sessions ended for overflow", st.Frames, st.Bytes, st.Overflows)
+```
+
 ## Connection handshake and reconnect
 
 `WebSocketServer`, `WebTransportServer`, and `UDPServer` admit a client only after a handshake: the client presents an app-defined token, `Auth.Verify` checks it, and the server assigns the client's `PeerID` and sends it back, or refuses with a reason. A refused client never reaches `Recv` or `Peers`.
@@ -146,7 +161,7 @@ for ev, ok := srv.NextEvent(); ok; ev, ok = srv.NextEvent() {
 	case netplay.PeerJoined: // new ID
 	case netplay.PeerDropped: // connection lost; ID and state kept for GracePeriod
 	case netplay.PeerResumed: // same ID back within GracePeriod
-	case netplay.PeerLeft: // closed, GracePeriod ran out, or Kick removed it (then ev.Reason says why)
+	case netplay.PeerLeft: // closed, GracePeriod ran out, Kick removed it, or its outbox overflowed (then ev.Reason says why)
 		rooms.Leave(roomOf(ev.Peer), ev.Peer)
 		guard.Reset(ev.Peer)
 	}
