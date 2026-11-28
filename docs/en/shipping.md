@@ -153,10 +153,6 @@ Run headless tests with `go tool nsgo test`, or run tests on a real platform wit
 
 ## Build release packages
 
-### Reproducible store screenshots
-
-Keep store stills in `store/capture.yaml`. Each `version: 1` shot names a scene, optionally a `.replay.yaml` recording and fixed-step `frame` or `time`, an output stem, and `sizes` using `app_store`, `google_play`, `itch_cover`, `minigame_share`, or explicit `width` and `height` values. Unknown fields and unsupported versions are refused. Run `go tool game capture` to write deterministic PNGs under `store/media`; pass `-shot name` to rebuild one shot.
-
 `go tool game release` (and the scene editor's Export / Build and Release screens) runs `nsgo build` with `GOFLAGS=-tags=release`, compiling out development-only packages (`pkg/tooling/gamedebug`, `pkg/tooling/hotreload`, `pkg/tooling/devstate`, and physics/AI debug drawing), verifying built desktop binaries against leaked debug symbols, and writing `CREDITS.md` beside the packages:
 
 ```sh
@@ -354,6 +350,35 @@ go tool nsgo publish -store all -dry-run
 This checks required fields, locale codes, URL schemes, media files and counts, and each store's character limits without reading credentials or making HTTP requests. The limits include 30 characters for either store's title, 80 for a Google Play short description, 4000 for either full description, and 500 for Google Play release notes. App Store Connect also limits subtitles to 30, keywords to 100, promotional text to 170 and release notes to 4000 characters.
 
 To upload the validated metadata, run `go tool nsgo publish -store appstore,play`; add `-track production` with `-store play` to update that track's release notes. App Store Connect reads `NSGO_APP_STORE_KEY`, `NSGO_APP_STORE_KEY_ID` and `NSGO_APP_STORE_ISSUER`, falling back to the corresponding `NSGO_NOTARY_*` variables. Google Play reads `NSGO_PLAY_SERVICE_ACCOUNT`. Credentials come from the environment, never the listing files.
+
+### Store screenshot plan
+
+`store/capture.yaml` records which scene, input recording and frame make each store screenshot and cover, and the sizes each store needs, so the set can be rebuilt after an art pass and a diff shows what changed:
+
+```yaml
+version: 1
+shots:
+  - name: title
+    scene: scenes/title.scene.yaml
+    frame: 30
+    output: title
+    sizes:
+      - preset: itch_cover
+      - preset: minigame_share
+  - name: boss
+    scene: scenes/boss.scene.yaml
+    recording: recordings/boss.replay.yaml
+    time: 2.5
+    output: play/boss
+    sizes:
+      - preset: google_play
+      - width: 2796
+        height: 1290
+```
+
+Each shot names a scene and optionally a `.replay.yaml` input recording, both relative to the project, the fixed-step `frame` or `time` in seconds to capture (at most one; neither means the first frame), an `output` name, and its `sizes`, each a `preset` or an explicit `width` and `height`. A shot's image at each size is `<output>-<width>x<height>.png` under the media directory, `store/media` by default. The presets are `app_store_iphone` (1290x2796), `app_store_ipad` (2064x2752), `google_play` (1920x1080), `google_play_feature` (1024x500), `itch_cover` (630x500) and `minigame_share` (1280x720); a landscape App Store screenshot is an explicit size. The plan needs `version: 1`, refuses unknown fields, paths outside the project and two images with the same file, and encodes back to the same bytes.
+
+`go tool game capture` checks the plan: every scene and recording exists, and every image exists as a PNG of its target size, reporting each missing or wrongly sized file and exiting with 1; `-shot name` checks one shot. It does not render the images yet: that needs the fixed-step movie mode of [#1438](https://github.com/nsgo-dev/game/issues/1438), so for now capture them with the runtime MCP bridge's `game_screenshot` or by hand.
 
 ## Publish to the stores
 

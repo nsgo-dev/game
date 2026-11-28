@@ -32,6 +32,7 @@ go tool game help
 | `editor` | 在场景编辑器中打开一个项目或 YAML 场景，未指定时打开开始界面 |
 | `mcp` | 通过标准输入输出向智能体提供编辑器的 MCP 工具，把每次调用转发给打开了该项目的编辑器 |
 | `release` | 通过一次 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android，或为 `game.yaml` 的导出预设，构建游戏的发布包，并附上列出各资源许可证的署名文件 |
+| `capture` | 检查截图计划描述的商店截图和封面：每个场景和录像都存在，每张图片都是目标尺寸的 PNG |
 | `replay` | 检查各目录下的输入录像，并通过它们的回放测试无界面回放，结果不一致时失败 |
 | `bench` | 无界面运行基准测试，有一项退化超过存储的基线时失败，或者更新基线 |
 | `size` | 测量 WebAssembly 二进制、Android AAB 或 APK 包或 iOS IPA 包的体积，超出体积预算时失败 |
@@ -149,6 +150,15 @@ export:
 署名文件写在各个包旁边，而不是包里面，因为包里装什么由 `nsgo build` 决定：它供发布者放到商店页面或下载页面上。若还要让每个包内都带上它，在发布之前把它写进 NSGo 的 `resources` 文件夹，`nsgo build` 会把该文件夹复制进每个包：`go tool game credits -out resources/CREDITS.md`。
 
 一台机器能构建哪些目标，以 `nsgo doctor` 的显示为准：iOS 需要装有 Xcode 的 Mac，macOS 磁盘映像需要在已登录的会话里运行 `hdiutil`，所以为所有平台发布要在 Mac 上运行。
+
+### capture
+
+```sh
+go tool game capture
+go tool game capture -shot title -out build/store ./mygame
+```
+
+读取所给项目目录（默认当前目录）的[商店截图计划](shipping.md#商店截图计划) `-plan`（默认 `store/capture.yaml`），当某个镜头的场景或录像缺失，或它在 `-out`（默认 `store/media`）下的某张图片缺失、不是 PNG 或不是目标尺寸时失败，并逐个列出问题。`-shot` 只检查同名的那个镜头。它不渲染图片：渲染需要 [#1438](https://github.com/nsgo-dev/game/issues/1438) 的固定步电影模式。
 
 ### replay
 

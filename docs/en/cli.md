@@ -32,6 +32,7 @@ Running the command as `nsgo game` through NSGo's generic extension mechanism (a
 | `editor` | Opens the scene editor on a project or a YAML scene, or on the start screen when none is named |
 | `mcp` | Serves the editor's MCP tools to an agent on standard input and output, forwarding each call to the editor that has the project open |
 | `release` | Builds the game's release packages for macOS, Windows, Linux, web, iOS and Android, or for `game.yaml`'s export presets, in one run of `nsgo build`, with a credits file of its assets' licenses |
+| `capture` | Checks the store screenshots and covers a capture plan describes: each scene and recording exists, and each image is a PNG of its target size |
 | `replay` | Checks the input recordings under the directories and plays them headless through their replay tests, failing on a mismatch |
 | `bench` | Runs the benchmarks headless and fails when one regresses past its stored baseline, or updates the baseline |
 | `size` | Measures a WebAssembly binary or an Android AAB or APK or iOS IPA package and fails when it exceeds its size budget |
@@ -149,6 +150,15 @@ When `game.yaml` has an `assets` section, which the whole file must then pass [p
 The credits file is written beside the packages, not into them, since `nsgo build` decides what a package holds: it is for the publisher to put on the store page or download page. To ship it inside every package as well, write it into NSGo's `resources` folder, which `nsgo build` copies into each package, before the release: `go tool game credits -out resources/CREDITS.md`.
 
 Which targets a machine can build is what `nsgo doctor` shows: iOS needs a Mac with Xcode, and the macOS disk image needs `hdiutil` in a logged-in session, so a release of every platform runs on a Mac.
+
+### capture
+
+```sh
+go tool game capture
+go tool game capture -shot title -out build/store ./mygame
+```
+
+Loads the [store screenshot plan](shipping.md#store-screenshot-plan) `-plan` (`store/capture.yaml` by default) of the project directory named, the current one by default, and fails, naming each problem, when a shot's scene or recording is missing or one of its images under `-out` (`store/media` by default) is missing, not a PNG or not its target size. `-shot` checks only the shot of that name. It does not render the images: that needs the fixed-step movie mode of [#1438](https://github.com/nsgo-dev/game/issues/1438).
 
 ### replay
 
