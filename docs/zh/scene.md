@@ -270,6 +270,29 @@ connections:
 
 不使用场景文件的游戏可以用 `scene.ScreenNotifier` 获得同样的行为：一个带有世界坐标 `Rect`、`Margin` 以及 `OnEnter`、`OnExit` 回调的 Go 值，每次更新调用一次 `Step(views ...*tilemap.Camera)`。
 
+## 场景文件中的运动行为组件
+
+YAML 场景中的对象可以附加十种内置 2D 运动行为组件——每种均带有 `version: 1` 字段及可选的 `enabled: true` 开关——并通过 `BuiltScene.Step(dt)`（多相机 `"view"` 边界时使用 `BuiltScene.StepWithViews(dt, views...)`）在固定步长循环上确定性推进：
+
+```yaml
+components:
+  bullet: {version: 1, speed: 240, acceleration: 0, gravity: 0, angle: 90, setAngle: true, bounceOffSolids: false}
+  sine: {version: 1, property: y, period: 1.5, magnitude: 6, wave: sine, phase: 0}
+  rotate: {version: 1, speed: 180, acceleration: 0}
+  orbit: {version: 1, target: "", radius: 32, speed: 90}
+  move_to: {version: 1, maxSpeed: 120, acceleration: 0, stopOnSolids: false}
+  wrap: {version: 1, mode: scene}
+  bound: {version: 1, mode: edge}
+  destroy_outside: {version: 1, margin: 64}
+  fade: {version: 1, fadeIn: 0, wait: 1, fadeOut: 0.5, destroy: true}
+  flash: {version: 1, on: 0.05, off: 0.05}
+```
+
+- **注册与 Schema**：使用 `sceneformat.RegisterBehaviorComponents(reg)`（或 `sceneformat.BehaviorComponentRegistry()`）将这十种组件注册到 `*sceneformat.ComponentRegistry`。它们默认内置于编辑器检查器、编辑器内试玩（Play-in-Editor）以及已发布的场景 JSON Schema 中。
+- **物理实心体与释放**：在调用 `sceneformat.BuildPhysics` 构建 `PhysicsScene`（自动挂到 `BuiltScene.Physics`）后，`bullet.bounceOffSolids` 和 `move_to.stopOnSolids` 会自动检测场景的 2D 物理碰撞体和瓦片地图的实心瓦片标志。`destroy_outside` 与启用 `destroy: true` 的 `fade` 通过 `BuiltScene.Free(id)` 移除对象及其子节点（使用 `SpawnConnected` 时同步销毁对应的 ECS 实体）。
+- **事件与处理函数**：将 `Connect(doc, reg, built)` 返回的 `*sceneformat.Signals` 赋给 `BuiltScene.Signals`，即可在 YAML 场景中直接把 `bullet.bounced`、`move_to.arrived`、`wrap.wrapped`、`destroy_outside.destroyed`、`fade.finished` 和 `flash.finished` 连接到处理函数（`setSpeed`、`setAngle`、`start`、`stop`、`moveTo`、`flash`），无需编写胶水 Go 代码。
+- **Construct 3 对应关系与 Go 辅助包**：这十种组件直接对应 Construct 3 的 Bullet、Sine、Rotate、Orbit、Move To、Wrap、Bound to Layout、Destroy Outside Layout、Fade 与 Flash 行为。不使用场景文件的游戏可直接导入 `github.com/nsgo-dev/game/pkg/motion`（`motion.Bullet`、`motion.Sine`、`motion.Rotate`、`motion.Orbit`、`motion.MoveTo`、`motion.Wrap`、`motion.Bound`、`motion.DestroyOutside`、`motion.Fade` 与 `motion.Flash`），复用同一套步率无关的 `detmath` 确定性数学实现。
+
 ## 将场景组件生成到 ECS
 
 `sceneformat.ComponentType` 可以声明可选的 `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` 工厂函数，将 YAML 组件转换为 `game/entities` 中的强类型 ECS 组件状态（[实体](entities.md#从-yaml-场景生成实体)）。将组件注册表传入 `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})`（或传入 `sceneformat.SpawnConnected`，它会自动转发注册表）即可启用。在生成第一个实体之前，所有组件都会先按注册表校验并填充默认值；随后实体按深度优先的文档顺序生成，同一对象上的组件按组件名升序执行 `Spawn`。若任一 `Spawn` 返回错误，已生成的实体会全部销毁回滚，并返回包含图层名、对象 ID 与组件名的错误。`SpawnEntities(doc, world)` 仍等价于 `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`。

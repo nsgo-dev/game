@@ -843,6 +843,7 @@ func BuildPhysics(scene *BuiltScene, settings *PhysicsSettings, resolver AssetRe
 		}
 	}
 
+	scene.Physics = ps
 	return ps, nil
 }
 
@@ -1840,6 +1841,97 @@ func (ps *PhysicsScene) stepKinematic2D(b2 *physicsBinding2D, dtSec float32) {
 		wrot = dr
 	}
 	syncBuiltObject2D(b2.bo, cx-b2.offsetX, cy-b2.offsetY, wrot)
+}
+
+// syncMovedObject2D keeps a 2D physics body, rigid mirror or trigger aligned with bo's
+// updated position after a motion behavior moves bo.
+func (ps *PhysicsScene) syncMovedObject2D(bo *BuiltObject) {
+	if ps == nil || bo == nil || bo.Doc == nil {
+		return
+	}
+	wx, wy, wrot, _, _, ok := decomposeTRS(bo.World)
+	if !ok {
+		wx, wy, wrot = bo.Doc.X, bo.Doc.Y, bo.Doc.Rotation
+	}
+	for _, b2 := range ps.bindings2D {
+		if b2.bo != bo {
+			continue
+		}
+		if b2.spriteShape {
+			continue
+		}
+		cx, cy := wx+b2.offsetX, wy+b2.offsetY
+		if b2.body != nil {
+			syncShape2DToCenter(b2.body, cx, cy)
+		}
+		if b2.rigid != nil {
+			b2.rigid.X = cx
+			b2.rigid.Y = cy
+			b2.rigid.Angle = wrot
+			syncRigidShape2D(b2.rigid)
+		}
+		if b2.trigger != nil {
+			syncTriggerShape2DToCenter(b2.trigger, cx, cy)
+		}
+	}
+}
+
+func syncTriggerShape2DToCenter(tr *physics.Trigger, cx, cy float32) {
+	if tr == nil || tr.Shape.Empty() {
+		return
+	}
+	curX, curY := shapeCenter2D(tr.Shape)
+	tr.Shape = tr.Shape.Translated(cx-curX, cy-curY)
+}
+
+// removeObject2D removes all 2D physics bodies, rigid bodies and triggers belonging to objectID.
+func (ps *PhysicsScene) removeObject2D(objectID string) {
+	if ps == nil || objectID == "" {
+		return
+	}
+	kept := ps.bindings2D[:0]
+	for _, b2 := range ps.bindings2D {
+		if b2.bo == nil || b2.bo.ID != objectID {
+			kept = append(kept, b2)
+			continue
+		}
+		if b2.body != nil && ps.World2D != nil {
+			ps.World2D.Remove(b2.body)
+		}
+		for _, eb := range b2.extraBodies {
+			if ps.World2D != nil {
+				ps.World2D.Remove(eb)
+			}
+		}
+		if b2.rigid != nil && ps.Rigid2D != nil {
+			ps.Rigid2D.RemoveBody(b2.rigid)
+		}
+		for _, er := range b2.extraRigids {
+			if ps.Rigid2D != nil {
+				ps.Rigid2D.RemoveBody(er)
+			}
+		}
+		if b2.trigger != nil {
+			if ps.World2D != nil {
+				ps.World2D.RemoveTrigger(b2.trigger)
+			}
+			if ps.Rigid2D != nil {
+				ps.Rigid2D.RemoveTrigger(b2.trigger)
+			}
+		}
+		for _, et := range b2.extraTriggers {
+			if ps.World2D != nil {
+				ps.World2D.RemoveTrigger(et)
+			}
+			if ps.Rigid2D != nil {
+				ps.Rigid2D.RemoveTrigger(et)
+			}
+		}
+	}
+	ps.bindings2D = kept
+	delete(ps.Bodies2D, objectID)
+	delete(ps.RigidBodies2D, objectID)
+	delete(ps.Triggers2D, objectID)
 }
 
 func (ps *PhysicsScene) stepKinematic3D(b3 *physicsBinding3D, dtSec float32) {

@@ -25,6 +25,7 @@ game 是用纯 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用 2D 与 3D 游戏
 | `editor` | `github.com/nsgo-dev/game/pkg/editor` | [场景编辑器](editor.md) | 基于 `sceneformat` 的 NSGo 场景编辑器：可撤销的场景、瓦片地图、图层与属性编辑，编辑器内试玩、资源浏览器、插件和项目面板 |
 | `editor/theme` | `github.com/nsgo-dev/game/pkg/editor/theme` | [设计令牌](editor.md#设计令牌1002) | 编辑器的设计令牌：内嵌的 YAML 主题、深色与浅色调色板、字号、间距、形状与动效常量，以及每套调色板都要满足的 WCAG 2.2 对比度表 |
 | `editor/keychain` | `github.com/nsgo-dev/game/pkg/editor/keychain` | [构建与发布界面](editor.md#构建与发布界面10481050) | 编辑器的系统密钥存储：以同一个 `Store` 封装 macOS Keychain、Linux Secret Service 与 Windows Credential Manager，并提供测试用的内存实现 `Memory` |
+| `motion` | `github.com/nsgo-dev/game/pkg/motion` | [scene](scene.md#场景文件中的运动行为组件) | 步率无关的确定性 2D 运动辅助类型（`Bullet`、`Sine`、`Rotate`、`Orbit`、`MoveTo`、`Wrap`、`Bound`、`DestroyOutside`、`Fade`、`Flash`），与场景行为组件共享数学实现 |
 | `physics` | `github.com/nsgo-dev/game/pkg/physics` | [physics](physics.md) | `Box`/`Circle` 重叠检测、`MoveAndSlide` 瓦片滑动解析与 `World` 空间查询 |
 | `physics3d` | `github.com/nsgo-dev/game/pkg/physics3d` | [physics3d](physics3d.md) | 确定性的 3D 碰撞检测、射线检测、刚体动力学与运动学角色控制器 |
 | `platformer` | `github.com/nsgo-dev/game/pkg/platformer` | [platformer](platformer.md) | 基于 `CharacterBody` 的平台跳跃 `Controller`：土狼时间、跳跃缓冲、可变跳跃高度、贴墙下滑与蹬墙跳，参数来自 YAML 配置 |

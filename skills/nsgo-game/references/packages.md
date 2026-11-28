@@ -26,6 +26,7 @@ Every non-internal package under `github.com/nsgo-dev` (shown relative to that p
 | `game/pkg/tilemap` | Stable | 2D `Camera`, culled tilemaps, Tiled `.tmj` and LDtk loaders, per-tile collision shapes, animated tiles, raycasts |
 | `game/pkg/scene` | Stable | World/screen layers, parallax, hit testing, `DispatchPress`, scene stacks and transitions |
 | `game/pkg/sceneformat` | Experimental | Plain-text YAML `.scene.yaml` documents, validation, prefab resolution and `SpawnEntities` |
+| `game/pkg/motion` | Experimental | Deterministic, rate-independent 2D motion helpers (`Bullet`, `Sine`, `Rotate`, `Orbit`, `MoveTo`, `Wrap`, `Bound`, `DestroyOutside`, `Fade`, `Flash`) |
 | `game/pkg/entities` | Experimental | Generational ECS `World`, typed component stores, `Transform2D`/`Hierarchy2D`, `Prefab`, codecs |
 | `game/pkg/assets` | Experimental | Async per-scene asset groups, `Manager`, reactive loading progress, `LoadingScreen`, DLC manifests |
 | `game/pkg/resource` | Experimental | Shared YAML resources (materials, curves, gradients, clips, UI themes, physics materials) and `Library` |

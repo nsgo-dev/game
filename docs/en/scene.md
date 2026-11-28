@@ -270,6 +270,29 @@ connections:
 
 Games that do not use scene files get the same behavior from `scene.ScreenNotifier`, a Go value with a world `Rect`, a `Margin`, `OnEnter` and `OnExit` callbacks and a `Step(views ...*tilemap.Camera)` method to call once per update.
 
+## Motion behaviors in scene files
+
+Objects in YAML scenes can attach any of ten built-in 2D motion behavior components — each with a `version: 1` field and optional `enabled: true` toggle — and step them deterministically on the fixed loop with `BuiltScene.Step(dt)` (or `BuiltScene.StepWithViews(dt, views...)` for multi-camera `"view"` bounds):
+
+```yaml
+components:
+  bullet: {version: 1, speed: 240, acceleration: 0, gravity: 0, angle: 90, setAngle: true, bounceOffSolids: false}
+  sine: {version: 1, property: y, period: 1.5, magnitude: 6, wave: sine, phase: 0}
+  rotate: {version: 1, speed: 180, acceleration: 0}
+  orbit: {version: 1, target: "", radius: 32, speed: 90}
+  move_to: {version: 1, maxSpeed: 120, acceleration: 0, stopOnSolids: false}
+  wrap: {version: 1, mode: scene}
+  bound: {version: 1, mode: edge}
+  destroy_outside: {version: 1, margin: 64}
+  fade: {version: 1, fadeIn: 0, wait: 1, fadeOut: 0.5, destroy: true}
+  flash: {version: 1, on: 0.05, off: 0.05}
+```
+
+- **Registration & schema**: register all ten on a `*sceneformat.ComponentRegistry` via `sceneformat.RegisterBehaviorComponents(reg)` (or `sceneformat.BehaviorComponentRegistry()`). They are built into the editor's inspector, Play-in-Editor, and published scene JSON Schemas.
+- **Physics solids & freeing**: `bullet.bounceOffSolids` and `move_to.stopOnSolids` query the scene's 2D physics bodies and solid tilemap flags automatically once `sceneformat.BuildPhysics` has built a `PhysicsScene` (stored on `BuiltScene.Physics`). `destroy_outside` and `fade` (`destroy: true`) remove objects and their descendants via `BuiltScene.Free(id)` (also destroying live ECS entities when connected with `SpawnConnected`).
+- **Events & handlers**: set `BuiltScene.Signals` to the `*sceneformat.Signals` returned by `Connect(doc, reg, built)` so scenes can wire `bullet.bounced`, `move_to.arrived`, `wrap.wrapped`, `destroy_outside.destroyed`, `fade.finished`, and `flash.finished` directly to handlers (`setSpeed`, `setAngle`, `start`, `stop`, `moveTo`, `flash`) with no Go glue code.
+- **Construct 3 mapping & Go helpers**: these ten components correspond directly to Construct 3's Bullet, Sine, Rotate, Orbit, Move To, Wrap, Bound to Layout, Destroy Outside Layout, Fade, and Flash behaviors. Games that drive objects from Go without scene files get the exact same rate-independent, `detmath`-backed math from `github.com/nsgo-dev/game/pkg/motion` (`motion.Bullet`, `motion.Sine`, `motion.Rotate`, `motion.Orbit`, `motion.MoveTo`, `motion.Wrap`, `motion.Bound`, `motion.DestroyOutside`, `motion.Fade`, and `motion.Flash`).
+
 ## Spawning scene components into ECS
 
 A `sceneformat.ComponentType` can declare an optional `Spawn func(w *entities.World, e entities.Entity, fields map[string]any) error` factory that turns a YAML component into typed ECS state in `game/entities` ([Entities](entities.md#spawning-from-yaml-scenes)). Pass the registry to `sceneformat.SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{Components: reg})` (or to `sceneformat.SpawnConnected`, which forwards its registry automatically). Every component is validated and resolved with its registered defaults before the first entity is spawned; entities spawn in depth-first document order and each object's components run in sorted component-name order. If any `Spawn` returns an error, all entities created so far are destroyed and the error names the layer, object ID and component. `SpawnEntities(doc, world)` remains equivalent to `SpawnEntitiesWith(doc, world, sceneformat.SpawnOptions{})`.

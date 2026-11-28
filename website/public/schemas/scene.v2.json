@@ -95,6 +95,34 @@
   ],
   "additionalProperties": false,
   "definitions": {
+    "BoundComponent": {
+      "description": "Keeps the object clamped inside the scene bounds by its edge box or origin.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "mode": {
+          "description": "Clamp mode: \"edge\" (keep sprite/collider box inside) or \"origin\" (keep origin inside).",
+          "type": "string",
+          "default": "edge",
+          "enum": [
+            "edge",
+            "origin"
+          ]
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
     "BoundsDoc": {
       "description": "BoundsDoc is an axis-aligned rectangle in world coordinates.",
       "type": "object",
@@ -130,6 +158,55 @@
         "width",
         "height"
       ],
+      "additionalProperties": false
+    },
+    "BulletComponent": {
+      "description": "Linear 2D projectile motion with speed, acceleration, gravity, angle alignment and solid bouncing.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "speed": {
+          "description": "Initial travel speed in points per second along angle.",
+          "type": "number",
+          "default": 240
+        },
+        "acceleration": {
+          "description": "Linear acceleration along travel direction in points/s^2.",
+          "type": "number",
+          "default": 0
+        },
+        "gravity": {
+          "description": "Downward (+Y) gravity acceleration in points/s^2.",
+          "type": "number",
+          "default": 0
+        },
+        "angle": {
+          "description": "Initial travel angle in degrees (0 = right +X, 90 = down +Y).",
+          "type": "number",
+          "default": 0
+        },
+        "setAngle": {
+          "description": "When true, updates the object's rotation to face its velocity.",
+          "type": "boolean",
+          "default": true
+        },
+        "bounceOffSolids": {
+          "description": "When true, bounces off solid physics bodies and solid tilemap tiles.",
+          "type": "boolean",
+          "default": false
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
+        }
+      },
       "additionalProperties": false
     },
     "CameraDoc": {
@@ -244,6 +321,124 @@
       ],
       "additionalProperties": false
     },
+    "DestroyOutsideComponent": {
+      "description": "Frees the object once it leaves the scene or view bounds by more than margin points.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "margin": {
+          "description": "Distance outside the bounds before the object is freed (>= 0).",
+          "type": "number",
+          "default": 64,
+          "minimum": 0
+        },
+        "mode": {
+          "description": "Bounds to check against: \"scene\" (virtual size) or \"view\" (active camera view).",
+          "type": "string",
+          "default": "scene",
+          "enum": [
+            "scene",
+            "view"
+          ]
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "FadeComponent": {
+      "description": "Animates opacity through fade-in, wait and fade-out phases, optionally freeing the object when finished.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "fadeIn": {
+          "description": "Fade-in duration in seconds (>= 0).",
+          "type": "number",
+          "default": 0,
+          "minimum": 0
+        },
+        "wait": {
+          "description": "Hold duration at full opacity in seconds (>= 0).",
+          "type": "number",
+          "default": 1,
+          "minimum": 0
+        },
+        "fadeOut": {
+          "description": "Fade-out duration in seconds (>= 0).",
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0
+        },
+        "destroy": {
+          "description": "When true, frees the object once fadeOut completes.",
+          "type": "boolean",
+          "default": true
+        },
+        "autostart": {
+          "description": "When true, begins fading immediately on the first step.",
+          "type": "boolean",
+          "default": true
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "FlashComponent": {
+      "description": "Toggles visibility on and off for a requested duration, then restores the object's opacity.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "on": {
+          "description": "Visible interval duration in seconds (>= 0).",
+          "type": "number",
+          "default": 0.05,
+          "minimum": 0
+        },
+        "off": {
+          "description": "Hidden interval duration in seconds (>= 0).",
+          "type": "number",
+          "default": 0.05,
+          "minimum": 0
+        },
+        "duration": {
+          "description": "Optional initial flash duration in seconds (0 waits for the flash handler).",
+          "type": "number",
+          "default": 0,
+          "minimum": 0
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
     "LayerDoc": {
       "description": "LayerDoc is one ordered layer in a scene.",
       "type": "object",
@@ -321,6 +516,57 @@
               "$ref": "#/definitions/TilemapDoc"
             }
           ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "MoveToComponent": {
+      "description": "Moves the object directly toward a destination coordinate with optional acceleration and solid stopping.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "maxSpeed": {
+          "description": "Maximum movement speed in points per second (>= 0).",
+          "type": "number",
+          "default": 120,
+          "minimum": 0
+        },
+        "acceleration": {
+          "description": "Acceleration in points/s^2 (0 reaches maxSpeed immediately).",
+          "type": "number",
+          "default": 0,
+          "minimum": 0
+        },
+        "stopOnSolids": {
+          "description": "When true, halts movement upon hitting a solid physics collider or tile.",
+          "type": "boolean",
+          "default": false
+        },
+        "targetX": {
+          "description": "Initial destination X when active is true.",
+          "type": "number",
+          "default": 0
+        },
+        "targetY": {
+          "description": "Initial destination Y when active is true.",
+          "type": "number",
+          "default": 0
+        },
+        "active": {
+          "description": "When true, begins moving toward (targetX, targetY) immediately.",
+          "type": "boolean",
+          "default": false
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
         }
       },
       "additionalProperties": false
@@ -587,6 +833,86 @@
                   "$ref": "#/definitions/TimerComponent"
                 }
               ]
+            },
+            "bullet": {
+              "description": "Linear 2D projectile motion with speed, acceleration, gravity, angle alignment and solid bouncing.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BulletComponent"
+                }
+              ]
+            },
+            "sine": {
+              "description": "Periodic oscillation of x, y, angle, scale or alpha with configurable wave, period, magnitude and phase.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SineComponent"
+                }
+              ]
+            },
+            "rotate": {
+              "description": "Continuous 2D rotation at an angular speed and optional angular acceleration.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/RotateComponent"
+                }
+              ]
+            },
+            "orbit": {
+              "description": "Revolves the object at a fixed radius around a target object ID or its initial position.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/OrbitComponent"
+                }
+              ]
+            },
+            "move_to": {
+              "description": "Moves the object directly toward a destination coordinate with optional acceleration and solid stopping.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/MoveToComponent"
+                }
+              ]
+            },
+            "wrap": {
+              "description": "Wraps the object from one edge of the scene or camera view to the opposite edge.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/WrapComponent"
+                }
+              ]
+            },
+            "bound": {
+              "description": "Keeps the object clamped inside the scene bounds by its edge box or origin.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BoundComponent"
+                }
+              ]
+            },
+            "destroy_outside": {
+              "description": "Frees the object once it leaves the scene or view bounds by more than margin points.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/DestroyOutsideComponent"
+                }
+              ]
+            },
+            "fade": {
+              "description": "Animates opacity through fade-in, wait and fade-out phases, optionally freeing the object when finished.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/FadeComponent"
+                }
+              ]
+            },
+            "flash": {
+              "description": "Toggles visibility on and off for a requested duration, then restores the object's opacity.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/FlashComponent"
+                }
+              ]
             }
           },
           "additionalProperties": {}
@@ -839,6 +1165,51 @@
       ],
       "additionalProperties": false
     },
+    "OrbitComponent": {
+      "description": "Revolves the object at a fixed radius around a target object ID or its initial position.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "target": {
+          "description": "Optional ID of the scene object to orbit; empty orbits the object's starting position.",
+          "type": "string",
+          "default": ""
+        },
+        "radius": {
+          "description": "Orbit radius in points (>= 0).",
+          "type": "number",
+          "default": 32,
+          "minimum": 0
+        },
+        "speed": {
+          "description": "Angular orbit speed in degrees per second.",
+          "type": "number",
+          "default": 90
+        },
+        "angle": {
+          "description": "Initial orbit angle in degrees (0 = +X, 90 = +Y).",
+          "type": "number",
+          "default": 0
+        },
+        "setAngle": {
+          "description": "When true, sets the object's rotation to its orbit angle.",
+          "type": "boolean",
+          "default": false
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
     "ParticlesRef": {
       "description": "ParticlesRef binds an object to a versioned 2D particle emitter YAML file (particles.Config) and an optional sprite atlas for its frameNames.",
       "type": "object",
@@ -901,6 +1272,94 @@
           "description": "Height is the vertical extent in object-local space (non-negative).",
           "type": "number",
           "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "RotateComponent": {
+      "description": "Continuous 2D rotation at an angular speed and optional angular acceleration.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "speed": {
+          "description": "Angular speed in degrees per second (positive = clockwise).",
+          "type": "number",
+          "default": 180
+        },
+        "acceleration": {
+          "description": "Angular acceleration in degrees per second squared.",
+          "type": "number",
+          "default": 0
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "SineComponent": {
+      "description": "Periodic oscillation of x, y, angle, scale or alpha with configurable wave, period, magnitude and phase.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "property": {
+          "description": "Property to oscillate: \"x\", \"y\", \"angle\" (degrees), \"scale\", or \"alpha\".",
+          "type": "string",
+          "default": "y",
+          "enum": [
+            "x",
+            "y",
+            "angle",
+            "scale",
+            "alpha"
+          ]
+        },
+        "period": {
+          "description": "Duration of one full cycle in seconds (0 pauses oscillation).",
+          "type": "number",
+          "default": 1.5,
+          "minimum": 0
+        },
+        "magnitude": {
+          "description": "Peak oscillation amplitude in the property's units.",
+          "type": "number",
+          "default": 6
+        },
+        "wave": {
+          "description": "Waveform shape: \"sine\", \"triangle\", \"sawtooth\", \"reverse_sawtooth\", or \"square\".",
+          "type": "string",
+          "default": "sine",
+          "enum": [
+            "sine",
+            "triangle",
+            "sawtooth",
+            "reverse_sawtooth",
+            "square"
+          ]
+        },
+        "phase": {
+          "description": "Initial phase offset in cycles (0.25 = quarter period, 0.5 = half period).",
+          "type": "number",
+          "default": 0
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
         }
       },
       "additionalProperties": false
@@ -1044,6 +1503,40 @@
           "description": "When true, the timer starts running as soon as the scene is connected.",
           "type": "boolean",
           "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "WrapComponent": {
+      "description": "Wraps the object from one edge of the scene or camera view to the opposite edge.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "mode": {
+          "description": "Bounds to wrap across: \"scene\" (virtual size) or \"view\" (active camera view).",
+          "type": "string",
+          "default": "scene",
+          "enum": [
+            "scene",
+            "view"
+          ]
+        },
+        "margin": {
+          "description": "Extra points outside the bounds before wrapping (>= 0).",
+          "type": "number",
+          "default": 0,
+          "minimum": 0
+        },
+        "enabled": {
+          "description": "When false, BuiltScene.Step pauses this behavior.",
+          "type": "boolean",
+          "default": true
         }
       },
       "additionalProperties": false

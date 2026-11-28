@@ -86,11 +86,12 @@ func SceneSchema(reg *ComponentRegistry) (*jsonschema.Schema, error) {
 	return s, nil
 }
 
-// builtinComponentsSchema returns the components schema used by SceneSchema(nil): built-in physics, skeletal and 2D nav-region components are typed, and additionalProperties allows any project-defined component.
+// builtinComponentsSchema returns the components schema used by SceneSchema(nil): built-in physics, skeletal, 2D nav-region and 2D motion behavior components are typed, and additionalProperties allows any project-defined component.
 func builtinComponentsSchema() *jsonschema.Schema {
 	reg := PhysicsComponentRegistry()
 	_ = RegisterSkeletalComponent(reg)
 	_ = RegisterNavRegion2DComponent(reg)
+	_ = RegisterBehaviorComponents(reg)
 	s := reg.JSONSchema()
 	s.AdditionalProperties = &jsonschema.Schema{}
 	return s

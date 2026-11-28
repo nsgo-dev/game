@@ -203,6 +203,11 @@ pkg/modding:
       - any-glob-to-any-file:
           - pkg/modding/**
 
+pkg/motion:
+  - changed-files:
+      - any-glob-to-any-file:
+          - pkg/motion/**
+
 pkg/online:
   - changed-files:
       - any-glob-to-any-file:
