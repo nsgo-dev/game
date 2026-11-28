@@ -19,7 +19,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -554,37 +556,67 @@ func TestWebTransportRelayAndRollback(t *testing.T) {
 	}
 }
 
-// shapingPacketConn wraps a real UDP PacketConn and drops the next N outgoing UDP packets whose size is at least minDropSize, so tests can trigger deterministic QUIC packet loss on a chosen large message without dropping small ACKs or subsequent small datagrams.
+// shapingPacketConn wraps a real UDP PacketConn and drops the next N outgoing UDP packets whose size is at least minDropSize, so tests can trigger deterministic QUIC packet loss on a chosen large message without dropping small ACKs or subsequent small datagrams. A drop armed with hold also holds back every later packet of at least minDropSize, which carries QUIC's retransmission of what was dropped, until release writes them, so a test can check what reaches the peer while the lost data is still missing.
 type shapingPacketConn struct {
 	stdnet.PacketConn
-	dropRemaining atomic.Int32
-	minDropSize   atomic.Int32
-	dropped       atomic.Int32
+	dropped atomic.Int32
+
+	mu            sync.Mutex
+	dropRemaining int32
+	minDropSize   int
+	holdAfterDrop bool
+	holding       bool
+	held          []heldPacket
 }
 
-func (s *shapingPacketConn) armDrop(count, minSize int32) {
-	s.minDropSize.Store(minSize)
-	s.dropRemaining.Store(count)
+// heldPacket is a UDP packet shapingPacketConn holds back until release.
+type heldPacket struct {
+	data []byte
+	addr stdnet.Addr
+}
+
+func (s *shapingPacketConn) armDrop(count int32, minSize int, hold bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dropRemaining, s.minDropSize, s.holdAfterDrop = count, minSize, hold
 }
 
 func (s *shapingPacketConn) WriteTo(p []byte, addr stdnet.Addr) (int, error) {
-	if minSize := int(s.minDropSize.Load()); minSize > 0 && len(p) >= minSize {
-		for {
-			rem := s.dropRemaining.Load()
-			if rem <= 0 {
-				break
-			}
-			if s.dropRemaining.CompareAndSwap(rem, rem-1) {
-				s.dropped.Add(1)
-				return len(p), nil // silently drop this UDP packet
-			}
+	s.mu.Lock()
+	if s.minDropSize > 0 && len(p) >= s.minDropSize {
+		if s.dropRemaining > 0 {
+			s.dropRemaining--
+			s.holding = s.holdAfterDrop
+			s.mu.Unlock()
+			s.dropped.Add(1)
+			return len(p), nil // silently drop this UDP packet
+		}
+		if s.holding {
+			s.held = append(s.held, heldPacket{data: slices.Clone(p), addr: addr})
+			s.mu.Unlock()
+			return len(p), nil
 		}
 	}
+	s.mu.Unlock()
 	return s.PacketConn.WriteTo(p, addr)
 }
 
+// release stops holding packets back and writes the held ones in the order QUIC sent them.
+func (s *shapingPacketConn) release() error {
+	s.mu.Lock()
+	held := s.held
+	s.held, s.holding = nil, false
+	s.mu.Unlock()
+	for _, h := range held {
+		if _, err := s.PacketConn.WriteTo(h.data, h.addr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // TestWebTransportUnreliableNotBlockedByLostPacket verifies that ChannelUnreliable datagrams bypass a lost QUIC packet without TCP-like head-of-line blocking:
-//  1. When a reliable stream packet is dropped on the wire, subsequent unreliable datagrams arrive BEFORE the retransmitted reliable packet.
+//  1. When a reliable stream packet is dropped on the wire, an unreliable datagram sent after it arrives while the reliable packet is still missing, BEFORE its retransmission.
 //  2. When an unreliable datagram is dropped on the wire, subsequent unreliable datagrams arrive promptly and the lost datagram is not retransmitted.
 func TestWebTransportUnreliableNotBlockedByLostPacket(t *testing.T) {
 	rawPC, err := stdnet.ListenPacket("udp", "127.0.0.1:0")
@@ -608,9 +640,11 @@ func TestWebTransportUnreliableNotBlockedByLostPacket(t *testing.T) {
 	defer func() { _ = cli.Close() }()
 	_ = nextEvent(t, srv, srv.changed)
 
-	// Subtest 1: drop the first transmission of a 600-byte reliable packet; wait until the shaper confirms it was dropped so QUIC does not coalesce the following datagram into the same UDP packet. An unreliable datagram sent right after must arrive strictly BEFORE the retransmitted reliable packet.
+	// Subtest 1: drop the first transmission of a 600-byte reliable packet and hold back its retransmissions; wait until the shaper confirms it was dropped so QUIC does not coalesce the following datagram into the same UDP packet. An unreliable datagram sent right after must reach the client while the reliable packet is still held back.
+	//
+	// Holding the retransmissions back is what makes the order deterministic (#1916). On loopback the client's acknowledgement of the datagram's packet has QUIC declare the reliable packet lost and resend it within a fraction of a millisecond, and the client reads datagrams and its stream on goroutines of their own, so a retransmission let through can be delivered first even though QUIC received the datagram first. A datagram that waited behind the stream would not arrive at all until release.
 	relPayload := append([]byte("REL-LOST:"), bytes.Repeat([]byte{'R'}, 600)...)
-	shaper.armDrop(1, 500)
+	shaper.armDrop(1, 500, true)
 	if err := srv.Send(cli.LocalID(), ChannelReliableOrdered, relPayload); err != nil {
 		t.Fatalf("Send reliable: %v", err)
 	}
@@ -628,10 +662,18 @@ func TestWebTransportUnreliableNotBlockedByLostPacket(t *testing.T) {
 		t.Fatalf("Send unreliable 0: %v", err)
 	}
 
-	// Wait for the unreliable datagram to arrive first; then send a few more and wait for the retransmitted reliable packet.
-	first := recvOn(t, cli, cli.changed)
+	// Wait for the unreliable datagram while the reliable packet is held back; then let the retransmission through, send a few more datagrams and wait for the reliable packet.
+	var first Packet
+	awaitChange(t, cli.changed, "the unreliable datagram while the lost reliable packet is held back", func() bool {
+		var ok bool
+		first, ok = cli.Recv()
+		return ok
+	})
 	if first.Channel != ChannelUnreliable || !bytes.Equal(first.Payload, firstUnrel) {
 		t.Fatalf("first packet after loss = {ch:%v payload:%q}, want unreliable %q before retransmitted reliable packet", first.Channel, first.Payload, firstUnrel)
+	}
+	if err := shaper.release(); err != nil {
+		t.Fatalf("release held packets: %v", err)
 	}
 	for i := 1; i < 6; i++ {
 		msg := []byte("UNREL:" + string(rune('0'+i)))
@@ -666,7 +708,7 @@ func TestWebTransportUnreliableNotBlockedByLostPacket(t *testing.T) {
 	// Subtest 2: drop a 600-byte unreliable datagram; wait until it is dropped, then send small unreliable datagrams that must arrive promptly while the dropped datagram is never retransmitted.
 	droppedDgram := append([]byte("UNREL-DROP:"), bytes.Repeat([]byte{'U'}, 600)...)
 	droppedBefore := shaper.dropped.Load()
-	shaper.armDrop(1, 500)
+	shaper.armDrop(1, 500, false)
 	if err := srv.Send(cli.LocalID(), ChannelUnreliable, droppedDgram); err != nil {
 		t.Fatalf("Send dropped datagram: %v", err)
 	}
