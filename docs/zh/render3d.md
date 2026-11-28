@@ -1421,3 +1421,7 @@ terrainMesh.Draw(pass)
 - **光照、阴影、雾效与 HDR**：`NewTerrainMaterialPipeline` 按选项编译 `TerrainMaterialWGSL`、`TerrainMaterialShadowWGSL`（`ShadowLayout`）、`TerrainMaterialCSMWGSL`（`CSMLayout`）或 `TerrainMaterialFogWGSL`（`FogLayout`），并支持配合 `HDRTarget` / `ToneMapPass` 的 `LinearOutput` 变体。
 - **动态更新与 CPU 参考**：调用 `UpdateUniforms` 可原地更新变换矩阵、高度混合对比度、三平面参数或各层因子与平铺比例而不重建纹理；调用 `UpdateSplatMaps` 可原地上传重新绘制的权重图；`EvaluateTerrainMaterial` 提供与 WGSL 着色器一致的纯 Go CPU 参考求值器。
 - **直接从 `*.terrain.yaml` 加载**：`TerrainMaterialFromDoc(fsys, doc)` 自动解码打包 RGBA `splatMaps` 或逐层灰度 `weightMap` PNG，解析可选的 `resource.Material` 材质资源及显式 PBR 覆盖项，并返回可直接交给 `NewGPUTerrainMaterial` 的已校验 `TerrainMaterial`；`MeshFromTerrainMesh` 可将 `world3d.TerrainMesh` 区块直接转换为 `render3d.Mesh`。
+
+### 开发帧捕获
+
+`render3d.FrameCapture` 捕获单个开发帧，记录命名的 pass 和 draw 元数据，不改变稳定运行时的渲染。集成层可以把 pass 树提供给性能分析器或 MCP 工具。只有调用 `Arm` 后才会捕获。

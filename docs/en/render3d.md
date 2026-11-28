@@ -1421,3 +1421,7 @@ terrainMesh.Draw(pass)
 - **Lighting, shadows, fog, and HDR**: `NewTerrainMaterialPipeline` compiles `TerrainMaterialWGSL`, `TerrainMaterialShadowWGSL` (`ShadowLayout`), `TerrainMaterialCSMWGSL` (`CSMLayout`), or `TerrainMaterialFogWGSL` (`FogLayout`), plus `LinearOutput` variants for `HDRTarget` / `ToneMapPass`.
 - **Live updates & CPU reference**: call `UpdateUniforms` to tweak transforms, blend contrast, triplanar settings, or per-layer factors/tiling without reallocating textures, `UpdateSplatMaps` to upload repainted splat maps in place, and `EvaluateTerrainMaterial` as the pure-Go CPU reference matching the WGSL shader.
 - **Loading directly from `*.terrain.yaml`**: `TerrainMaterialFromDoc(fsys, doc)` decodes either packed RGBA `splatMaps` or per-layer grayscale `weightMap` PNGs, resolves optional `resource.Material` files alongside explicit PBR overrides, and validates a `TerrainMaterial` ready for `NewGPUTerrainMaterial`; `MeshFromTerrainMesh` converts `world3d.TerrainMesh` chunks directly into `render3d.Mesh` geometry.
+
+### Development frame capture
+
+`render3d.FrameCapture` arms a single development frame and records named passes and draw metadata without changing steady-state rendering. Integrations can expose the resulting pass tree to a profiler or MCP tool. Capture is inert until `Arm` is called.
