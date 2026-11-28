@@ -28,6 +28,51 @@ func TestAFrameBeforeTheResumptionTakesNoTimeOff(t *testing.T) {
 	}
 }
 
+func TestDrawRateRetunesTheDisplayFrames(t *testing.T) {
+	draws := 0
+	l := &Loop{DrawRate: 30, Draw: func(float64) { draws++ }}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		l.Run(cx)
+		return core.View{}
+	})
+	app.Advance(100 * time.Millisecond)
+	if draws != 3 {
+		t.Fatalf("draws at 30 Hz after 100 ms = %d, want 3", draws)
+	}
+}
+
+func TestPausedLoopRequestsAnIdleDisplayRateAndRestoresIt(t *testing.T) {
+	draws := 0
+	l := &Loop{Paused: true, Draw: func(float64) { draws++ }}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		l.Run(cx)
+		return core.View{}
+	})
+	app.Advance(250 * time.Millisecond)
+	if draws != 15 {
+		t.Fatalf("paused draws after 250 ms = %d, want 15", draws)
+	}
+	app.Post(func() { l.SetPaused(false) })
+	app.Settle()
+	app.Advance(100 * time.Millisecond)
+	if draws < 3 {
+		t.Fatalf("draws after unpausing = %d, want at least 3", draws)
+	}
+}
+
+func TestMatchDisplayToRateRequestsTheSimulationRate(t *testing.T) {
+	draws := 0
+	l := &Loop{Rate: 20, MatchDisplayToRate: true, Draw: func(float64) { draws++ }}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		l.Run(cx)
+		return core.View{}
+	})
+	app.Advance(100 * time.Millisecond)
+	if draws != 2 {
+		t.Fatalf("draws at 20 Hz after 100 ms = %d, want 2", draws)
+	}
+}
+
 // recordImmersive replaces setImmersive for the test with one that records each request, which NSGo's nsgotest does not (nsgotest.StatusBarConfig has no Immersive field, nsgo-dev/nsgo#2255).
 func recordImmersive(t *testing.T) *[]bool {
 	t.Helper()

@@ -20,6 +20,7 @@ type Loop struct {
 	PausedAwake time.Duration          // 暂停或 OnDemand 空闲后保持屏幕常亮的宽限期
 	TimeScale   float64                // 模拟时间倍率，<= 0 或非有限数时取 1
 	DrawRate    int                    // 限制每秒最多调用 Draw 的次数，<= 0 表示不限制
+	MatchDisplayToRate bool             // DrawRate 未设置时请求显示器使用 Rate
 	OnDemand    bool                   // 未运行 Update 的帧跳过 Draw，除非调用了 MarkDirty
 	Idle        func() bool            // 配合 OnDemand 使用，返回 true 时同时跳过 Update 和 Draw
 	Immersive   bool                   // 未暂停时隐藏手机系统栏
@@ -159,6 +160,10 @@ loop.SetTimeScale(0.25) // 子弹时间慢动作；Update 仍接收固定 dt == 
 设置 `DrawRate` 可以限制每秒最多调用 `Draw` 的次数，同时保持 `Update` 按 `Rate` 运行（例如低电量模式下保持 60 Hz 物理更新但以 30 fps 渲染）。小于等于 `0` 时不限制绘制频率，跟随显示器刷新率。
 
 同时启用 `OnDemand` 与 `DrawRate` 时，若 `MarkDirty` 在下一次绘制间隔到来前触发，脏标记会保留并在间隔到达后执行绘制。
+
+## 让显示器匹配更新频率（`MatchDisplayToRate`）
+
+`Loop` 会在条件允许时请求主机降低显示刷新率。设置正数 `DrawRate` 后，该值会成为首选显示频率，因此低电量模式下的帧率上限也会减少面板满频运行带来的唤醒。`DrawRate` 未设置时，可将 `MatchDisplayToRate` 设为 `true`，让显示器跟随固定更新频率。暂停循环和空闲的 `OnDemand` 循环会请求保守的 60 Hz 空闲频率，在 60 Hz 显示器上保持通常节奏，在高刷新率面板上减少唤醒。主机可能选择其他受支持的频率。
 
 ## 按需绘制与空闲休眠（`OnDemand`、`Idle`、`MarkDirty`）
 

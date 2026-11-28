@@ -20,6 +20,7 @@ type Loop struct {
 	PausedAwake time.Duration          // how long to keep the display awake while paused or OnDemand-idle
 	TimeScale   float64                // simulated time multiplier, 1 when <= 0 or non-finite
 	DrawRate    int                    // caps Draw calls per second, uncapped when <= 0
+	MatchDisplayToRate bool             // asks the display to use Rate when DrawRate is uncapped
 	OnDemand    bool                   // skips Draw on frames without Update unless MarkDirty was called
 	Idle        func() bool            // with OnDemand, skips both Update and Draw while returning true
 	Immersive   bool                   // hides phone system bars while unpaused
@@ -159,6 +160,10 @@ While `Paused` is `true`, you can advance the simulation by an exact number of f
 Set `DrawRate` to cap how many times `Draw` runs per second while keeping `Update` at `Rate` (for example, 60 Hz physics with 30 fps rendering under low-power mode). Values at or below `0` leave `Draw` uncapped at the display's refresh rate.
 
 When `OnDemand` and `DrawRate` are both set, a `MarkDirty` request that arrives before the next draw interval is preserved and drawn once the interval elapses.
+
+## Matching the display rate (`MatchDisplayToRate`)
+
+`Loop` asks the host to lower the display refresh rate when it can. A positive `DrawRate` becomes the preferred display rate, so a low-power cap avoids waking the app at the panel's full rate. Set `MatchDisplayToRate: true` when `DrawRate` is uncapped and the display should follow the fixed update rate. Paused loops and idle `OnDemand` loops request a conservative 60 Hz idle rate, which lowers wakeups on high-refresh panels while preserving the usual cadence on 60 Hz displays. The host may choose a different supported rate.
 
 ## On-demand drawing and idling (`OnDemand`, `Idle`, `MarkDirty`)
 
