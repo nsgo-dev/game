@@ -4,7 +4,7 @@ The agent evaluation suite in this directory is contributor tooling with fixed g
 
 ## Tasks
 
-Each task is a plain-text versioned YAML document (`version: 1`) under `tools/agenteval/tasks/`, with unknown fields refused and deterministic round-trip encoding:
+Each task is a plain-text versioned YAML document (`version: 1`) under `tools/agenteval/tasks/`, with unknown fields refused and deterministic round-trip encoding. Each also declares its workflow `family` and the `mcp_servers` it expects ([catalog](../../docs/en/agent-eval.md)):
 
 | Task ID | Goal | What the rubric grades |
 | --- | --- | --- |

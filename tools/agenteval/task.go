@@ -170,9 +170,12 @@ func (t *Task) Validate() error {
 	if t.Family != "" && !slices.Contains([]string{"create", "editor", "debug", "3d", "data", "code", "safety"}, t.Family) {
 		return fmt.Errorf("task %q: unknown family %q", t.ID, t.Family)
 	}
-	for _, server := range t.MCPServers {
+	for i, server := range t.MCPServers {
 		if strings.TrimSpace(server) == "" || strings.ContainsAny(server, " \t\n") {
 			return fmt.Errorf("task %q: invalid mcp_servers entry %q", t.ID, server)
+		}
+		if slices.Contains(t.MCPServers[:i], server) {
+			return fmt.Errorf("task %q: mcp_servers contains duplicate %q", t.ID, server)
 		}
 	}
 	if t.MinScore != nil && (*t.MinScore < 0 || *t.MinScore > 100) {

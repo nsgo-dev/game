@@ -18,6 +18,9 @@ context_docs:
   - docs/en/project.md
 starter_dir: tools/agenteval/testdata/fixtures/add-enemy-type/starter
 reference_dir: tools/agenteval/testdata/fixtures/add-enemy-type/reference
+family: create
+mcp_servers:
+  - nsgo
 checks:
   yaml_files:
     - game.yaml
