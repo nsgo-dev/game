@@ -73,6 +73,23 @@ _ = analytics.SetConsent(liveops.ConsentGranted)
 analytics.Track("level_complete", map[string]any{"level": 1})
 ```
 
+## Age bands and child mode
+
+`AgeGate` stores only a coarse age band in `core.Storage`, never a date of birth. Missing, future-version or malformed records fail closed to `AgeUnknown`. `ChildMode` is true for `under13` and `13to15`, so games can consistently suppress analytics, personalization and free-text features before constructing those systems.
+
+```go
+age := liveops.NewAgeGate(cx.Storage(), "privacy.age")
+if age.Band() == liveops.AgeUnknown {
+	// Show a neutral age-band screen with no preselected answer.
+	_ = age.SetBand(liveops.Age13To15)
+}
+if age.ChildMode() {
+	// Keep analytics and personalized offers disabled.
+}
+```
+
+This gate does not implement a jurisdiction-specific consent age, platform age signals or a parental challenge. Those integrations belong at the app layer and must be paired with the game's legal review.
+
 ## Cloud saves
 
 `CloudSync` defines the provider-agnostic slot interface (`Load`, `Save`, `Delete`, `List`, with sentinel errors `ErrSlotNotFound`, `ErrCloudUnavailable`, `ErrCloudConflict`, `ErrSlotTooLarge` and `ErrTooManySlots`). `ConditionalCloudSync` adds `SaveIf` and `DeleteIf`, which write only while the slot still holds the payload the caller read, identified by `PayloadHash`.

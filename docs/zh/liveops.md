@@ -73,6 +73,23 @@ _ = analytics.SetConsent(liveops.ConsentGranted)
 analytics.Track("level_complete", map[string]any{"level": 1})
 ```
 
+## 年龄段与儿童模式
+
+`AgeGate` 只把粗略年龄段保存到 `core.Storage`，不会保存出生日期。缺失、未来版本或格式损坏的记录都会安全地回退到 `AgeUnknown`。`under13` 和 `13to15` 会使 `ChildMode` 为 true，游戏可以在创建分析、个性化和自由文本功能前统一关闭它们。
+
+```go
+age := liveops.NewAgeGate(cx.Storage(), "privacy.age")
+if age.Band() == liveops.AgeUnknown {
+	// 显示不预选答案的中性年龄段界面。
+	_ = age.SetBand(liveops.Age13To15)
+}
+if age.ChildMode() {
+	// 保持分析和个性化优惠关闭。
+}
+```
+
+此门控不实现按司法辖区区分的同意年龄、平台年龄信号或家长挑战。这些集成属于应用层，并且必须结合游戏自身的法律审核。
+
 ## 云存档
 
 `CloudSync` 定义了与服务商无关的存档槽位接口（`Load`、`Save`、`Delete`、`List`，以及 `ErrSlotNotFound`、`ErrCloudUnavailable`、`ErrCloudConflict`、`ErrSlotTooLarge` 和 `ErrTooManySlots` 哨兵错误）。`ConditionalCloudSync` 增加了 `SaveIf` 和 `DeleteIf`，它们只在槽位仍保存着调用方读到的负载（以 `PayloadHash` 标识）时才写入。
