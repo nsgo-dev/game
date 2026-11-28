@@ -264,6 +264,10 @@
         "once": {
           "description": "Once disconnects the connection after the first time the event fires, as Godot's one-shot connections do.",
           "type": "boolean"
+        },
+        "when": {
+          "description": "When is a condition the handler runs only while it holds, such as \"score >= 10\" or \"has_key\", read from the values Signals.SetRuleContext gives (EvaluateWhen describes the syntax). Empty means always. A once connection whose condition is false stays connected. Validate refuses an expression it cannot parse.",
+          "type": "string"
         }
       },
       "required": [
