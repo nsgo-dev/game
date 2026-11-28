@@ -2085,8 +2085,13 @@ strings:
   hudLayout.breadcrumbNone: 无
   hudLayout.breadcrumbScreens: screens
   hudLayout.centerRegionLabel: 全尺寸界面预览
+  hudLayout.colorVisionHeading: 色觉与对比度
+  hudLayout.colorVisionModeLabel: 色觉 {mode}
+  hudLayout.colorVisionRatio: 对比度
+  hudLayout.colorVisionRegionLabel: 色觉预览与对比度
   hudLayout.composerLabel: 向智能体提问
   hudLayout.composerPlaceholder: 例如：添加一个仅在第 3 层显示的 Boss 血条
+  hudLayout.contrastRowLabel: '对比度 {id} {ratio} : 1'
   hudLayout.decreaseSpacing: 减小间距
   hudLayout.designCaption: 设计基准 {width} × {height} · 按高度等比缩放
   hudLayout.emptyBody: 在 screens/ 下添加 *.screen.yaml 文件，或让智能体为你构建 HUD 与菜单界面。

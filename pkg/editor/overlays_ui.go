@@ -117,7 +117,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = rev.Get()
-						rowPal := ed.SpecPalette(cx)
+						rowPal := ed.Palette(cx)
 						activeMode := ed.ColorVisionPreview()
 						modes := ed.ColorVisionPreviewModes()
 						btns := make([]core.Node, 0, len(modes))

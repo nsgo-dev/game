@@ -5,9 +5,9 @@ import (
 	"sync"
 
 	"github.com/nsgo-dev/game/pkg/a11y"
-	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/game/pkg/gameui"
 	"github.com/nsgo-dev/game/pkg/l10n"
+	"github.com/nsgo-dev/game/pkg/postfx"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -223,7 +223,7 @@ func viewportColorVisionOverlayView(
 				off.Invalidate()
 			})
 
-			p := ed.SpecPalette(cx)
+			p := ed.Palette(cx)
 			return core.View{
 				TestID:        "viewport-color-vision-layer",
 				PointerEvents: core.PointerEventsBoxNone,
@@ -327,7 +327,7 @@ func hudColorVisionPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		stableTick()
 		_ = rev.Get()
-		p := ed.SpecPalette(cx)
+		p := ed.Palette(cx)
 		activeMode := ed.ColorVisionPreview()
 		rows := ed.HUDContrastRows()
 		selID := ed.HUDSelectedNodeID()
@@ -345,7 +345,7 @@ func hudColorVisionPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 			modeBtns = append(modeBtns, core.View{
 				TestID: "hud-color-vision-" + mode.String(),
 				Role:   core.RoleButton,
-				Label:  "Color vision " + ed.colorVisionPreviewLabel(mode),
+				Label:  ed.T("hudLayout.colorVisionModeLabel", l10n.Param("mode", ed.colorVisionPreviewLabel(mode))),
 				Style: core.Style{
 					Height:         core.Pt(24),
 					Direction:      core.Row,
@@ -384,7 +384,7 @@ func hudColorVisionPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "COLOR VISION & CONTRAST",
+						Content: ed.T("hudLayout.colorVisionHeading"),
 						Style: core.Style{
 							FlexGrow:      1,
 							FontSize:      11,
@@ -394,7 +394,7 @@ func hudColorVisionPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 						},
 					},
 					core.Text{
-						Content: "RATIO",
+						Content: ed.T("hudLayout.colorVisionRatio"),
 						Style: core.Style{
 							Width:         core.Pt(56),
 							TextAlign:     core.TextAlignEnd,
@@ -423,7 +423,7 @@ func hudColorVisionPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 			bg := core.Transparent
 			nameColor := p.TextSecondary
 			if on {
-				bg = specAlpha(p.Accent.Fg, 0.14)
+				bg = ui.Alpha(p.Accent.Fg, 0.14)
 				nameColor = p.TextPrimary
 			}
 			ratio := row.SimulatedRatio
@@ -434,7 +434,7 @@ func hudColorVisionPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 			children = append(children, core.View{
 				TestID: "hud-contrast-row-" + row.NodeID,
 				Role:   core.RoleButton,
-				Label:  fmt.Sprintf("Contrast %s %.1f : 1", row.NodeID, ratio),
+				Label:  ed.T("hudLayout.contrastRowLabel", l10n.Param("id", row.NodeID), l10n.Param("ratio", fmt.Sprintf("%.1f", ratio))),
 				Style: core.Style{
 					Height:       core.Pt(26),
 					Direction:    core.Row,
@@ -497,7 +497,7 @@ func hudColorVisionPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 		return core.View{
 			TestID: "hud-color-vision-panel",
 			Role:   core.RoleRegion,
-			Label:  "Color vision preview and contrast",
+			Label:  ed.T("hudLayout.colorVisionRegionLabel"),
 			Style: core.Style{
 				Width:        core.Pt(328),
 				Padding:      core.Edges{Bottom: 8},
