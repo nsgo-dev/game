@@ -681,6 +681,34 @@ layers:
     seed: 108
 ```
 
+<!-- format: tooling/storecapture -->
+### 商店截图计划
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `store/capture.yaml`，由 `go tool game capture` 读取 | `version: 1` | `storecapture.Decode`、`storecapture.LoadFile`、`Plan.Encode` | [商店截图计划](shipping.md#商店截图计划) |
+
+```yaml
+version: 1
+shots:
+  - name: title
+    scene: scenes/title.scene.yaml
+    frame: 30
+    output: title
+    sizes:
+      - preset: itch_cover
+      - preset: minigame_share
+  - name: boss
+    scene: scenes/boss.scene.yaml
+    recording: recordings/boss.replay.yaml
+    time: 2.5
+    output: play/boss
+    sizes:
+      - preset: google_play
+      - width: 2796
+        height: 1290
+```
+
 ## 场景、资源与动画
 
 <!-- format: sceneformat -->

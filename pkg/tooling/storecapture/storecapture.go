@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nsgo-dev/game/pkg/loaderr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -120,56 +121,57 @@ func localPath(p string) bool {
 	return p != "" && !strings.Contains(p, `\`) && filepath.IsLocal(filepath.FromSlash(p)) && path.Clean(p) == p
 }
 
-// Validate reports the first problem with the plan: an unsupported version, no shots, or a shot with a missing or duplicate name, a scene, recording or output outside the project, both a frame and a time, a negative capture point, no sizes or an invalid size, or two images with the same file.
+// Validate reports the first problem with the plan as a *loaderr.Error naming its field: an unsupported version, no shots, or a shot with a missing or duplicate name, a scene, recording or output outside the project, both a frame and a time, a negative capture point, no sizes or an invalid size, or two images with the same file.
 func (p *Plan) Validate() error {
 	if p == nil {
-		return errors.New("storecapture: nil plan")
+		return loaderr.Errorf("", "provide a capture plan", "capture plan is nil")
 	}
 	if p.Version != Version {
-		return fmt.Errorf("storecapture: unsupported version %d, want %d", p.Version, Version)
+		return &loaderr.Error{Field: "version", Problem: fmt.Sprintf("unsupported version %d", p.Version), Expected: fmt.Sprint(Version), Fix: fmt.Sprintf("set version to %d", Version)}
 	}
 	if len(p.Shots) == 0 {
-		return errors.New("storecapture: plan has no shots")
+		return loaderr.Errorf("shots", "list at least one shot", "plan has no shots")
 	}
 	names := map[string]bool{}
 	files := map[string]string{}
 	for i, s := range p.Shots {
+		at := loaderr.Path("shots", i)
 		if strings.TrimSpace(s.Name) == "" {
-			return fmt.Errorf("storecapture: shots[%d].name is required", i)
+			return loaderr.Errorf(loaderr.Join(at, "name"), "give the shot a name", "name is required")
 		}
 		if names[s.Name] {
-			return fmt.Errorf("storecapture: duplicate shot %q", s.Name)
+			return loaderr.Errorf(loaderr.Join(at, "name"), "give each shot a unique name", "duplicate shot %q", s.Name)
 		}
 		names[s.Name] = true
 		if !localPath(s.Scene) {
-			return fmt.Errorf("storecapture: shot %q: scene %q must be a slash-separated path inside the project", s.Name, s.Scene)
+			return loaderr.Errorf(loaderr.Join(at, "scene"), "write the scene as a slash-separated path relative to the project, without ..", "scene %q is not a path inside the project", s.Scene)
 		}
 		if s.Recording != "" && (!localPath(s.Recording) || !strings.HasSuffix(s.Recording, ".replay.yaml")) {
-			return fmt.Errorf("storecapture: shot %q: recording %q must be a .replay.yaml file inside the project", s.Name, s.Recording)
+			return loaderr.Errorf(loaderr.Join(at, "recording"), "name a .replay.yaml file by its slash-separated path relative to the project", "recording %q is not a .replay.yaml file inside the project", s.Recording)
 		}
 		if s.Frame != nil && s.Time != nil {
-			return fmt.Errorf("storecapture: shot %q sets both frame and time", s.Name)
+			return loaderr.Errorf(loaderr.Join(at, "time"), "keep either frame or time", "shot %q sets both frame and time", s.Name)
 		}
 		if s.Frame != nil && *s.Frame < 0 {
-			return fmt.Errorf("storecapture: shot %q: frame %d is negative", s.Name, *s.Frame)
+			return loaderr.Errorf(loaderr.Join(at, "frame"), "set frame to 0 or more", "frame %d is negative", *s.Frame)
 		}
 		if s.Time != nil && (*s.Time < 0 || math.IsNaN(*s.Time) || math.IsInf(*s.Time, 0)) {
-			return fmt.Errorf("storecapture: shot %q: time %v must be a non-negative number of seconds", s.Name, *s.Time)
+			return loaderr.Errorf(loaderr.Join(at, "time"), "set time to a non-negative number of seconds", "time %v is invalid", *s.Time)
 		}
 		if !localPath(s.Output) {
-			return fmt.Errorf("storecapture: shot %q: output %q must be a slash-separated path inside the media directory", s.Name, s.Output)
+			return loaderr.Errorf(loaderr.Join(at, "output"), "write the output as a slash-separated path relative to the media directory, without ..", "output %q is not a path inside the media directory", s.Output)
 		}
 		if len(s.Sizes) == 0 {
-			return fmt.Errorf("storecapture: shot %q has no sizes", s.Name)
+			return loaderr.Errorf(loaderr.Join(at, "sizes"), "list at least one size", "shot %q has no sizes", s.Name)
 		}
-		for _, t := range s.Sizes {
+		for j, t := range s.Sizes {
 			size, err := t.Resolve()
 			if err != nil {
-				return fmt.Errorf("storecapture: shot %q: %w", s.Name, err)
+				return loaderr.Errorf(loaderr.Join(at, "sizes", j), "use one preset or a positive width and height", "%v", err)
 			}
 			file := imagePath(s.Output, size)
 			if other, ok := files[file]; ok {
-				return fmt.Errorf("storecapture: shots %q and %q both write %s", other, s.Name, file)
+				return loaderr.Errorf(loaderr.Join(at, "sizes", j), "give the shots different outputs or sizes", "shots %q and %q both write %s", other, s.Name, file)
 			}
 			files[file] = s.Name
 		}
@@ -194,25 +196,31 @@ func (p *Plan) Images() []Image {
 	return out
 }
 
-// Decode parses and validates a plan, refusing unknown fields and more than one YAML document.
+// Decode parses and validates a plan, refusing unknown fields and more than one YAML document. Its errors are *loaderr.Error values naming the line and field.
 func Decode(data []byte) (*Plan, error) {
 	var p Plan
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&p); err != nil {
-		return nil, fmt.Errorf("storecapture: %w", err)
+		if errors.Is(err, io.EOF) {
+			return nil, loaderr.Locate(loaderr.Errorf("", "write a versioned capture plan", "capture plan is empty"), "", data, "")
+		}
+		return nil, loaderr.Locate(fmt.Errorf("storecapture: decode: %w", err), "", data, "check the YAML syntax and field names of the capture plan")
 	}
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return nil, errors.New("storecapture: a plan is a single YAML document")
+		if err == nil {
+			return nil, loaderr.Locate(loaderr.Errorf("", "keep one YAML document per capture plan", "unexpected trailing YAML document"), "", data, "")
+		}
+		return nil, loaderr.Locate(fmt.Errorf("storecapture: decode: %w", err), "", data, "remove the YAML content after the plan")
 	}
 	if err := p.Validate(); err != nil {
-		return nil, err
+		return nil, loaderr.Locate(err, "", data, "")
 	}
 	return &p, nil
 }
 
-// LoadFile reads and decodes the plan at path.
+// LoadFile reads and decodes the plan at path, naming the file in its errors.
 func LoadFile(path string) (*Plan, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -220,7 +228,7 @@ func LoadFile(path string) (*Plan, error) {
 	}
 	p, err := Decode(b)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, loaderr.WithFile(err, path)
 	}
 	return p, nil
 }

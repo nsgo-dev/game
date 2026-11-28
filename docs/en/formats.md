@@ -681,6 +681,34 @@ layers:
     seed: 108
 ```
 
+<!-- format: tooling/storecapture -->
+### Store screenshot plan
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `store/capture.yaml`, read by `go tool game capture` | `version: 1` | `storecapture.Decode`, `storecapture.LoadFile`, `Plan.Encode` | [Store screenshot plan](shipping.md#store-screenshot-plan) |
+
+```yaml
+version: 1
+shots:
+  - name: title
+    scene: scenes/title.scene.yaml
+    frame: 30
+    output: title
+    sizes:
+      - preset: itch_cover
+      - preset: minigame_share
+  - name: boss
+    scene: scenes/boss.scene.yaml
+    recording: recordings/boss.replay.yaml
+    time: 2.5
+    output: play/boss
+    sizes:
+      - preset: google_play
+      - width: 2796
+        height: 1290
+```
+
 ## Scenes, resources and animation
 
 <!-- format: sceneformat -->
