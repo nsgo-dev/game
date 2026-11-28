@@ -118,6 +118,56 @@ func TestDefaultSettingsAndValidate(t *testing.T) {
 	}
 }
 
+func TestControlAndCameraSettingsRoundTripAndLegacyDefaults(t *testing.T) {
+	d := save.DefaultSettings()
+	if d.Controls.StickDeadZone != 0.15 || d.Controls.Vibration != 1 || d.Controls.MouseSensitivity != 1 || d.Camera.FieldOfView != 90 || d.Camera.CameraBob != 1 {
+		t.Fatalf("default controls/camera = %+v/%+v", d.Controls, d.Camera)
+	}
+
+	// Zero dead zone, vibration, bob and sway are player choices that survive validation and a store round trip.
+	s := save.DefaultSettings()
+	s.Controls = save.ControlSettings{MouseSensitivity: 2, StickSensitivity: 0.5, TouchSensitivity: 1, GyroSensitivity: 1, InvertY: true, StickDeadZone: 0, TriggerThreshold: 0.3, Vibration: 0}
+	s.Camera = save.CameraSettings{FieldOfView: 110, CameraBob: 0, CameraSway: 0, MotionBlur: true}
+	want := s
+	s.Validate()
+	if s.Controls != want.Controls || s.Camera != want.Camera {
+		t.Fatalf("Validate changed in-range values: %+v/%+v, want %+v/%+v", s.Controls, s.Camera, want.Controls, want.Camera)
+	}
+	store := save.NewFileSettingsStore(t.TempDir())
+	if err := store.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Controls != s.Controls || got.Camera != s.Camera {
+		t.Fatalf("round trip controls/camera = %+v/%+v, want %+v/%+v", got.Controls, got.Camera, s.Controls, s.Camera)
+	}
+
+	// A settings file written before the controls and camera sections existed loads their defaults.
+	legacy := save.DefaultSettings()
+	if err := json.Unmarshal([]byte(`{"audio":{"muted":true}}`), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Validate()
+	if legacy.Controls != d.Controls || legacy.Camera != d.Camera {
+		t.Fatalf("legacy controls/camera = %+v/%+v, want defaults", legacy.Controls, legacy.Camera)
+	}
+
+	out := save.Settings{
+		Controls: save.ControlSettings{MouseSensitivity: 50, StickSensitivity: 0.01, StickDeadZone: 2, TriggerThreshold: math.NaN(), Vibration: -1},
+		Camera:   save.CameraSettings{FieldOfView: 170, CameraBob: 3},
+	}
+	out.Validate()
+	if c := out.Controls; c.MouseSensitivity != save.MaxLookSensitivity || c.StickSensitivity != save.MinLookSensitivity || c.TouchSensitivity != 1 || c.StickDeadZone != save.MaxStickDeadZone || c.TriggerThreshold != 0.5 || c.Vibration != 0 {
+		t.Fatalf("clamped controls = %+v", c)
+	}
+	if c := out.Camera; c.FieldOfView != save.MaxFieldOfView || c.CameraBob != 1 {
+		t.Fatalf("clamped camera = %+v", c)
+	}
+}
+
 func TestStartupLoadAndApplyAllTargets(t *testing.T) {
 	run := func(t *testing.T, makeStore func(cx *core.Scope) *save.DefaultSettingsStore) {
 		var mixer *sound.Mixer

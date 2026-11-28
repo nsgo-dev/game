@@ -113,6 +113,9 @@ type Actions struct {
 	// gpMuted holds, per controller ID, a bit mask of the buttons held across Reset, which stay inactive until released.
 	gpMuted map[int]uint32
 
+	// look is the player's look preferences set with ApplyControlSettings, applied to stick, pointer and motion axes as they are read.
+	look lookPrefs
+
 	// Raw physical state as reported by events.
 	touches     map[int]core.Point
 	mousePos    core.Point

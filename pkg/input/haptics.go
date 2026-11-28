@@ -33,8 +33,6 @@ type Haptics struct {
 	// Enabled controls whether any haptic or rumble feedback is emitted (true by default).
 	// Set to false for accessibility or player preferences.
 	Enabled bool
-	// VibrationScale multiplies rumble strength and disables impact haptics at zero.
-	VibrationScale float32
 
 	// PulseInterval is how frequently mobile haptic pulses repeat during a continuous Rumble
 	// (50 ms when <= 0).
@@ -52,6 +50,8 @@ type Haptics struct {
 
 	cx         *core.Scope
 	background bool
+	// attenuation is 1 minus the player's vibration strength, so the zero value plays at full strength.
+	attenuation float32
 
 	steps     []RumbleStep
 	stepIdx   int
@@ -66,9 +66,8 @@ type Haptics struct {
 // and stops any active rumble when cx is disposed.
 func NewHaptics(cx *core.Scope) *Haptics {
 	h := &Haptics{
-		Enabled:        true,
-		VibrationScale: 1,
-		cx:             cx,
+		Enabled: true,
+		cx:      cx,
 	}
 	if cx != nil {
 		cx.Effect(func() {
@@ -83,20 +82,21 @@ func NewHaptics(cx *core.Scope) *Haptics {
 	return h
 }
 
-// SetVibrationScale clamps and stores the player's vibration strength in [0, 1].
+// SetVibrationScale sets the player's vibration strength, clamped to [0, 1] (NaN reads as 0). Rumble and PlayPattern multiply their motor strengths by it; at 0 no haptic or rumble is emitted and any active rumble stops. A Haptics starts at full strength (1).
 func (h *Haptics) SetVibrationScale(scale float32) {
 	if h == nil {
 		return
 	}
-	if math.IsNaN(float64(scale)) || scale < 0 {
-		scale = 0
-	} else if scale > 1 {
-		scale = 1
-	}
-	h.VibrationScale = scale
+	scale = clampFloat32Unit(scale)
+	h.attenuation = 1 - scale
 	if scale == 0 {
 		h.StopRumble()
 	}
+}
+
+// VibrationScale reports the player's vibration strength set with SetVibrationScale, 1 by default.
+func (h *Haptics) VibrationScale() float32 {
+	return 1 - h.attenuation
 }
 
 // SetEnabled sets h.Enabled and immediately stops any active rumble when disabling.
@@ -176,10 +176,7 @@ func (h *Haptics) Rumble(lowFreq, highFreq float32, duration time.Duration) {
 		h.StopRumble()
 		return
 	}
-	if h.VibrationScale <= 0 {
-		return
-	}
-	h.PlayPattern(RumbleStep{LowFreq: low * h.VibrationScale, HighFreq: high * h.VibrationScale, Duration: duration})
+	h.PlayPattern(RumbleStep{LowFreq: low, HighFreq: high, Duration: duration})
 }
 
 // PlayPattern runs a sequence of timed RumbleSteps, replacing any active rumble.
@@ -189,14 +186,15 @@ func (h *Haptics) PlayPattern(steps ...RumbleStep) {
 		h.StopRumble()
 		return
 	}
+	scale := h.VibrationScale()
 	filtered := make([]RumbleStep, 0, len(steps))
 	for _, s := range steps {
 		if s.Duration <= 0 {
 			continue
 		}
 		filtered = append(filtered, RumbleStep{
-			LowFreq:  clampFloat32Unit(s.LowFreq),
-			HighFreq: clampFloat32Unit(s.HighFreq),
+			LowFreq:  clampFloat32Unit(s.LowFreq) * scale,
+			HighFreq: clampFloat32Unit(s.HighFreq) * scale,
 			Duration: s.Duration,
 		})
 	}
@@ -290,7 +288,7 @@ func (h *Haptics) beginStep(idx int) {
 }
 
 func (h *Haptics) canEmit() bool {
-	if !h.Enabled || h.background || h.VibrationScale <= 0 {
+	if !h.Enabled || h.background || h.attenuation >= 1 {
 		return false
 	}
 	if h.cx != nil && h.cx.Disposed() {

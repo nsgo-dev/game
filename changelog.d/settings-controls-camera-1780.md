@@ -1,3 +1,6 @@
 ### Added
 
-- `save`, `input`, `scene3d`, `gameui`: persist and apply player look sensitivity, axis inversion, dead zones, vibration strength, field of view, camera motion, and motion blur settings (#1780).
+- `game/save`: `Settings.Controls` (`ControlSettings`: per-device look sensitivity, axis inversion, stick dead zone, trigger threshold and vibration strength) and `Settings.Camera` (`CameraSettings`: field of view, camera bob, camera sway and motion blur), validated on load with defaults for older settings files and dispatched through `SettingsTargets.ApplyControls` and `SettingsTargets.ApplyCamera` (#1780).
+- `game/input`: `ApplyControlSettings` scales, inverts and dead-zones every stick, pointer and motion axis by the player's settings without rewriting the declared bindings; `LookScale` returns a device's look multiplier; `Haptics.SetVibrationScale` and `ApplyControlSettingsToHaptics` scale rumble strength and silence haptics at 0 (#1780).
+- `game/scene3d`: `Camera.ApplyCameraSettings` sets a perspective camera's field of view and `MotionBlur` from the player's settings, and `FPSController` and `ThirdPersonController` store camera bob and sway strengths (#1780).
+- `game/gameui`: the settings menu's Controls tab has look sensitivity, inversion, dead zone, trigger threshold and vibration rows, plus field of view, camera bob, camera sway and motion blur rows with `SettingsMenuConfig.ShowCameraSettings`; Reset Controls restores them (#1780).

@@ -394,7 +394,7 @@ loop.OnPause = actions.SetPaused
 - **固定步长求值与回放一致性**：四项辅助全部在 `Step()` 内按固定步长频率（`SetStepRate`，默认 `DefaultStepRate` 即 60 Hz）求值。`MashToHold` 的合成脉冲每次触发之间至少间隔一个释放步长，使 `JustPressed` 每次都触发，且 `replay.Recorder` 与 `replay.Player` 回放完全一致。
 - **暂停、重置与持久化**：将 `loop.OnPause = actions.SetPaused`（或 `players.SetPaused`）接上，或调用 `ReleaseToggles()`，即可在暂停时释放所有已锁存的切换；`Reset()` 在失焦或切换场景时清空所有切换状态与计时器。`ToggleActive(name)` 可查询某动作当前是否处于切换锁存状态。`Actions.Save` / `Actions.Load` 会随键位一并持久化 `Assists`，同时也可通过 `save.Settings.InputAssists` 与玩家设置统一保存（参见 [a11y](a11y.md#玩家运动辅助)）。
 
-`ApplyControlSettings` 将 `save.ControlSettings` 应用到手柄、指针和运动传感器视角绑定。`LookScale` 返回经过校验的设备灵敏度，`ApplyControlSettingsToHaptics` 更新震动强度，而不会让 `Actions` 持有触觉实例。
+`ApplyControlSettings(actions, settings)` 将玩家的 `save.ControlSettings` 应用到 `actions` 上绑定的所有手柄摇杆、指针与运动传感器轴，之后新绑定的轴同样生效：每个绑定声明的 `Sensitivity` 乘以对应设备的视角灵敏度（1 表示保持不变），`InvertX` / `InvertY` 分别翻转水平轴与垂直轴声明的 `Invert`，`StickDeadZone` 替换摇杆绑定的死区（0 表示关闭死区）。绑定声明的选项本身保持不变，因此 `Actions.Save` 保存的仍是游戏的取值，再次应用新设置会替换上一次的偏好而不会叠加。`LookScale(settings, input.LookTouch)` 为读取原始位移（如触摸拖动）的相机代码返回经过校验的倍率。`ApplyControlSettingsToHaptics` 调用 `Haptics.SetVibrationScale`，按比例缩放震动与震动序列强度，为 0 时关闭所有触觉反馈，而不会让 `Actions` 持有触觉实例。
 
 ### 唤醒空闲的 `OnDemand` 循环
 

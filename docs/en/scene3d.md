@@ -76,6 +76,8 @@ tp.ObstructionCheck = scene3d.SceneObstructionCheck(sc, scene3d.LayerDefault, he
 tp.Update(cam, heroPos, heroForward, dt)
 ```
 
+Apply the player's `save.CameraSettings` with `cam.ApplyCameraSettings(settings)`, which sets a perspective camera's `FOVY` from the field of view in degrees and copies `MotionBlur` for renderers with a motion-blur pass, and with `ApplyCameraSettings` on `FPSController` and `ThirdPersonController`, which store `CameraBob` and `CameraSway` for the game's head-bob and sway code to scale its motion by.
+
 ### Projection, viewport and interpolation
 
 A camera's `Projection` is either perspective (`FOVY`, in radians) or orthographic (`OrthoHeight`, the visible height in world units), with `Aspect`, `Near` and `Far`; `ViewMatrix`, `ProjMatrix` and `ViewProj` give the matrices with [0, 1] clip depth, as WebGPU, Metal and Direct3D expect. Call `cam.SetViewport(width, height)` when the drawable resizes so `Aspect` follows it; sizes that are not positive and finite (zero, negative, NaN or infinite) leave the camera unchanged. `cam.Eye()` returns the homogeneous eye point: `(Pos, 1)` for a perspective camera and `(-Forward, 0)` for an orthographic one, whose eye lies at infinity, so a shader finds the direction toward the viewer as `normalize(eye.xyz - p * eye.w)` under both.

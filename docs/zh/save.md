@@ -106,7 +106,7 @@ err := store.LoadChecked("slot1", &snap, func() error {
 
 `NewDefaultSettingsStore`（`NewFileSettingsStore` / `NewStorageSettingsStore`）在存档槽之外独立保存 `Settings`（包含 `Audio`、`Bindings`、`Display`、`Controls`、`Camera`、`Locale`、`Accessibility`、`Custom`），同样具备版本信封与备份恢复。调用 `store.Subscribe(fn)` 可在每次 `Save`、`Reset` 或 `Delete` 成功时收到通知（`a11y.NewAssistFromSettings` 借此与 `gameui.SettingsMenu` 实时同步字幕、菜单与特效）。
 
-`Controls` 保存各设备的视角灵敏度、轴反转、摇杆死区、扳机阈值和震动强度。`Camera` 保存角度制视野、镜头摇晃与摆动强度以及运动模糊开关。加载时两部分都会校验，也可通过 `SettingsTargets.ApplyControls` 和 `SettingsTargets.ApplyCamera` 分发。
+`Controls` 保存各设备的视角灵敏度（倍率，范围 [`MinLookSensitivity`, `MaxLookSensitivity`]，默认 1）、轴反转、摇杆死区（[0, `MaxStickDeadZone`]，默认 0.15，0 表示关闭）、扳机阈值（默认 0.5，供自行读取模拟扳机的游戏使用）和震动强度（[0, 1]，默认 1）。`Camera` 保存以角度计的垂直视野（[`MinFieldOfView`, `MaxFieldOfView`]，默认 90）、镜头摇晃与摆动强度（[0, 1]，默认 1）以及运动模糊开关。加载时两部分都会校验，在它们出现之前写入的设置文件会加载默认值，并通过 `SettingsTargets.ApplyControls` 和 `SettingsTargets.ApplyCamera` 分发。
 
 `AccessibilitySettings` 是无障碍与玩法辅助偏好的唯一数据模型：
 

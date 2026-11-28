@@ -181,7 +181,7 @@ func (a *Actions) Delta(name string) float64 {
 	if !ok {
 		return 0
 	}
-	return b.scale(a.stepDX, a.stepDY)
+	return a.look.pointer(b).scale(a.stepDX, a.stepDY)
 }
 
 func (a *Actions) stepPointer() {
