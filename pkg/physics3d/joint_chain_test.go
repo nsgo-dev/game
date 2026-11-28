@@ -139,6 +139,60 @@ func TestRagdollDroppedOnSlopeKeepsJoints(t *testing.T) {
 	}
 }
 
+// TestJointReactionForgetsEarlierSubstepPeaks guards the substep reaction readout: a transient spike in one World.Step must not stay in ReactionForce for later steps.
+func TestJointReactionForgetsEarlierSubstepPeaks(t *testing.T) {
+	w := physics3d.NewWorld()
+	w.DisableSleep = true
+	anchor := w.AddBody(physics3d.NewStaticBody(physics3d.SphereShape(physics3d.Sphere{Radius: 0.05}), physics3d.Vec3{Y: 5}))
+	bob := w.AddBody(physics3d.NewDynamicBody(physics3d.SphereShape(physics3d.Sphere{Radius: 0.1}), physics3d.Vec3{Y: 4}, 1))
+	joint := physics3d.NewBallJoint(anchor, bob, physics3d.Vec3{}, physics3d.Vec3{Y: 1})
+	w.AddJoint(joint)
+	for range 60 {
+		w.Step(time.Second / 60)
+	}
+	rest := joint.ReactionForce().Len()
+	if math.Abs(float64(rest)-9.81) > 1 {
+		t.Fatalf("resting ReactionForce = %.3f N, want ~9.81 N", rest)
+	}
+
+	bob.Vel = physics3d.Vec3{X: 20}
+	w.Step(time.Second / 60)
+	spike := joint.ReactionForce().Len()
+	if spike < 10*rest {
+		t.Fatalf("spike ReactionForce = %.3f N, want well above the resting %.3f N", spike, rest)
+	}
+
+	bob.Pos = physics3d.Vec3{Y: 4}
+	bob.Vel = physics3d.Vec3{}
+	bob.AngVel = physics3d.Vec3{}
+	for range 30 {
+		w.Step(time.Second / 60)
+	}
+	if got := joint.ReactionForce().Len(); math.Abs(float64(got)-9.81) > 1 {
+		t.Fatalf("ReactionForce after the spike = %.3f N, want back to ~9.81 N (spike %.3f N)", got, spike)
+	}
+}
+
+func TestWorldSubstepSettingsSnapshotRoundTrip(t *testing.T) {
+	w := physics3d.NewWorld()
+	w.Substeps = 6
+	w.EnablePositionCleanup = true
+	snap := w.Save()
+	if snap.Substeps != 6 || !snap.EnablePositionCleanup {
+		t.Fatalf("snapshot Substeps = %d, EnablePositionCleanup = %v, want 6 and true", snap.Substeps, snap.EnablePositionCleanup)
+	}
+	fresh := physics3d.NewWorld()
+	if err := fresh.Restore(snap); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Substeps != 6 || !fresh.EnablePositionCleanup {
+		t.Fatalf("restored Substeps = %d, EnablePositionCleanup = %v, want 6 and true", fresh.Substeps, fresh.EnablePositionCleanup)
+	}
+	if fresh.Checksum() != w.Checksum() {
+		t.Fatalf("restored checksum %#x != saved %#x", fresh.Checksum(), w.Checksum())
+	}
+}
+
 func BenchmarkJointChain40(b *testing.B) {
 	for b.Loop() {
 		w, _ := makeRigidChain3D(40, false, 1)

@@ -23,6 +23,8 @@ const (
 type anchorJoint2D interface {
 	anchorBodies2D() (a, b *RigidBody, anchorA, anchorB core.Point)
 	anchorSoftness2D() (biasRate, gammaScale float64, soft bool)
+	// anchorSoftAt2D reports whether the joint's public Softness makes its anchor soft for substep length dt, without reading solver state from an earlier step.
+	anchorSoftAt2D(dt float64) bool
 	anchorAccImpulse2D() (ix, iy float64)
 	addAnchorImpulse2D(px, py float64, recordReaction bool)
 }
@@ -81,7 +83,7 @@ type jointTree2D struct {
 	rC          [][2]float64
 }
 
-func (t *jointTree2D) build(w *RigidWorld, joints []Joint) {
+func (t *jointTree2D) build(w *RigidWorld, joints []Joint, subH float64) {
 	t.edges = t.edges[:0]
 	t.velOrder = t.velOrder[:0]
 	t.rigidOrder = t.rigidOrder[:0]
@@ -123,7 +125,7 @@ func (t *jointTree2D) build(w *RigidWorld, joints []Joint) {
 		if bDyn {
 			nodeB = b.index + 1
 		}
-		_, _, soft := aj.anchorSoftness2D()
+		soft := aj.anchorSoftAt2D(subH)
 		if soft {
 			t.hasSoft = true
 		}

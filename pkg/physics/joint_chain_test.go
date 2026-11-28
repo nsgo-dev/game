@@ -1,6 +1,7 @@
 package physics_test
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -101,6 +102,75 @@ func TestRigidJointChainsDefaultSettings(t *testing.T) {
 			got += math.Hypot(float64(far.X-near.X), float64(far.Y-near.Y))
 			if stretch := math.Abs(got-rest) / rest; stretch >= tc.tolerance {
 				t.Fatalf("chain length = %.4f, rest = %.1f, stretch = %.3f%% (want < %.1f%%), sleeping=%v", got, rest, stretch*100, tc.tolerance*100, chain.bodies[tc.links-1].Sleeping())
+			}
+		})
+	}
+}
+
+// TestJointSoftnessSnapshotRoundTrip checks that soft joints and the position cleanup setting survive Save, JSON and Restore, and that the restored world keeps stepping identically.
+func TestJointSoftnessSnapshotRoundTrip(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		soft    physics.JointSoftness
+		cleanup bool
+	}{
+		{name: "rigid"},
+		{name: "cleanup", cleanup: true},
+		{name: "soft", soft: physics.JointSoftness{Hertz: 8, DampingRatio: 0.7}},
+		{name: "softCleanup", soft: physics.JointSoftness{Hertz: 8, DampingRatio: 0.7}, cleanup: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rw, chain := makeRigidChain2D(6, true, 1)
+			rw.EnablePositionCleanup = tc.cleanup
+			for _, j := range chain.joints {
+				j.Softness = tc.soft
+			}
+			rope := physics.NewDistanceJoint(chain.bodies[0], chain.bodies[5], core.Point{}, core.Point{}, 50)
+			rope.Softness = tc.soft
+			rw.AddJoint(rope)
+			for range 20 {
+				rw.Step(time.Second / 60)
+			}
+			raw, err := json.Marshal(rw.Save())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var snap physics.RigidWorldSnapshot
+			if err := json.Unmarshal(raw, &snap); err != nil {
+				t.Fatal(err)
+			}
+			var fresh physics.RigidWorld
+			if err := fresh.Restore(snap); err != nil {
+				t.Fatal(err)
+			}
+			if fresh.EnablePositionCleanup != tc.cleanup {
+				t.Fatalf("restored EnablePositionCleanup = %v, want %v", fresh.EnablePositionCleanup, tc.cleanup)
+			}
+			matched := 0
+			for _, j := range fresh.Joints {
+				switch j := j.(type) {
+				case *physics.RevoluteJoint:
+					if j.Softness == tc.soft {
+						matched++
+					}
+				case *physics.DistanceJoint:
+					if j.Softness == tc.soft {
+						matched++
+					}
+				}
+			}
+			if matched != 7 {
+				t.Fatalf("restored %d joints with Softness %+v, want 7", matched, tc.soft)
+			}
+			if fresh.Checksum() != rw.Checksum() {
+				t.Fatalf("restored checksum %#x != original %#x", fresh.Checksum(), rw.Checksum())
+			}
+			for step := range 60 {
+				rw.Step(time.Second / 60)
+				fresh.Step(time.Second / 60)
+				if fresh.Checksum() != rw.Checksum() {
+					t.Fatalf("step %d: checksums diverged: restored %#x, original %#x", step, fresh.Checksum(), rw.Checksum())
+				}
 			}
 		})
 	}

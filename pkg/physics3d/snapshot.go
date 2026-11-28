@@ -11,15 +11,11 @@ import (
 )
 
 // SnapshotVersion is the schema version stored in WorldSnapshot.
-// Version 4 added BodySnapshot.Bullet for per-body continuous collision against
-// dynamic bodies.
-// Version 3 added WorldSnapshot sleep settings (DisableSleep,
-// SleepLinearThreshold, SleepAngularThreshold, TimeToSleep) and
-// BodySnapshot.AllowSleep / AllowSleepSet.
-// Version 5 added WorldSnapshot.Substeps for deterministic substep settings.
-// Version 2 added WorldSnapshot.Materials and BodySnapshot.MaterialIndex so
-// shared *PhysicsMaterial identity survives Save and Restore. Restore still
-// reads version 1 through 3 snapshots and refuses any other version.
+// Version 2 added WorldSnapshot.Materials and BodySnapshot.MaterialIndex so shared *PhysicsMaterial identity survives Save and Restore.
+// Version 3 added WorldSnapshot sleep settings (DisableSleep, SleepLinearThreshold, SleepAngularThreshold, TimeToSleep) and BodySnapshot.AllowSleep / AllowSleepSet.
+// Version 4 added BodySnapshot.Bullet for per-body continuous collision against dynamic bodies.
+// Version 5 added WorldSnapshot.Substeps and EnablePositionCleanup for the substepped solver, and the per-substep peak impulses in JointReactionSnapshot.
+// Restore still reads version 1 through 4 snapshots and refuses any other version.
 const SnapshotVersion = 5
 
 // oldestSnapshotVersion is the oldest snapshot version Restore reads.
@@ -177,6 +173,9 @@ func (e *ContactEventSnapshot) UnmarshalJSON(data []byte) error {
 type JointReactionSnapshot struct {
 	StepLinearImpulse  Vec3    `json:"stepLinearImpulse"`
 	StepAngularImpulse Vec3    `json:"stepAngularImpulse"`
+	PeakLinearImpulse  Vec3    `json:"peakLinearImpulse,omitzero"`
+	PeakAngularImpulse Vec3    `json:"peakAngularImpulse,omitzero"`
+	Batched            bool    `json:"batched,omitempty"`
 	LastDt             float32 `json:"lastDt,omitempty"`
 	Broken             bool    `json:"broken,omitempty"`
 }
@@ -332,6 +331,7 @@ type WorldSnapshot struct {
 	Gravity               Vec3                      `json:"gravity"`
 	SolverIterations      int                       `json:"solverIterations"`
 	Substeps              int                       `json:"substeps,omitempty"`
+	EnablePositionCleanup bool                      `json:"enablePositionCleanup,omitempty"`
 	DisableSleep          bool                      `json:"disableSleep,omitempty"`
 	SleepLinearThreshold  float32                   `json:"sleepLinearThreshold,omitempty"`
 	SleepAngularThreshold float32                   `json:"sleepAngularThreshold,omitempty"`
@@ -456,6 +456,9 @@ func snapshotReaction(r jointReaction) JointReactionSnapshot {
 	return JointReactionSnapshot{
 		StepLinearImpulse:  r.stepLinearImpulse,
 		StepAngularImpulse: r.stepAngularImpulse,
+		PeakLinearImpulse:  r.peakLinearImpulse,
+		PeakAngularImpulse: r.peakAngularImpulse,
+		Batched:            r.batched,
 		LastDt:             r.lastDt,
 		Broken:             r.broken,
 	}
@@ -465,6 +468,9 @@ func restoreReaction(s JointReactionSnapshot) jointReaction {
 	return jointReaction{
 		stepLinearImpulse:  s.StepLinearImpulse,
 		stepAngularImpulse: s.StepAngularImpulse,
+		peakLinearImpulse:  s.PeakLinearImpulse,
+		peakAngularImpulse: s.PeakAngularImpulse,
+		batched:            s.Batched,
 		lastDt:             s.LastDt,
 		broken:             s.Broken,
 	}
@@ -913,6 +919,7 @@ func (w *World) Save() WorldSnapshot {
 		Gravity:               w.Gravity,
 		SolverIterations:      w.SolverIterations,
 		Substeps:              w.Substeps,
+		EnablePositionCleanup: w.EnablePositionCleanup,
 		DisableSleep:          w.DisableSleep,
 		SleepLinearThreshold:  w.SleepLinearThreshold,
 		SleepAngularThreshold: w.SleepAngularThreshold,
@@ -1438,6 +1445,7 @@ func (w *World) Restore(snap WorldSnapshot) error {
 	if w.Substeps <= 0 {
 		w.Substeps = DefaultSubsteps
 	}
+	w.EnablePositionCleanup = snap.EnablePositionCleanup
 	w.DisableSleep = snap.DisableSleep
 	w.SleepLinearThreshold = snap.SleepLinearThreshold
 	w.SleepAngularThreshold = snap.SleepAngularThreshold
@@ -1473,6 +1481,7 @@ func (w *World) Checksum() uint64 {
 	hashVec3(&h, w.Gravity)
 	h.WriteInt(w.SolverIterations)
 	h.WriteInt(w.Substeps)
+	h.WriteBool(w.EnablePositionCleanup)
 	h.WriteBool(w.DisableSleep)
 	h.WriteFloat32(w.SleepLinearThreshold)
 	h.WriteFloat32(w.SleepAngularThreshold)
@@ -1851,6 +1860,9 @@ func hashJointSnapshot(h *detmath.Hasher, js *JointSnapshot) {
 	h.WriteBool(js.CollideConnected)
 	hashVec3(h, js.Reaction.StepLinearImpulse)
 	hashVec3(h, js.Reaction.StepAngularImpulse)
+	hashVec3(h, js.Reaction.PeakLinearImpulse)
+	hashVec3(h, js.Reaction.PeakAngularImpulse)
+	h.WriteBool(js.Reaction.Batched)
 	h.WriteFloat32(js.Reaction.LastDt)
 	h.WriteBool(js.Reaction.Broken)
 	switch js.Kind {

@@ -20,29 +20,6 @@ type Joint3D interface {
 	SolvePosition(dt float32)
 }
 
-// JointSoftness configures optional harmonic spring-damper softness on a
-// joint. Hertz <= 0 keeps the joint rigid; positive Hertz sets its natural
-// frequency in cycles per second and DampingRatio its dimensionless damping
-// (1 is critically damped).
-type JointSoftness struct {
-	Hertz        float32 `json:"hertz,omitempty"`
-	DampingRatio float32 `json:"dampingRatio,omitempty"`
-}
-
-func makeJointSoftness(s JointSoftness, dt float32) (biasRate, gammaScale float32, soft bool) {
-	if !(s.Hertz > 0) || dt <= 0 {
-		return 0, 0, false
-	}
-	omega := 2 * math.Pi * s.Hertz
-	hOmega := dt * omega
-	a1 := 2*max(s.DampingRatio, 0) + hOmega
-	a2 := hOmega * a1
-	if a2 <= 1e-8 {
-		return 0, 0, false
-	}
-	return omega / a1, 1 / a2, true
-}
-
 type collideConnectedJoint interface {
 	collideConnected() bool
 }
@@ -70,51 +47,36 @@ type jointReaction struct {
 	peakAngularImpulse Vec3
 	lastDt             float32
 	broken             bool
-	keepImpulse        bool
-	batched            bool
-	batchScale         float32
-	batchLinearScale   float32
+	// batched is set for a World.Step with more than one substep: ReactionForce and ReactionTorque then report the largest per-substep impulse divided by the substep length.
+	batched bool
 }
 
+// resetStepReaction starts a new solve of the joint. World.Step prepares every joint twice per substep (once to wake islands, once before the solve), so inside a substepped step it only folds the impulse of the previous substep into the step's peak and never discards the peak itself.
 func (r *jointReaction) resetStepReaction(dt float32) {
-	if r.keepImpulse || r.batched {
+	if r.batched {
 		if r.stepLinearImpulse.LenSq() > r.peakLinearImpulse.LenSq() {
 			r.peakLinearImpulse = r.stepLinearImpulse
 		}
 		if r.stepAngularImpulse.LenSq() > r.peakAngularImpulse.LenSq() {
 			r.peakAngularImpulse = r.stepAngularImpulse
 		}
-		r.keepImpulse = false
-		r.stepLinearImpulse = Vec3{}
-		r.stepAngularImpulse = Vec3{}
-		r.lastDt = dt
-		return
 	}
+	r.stepLinearImpulse = Vec3{}
+	r.stepAngularImpulse = Vec3{}
+	r.lastDt = dt
+}
+
+// beginStepReaction clears the reaction at the start of a World.Step, so a peak never outlives the step that produced it. batched reports whether the step runs more than one substep.
+func (r *jointReaction) beginStepReaction(batched bool) {
 	r.stepLinearImpulse = Vec3{}
 	r.stepAngularImpulse = Vec3{}
 	r.peakLinearImpulse = Vec3{}
 	r.peakAngularImpulse = Vec3{}
-	r.batched = false
-	r.batchScale = 1
-	r.batchLinearScale = 1
-	r.lastDt = dt
-}
-
-func (r *jointReaction) preserveStepReaction(dt float32) {
-	r.keepImpulse = true
-	r.batched = true
-	r.lastDt = dt
+	r.batched = batched
 }
 
 func (r *jointReaction) finishStepReaction(dt float32) {
 	r.lastDt = dt
-}
-
-func (r *jointReaction) setReactionBatchScale(scale float32) {
-	if scale > 1 {
-		r.batchScale = scale
-		r.batchLinearScale = scale
-	}
 }
 
 func (r *jointReaction) addLinearImpulse(imp Vec3) {
@@ -408,9 +370,9 @@ func applyAngularPositionCorrection(a, b *Body, axis Vec3, angle float32) {
 	}
 }
 
-func solvePointAnchorVelocitySubstep(a, b *Body, localAnchorA, localAnchorB Vec3, dt float32, softness JointSoftness, acc *Vec3) Vec3 {
-	posA, rotA, velA, angA, invMA, invTA := bodyKinematics(a)
-	posB, rotB, velB, angB, invMB, invTB := bodyKinematics(b)
+func solvePointAnchorVelocity(a, b *Body, localAnchorA, localAnchorB Vec3) Vec3 {
+	_, rotA, velA, angA, invMA, invTA := bodyKinematics(a)
+	_, rotB, velB, angB, invMB, invTB := bodyKinematics(b)
 	if invMA+invMB == 0 && invTA.IsZero() && invTB.IsZero() {
 		return Vec3{}
 	}
@@ -420,39 +382,9 @@ func solvePointAnchorVelocitySubstep(a, b *Body, localAnchorA, localAnchorB Vec3
 	vB := velB.Add(angB.Cross(rB))
 	vRel := vB.Sub(vA)
 	k := pointConstraintMassMatrix(invMA, invTA, rA, invMB, invTB, rB)
-
-	biasRate, gammaScale, soft := makeJointSoftness(softness, dt)
-	if dt <= 0 && softness.Hertz > 0 {
-		// Soft constraints keep their compliant response out of the rigid relax pass.
-		return Vec3{}
-	}
-	if !soft {
-		impulse := k.Solve(vRel.Neg())
-		applyAnchorImpulse(a, b, rA, rB, impulse)
-		return impulse
-	}
-	rhs := vRel.Neg()
-	if dt > 0 {
-		if soft {
-			err := posB.Add(rotB.RotateVec(localAnchorB)).Sub(posA.Add(rotA.RotateVec(localAnchorA)))
-			rhs = rhs.Sub(err.Scale(biasRate))
-		}
-		if soft && acc != nil {
-			gamma := SymMat3{XX: k.XX * gammaScale, YY: k.YY * gammaScale, ZZ: k.ZZ * gammaScale, XY: k.XY * gammaScale, XZ: k.XZ * gammaScale, YZ: k.YZ * gammaScale}
-			k = k.Add(gamma)
-			rhs = rhs.Sub(gamma.MulVec(*acc))
-		}
-	}
-	impulse := k.Solve(rhs)
-	applyAnchorImpulse(a, b, rA, rB, impulse)
-	if soft && acc != nil {
-		*acc = acc.Add(impulse)
-	}
-	return impulse
-}
-
-func solvePointAnchorVelocity(a, b *Body, localAnchorA, localAnchorB Vec3) Vec3 {
-	return solvePointAnchorVelocitySubstep(a, b, localAnchorA, localAnchorB, 0, JointSoftness{}, nil)
+	j := k.Solve(vRel.Neg())
+	applyAnchorImpulse(a, b, rA, rB, j)
+	return j
 }
 
 func solvePointAnchorPosition(a, b *Body, localAnchorA, localAnchorB Vec3, stiffness float32) {
@@ -809,7 +741,7 @@ func (j *BallJoint) Prepare(dt float32) {
 // SolveVelocity solves the 3D socket point constraint and optional cone swing limit.
 func (j *BallJoint) SolveVelocity(dt float32) {
 	_ = dt
-	j.addLinearImpulse(solvePointAnchorVelocitySubstep(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB, dt, JointSoftness{}, nil))
+	j.addLinearImpulse(solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB))
 
 	if j.ConeLimit <= 0 {
 		return
