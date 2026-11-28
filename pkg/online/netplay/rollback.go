@@ -3,13 +3,16 @@ package netplay
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"slices"
 )
 
-// ErrRollbackWindowExceeded is returned when a late remote input arrives for a
-// tick older than the retained MaxRollback snapshot window.
+// ErrRollbackWindowExceeded is returned when a late remote input arrives for a tick older than the retained MaxRollback snapshot window. RollbackSession.Step also returns it, as ErrRollbackStalled, while a remote peer's inputs are MaxRollback ticks behind.
 var ErrRollbackWindowExceeded = errors.New("net: rollback window exceeded")
+
+// ErrRollbackStalled is returned by RollbackSession.Step, which then simulates no tick, while the oldest tick still waiting for a remote peer's input is MaxRollback ticks back: simulating further would put that tick beyond the snapshots kept, where its input could no longer be rolled back to. It matches ErrRollbackWindowExceeded with errors.Is. Unlike a late input beyond the window, it is temporary: Step advances again once the input arrives or the host removes the peer.
+var ErrRollbackStalled = fmt.Errorf("%w: waiting for remote input", ErrRollbackWindowExceeded)
 
 // InputFrame is a deterministic per-tick player input sample.
 type InputFrame struct {
@@ -540,8 +543,10 @@ func (s *LockstepSession) pruneChecksums(executedTick uint32) {
 	}
 }
 
+// recordRemoteChecksum keeps a member's checksum for a tick inside the checksum window, from lockstepChecksumHistory ticks back to as far ahead as inputs are taken, so a member cannot grow the map with checksums for ticks no peer runs yet or long since pruned.
 func (s *LockstepSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uint64) {
-	if peer == s.localID || s.member(peer) == nil {
+	d := tickDelta(tick, s.tick)
+	if peer == s.localID || s.member(peer) == nil || d < -lockstepChecksumHistory || d > maxLockstepLeadTicks {
 		return
 	}
 	m := s.remoteChecksums[tick]
@@ -806,10 +811,21 @@ func (s *RollbackSession) removeAt(mm *matchMember, leave uint32) (uint32, error
 	return leave, nil
 }
 
-// Step submits the local input (applied at currentTick + InputDelay), drains incoming packets (executing any needed rollbacks), simulates the next tick, and exchanges checksums for newly confirmed ticks. While the local peer takes no part (see Active) it only polls. It returns ErrSessionBacklog, after simulating the tick, when a remote peer has become unreachable for too long (see Poll).
+// Step submits the local input (applied at currentTick + InputDelay), drains incoming packets (executing any needed rollbacks), simulates the next tick, and exchanges checksums for newly confirmed ticks. While the local peer takes no part (see Active) it only polls. While the oldest unconfirmed tick is MaxRollback ticks back it only polls too, ignoring localInput, and returns ErrRollbackStalled until the missing inputs arrive. It returns ErrSessionBacklog, after simulating the tick, when a remote peer has become unreachable for too long (see Poll).
 func (s *RollbackSession) Step(localInput InputFrame) error {
 	if !s.Active() {
 		return s.Poll()
+	}
+	if s.stalled() {
+		if err := s.poll(); err != nil {
+			return err
+		}
+		if !s.Active() {
+			return s.takeBacklog()
+		}
+		if s.stalled() {
+			return errors.Join(ErrRollbackStalled, s.takeBacklog())
+		}
 	}
 	targetTick := s.currentTick + uint32(s.inputDelay)
 	localInput.Peer = s.localID
@@ -941,6 +957,11 @@ func (s *RollbackSession) broadcastLocalInput(in InputFrame) {
 			_ = s.send(mm.id, payload)
 		}
 	}
+}
+
+// stalled reports whether simulating the current tick would put the oldest unconfirmed tick more than MaxRollback ticks back, where a late input for it could no longer be rolled back to and the history kept for it would grow with every tick.
+func (s *RollbackSession) stalled() bool {
+	return int64(tickDelta(s.currentTick, s.nextToConfirm())) >= int64(s.maxRollback)
 }
 
 func (s *RollbackSession) storeConfirmed(in InputFrame) {
@@ -1230,8 +1251,9 @@ func (s *RollbackSession) advanceConfirmedAndChecksums() {
 	}
 }
 
+// recordRemoteChecksum keeps a member's checksum for a tick from the checksum floor to maxRollbackLeadTicks ahead, so a member cannot grow the map with checksums for ticks this peer will never compute or has already pruned.
 func (s *RollbackSession) recordRemoteChecksum(tick uint32, peer PeerID, sum uint64) {
-	if peer == s.localID || s.member(peer) == nil || tickDelta(tick, s.currentTick) > maxRollbackLeadTicks {
+	if peer == s.localID || s.member(peer) == nil || tickBefore(tick, s.checksumFloor()) || tickDelta(tick, s.currentTick) > maxRollbackLeadTicks {
 		return
 	}
 	m := s.remoteChecksums[tick]
@@ -1316,23 +1338,44 @@ func (s *RollbackSession) pruneHistory() {
 			}
 		}
 	}
-	// Keep checksums for a wider window (256 ticks) for delayed verification,
-	// without dropping unconfirmed ticks.
-	if tickDelta(s.currentTick, s.start) > 256 {
-		sumFloor := tickMin(s.currentTick-256, floor)
-		if tickAfter(sumFloor, s.start) {
-			for t := range s.computedChecksums {
-				if tickBefore(t, sumFloor) {
-					delete(s.computedChecksums, t)
-					delete(s.remoteChecksums, t)
-					delete(s.sentChecksum, t)
-				}
+	// Keep checksums for a wider window for delayed verification, without dropping unconfirmed ticks. Each map is pruned by its own ticks: a remote checksum may name a tick this peer never computed one for.
+	if sumFloor := s.checksumFloor(); tickAfter(sumFloor, s.start) {
+		for t := range s.computedChecksums {
+			if tickBefore(t, sumFloor) {
+				delete(s.computedChecksums, t)
 			}
-			for k := range s.reportedDesync {
-				if tickBefore(k.tick, sumFloor) {
-					delete(s.reportedDesync, k)
-				}
+		}
+		for t := range s.remoteChecksums {
+			if tickBefore(t, sumFloor) {
+				delete(s.remoteChecksums, t)
+			}
+		}
+		for t := range s.sentChecksum {
+			if tickBefore(t, sumFloor) {
+				delete(s.sentChecksum, t)
+			}
+		}
+		for k := range s.reportedDesync {
+			if tickBefore(k.tick, sumFloor) {
+				delete(s.reportedDesync, k)
 			}
 		}
 	}
+}
+
+// rollbackChecksumHistory is how many ticks of checksums a rollback session keeps for delayed verification, beyond the ticks it keeps for rollback and confirmation.
+const rollbackChecksumHistory = 256
+
+// checksumFloor returns the oldest tick whose checksums the session keeps: rollbackChecksumHistory ticks back, or further back while the ticks there are kept for rollback or still wait for confirmation, and never before the session's start.
+func (s *RollbackSession) checksumFloor() uint32 {
+	if !s.hasConfirmed || tickDelta(s.currentTick, s.start) <= rollbackChecksumHistory {
+		return s.start
+	}
+	floor := s.currentTick - rollbackChecksumHistory
+	if int64(tickDelta(s.currentTick, s.start)) <= int64(s.maxRollback)+2 {
+		return s.start
+	}
+	floor = tickMin(floor, s.currentTick-uint32(s.maxRollback)-2)
+	floor = tickMin(floor, s.confirmedTick-1)
+	return tickMax(floor, s.start)
 }
