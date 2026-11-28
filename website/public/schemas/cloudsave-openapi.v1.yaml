@@ -273,7 +273,9 @@ components:
       description: >-
         Signed bearer token from the account service (pkg/online/accounts),
         verified offline with accounts/authtoken. The token's subject is the account
-        ID.
+        ID. Only a token for the service's audience (Config.TokenAudience,
+        "cloudsave" by default) is accepted; a token for game servers is
+        invalid_token.
 
   parameters:
     Slot:

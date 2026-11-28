@@ -25,7 +25,7 @@ const maxCloudListingBytes = 8 << 20
 type CloudClientOptions struct {
 	// URL is the base URL of the cloud save service (package cloudsave), such as "https://saves.example.com". It must use https, except on a loopback host (localhost, 127.0.0.1, ::1) during development. Required.
 	URL string
-	// Token returns a current bearer token from the account service for the signed-in player, getting a new one when the last has expired. Every device signed in to the same account reads and writes the same slots. Required.
+	// Token returns a current bearer token from the account service for the signed-in player and the cloud save service's audience ("cloudsave" by default: POST /v1/refresh with that audience), getting a new one when the last has expired. The token a sign-in returns is for game servers, and the service refuses it. Every device signed in to the same account reads and writes the same slots. Required.
 	Token func(ctx context.Context) (string, error)
 	// HTTPClient sends the requests; http.DefaultClient when nil. The client uses a copy that does not follow redirects. On the web its requests go through the browser's fetch, so the page's origin must be in the service's allowedOrigins.
 	HTTPClient *http.Client

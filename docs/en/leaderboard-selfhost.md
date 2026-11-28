@@ -19,6 +19,7 @@ The service reads its boards from a versioned YAML file:
 
 ```yaml
 version: 1
+audience: leaderboard
 proofTTL: 10m
 boards:
   - name: high-score
@@ -42,6 +43,7 @@ allowedOrigins:
 | Field | Meaning |
 | --- | --- |
 | `version` | Schema version, `1` |
+| `audience` | The token audience the handler accepts, `leaderboard` when absent; the account service must list it in its `audiences`, and it must differ from the key set's audience |
 | `proofTTL` | How old a game server's score proof may be, from `1s` to `24h`; `10m` when absent |
 | `boards` | The boards, in the order the service lists them |
 | `name` | The board's key in URLs and in the data directory: `a-z`, `0-9`, `.`, `_` and `-`, up to 64 characters, starting with a letter or digit |
@@ -65,7 +67,7 @@ Periods are in UTC. A daily or weekly board starts a new, empty period at its re
 ```go
 svc, err := selfhost.New(ctx, cfg, selfhost.Options{
 	Store:  store,      // selfhost.OpenFileStore("scores", selfhost.FileStoreOptions{})
-	Tokens: verifier,   // an authtoken.Verifier for the account service's key set
+	Tokens: verifier,   // authtoken.NewVerifierFor(keySet, cfg.TokenAudience()), not authtoken.NewVerifier
 	Logger: slog.Default(),
 })
 
@@ -105,7 +107,7 @@ A proof is `v1.<key id>.<unix seconds>.<signature>`, an Ed25519 signature over t
 
 ## HTTP
 
-`Service.Handler` serves the service as JSON. Every request except `GET /v1/openapi.yaml` carries the player's account token as `Authorization: Bearer <token>`; the handler verifies it offline with `Options.Tokens`, and its subject is the account a score is submitted for, so a player can only submit their own scores. The full machine-readable contract is published as an [OpenAPI 3.1 description](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) and served live at `GET /v1/openapi.yaml`.
+`Service.Handler` serves the service as JSON. Every request except `GET /v1/openapi.yaml` carries the player's account token as `Authorization: Bearer <token>`; the handler verifies it offline with `Options.Tokens` and accepts only a token for the configuration's audience (see [Token audiences](accounts.md#token-audiences)), so the token a player sends a game server cannot submit scores for them; `New` refuses a verifier for another audience. The token's subject is the account a score is submitted for, so a player can only submit their own scores. The full machine-readable contract is published as an [OpenAPI 3.1 description](https://game.nsgo.dev/schemas/leaderboard-selfhost-openapi.v1.yaml) and served live at `GET /v1/openapi.yaml`.
 
 | Request | Response |
 | --- | --- |
@@ -138,4 +140,4 @@ leaderboardd genkey -key server.pem
 leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -addr :8081
 ```
 
-`init` writes a configuration with one all-time `high-score` board and no `allowedOrigins` to edit; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `leaderboards.yaml` before `serve`. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), keeps scores under `-data`, and stops on SIGINT or SIGTERM. `-sync` flushes every score to the disk before acknowledging it, for a machine that may lose power.
+`init` writes a configuration with one all-time `high-score` board and no `allowedOrigins` to edit; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `leaderboards.yaml` before `serve`. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), accepts only those for the configuration's `audience`, refuses to start when that is the key set's audience, which names the game's servers, keeps scores under `-data`, and stops on SIGINT or SIGTERM. `-sync` flushes every score to the disk before acknowledging it, for a machine that may lose power.

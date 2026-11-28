@@ -29,9 +29,14 @@ func TestRotatedServiceStillAcceptsOldTokens(t *testing.T) {
 		o.Key = newKey
 		o.KeySet = oldKeys
 	})
+	// A token for the account service itself, signed with the old key before the restart.
+	old, err := before.svc.RefreshFor(context.Background(), guest.Session, accounts.ServiceAudience)
+	if err != nil {
+		t.Fatal(err)
+	}
 	h := after.svc.Handler()
 	var me struct{ Account string }
-	if code, _ := call(t, h, "GET", "/v1/me", guest.Token.Reveal(), "", &me); code != http.StatusOK || me.Account != guest.AccountID {
+	if code, _ := call(t, h, "GET", "/v1/me", old.Token.Reveal(), "", &me); code != http.StatusOK || me.Account != guest.AccountID {
 		t.Fatalf("me with an old-key token after rotation = %d %+v", code, me)
 	}
 	rec := httptest.NewRecorder()

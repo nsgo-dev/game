@@ -21,7 +21,7 @@ An account is a permanent random ID. Key everything the game keeps for a player 
 Every sign-in returns `Credentials`:
 
 - `Session` is a long-lived secret the device stores. It gets new tokens with `Refresh` and is revoked by `SignOut`. For a guest it is the only way back into the account.
-- `Token` is a short-lived signed token the game sends its server. It expires after the configured `tokenTTL`.
+- `Token` is a short-lived signed token the game sends its server. It expires after the configured `tokenTTL`, and it is good only for game servers: see [Token audiences](#token-audiences).
 - `Created` reports whether the sign-in created the account.
 
 ```go
@@ -36,6 +36,7 @@ guest, _ := svc.CreateGuest(ctx)                                  // play at onc
 _ = svc.LinkEmail(ctx, guest.AccountID, "ada@example.com", pass)  // upgrade, same ID
 again, _ := svc.SignInEmail(ctx, "ada@example.com", pass)         // a second device
 fresh, _ := svc.Refresh(ctx, again.Session)                       // a new token
+saves, _ := svc.RefreshFor(ctx, again.Session, "cloudsave")       // a token for cloud save
 ```
 
 | Method | What it does |
@@ -46,10 +47,11 @@ fresh, _ := svc.Refresh(ctx, again.Session)                       // a new token
 | `SignInEmail` | Signs in with an email address and password |
 | `SignInIdentity` | Signs in with a provider credential, creating the account when the identity is new |
 | `LinkIdentity` | Links a provider identity to an account |
-| `Refresh` / `SignOut` | A new token for a session / revokes the session |
+| `Refresh` / `SignOut` | A new game server token for a session / revokes the session |
+| `RefreshFor` | A new token for a session meant for another audience: `ServiceAudience` or one of `audiences` |
 | `Profile` | The account, its email address and its identities; `Profile.Guest` reports a guest |
 
-Errors are `ErrNotFound`, `ErrTaken` (the address or identity belongs to another account), `ErrAlreadyLinked`, `ErrInvalidCredentials` (never saying whether the address, the password or the session was wrong), `ErrInvalidEmail`, `ErrWeakPassword` and `ErrUnknownProvider`.
+Errors are `ErrNotFound`, `ErrTaken` (the address or identity belongs to another account), `ErrAlreadyLinked`, `ErrInvalidCredentials` (never saying whether the address, the password or the session was wrong), `ErrInvalidEmail`, `ErrWeakPassword`, `ErrUnknownProvider` and `ErrUnknownAudience` (a `RefreshFor` audience the configuration does not offer).
 
 ## Identities
 
@@ -67,6 +69,18 @@ Linking an identity lets a second device sign in to the same account with `SignI
 
 The service never shows a verifier's error to the caller or logs it, since it may quote the credential; the caller gets `ErrInvalidCredentials`.
 
+## Token audiences
+
+A token names the one consumer it is for in its audience, and each consumer accepts only its own:
+
+| Audience | Who accepts it | How a device gets one |
+| --- | --- | --- |
+| `audience` of the configuration (`my-game`) | the game's servers, with `authtoken.NewVerifier` | every sign-in, `Refresh` |
+| `accounts` (`ServiceAudience`) | the service's own `GET /v1/me` and `POST /v1/link/*` | `RefreshFor(session, "accounts")` |
+| an entry of `audiences` (`cloudsave`, `leaderboard`) | that service, with `authtoken.NewVerifierFor` | `RefreshFor(session, "cloudsave")` |
+
+A player sends the game server token to every server it joins, and whoever runs that server can replay it until it expires. Because cloud save, the leaderboard and the account service refuse it, a game server learns who the player is and nothing more: it cannot read, overwrite or purge the player's saves, submit scores for them, or link an email address or identity to their account. A device keeps its session to itself and sends each service only a token for that service.
+
 ## Verifying tokens on a game server
 
 A token is a compact JWT signed with Ed25519 (`"alg": "EdDSA"`) holding the issuer, the account ID as subject, the audience, the issue and expiry times and a random ID. The game server loads the service's public keys from a key set file and verifies each token without a network call:
@@ -82,7 +96,7 @@ if err != nil { /* refuse the player */ }
 player := claims.Subject // the account ID
 ```
 
-`Verify` checks the signature, the issuer, the audience and the expiry, and its errors wrap `ErrMalformed`, `ErrUnknownKey`, `ErrSignature`, `ErrIssuer`, `ErrAudience`, `ErrExpired` or `ErrNotYetValid`. Tokens longer than `MaxLength` are refused before any work. A revoked session stops getting new tokens, but tokens already issued stay valid until they expire, so keep `tokenTTL` short.
+`NewVerifier` accepts the key set's audience, the game server one. A service that acts for the player verifies its own audience instead, with `authtoken.NewVerifierFor(ks, "cloudsave")`. `Verify` checks the signature, the issuer, the audience and the expiry, and its errors wrap `ErrMalformed`, `ErrUnknownKey`, `ErrSignature`, `ErrIssuer`, `ErrAudience`, `ErrExpired` or `ErrNotYetValid`. Tokens longer than `MaxLength` are refused before any work. A revoked session stops getting new tokens, but tokens already issued stay valid until they expire, so keep `tokenTTL` short.
 
 The key set file:
 
@@ -105,6 +119,9 @@ The service reads a versioned YAML file:
 version: 1
 issuer: https://accounts.example.com
 audience: my-game
+audiences:
+  - cloudsave
+  - leaderboard
 tokenTTL: 15m
 password:
   minLength: 10
@@ -119,14 +136,15 @@ allowedOrigins:
 | Field | Meaning |
 | --- | --- |
 | `version` | Schema version, `1` |
-| `issuer` / `audience` | Written into every token and checked by verifiers |
+| `issuer` / `audience` | Written into every token and checked by verifiers; `audience` names the game's servers and the key set, and may not be `accounts` |
+| `audiences` | The other services a device may get tokens for with `RefreshFor`, such as `cloudsave` and `leaderboard`; never the game's audience or `accounts`, which is always available; omitted when empty |
 | `tokenTTL` | Token lifetime, whole seconds from `1s` to `24h` |
 | `disableGuests` | Refuses `CreateGuest`, so every account starts with an email address or an identity |
 | `password.minLength` | Fewest characters in a password, at least 8; passwords are at most 1024 bytes |
 | `password.argon2id` | The argon2id cost: passes, memory in KiB and lanes |
 | `allowedOrigins` | Web origins whose pages may call the service; omitted when empty |
 
-`ParseConfig` refuses unknown fields, trailing documents, out-of-range values and an origin that is duplicated or has a path, query, fragment, user, wildcard, port outside 1 to 65535 or scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above, durations in their shortest text (`15m`, not `15m0s`), `disableGuests` only when it is true and `allowedOrigins` only when it has entries. A file in that form, such as one `Marshal` or `accountsd init` wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized. `DefaultConfig` returns the settings shown, without origins.
+`ParseConfig` refuses unknown fields, trailing documents, out-of-range values and an origin that is duplicated or has a path, query, fragment, user, wildcard, port outside 1 to 65535 or scheme other than `http` and `https`. `Config.Marshal` writes the canonical form: the fields in the order above, durations in their shortest text (`15m`, not `15m0s`), `disableGuests` only when it is true and `audiences` and `allowedOrigins` only when they have entries. A file in that form, such as one `Marshal` or `accountsd init` wrote, reads back and writes again unchanged; a hand-written file in another order or spelling is normalized. `DefaultConfig` returns the settings shown, without origins. A version 1 file without `audiences` still reads, but its service then issues tokens only for game servers and for itself, so add the audiences of the cloud save and leaderboard services it serves.
 
 ## Passwords and secrets
 
@@ -165,14 +183,14 @@ func TestContract(t *testing.T) {
 | `POST /v1/register` | `{"email", "password"}` | credentials |
 | `POST /v1/signin/email` | `{"email", "password"}` | credentials |
 | `POST /v1/signin/identity` | `{"provider", "credential"}` | credentials |
-| `POST /v1/refresh` | `{"session"}` | credentials |
+| `POST /v1/refresh` | `{"session", "audience"}`, `audience` optional | credentials |
 | `POST /v1/signout` | `{"session"}` | 204 |
-| `POST /v1/link/email` | `{"email", "password"}`, with a bearer token | 204 |
-| `POST /v1/link/identity` | `{"provider", "credential"}`, with a bearer token | 204 |
-| `GET /v1/me` | bearer token | profile |
+| `POST /v1/link/email` | `{"email", "password"}`, with an `accounts` bearer token | 204 |
+| `POST /v1/link/identity` | `{"provider", "credential"}`, with an `accounts` bearer token | 204 |
+| `GET /v1/me` | `accounts` bearer token | profile |
 | `GET /v1/keys` | | the key set as YAML |
 
-Credentials are `{"account", "session", "token", "expires", "created"}`, with status 201 when the account is new. Errors are `{"error": code}`: `invalid_credentials` and `invalid_token` 401, `guests_disabled` 403, `not_found` 404, `taken` and `already_linked` 409, `request_too_large` 413, `bad_request`, `invalid_email`, `weak_password` and `unknown_provider` 400, `unavailable` 503 when the request was cancelled or timed out (for example while waiting for a password hash slot under load), and `internal` 500. Request bodies are limited to 32 KiB and unknown fields are refused. For `allowedOrigins` the handler answers CORS preflight requests and allows `Authorization` and `Content-Type`; other origins receive no CORS headers. The handler does not limit request rates: run it behind TLS and a rate limiter.
+Credentials are `{"account", "session", "token", "expires", "created"}`, with status 201 when the account is new. A sign-in's token is for game servers; `refresh` with `audience` returns one for that audience instead. The bearer endpoints accept only a token for `accounts` and answer `invalid_token` to any other. Errors are `{"error": code}`: `invalid_credentials` and `invalid_token` 401, `guests_disabled` 403, `not_found` 404, `taken` and `already_linked` 409, `request_too_large` 413, `bad_request`, `invalid_email`, `weak_password`, `unknown_provider` and `unknown_audience` 400, `unavailable` 503 when the request was cancelled or timed out (for example while waiting for a password hash slot under load), and `internal` 500. Request bodies are limited to 32 KiB and unknown fields are refused. For `allowedOrigins` the handler answers CORS preflight requests and allows `Authorization` and `Content-Type`; other origins receive no CORS headers. The handler does not limit request rates: run it behind TLS and a rate limiter.
 
 ## accountsd
 

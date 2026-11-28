@@ -92,7 +92,7 @@ func TestInitGenkeyAndServe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, claims, err := signer.Issue("acct-1")
+	tok, claims, err := signer.IssueFor("acct-1", selfhost.DefaultAudience)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,5 +117,59 @@ func TestRunRefusesUnknownCommands(t *testing.T) {
 		if err := run(context.Background(), args, io.Discard, io.Discard); err == nil {
 			t.Errorf("run(%q) succeeded", args)
 		}
+	}
+}
+
+// TestServeRefusesGameServerToken checks that a token a game server receives from a joining player cannot submit scores for that player: leaderboardd accepts only tokens issued for its own audience.
+func TestServeRefusesGameServerToken(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "leaderboards.yaml")
+	ctx := context.Background()
+	if err := run(ctx, []string{"init", "-config", cfgPath}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	accountKey, err := authtoken.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := authtoken.NewSigner(accountKey, "https://accounts.example.com", "my-game", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ksData, err := signer.KeySet().Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ksPath := filepath.Join(dir, "keys.yaml")
+	if err := os.WriteFile(ksPath, ksData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc, store, err := service(ctx, cfgPath, ksPath, filepath.Join(dir, "scores"), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	gameTok, _, err := signer.Issue("acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/v1/boards/high-score/scores", strings.NewReader(`{"score":4200}`))
+	req.Header.Set("Authorization", "Bearer "+gameTok)
+	rec := httptest.NewRecorder()
+	svc.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("submit with a game server token = %d %s, want 401", rec.Code, rec.Body)
+	}
+
+	// A configuration naming the game servers' audience would accept their tokens again, so serve refuses it.
+	cfgData, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte(strings.Replace(string(cfgData), "audience: leaderboard\n", "audience: my-game\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service(ctx, cfgPath, ksPath, filepath.Join(dir, "scores"), false, nil); err == nil || !strings.Contains(err.Error(), "game servers' audience") {
+		t.Fatalf("service with the game servers' audience = %v", err)
 	}
 }

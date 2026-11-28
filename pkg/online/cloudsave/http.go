@@ -22,7 +22,7 @@ const (
 	HeaderVersion = "Save-Version"
 )
 
-// Handler serves the service over HTTP. Every request except GET /v1/openapi.yaml needs "Authorization: Bearer <token>" with a token from the account service; slots are those of the token's subject. Slot names are path segments, escaped as url.PathEscape does. The machine-readable OpenAPI 3.1 description lives in openapi.yaml and is served at GET /v1/openapi.yaml.
+// Handler serves the service over HTTP. Every request except GET /v1/openapi.yaml needs "Authorization: Bearer <token>" with a token from the account service for Config.TokenAudience, which a device gets with the account service's refresh; a token for any other audience, such as the one a player sends a game server, is invalid_token. Slots are those of the token's subject. Slot names are path segments, escaped as url.PathEscape does. The machine-readable OpenAPI 3.1 description lives in openapi.yaml and is served at GET /v1/openapi.yaml.
 //
 //	GET    /v1/openapi.yaml                -> the OpenAPI 3.1 description (unauthenticated)
 //	GET    /v1/saves                       -> {"slots": [version]}

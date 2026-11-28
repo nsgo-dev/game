@@ -76,14 +76,14 @@ func newContractService(t *testing.T, store Store, mutate func(*Config)) (*Servi
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := authtoken.NewVerifier(signer.KeySet())
-	if err != nil {
-		t.Fatal(err)
-	}
 	cfg := DefaultConfig()
 	cfg.AllowedOrigins = []string{"https://play.example.com"}
 	if mutate != nil {
 		mutate(&cfg)
+	}
+	verifier, err := authtoken.NewVerifierFor(signer.KeySet(), cfg.TokenAudience())
+	if err != nil {
+		t.Fatal(err)
 	}
 	if store == nil {
 		store = NewMemoryStore()
@@ -98,7 +98,7 @@ func newContractService(t *testing.T, store Store, mutate func(*Config)) (*Servi
 
 func issueToken(t *testing.T, signer *authtoken.Signer, account string) string {
 	t.Helper()
-	tok, _, err := signer.Issue(account)
+	tok, _, err := signer.IssueFor(account, DefaultAudience)
 	if err != nil {
 		t.Fatal(err)
 	}

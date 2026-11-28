@@ -21,6 +21,8 @@ var (
 	ErrWeakPassword = errors.New("accounts: password too short or too long")
 	// ErrUnknownProvider reports an identity provider the service has no verifier for.
 	ErrUnknownProvider = errors.New("accounts: unknown identity provider")
+	// ErrUnknownAudience reports a token request for an audience that is neither the game's, ServiceAudience nor one of Config.Audiences.
+	ErrUnknownAudience = errors.New("accounts: unknown token audience")
 	// ErrGuestsDisabled reports CreateGuest on a service configured with DisableGuests.
 	ErrGuestsDisabled = errors.New("accounts: guest accounts are disabled")
 )
