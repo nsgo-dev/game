@@ -22,6 +22,14 @@
       "description": "AppVersion is the game's release version, such as 0.1.0, which nsgo.yaml's version follows.",
       "type": "string"
     },
+    "origin": {
+      "description": "Origin records the source used by game new, when the project was copied from a template, example, directory, or pack.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Origin"
+        }
+      ]
+    },
     "window": {
       "description": "Window is the main window's size, limits, title and appearance.",
       "allOf": [
@@ -1246,6 +1254,32 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/NavAgent"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Origin": {
+      "description": "Origin describes where a project created by game new came from.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Kind is what the project was copied from: template for a template game new embeds, or example, directory or pack.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Source names the source: the Go module of a template, or the directory a copy was made from.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Path is the template's name, such as cards2d, when Kind is template.",
+          "type": "string"
+        },
+        "keep": {
+          "description": "Keep lists the template residue warnings game check leaves out for a deliberate as-is copy: rules, data, name, readme or credits.",
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       },

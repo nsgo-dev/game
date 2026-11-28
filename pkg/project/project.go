@@ -40,6 +40,8 @@ type File struct {
 	ID string `yaml:"id" schema:"required"`
 	// AppVersion is the game's release version, such as 0.1.0, which nsgo.yaml's version follows.
 	AppVersion string `yaml:"appVersion" schema:"required"`
+	// Origin records the source used by game new, when the project was copied from a template, example, directory, or pack.
+	Origin *Origin `yaml:"origin,omitempty"`
 	// Window is the main window's size, limits, title and appearance.
 	Window Window `yaml:"window" schema:"required"`
 	// Display is the virtual resolution the game draws at; nil draws at the window's own size.
@@ -62,18 +64,22 @@ type File struct {
 	Navigation *Navigation `yaml:"navigation,omitempty"`
 	// Packs records the library packs installed into the project, in the order they were first installed: the files each wrote and the autoload entries and editor plugins each added, so that a later install of the pack can update it and a removal can undo it (see the tooling/library package). nil records none.
 	Packs []Pack `yaml:"packs,omitempty"`
-	// Origin records the source this project was created from.
-	Origin *Origin `yaml:"origin,omitempty"`
 }
 
-// Origin identifies the baseline used by starter-residue checks.
+// Origin describes where a project created by game new came from.
 type Origin struct {
-	Kind    string   `yaml:"kind" schema:"required,enum=template|example|directory|pack"`
-	Name    string   `yaml:"name" schema:"required"`
-	Version string   `yaml:"version,omitempty"`
-	Digest  string   `yaml:"digest,omitempty"`
-	Keep    []string `yaml:"keep,omitempty,flow"`
+	// Kind is what the project was copied from: template for a template game new embeds, or example, directory or pack.
+	Kind string `yaml:"kind"`
+	// Source names the source: the Go module of a template, or the directory a copy was made from.
+	Source string `yaml:"source"`
+	// Path is the template's name, such as cards2d, when Kind is template.
+	Path string `yaml:"path,omitempty"`
+	// Keep lists the template residue warnings game check leaves out for a deliberate as-is copy: rules, data, name, readme or credits.
+	Keep []string `yaml:"keep,omitempty,flow"`
 }
+
+// OriginKeep are the values Origin.Keep accepts, one per template residue warning game check reports.
+var OriginKeep = []string{"rules", "data", "name", "readme", "credits"}
 
 // Window is the main window's content size in points, its size limits, its title and its appearance.
 type Window struct {
@@ -749,16 +755,6 @@ func Validate(f *File) error {
 	if f == nil {
 		return loaderr.Errorf("", fixProject, "project: nil project file")
 	}
-	if f.Origin != nil {
-		if f.Origin.Kind != "template" && f.Origin.Kind != "example" && f.Origin.Kind != "directory" && f.Origin.Kind != "pack" {
-			return loaderr.Errorf("origin.kind", "set origin.kind to template, example, directory, or pack", "project: unknown origin kind %q", f.Origin.Kind)
-		}
-		for i, keep := range f.Origin.Keep {
-			if keep != "rules" && keep != "data" && keep != "name" && keep != "readme" && keep != "credits" {
-				return loaderr.Errorf(fmt.Sprintf("origin.keep.%d", i), "use rules, data, name, readme, or credits", "project: unknown origin.keep value %q", keep)
-			}
-		}
-	}
 	if f.Version != CurrentVersion {
 		return loaderr.Errorf("version", fmt.Sprintf("set version: %d", CurrentVersion), "project: unsupported version %d (want %d)", f.Version, CurrentVersion)
 	}
@@ -770,6 +766,16 @@ func Validate(f *File) error {
 	}
 	if f.AppVersion == "" || strings.IndexFunc(f.AppVersion, unicode.IsSpace) >= 0 || strings.IndexFunc(f.AppVersion, unicode.IsControl) >= 0 {
 		return loaderr.Errorf("appVersion", "set appVersion to a non-empty version string without spaces", "project: appVersion %q must be non-empty without spaces", f.AppVersion)
+	}
+	if f.Origin != nil {
+		if f.Origin.Kind == "" || f.Origin.Source == "" || strings.IndexFunc(f.Origin.Kind, unicode.IsSpace) >= 0 || strings.IndexFunc(f.Origin.Source, unicode.IsControl) >= 0 {
+			return loaderr.Errorf("origin", "set origin.kind and origin.source to non-empty values without spaces or control characters", "project: origin is invalid")
+		}
+		for i, keep := range f.Origin.Keep {
+			if !slices.Contains(OriginKeep, keep) {
+				return loaderr.Errorf(fmt.Sprintf("origin.keep[%d]", i), "use one of "+strings.Join(OriginKeep, ", "), "project: unknown origin.keep value %q", keep)
+			}
+		}
 	}
 	if err := validateWindow(&f.Window); err != nil {
 		return err

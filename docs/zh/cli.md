@@ -285,6 +285,13 @@ game check: 1 problem
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
+当 `game.yaml` 记录的 [`origin`](project.md#文件内容) 类型为 `template`，并且指向当前版本的 `game` 内置的模板时，`game check` 还会逐字节比较项目与该模板，把仍未改动的内容作为警告打印在问题之后，格式为 `file:line: warning: message`：与模板相同的规则 Go 文件（`main.go` 和测试除外）和数据文件（YAML、JSON、CSV 和 Yarn 文件，`game.yaml`、`nsgo.yaml`、`game.index.yaml`、`playtest.yaml` 和触控布局除外）合并为一条警告列出；`name` 或窗口标题仍是模板的；`README.md` 或 `CREDITS.md` 仍是模板的。警告不会让命令失败：没有问题时命令以 0 退出，摘要中会统计警告数。若有意原样复制，在 `origin.keep` 中列出不再报告的警告：`rules`、`data`、`name`、`readme` 或 `credits`。
+
+```text
+game.yaml:20: warning: 9 rule and data files still equal template "cards2d": board.yaml, game.go, hud.go, project.go, render.go, rules.go, rules.yaml, save.go, table.go; change them, or add rules or data to origin.keep for a deliberate copy
+README.md: warning: README.md is still template "cards2d"'s; rewrite it for this game, or add readme to origin.keep
+```
+
 当被检查的目录是拥有自己编辑器命令的项目时（`cmd/editor` 中导入 `pkg/editor/editorcmd` 的 `main` 包，或由 `game generate editor` 写出、用 `-tags gameeditor` 构建的 `main`），`game check` 会以 `-check <dir>` 运行该命令，使用项目的 `editorcmd.Options.Components` 加上内置物理和骨骼组件调用 `assetcheck.CheckWith`，一并检查组件字段以及连接的事件、处理函数与参数（包括由实例化或继承场景带来的连接）。没有编辑器命令时，`game check` 只检查连接的对象；只要场景里存在连接，就会在标准错误打印一条提示，说明事件和处理函数未被检查，以及如何用 `game generate editor` 开启。
 
 Examples 工作流会对示例游戏运行 `game check`。要在自己游戏的 CI 中运行它，按上文把命令作为工具加入模块，然后在游戏目录下运行 `go tool game check`。这些检查也是一个包，`github.com/nsgo-dev/game/pkg/tooling/assetcheck`，它的 `Check` 接受一个 `fs.FS`，以值的形式返回问题；它的 `CheckWith` 还接受游戏的组件注册表，便于在测试中直接检查事件和处理函数（例如 `action3d` 模板中的 `TestScenesCheck`），无需编辑器命令。
@@ -656,6 +663,3 @@ ln -s game.fish ~/.config/fish/completions/nsgo.fish
 ```
 
 如果那里已有 `nsgo` 自己的补全，就不要创建 `nsgo` 的链接。想单独输入 `game` 时，用 `go install github.com/nsgo-dev/game/cmd/game@latest` 安装命令，或者把 `game` 定义为运行 `go tool game` 的 shell 函数，这样在模块内它沿用 `go.mod` 固定的版本：zsh 和 bash 中写 `game() { go tool game "$@"; }`，fish 中写 `function game; go tool game $argv; end`。
-# 模板残留警告
-
-当 `game.yaml` 记录了 `template` 类型的来源时，`game check` 会将项目与内置模板基线比较。如果规则或数据文件、项目名称或 `README.md` 仍与模板完全相同，就会报告建议性警告。只有警告时命令仍以成功状态退出。若确实要原样复制，可将发现名称（`rules`、`data`、`name`、`readme` 或 `credits`）加入 `origin.keep`。
