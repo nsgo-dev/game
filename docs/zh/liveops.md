@@ -400,3 +400,7 @@ ads.ShowRewarded("revive", func(r liveops.AdResult) {
 - 广告展示前调用 `Pause(true)` 与 `ResetInput`，报告结果前调用 `Pause(false)`，因此广告遮住游戏期间循环与混音器保持暂停，也不会有按键一直处于按下状态。
 
 尚未提供：声明广告单元 ID 与广告位的 `ads.yaml`、横幅广告，以及小游戏 `AdHost`（等待 NSGo 的小游戏广告 API，[nsgo#2672](https://github.com/nsgo-dev/nsgo/issues/2672)）。发放货币类奖励请在服务端进行，并以你自己的展示 ID 作为幂等键，避免重复发放。
+
+### 经济操作核心
+
+`online/economy.Wallet` 是并发安全的幂等发放、消费和兑换参考核心。每个操作都需要调用者提供 key，重试同一 key 会返回第一次结果。生产服务应将相同操作放进持久化的服务端 records 事务中。
