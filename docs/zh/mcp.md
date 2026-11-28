@@ -415,6 +415,8 @@ claude mcp add game-editor -- go tool game mcp
 
 `add` 的对象由场景格式自己的读取器配合编辑器的组件注册表读取，因此会像打开文件时那样被拒绝。一次调用中只要有一项编辑被编辑器拒绝，所有编辑都不生效：场景、其撤销历史和磁盘上的文件都保持原样，工具错误会写出文件、编辑序号、对象、组件和字段以及修正方法，例如 `scene_edit: scenes/room.scene.yaml: edit 2 (set) on object "hero" component "body" field "sped": unknown field (registered: friction, layer, solid, speed); use a component and fields the project registers, as the message lists them. Nothing was changed.` 结构化结果以 `editormcp.EditError` 的形式包含同样的信息。
 
+编辑生效后，`scene_edit` 在 `changes` 中为每个 `set`、`move`、`add_component`、`set_property` 或 `remove_property` 编辑涉及的字段报告一条 `editormcp.FieldChange`，按编辑顺序排列，同一编辑内按字段名排序（`add`、`remove`、`remove_component`、`reparent` 和 `move_to_layer` 不报告）；`object_set_field` 在 `change` 中报告它设置的那一个字段。每条记录给出 `object`（编辑前的 ID）、`component` 或 `property`、`field`，以及从解析后的场景读回的编辑前值 `before` 与编辑后值 `after`（JSON 形式，键名与场景文件一致，字段或属性不存在时为 `null`），还有 `changed`：编辑没有改变值时为 false。对象来自实例化的场景或当前场景继承的基础场景时，`override` 给出 `origin`（`instanced` 或 `inherited`）、定义该对象的场景 `scene`、引入它的实例 `instance`，以及值所记录到的覆盖键 `key`，这也说明了源场景自己的文件为何没有改变。目前这两个工具只编辑当前场景自己定义的对象，会拒绝实例化或继承对象的 ID，因此在它们接受这类 ID 之前不会出现 `override`。
+
 在智能体回合进行期间（从 `turn_start` 到 `turn_end`，或从编辑器右侧 Agent 面板发起请求），智能体通过 `scene_edit`、`object_set_field` 与 `file_edit` 对场景、预制体、数据表、`game.yaml` 与动画片段所做的全部编辑都会暂存在内存中并归入同一个待确认回合，绝不提前写盘。编辑器通过把每个被改动文件与回合前状态做结构化对比来派生变更（并保留工具调用附带的 `why` 说明），允许用户在待确认期间按单条变更或按整个文件随时还原与恢复；用户点击 **Keep** 时把剩余改动跨全部文件提交为一条标记为 `AuthorAgent` 的撤销步骤，点击 **Revert** 时把每个文件按字节恢复到回合前状态。`turn_status` 会如实报告派生变更以及用户已还原的条目；按设计不存在可由智能体调用的保留或还原回合 MCP 工具。在回合之外，每次 `scene_edit` 或 `object_set_field` 仍是打开场景上的单个普通撤销步骤。
 
 #### 编辑目标
