@@ -61,12 +61,16 @@ const (
 	// AssetGenImages produces image candidates (PNG/JPEG/GIF decoded strictly to pixels in memory).
 	AssetGenImages AssetGeneratorKind = "images"
 	// AssetGenSound produces audio candidates (WAV/OGG decoded strictly in memory).
-	AssetGenSound AssetGeneratorKind = "sound"
+	AssetGenSound     AssetGeneratorKind = "sound"
+	AssetGenTexture   AssetGeneratorKind = "texture"
+	AssetGenModel     AssetGeneratorKind = "model"
+	AssetGenAnimation AssetGeneratorKind = "animation"
+	AssetGenTileset   AssetGeneratorKind = "tileset"
 )
 
 // Valid reports whether k is a supported asset generator kind.
 func (k AssetGeneratorKind) Valid() bool {
-	return k == AssetGenImages || k == AssetGenSound
+	return k == AssetGenImages || k == AssetGenSound || k == AssetGenTexture || k == AssetGenModel || k == AssetGenAnimation || k == AssetGenTileset
 }
 
 // GeneratorServerConfig describes one MCP generator server configured under Settings > Tools.
@@ -74,7 +78,7 @@ type GeneratorServerConfig struct {
 	// Name uniquely identifies the generator server (for example "pixel-gen" or "sfx-gen").
 	Name string `yaml:"name" schema:"required,minLength=1"`
 	// Kind declares what kind of assets the generator produces ("images" or "sound").
-	Kind AssetGeneratorKind `yaml:"kind" schema:"required,enum=images|sound"`
+	Kind AssetGeneratorKind `yaml:"kind" schema:"required,enum=images|sound|texture|model|animation|tileset"`
 	// Command is the executable launched over stdio MCP transport when connecting from Settings > Tools.
 	Command string `yaml:"command,omitempty"`
 	// Args are command-line arguments passed to Command.
@@ -780,6 +784,12 @@ func pickGeneratorTool(tools []*sdkmcp.Tool, kind AssetGeneratorKind) string {
 	preferred := []string{"generate_image", "generate_sprite", "generate_asset", "generate"}
 	if kind == AssetGenSound {
 		preferred = []string{"generate_sound", "generate_audio", "generate_sfx", "generate_asset", "generate"}
+	} else if kind == AssetGenModel {
+		preferred = []string{"generate_model", "generate_3d_model", "generate_asset", "generate"}
+	} else if kind == AssetGenAnimation {
+		preferred = []string{"generate_animation", "generate_clip", "generate_asset", "generate"}
+	} else if kind == AssetGenTileset {
+		preferred = []string{"generate_tileset", "generate_tile_set", "generate_asset", "generate"}
 	}
 	for _, want := range preferred {
 		for _, t := range tools {
@@ -920,9 +930,20 @@ func inferAssetGenKind(targetPath string, fallback AssetGeneratorKind) AssetGene
 	if fallback.Valid() {
 		return fallback
 	}
+	lower := strings.ToLower(targetPath)
+	if strings.HasSuffix(lower, ".tileset.yaml") || strings.HasSuffix(lower, ".tileset.yml") {
+		return AssetGenTileset
+	}
+	if strings.HasSuffix(lower, ".animation.yaml") || strings.HasSuffix(lower, ".animation.yml") {
+		return AssetGenAnimation
+	}
 	switch strings.ToLower(path.Ext(targetPath)) {
 	case ".wav", ".ogg", ".mp3", ".flac", ".m4a", ".aac", ".opus":
 		return AssetGenSound
+	case ".gltf", ".glb":
+		return AssetGenModel
+	case ".png", ".jpg", ".jpeg", ".webp":
+		return AssetGenTexture
 	default:
 		return AssetGenImages
 	}
@@ -1231,7 +1252,7 @@ func executeAssetGenCall(ctx context.Context, prep *preparedAssetGenCall) (*Asse
 			CommercialUse: comm,
 		}
 		switch prep.kind {
-		case AssetGenImages:
+		case AssetGenImages, AssetGenTexture:
 			imgRes, decErr := decodeUntrustedImage(rawCand.Data)
 			if decErr != nil {
 				return nil, fmt.Errorf("editor: candidate %s rejected (untrusted non-image payload): %w", cid, decErr)
@@ -1267,6 +1288,12 @@ func executeAssetGenCall(ctx context.Context, prep *preparedAssetGenCall) (*Asse
 			cand.PeakDBFS = audRes.peakDBFS
 			cand.AudioLoudnessMeasured = audRes.loudnessMeasured
 			cand.Waveform = audRes.waveform
+		case AssetGenModel, AssetGenAnimation, AssetGenTileset:
+			if len(rawCand.Data) == 0 || len(rawCand.Data) > maxGeneratedSourceBytes {
+				return nil, fmt.Errorf("editor: candidate %s rejected: generated asset payload is empty or too large", cid)
+			}
+			cand.CleanBytes = append([]byte(nil), rawCand.Data...)
+			cand.MimeType = firstNonEmpty(rawCand.MimeType, "application/octet-stream")
 		}
 		req.Candidates = append(req.Candidates, cand)
 	}
