@@ -80,6 +80,31 @@ type Config struct {
 	Bot BotConfig `yaml:"bot" schema:"required"`
 	// Metrics declares each measured metric, how it is aggregated, and its optional goal.
 	Metrics []Metric `yaml:"metrics,omitempty"`
+	// Baselines declares the reference, degraded and idle outcome policies.
+	Baselines *Baselines `yaml:"baselines,omitempty"`
+}
+
+// Baselines declares deterministic policy expectations for a playtest.
+type Baselines struct {
+	Idle      *IdleBaseline      `yaml:"idle,omitempty"`
+	Reference *ReferenceBaseline `yaml:"reference,omitempty"`
+	Degraded  *DegradedBaseline  `yaml:"degraded,omitempty"`
+}
+
+type IdleBaseline struct {
+	Outcome string        `yaml:"outcome" schema:"required,enum=lose|stall"`
+	Within  time.Duration `yaml:"within" schema:"required"`
+}
+
+type ReferenceBaseline struct {
+	WinRate float64 `yaml:"winRate" schema:"required,minimum=0,maximum=1"`
+}
+
+type DegradedBaseline struct {
+	ReactionScale float64  `yaml:"reactionScale,omitempty" schema:"minimum=0"`
+	DropRate      float64  `yaml:"dropRate,omitempty" schema:"minimum=0,maximum=1"`
+	MaxWinRate    *float64 `yaml:"maxWinRate,omitempty" schema:"minimum=0,maximum=1"`
+	Margin        *float64 `yaml:"margin,omitempty" schema:"minimum=0,maximum=1"`
 }
 
 // Scope identifies the project, scene and optional template a playtest targets.
@@ -353,6 +378,22 @@ func (c *Config) Validate() error {
 			return loaderr.Errorf(loaderr.Join(at, "name"), "give each metric a unique name", "duplicate metric name %q", m.Name)
 		}
 		seenMetrics[m.Name] = struct{}{}
+	}
+	if b := c.Baselines; b != nil {
+		if b.Idle != nil {
+			if b.Idle.Outcome != "lose" && b.Idle.Outcome != "stall" {
+				return loaderr.Errorf("baselines.idle.outcome", "use lose or stall", "unknown idle baseline outcome %q", b.Idle.Outcome)
+			}
+			if b.Idle.Within <= 0 || (c.Runs.MaxDuration > 0 && b.Idle.Within > c.Runs.MaxDuration) {
+				return loaderr.Errorf("baselines.idle.within", "set idle.within no longer than runs.maxDuration", "idle.within %v exceeds runs.maxDuration %v", b.Idle.Within, c.Runs.MaxDuration)
+			}
+		}
+		if b.Reference != nil && (!isFinite(b.Reference.WinRate) || b.Reference.WinRate < 0 || b.Reference.WinRate > 1) {
+			return loaderr.Errorf("baselines.reference.winRate", "set winRate between 0 and 1", "invalid reference winRate %v", b.Reference.WinRate)
+		}
+		if b.Degraded != nil && (!isFinite(b.Degraded.ReactionScale) || b.Degraded.ReactionScale < 0 || b.Degraded.DropRate < 0 || b.Degraded.DropRate > 1) {
+			return loaderr.Errorf("baselines.degraded", "set finite reactionScale and dropRate between 0 and 1", "invalid degraded baseline")
+		}
 	}
 	return nil
 }

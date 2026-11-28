@@ -8,6 +8,8 @@ import "github.com/nsgo-dev/game/pkg/tooling/playtest"
 
 ## `playtest.yaml`
 
+An optional `baselines` section declares the three policy checks. `idle` requires no-input play to `lose` or `stall` within a duration no longer than `runs.maxDuration`; `reference.winRate` records the minimum skilled-route win rate; `degraded` records deterministic reaction scaling or dropped actions and its allowed win-rate ceiling or margin. The config is validated and round-tripped as ordinary version 1 YAML. This release adds the declaration and report contract, while template runners continue to own their gameplay-specific simulation wiring.
+
 `playtest.yaml` is a versioned plain-text YAML file with a published JSON Schema (`https://game.nsgo.dev/schemas/playtest.v1.json`). Unknown fields, missing or unsupported versions, duplicate metric names and invalid goals are refused; `EncodeConfig` writes canonical deterministic YAML that round-trips without changes.
 
 ```yaml

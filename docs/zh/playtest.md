@@ -8,6 +8,8 @@ import "github.com/nsgo-dev/game/pkg/tooling/playtest"
 
 ## `playtest.yaml`
 
+可选的 `baselines` 部分声明三类策略检查。`idle` 要求无输入运行在不超过 `runs.maxDuration` 的时间内达到 `lose` 或 `stall`；`reference.winRate` 记录熟练路线的最低胜率；`degraded` 记录确定性的反应延迟倍率或丢弃动作比例，以及允许的胜率上限或差值。该配置按普通的 v1 YAML 校验并保持往返一致。本次先加入声明与报告契约，具体模板仍由各自的试玩模拟器接入。
+
 `playtest.yaml` 是带版本号的纯文本 YAML 文件，并发布了 JSON Schema（`https://game.nsgo.dev/schemas/playtest.v1.json`）。未知字段、缺失或不支持的版本号、重复的指标名以及非法目标都会被拒绝；`EncodeConfig` 写出规范的确定性 YAML，加载后再保存字节完全一致。
 
 ```yaml
