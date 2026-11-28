@@ -48,8 +48,8 @@ func builtinTools() []Tool {
 		{
 			Name:        ToolSceneRead,
 			Title:       "Read a file",
-			Description: "Read a scene, prefab, data table or other text file of the open project, or game.yaml, as YAML with line numbers. The scene open in the editor and game.yaml are read as the editor holds them while it has edits to them that are not saved, whose line numbers then differ from the file's; otherwise, and for any other file, the file is read from disk, comments included. With no file it reads the open scene. Scene structured output includes each object's origin, source scene, edit location, edit permission, and any reason an override is required.",
-			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{"file":{"type":"string","description":"Slash-separated path from the project root, such as scenes/level.scene.yaml; empty for the scene open in the editor"},"offset":{"type":"integer","minimum":1,"description":"First line to return, 1-based; 1 when absent"},"limit":{"type":"integer","minimum":1,"description":"How many lines to return; 2000 when absent"}}}`),
+			Description: "Read a scene, prefab, data table or other text file of the open project, or game.yaml, as YAML with line numbers. The scene open in the editor and game.yaml are read as the editor holds them while it has edits to them that are not saved, whose line numbers then differ from the file's; otherwise, and for any other file, the file is read from disk, comments included. With no file it reads the open scene. With objects set on a read of the open scene, the structured result also lists every object of the resolved scene, those its scene instances and base scene add included, with its origin (local, instanced or inherited), the scene file that defines it, and for an instanced or inherited object the overrides entry an edit to it writes; read it before editing an object the scene does not define itself.",
+			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{"file":{"type":"string","description":"Slash-separated path from the project root, such as scenes/level.scene.yaml; empty for the scene open in the editor"},"offset":{"type":"integer","minimum":1,"description":"First line to return, 1-based; 1 when absent"},"limit":{"type":"integer","minimum":1,"description":"How many lines to return; 2000 when absent"},"objects":{"type":"boolean","description":"List the open scene's objects with their origin and where an edit to each is recorded; only for the scene open in the editor"}}}`),
 			Action:      ActionRead,
 			Handler:     sceneRead,
 		},
@@ -72,7 +72,7 @@ func builtinTools() []Tool {
 		{
 			Name:        ToolSelectionGet,
 			Title:       "Get the selection",
-			Description: "What the person has selected in the editor: the open scene, the active layer, the selected object with its YAML and line numbers as scene_read shows them, the object's origin and edit location, the file selected in the file browser, the active tool and the view mode.",
+			Description: "What the person has selected in the editor: the open scene, the active layer, the selected object with its YAML and line numbers as scene_read shows them, its origin (local, instanced or inherited) and where an edit to it is recorded, the file selected in the file browser, the active tool and the view mode.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{}}`),
 			Action:      ActionRead,
 			Handler:     selectionGet,
@@ -234,6 +234,8 @@ type sceneReadArgs struct {
 	File   string `json:"file"`
 	Offset int    `json:"offset"`
 	Limit  int    `json:"limit"`
+	// Objects asks for FileText.Objects; only the open scene has them.
+	Objects bool `json:"objects"`
 }
 
 // FileText is a file scene_read read.
@@ -251,73 +253,65 @@ type FileText struct {
 	To   int `json:"to"`
 	// hasFile reports that the text has a file on disk, whose line numbers unsaved edits make differ.
 	hasFile bool
-	// Objects describes objects present in a scene file, including where they
-	// originate and where an edit would be recorded.
-	Objects []SceneObjectInfo `json:"objects,omitempty"`
+	// Objects lists every object of the open scene as the editor resolves it, those its scene instances and its base scene add included, with where each comes from and where an edit to it is recorded. Only a read of the open scene with objects set fills it.
+	Objects []ObjectEdit `json:"objects,omitempty"`
 }
 
-// SceneObjectInfo describes the edit boundary for one scene object.
-type SceneObjectInfo struct {
-	ID          string `json:"id"`
-	Origin      string `json:"origin"`
+// ObjectEdit is where an object of the open scene comes from and where an edit to it is recorded, from Editor.ObjectOverrideInfo, the routing the inspector uses.
+type ObjectEdit struct {
+	// ID is the object's ID in the resolved scene, such as "hero" or "enemy_1/body".
+	ID string `json:"id"`
+	// Origin is "local" for an object the open scene's file defines, "instanced" for one a scene instance in it adds, and "inherited" for one its base scene adds.
+	Origin string `json:"origin"`
+	// SourceScene is the scene file that defines an instanced or inherited object, or the scene a local object instances; empty for a plain local object.
 	SourceScene string `json:"sourceScene,omitempty"`
-	EditFile    string `json:"editFile,omitempty"`
-	EditPath    string `json:"editPath,omitempty"`
-	Editable    bool   `json:"editable"`
-	EditReason  string `json:"editReason,omitempty"`
+	// RecordsIn is where an edit to an instanced or inherited object is written as an override; nil for a local object, whose edits change its own entry in the open scene.
+	RecordsIn *EditRecord `json:"recordsIn,omitempty"`
 }
 
-func objectEditInfo(ed *editor.Editor, id string) SceneObjectInfo {
+// EditRecord is the override entry an edit to an instanced or inherited object writes.
+type EditRecord struct {
+	// File is the open scene, the file the override is written to.
+	File string `json:"file"`
+	// Instance is the ID of the local object whose overrides hold the entry for an instanced object; empty for an inherited object, whose entry is in the scene's own overrides.
+	Instance string `json:"instance,omitempty"`
+	// OverridesKey is the entry's key: the object's ID inside the instanced scene, or its full ID for an inherited object.
+	OverridesKey string `json:"overridesKey"`
+}
+
+// objectEdit is where object id of ed's open scene, named file in replies, comes from and where an edit to it is recorded.
+func objectEdit(ed *editor.Editor, file, id string) ObjectEdit {
 	info := ed.ObjectOverrideInfo(id)
-	out := SceneObjectInfo{ID: id, Origin: info.Origin.String(), Editable: true}
-	if info.ID == "" {
-		return SceneObjectInfo{ID: id, Origin: "local", EditFile: ed.ScenePath, EditPath: id, Editable: true}
-	}
+	out := ObjectEdit{ID: id, Origin: info.Origin.String(), SourceScene: info.SourceScene}
 	switch info.Origin {
-	case editor.ObjectLocal:
-		out.EditFile = ed.ScenePath
-		if out.EditFile == "" {
-			out.EditFile = ed.FilePath
-		}
-		out.EditPath = id
 	case editor.ObjectInstanced:
-		out.EditFile = ed.ScenePath
-		out.EditPath = "overrides." + info.InstanceID + "." + info.Key
-		out.SourceScene = info.SourceScene
-		out.EditReason = "edit is recorded as an override on the local scene instance"
+		out.RecordsIn = &EditRecord{File: file, Instance: info.InstanceID, OverridesKey: info.Key}
 	case editor.ObjectInherited:
-		out.EditFile = ed.ScenePath
-		out.EditPath = "overrides." + info.Key
-		out.SourceScene = info.SourceScene
-		out.EditReason = "edit is recorded as an override on the inherited scene"
-	default:
-		out.Editable = false
-		out.EditReason = "object is not present in the resolved scene"
+		out.RecordsIn = &EditRecord{File: file, OverridesKey: info.Key}
 	}
 	return out
 }
 
-func collectSceneObjectInfo(ed *editor.Editor, data []byte, file string, reg *sceneformat.ComponentRegistry) []SceneObjectInfo {
-	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: file, Components: reg})
-	if err != nil || doc == nil {
+// sceneObjectEdits is objectEdit for every object of ed's resolved open scene, in the order its layers and children list them.
+func sceneObjectEdits(ed *editor.Editor, file string) []ObjectEdit {
+	doc := ed.Doc
+	if ed.Built != nil && ed.BuildErr == nil && ed.Built.Doc != nil {
+		doc = ed.Built.Doc
+	}
+	if doc == nil {
 		return nil
 	}
-	var out []SceneObjectInfo
+	var out []ObjectEdit
 	var walk func([]sceneformat.ObjectDoc)
 	walk = func(objects []sceneformat.ObjectDoc) {
 		for i := range objects {
-			meta := objectEditInfo(ed, objects[i].ID)
-			if meta.EditFile == "" || (ed.ScenePath != file && meta.Origin == "local") {
-				meta.EditFile = file
-			}
-			out = append(out, meta)
+			out = append(out, objectEdit(ed, file, objects[i].ID))
 			walk(objects[i].Children)
 		}
 	}
 	for _, layer := range doc.Layers {
 		walk(layer.Objects)
 	}
-	slices.SortFunc(out, func(a, b SceneObjectInfo) int { return strings.Compare(a.ID, b.ID) })
 	return out
 }
 
@@ -349,6 +343,9 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 			}
 			text, info.File, info.Source = data, sceneName(ed, root), "editor"
 			fromDisk = ed.FilePath
+			if args.Objects {
+				info.Objects = sceneObjectEdits(ed, info.File)
+			}
 			return nil
 		case root == "":
 			return fmt.Errorf("scene_read: %s: no project is open in the editor, so only the open scene can be read; call scene_read without a file", args.File)
@@ -366,6 +363,11 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 			}
 			text, info.File, info.Source = data, clean, "editor"
 			fromDisk = ed.FilePath
+			if args.Objects {
+				info.Objects = sceneObjectEdits(ed, clean)
+			}
+		case args.Objects:
+			return fmt.Errorf("scene_read: %s: objects lists the objects of the scene open in the editor only; read it without a file, or call scene_read on %s without objects", args.File, args.File)
 		case clean == project.FileName && ed.ProjectDirty():
 			// An unedited game.yaml is read from disk below, comments and line numbers as the person wrote them and game_check reports them.
 			data, err := project.Encode(ed.Project)
@@ -446,19 +448,7 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 	case info.Source == "editor" && rel == "":
 		info.Unsaved = true
 	}
-	if info.File != "" && strings.HasSuffix(strings.ToLower(info.File), ".scene.yaml") {
-		info.Objects = collectSceneObjectInfoFromEditor(ctx, c, info.File, text, reg)
-	}
 	return numberLines(text, info, args.Offset, args.Limit), nil
-}
-
-func collectSceneObjectInfoFromEditor(ctx context.Context, c *Call, file string, data []byte, reg *sceneformat.ComponentRegistry) []SceneObjectInfo {
-	var out []SceneObjectInfo
-	_ = c.Editor(ctx, func(ed *editor.Editor) error {
-		out = collectSceneObjectInfo(ed, data, file, reg)
-		return nil
-	})
-	return out
 }
 
 // readProjectFile reads the text file rel inside root, refusing one a symbolic link takes out of the project, one that is not a regular file, one larger than maxReadBytes and one that is not UTF-8 text.
@@ -593,8 +583,8 @@ type SelectedObject struct {
 	Line int `json:"line,omitempty"`
 	// YAML is the object as the open scene's YAML writes it, with line numbers as scene_read shows them.
 	YAML string `json:"yaml,omitempty"`
-	// Edit describes the object's origin and where a change is recorded.
-	Edit SceneObjectInfo `json:"edit"`
+	// Edit is where the object comes from and where an edit to it is recorded.
+	Edit ObjectEdit `json:"edit"`
 }
 
 // readSelection is ed's selection.
@@ -614,7 +604,7 @@ func readSelection(ed *editor.Editor) Selection {
 	if obj == nil {
 		return sel
 	}
-	so := &SelectedObject{ID: obj.ID, Name: obj.Name, Layer: layer, X: obj.X, Y: obj.Y, Edit: objectEditInfo(ed, obj.ID)}
+	so := &SelectedObject{ID: obj.ID, Name: obj.Name, Layer: layer, X: obj.X, Y: obj.Y, Edit: objectEdit(ed, sel.Scene, obj.ID)}
 	for name := range obj.Components {
 		so.Components = append(so.Components, name)
 	}
