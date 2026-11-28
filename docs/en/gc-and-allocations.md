@@ -79,3 +79,5 @@ Use `gamedebug.MeasureAllocs` when you want to assert an explicit upper bound or
 | **WebAssembly** (`js/wasm`) | Single-threaded execution means GC work cannot hide on separate CPU cores and linear memory only grows. Minimizing per-frame allocations is especially critical to avoid frame drops and browser tab memory pressure. |
 
 > **Hardware profiling status:** Physical-device GC pause and latency profiles across macOS, Windows, Linux, iOS, Android, and WebAssembly have not yet been recorded on target hardware. Numbers and platform defaults in this guide reflect Go runtime behavior and should be refined once hardware benchmarks are collected.
+
+Projects can set `runtime.memory.limitMB` and `gcPercent` in `game.yaml`; call `project.File.ApplyRuntime()` before creating heavy runtime resources.

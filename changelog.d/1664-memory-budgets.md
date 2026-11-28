@@ -1,0 +1,1 @@
+- Add project runtime memory limits and GC settings, plus release-safe asset memory budgets and eviction hooks.

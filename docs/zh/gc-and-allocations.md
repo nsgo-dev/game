@@ -79,3 +79,5 @@ func TestPhysicsStepZeroAllocs(t *testing.T) {
 | **WebAssembly**（`js/wasm`） | 单线程执行环境下 GC 无法分摊到其他 CPU 核心，且线性内存只增不减。降低每帧分配对避免帧率抖动和浏览器标签页内存压力尤为关键。 |
 
 > **真机性能数据说明：** 桌面端、iOS、Android 与 WebAssembly 的真机 GC 停顿与延迟基线尚未在实体硬件上采集记录。本文中的配置建议基于 Go 运行时机制总结，后续完成真机基准测试后将进一步校准具体参数。
+
+项目可以在 `game.yaml` 中设置 `runtime.memory.limitMB` 和 `gcPercent`，并在创建大型运行时资源前调用 `project.File.ApplyRuntime()`。

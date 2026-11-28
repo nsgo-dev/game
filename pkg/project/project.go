@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"math"
 	"path"
+	goruntime "runtime"
+	rdebug "runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +44,8 @@ type File struct {
 	AppVersion string `yaml:"appVersion" schema:"required"`
 	// Window is the main window's size, limits, title and appearance.
 	Window Window `yaml:"window" schema:"required"`
+	// Runtime holds process-wide runtime settings applied at startup.
+	Runtime *Runtime `yaml:"runtime,omitempty"`
 	// Display is the virtual resolution the game draws at; nil draws at the window's own size.
 	Display *Display `yaml:"display,omitempty"`
 	// Input is the input map bound into an input.Actions; nil binds nothing.
@@ -62,6 +66,34 @@ type File struct {
 	Navigation *Navigation `yaml:"navigation,omitempty"`
 	// Packs records the library packs installed into the project, in the order they were first installed: the files each wrote and the autoload entries and editor plugins each added, so that a later install of the pack can update it and a removal can undo it (see the tooling/library package). nil records none.
 	Packs []Pack `yaml:"packs,omitempty"`
+}
+
+// Runtime holds process-wide runtime settings applied at startup.
+type Runtime struct {
+	// Memory configures the Go soft memory limit and GC target.
+	Memory *RuntimeMemory `yaml:"memory,omitempty"`
+}
+
+// RuntimeMemory configures memory per target platform. LimitMB keys use the
+// platform names accepted by project export presets.
+type RuntimeMemory struct {
+	LimitMB   map[string]int64 `yaml:"limitMB,omitempty"`
+	GCPercent *int             `yaml:"gcPercent,omitempty"`
+}
+
+// ApplyRuntime applies runtime settings for the current GOOS. A missing
+// platform entry leaves the memory limit unchanged.
+func (f *File) ApplyRuntime() {
+	if f == nil || f.Runtime == nil || f.Runtime.Memory == nil {
+		return
+	}
+	m := f.Runtime.Memory
+	if limit, ok := m.LimitMB[goruntime.GOOS]; ok && limit > 0 {
+		rdebug.SetMemoryLimit(limit * 1024 * 1024)
+	}
+	if m.GCPercent != nil {
+		rdebug.SetGCPercent(*m.GCPercent)
+	}
 }
 
 // Window is the main window's content size in points, its size limits, its title and its appearance.
@@ -612,6 +644,15 @@ func (f *File) Clone() *File {
 	}
 	c := *f
 	c.Window.Resizable = clonePtr(f.Window.Resizable)
+	if f.Runtime != nil {
+		c.Runtime = &Runtime{}
+		if f.Runtime.Memory != nil {
+			c.Runtime.Memory = &RuntimeMemory{LimitMB: map[string]int64{}, GCPercent: clonePtr(f.Runtime.Memory.GCPercent)}
+			for k, v := range f.Runtime.Memory.LimitMB {
+				c.Runtime.Memory.LimitMB[k] = v
+			}
+		}
+	}
 	if f.Display != nil {
 		d := *f.Display
 		c.Display = &d
@@ -745,6 +786,9 @@ func Validate(f *File) error {
 	if err := validateWindow(&f.Window); err != nil {
 		return err
 	}
+	if err := validateRuntime(f.Runtime); err != nil {
+		return err
+	}
 	if f.Display != nil {
 		if err := validateDisplay(f.Display); err != nil {
 			return err
@@ -872,6 +916,24 @@ func validateID(id string) error {
 }
 
 func isASCIILetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+
+func validateRuntime(r *Runtime) error {
+	if r == nil || r.Memory == nil {
+		return nil
+	}
+	for platform, mb := range r.Memory.LimitMB {
+		if !slices.Contains(Platforms, platform) {
+			return loaderr.Errorf("runtime.memory.limitMB."+platform, "use a supported platform name", "project: runtime memory platform %q is unknown", platform)
+		}
+		if mb <= 0 {
+			return loaderr.Errorf("runtime.memory.limitMB."+platform, "set limitMB to an integer > 0", "project: runtime memory limitMB for %q must be > 0", platform)
+		}
+	}
+	if r.Memory.GCPercent != nil && (*r.Memory.GCPercent < 0 || *r.Memory.GCPercent > 1000) {
+		return loaderr.Errorf("runtime.memory.gcPercent", "set gcPercent from 0 to 1000", "project: runtime memory gcPercent %d is out of range", *r.Memory.GCPercent)
+	}
+	return nil
+}
 
 func validateWindow(w *Window) error {
 	if err := validateText("window.title", "window title", w.Title, false); err != nil {

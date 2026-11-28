@@ -55,6 +55,8 @@ func WithFS(fsys fs.FS) Option {
 // through core.Scope.ReadAsset (the same resources/ files images and sounds
 // resolve on every target, fetched on demand on the web).
 type Manager struct {
+	budgetTotal int64
+	budgetGroup int64
 	// ReadAsset reads raw bytes for uri off the engine goroutine. When nil,
 	// Manager falls back to WithFS or the app's resources via core.Scope.ReadAsset.
 	ReadAsset func(ctx context.Context, uri string) ([]byte, error)
@@ -126,6 +128,69 @@ func (m *Manager) Group(name string) *Group {
 // immediately with progress 1.
 func (m *Manager) LoadGroup(name string, onDone func(error)) {
 	m.Group(name).Load(onDone)
+}
+
+// SetBudget sets the total and per-group decoded asset memory budgets in bytes.
+// A non-positive value disables the corresponding limit. Groups that would
+// exceed either limit fail their load with *MemoryBudgetError.
+func (m *Manager) SetBudget(total, perGroup int64) {
+	if m == nil {
+		return
+	}
+	if total < 0 {
+		total = 0
+	}
+	if perGroup < 0 {
+		perGroup = 0
+	}
+	m.budgetTotal, m.budgetGroup = total, perGroup
+}
+
+// Budget returns the configured total and per-group limits in bytes.
+func (m *Manager) Budget() (total, perGroup int64) {
+	if m == nil {
+		return 0, 0
+	}
+	return m.budgetTotal, m.budgetGroup
+}
+
+// Over reports whether the currently loaded groups exceed a configured budget.
+func (m *Manager) Over() bool {
+	if m == nil {
+		return false
+	}
+	var total int64
+	for _, name := range m.groupOrder {
+		if g := m.groups[name]; g != nil {
+			bytes := g.Stats().Bytes
+			total += bytes
+			if m.budgetGroup > 0 && bytes > m.budgetGroup {
+				return true
+			}
+		}
+	}
+	return m.budgetTotal > 0 && total > m.budgetTotal
+}
+
+// MemoryPressure releases loaded groups marked evictable until the manager is
+// within its configured budget. It returns the number of groups released.
+func (m *Manager) MemoryPressure() int {
+	if m == nil || !m.Over() {
+		return 0
+	}
+	released := 0
+	for _, name := range m.groupOrder {
+		g := m.groups[name]
+		if g == nil || !g.evictable || g.state != stateLoaded {
+			continue
+		}
+		g.Release()
+		released++
+		if !m.Over() {
+			break
+		}
+	}
+	return released
 }
 
 // ReleaseGroup releases every loaded asset in the named group: closes every
@@ -627,4 +692,21 @@ func fsReadAsset(fsys fs.FS, ctx context.Context, uri string) ([]byte, error) {
 
 func needsPrefetch(img core.ImageSource) bool {
 	return img.URI != "" && len(img.Data) == 0 && img.Pixels == nil
+}
+
+func (m *Manager) checkBudget(g *Group) error {
+	if m == nil || g == nil || (m.budgetTotal <= 0 && m.budgetGroup <= 0) {
+		return nil
+	}
+	groupBytes := g.Stats().Bytes
+	var totalBytes int64
+	for _, name := range m.groupOrder {
+		if other := m.groups[name]; other != nil {
+			totalBytes += other.Stats().Bytes
+		}
+	}
+	if m.budgetGroup > 0 && groupBytes > m.budgetGroup || m.budgetTotal > 0 && totalBytes > m.budgetTotal {
+		return &MemoryBudgetError{Group: g.name, GroupBytes: groupBytes, TotalBytes: totalBytes, GroupBudget: m.budgetGroup, TotalBudget: m.budgetTotal}
+	}
+	return nil
 }

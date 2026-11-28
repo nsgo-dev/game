@@ -50,10 +50,11 @@ type customEntry struct {
 // one per scene. Its progress and status methods are backed by core.Signal so
 // NSGo views and effects update automatically as assets load or are released.
 type Group struct {
-	m    *Manager
-	name string
-	fs   fs.FS
-	pack *mountedPack // the pack FetchGroup mounted as fs, released when it is replaced
+	m         *Manager
+	name      string
+	evictable bool
+	fs        fs.FS
+	pack      *mountedPack // the pack FetchGroup mounted as fs, released when it is replaced
 
 	specs []assetSpec
 	index map[string]int
@@ -101,6 +102,17 @@ func newGroup(m *Manager, name string) *Group {
 
 // Name returns the group's name.
 func (g *Group) Name() string { return g.name }
+
+// SetEvictable marks the group as eligible for MemoryPressure eviction.
+func (g *Group) SetEvictable(evictable bool) *Group {
+	if g != nil {
+		g.evictable = evictable
+	}
+	return g
+}
+
+// Evictable reports whether MemoryPressure may release this group.
+func (g *Group) Evictable() bool { return g != nil && g.evictable }
 
 // SetFS mounts fsys as the primary file system for this group's file-backed assets, such as a downloaded DLC zip archive. When set, asset URIs in this group are read from fsys first and fall back to the Manager's asset reader if a file is not present in fsys.
 //
@@ -706,6 +718,10 @@ func (g *Group) completeItem(gen uint64) {
 	}
 	total := g.totalSig.GetUntracked()
 	g.loaded++
+	if err := g.m.checkBudget(g); err != nil {
+		g.failLoad(gen, err)
+		return
+	}
 	if g.loaded >= total {
 		g.state = stateLoaded
 		if g.loadCancel != nil {
