@@ -7,7 +7,7 @@ import (
 
 func TestResolveLODHysteresisAndNearestViewer(t *testing.T) {
 	bands := []entities.LODBand{{MaxDistance: 10, Level: 0}, {MaxDistance: 20, Level: 1}, {MaxDistance: 40, Level: 2}}
-	if got := entities.ResolveLOD(0, 19, bands, .1); got != 0 {
+	if got := entities.ResolveLOD(0, 10.5, bands, .1); got != 0 {
 		t.Fatal(got)
 	}
 	if got := entities.ResolveLOD(0, 22, bands, .1); got != 1 {
