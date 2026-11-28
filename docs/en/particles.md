@@ -188,6 +188,8 @@ From a background goroutine, call `StageBytes` and apply the staged definition o
 
 ## Effect files
 
+The effect-file contract is intentionally deterministic and presentation-independent. Keep emitter timing, quality and parameter values in YAML now, then let the future runtime player apply delays, bindings and events without changing the file shape.
+
 An effect file groups several emitters that play as one effect, such as the flash, sparks and smoke of an explosion, and declares the typed parameters the game sets on it. `UnmarshalEffectYAML` reads one into an `Effect` and `MarshalEffectYAML` writes it back, with the same deterministic saving as emitter definitions (parameters sorted by name):
 
 ```yaml
