@@ -836,7 +836,6 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							ed.SelectProjectTemplate(tmpl.Name)
 						},
 						Children: []core.Node{
-							core.Image{Source: core.ImageSource{URI: tmpl.Cover}, ResizeMode: core.Cover, Style: core.Style{Width: core.Pt(220), Height: core.Pt(56)}},
 							core.View{
 								Style: core.Style{
 									Height:         core.Pt(56),
@@ -844,8 +843,9 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 									Padding:        core.All(8),
 									JustifyContent: core.JustifyEnd,
 									AlignItems:     core.AlignStart,
+									Overflow:       core.Hidden,
 								},
-								Children: []core.Node{
+								Children: append(startTemplateCoverNodes(tmpl),
 									core.View{
 										Style: core.Style{
 											Background:   p.Panel,
@@ -865,7 +865,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 											},
 										},
 									},
-								},
+								),
 							},
 							core.View{
 								Style: core.Style{
@@ -906,6 +906,25 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 			}),
 		},
 	}
+}
+
+// startTemplateCoverNodes fills a template card's swatch with the template's gallery cover, or returns no nodes when the template declares none so the swatch color shows.
+func startTemplateCoverNodes(tmpl ProjectTemplate) []core.Node {
+	if tmpl.Cover == "" {
+		return nil
+	}
+	return []core.Node{core.Image{
+		TestID:     "start-template-cover-" + tmpl.Name,
+		Source:     core.ImageSource{URI: tmpl.Cover},
+		ResizeMode: core.Cover,
+		Style: core.Style{
+			Position: core.Absolute,
+			Left:     core.Pt(0),
+			Right:    core.Pt(0),
+			Top:      core.Pt(0),
+			Bottom:   core.Pt(0),
+		},
+	}}
 }
 
 func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
