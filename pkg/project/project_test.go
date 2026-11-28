@@ -878,6 +878,23 @@ export:
 	}
 }
 
+func TestExportAllowResourcesRoundTripAndValidation(t *testing.T) {
+	raw := "version: 1\nname: Game\nid: dev.example.game\nappVersion: 1.0.0\nwindow:\n  width: 640\n  height: 360\nexport:\n  allowResources:\n    - resources/.well-known\n"
+	f, err := project.Parse([]byte(raw))
+	if err != nil || f.Export == nil || len(f.Export.AllowResources) != 1 {
+		t.Fatalf("Parse = %+v, err = %v", f, err)
+	}
+	encoded, err := project.Encode(f)
+	if err != nil || string(encoded) != raw {
+		t.Fatalf("round trip = %q, err = %v", encoded, err)
+	}
+	bad := f.Clone()
+	bad.Export.AllowResources = []string{"../secret"}
+	if err := project.Validate(bad); err == nil {
+		t.Fatal("Validate accepted allowResources outside resources")
+	}
+}
+
 func TestNegativeZeroRoundTrip(t *testing.T) {
 	const raw = `version: 1
 name: Game

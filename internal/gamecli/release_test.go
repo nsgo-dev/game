@@ -277,6 +277,24 @@ func TestReleaseReportsAFailedBuild(t *testing.T) {
 	}
 }
 
+func TestReleaseRefusesUnsafeResourcesBeforeNSGo(t *testing.T) {
+	dir := newGameDir(t, "")
+	if err := os.MkdirAll(filepath.Join(dir, "resources"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "resources", ".env"), []byte("TOKEN=secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := recordNSGo(t, nil)
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"release", dir}, a); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if len(*calls) != 0 || !strings.Contains(stderr.String(), "dotfiles") {
+		t.Fatalf("calls = %v, stderr = %q", *calls, stderr.String())
+	}
+}
+
 func TestReleaseHostSkippingAndUnsignedIOS(t *testing.T) {
 	const templatePresets = `version: 1
 export:
@@ -503,6 +521,16 @@ func TestParseReleaseSettingsValidatesExportBudgets(t *testing.T) {
 				t.Fatalf("parseReleaseSettings(%s) = %v, want error containing %q", tc.name, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseReleaseSettingsReadsAllowedResources(t *testing.T) {
+	settings, err := parseReleaseSettings([]byte("version: 1\nexport:\n  allowResources: [resources/.well-known]\n"))
+	if err != nil || !reflect.DeepEqual(settings.AllowResources, []string{"resources/.well-known"}) {
+		t.Fatalf("settings = %+v, err = %v", settings, err)
+	}
+	if _, err := parseReleaseSettings([]byte("version: 1\nexport:\n  allowResources: [../secret]\n")); err == nil {
+		t.Fatal("accepted allowResources path outside resources")
 	}
 }
 

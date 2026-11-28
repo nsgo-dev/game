@@ -70,6 +70,8 @@ build:
 - **`build_number`**: a monotonically increasing integer for every store upload (`CFBundleVersion` on Apple platforms, `versionCode` on Android). When omitted, it derives from `version`.
 - **`resources/` vs `assets/`**: every runtime file loaded as `"asset:..."` — images, sounds, atlas JSON, tilemaps, models, data tables and raw bytes read by `assets.Manager` — lives in `resources/` and ships inside every package (fetched on demand on the web through `core.Scope.ReadAsset`). Build-time inputs such as app icons, or small startup files embedded with `//go:embed`, live in `assets/`. Use `mobile.exclude_resources` in `nsgo.yaml` to omit desktop-only files from iOS and Android packages.
 
+Before a release build, `game release` and the editor readiness checks refuse symbolic links, dotfiles and dot-directories, credential names such as `.env`, `.npmrc`, `.ssh`, `*.p12`, `*.pem`, and private-key or service-account contents under `resources/`. An intentionally shipped dotfile may be listed with `export.allowResources` in `game.yaml`. It remains a warning for a person to review and never prints file contents.
+
 ## App icons
 
 Place default icons in `assets/` and `nsgo build` picks them up automatically without extra configuration:

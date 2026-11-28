@@ -70,6 +70,8 @@ build:
 - **`build_number`**：每次提交商店都必须递增的整数构建号（Apple 的 `CFBundleVersion`、Android 的 `versionCode`）。省略时会从 `version` 推导。
 - **`resources/` 与 `assets/`**：所有在运行时通过 `"asset:..."` 加载的文件——包括图片、声音、图集 JSON、瓦片地图、模型、数据表以及由 `assets.Manager` 读取的原始字节——统一放在 `resources/` 中，会原样打入每个安装包（在 Web 上通过 `core.Scope.ReadAsset` 按需获取）。应用图标等构建期输入，以及少量通过 `//go:embed` 嵌入的首屏文件放在 `assets/` 中。可以在 `nsgo.yaml` 里用 `mobile.exclude_resources` 从 iOS 和 Android 包中排除仅桌面端使用的资源。
 
+发布构建前，`game release` 和编辑器就绪检查会拒绝 `resources/` 中的符号链接、点文件与点目录，以及 `.env`、`.npmrc`、`.ssh`、`*.p12`、`*.pem` 等凭据名称和私钥或服务账号内容。确实需要发布的点文件可在 `game.yaml` 的 `export.allowResources` 中列出，但仍会作为警告要求人员复核，并且不会输出文件内容。
+
 ## 应用图标
 
 把默认图标放到 `assets/` 目录下，`nsgo build` 无需额外配置即可自动识别：

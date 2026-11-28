@@ -397,6 +397,8 @@ type Export struct {
 	Output string `yaml:"output,omitempty"`
 	// Budgets are optional release thresholds checked before and after each build (download size and frame time p95 at a quality profile).
 	Budgets *Budgets `yaml:"budgets,omitempty"`
+	// AllowResources lists project-relative dotfiles or dot-directories in resources/ that are intentionally shipped. They remain warnings in release readiness.
+	AllowResources []string `yaml:"allowResources,omitempty"`
 	// Presets are the platforms the game exports to, in build order.
 	Presets []Preset `yaml:"presets,omitempty"`
 }
@@ -684,8 +686,9 @@ func (f *File) Clone() *File {
 	}
 	if f.Export != nil {
 		e := Export{
-			Output:  f.Export.Output,
-			Budgets: clonePtr(f.Export.Budgets),
+			Output:         f.Export.Output,
+			Budgets:        clonePtr(f.Export.Budgets),
+			AllowResources: slices.Clone(f.Export.AllowResources),
 		}
 		if f.Export.Presets != nil {
 			e.Presets = make([]Preset, len(f.Export.Presets))
@@ -1322,6 +1325,12 @@ func validateExport(e *Export) error {
 		}
 		if math.IsNaN(e.Budgets.FrameTimeP95Ms) || math.IsInf(e.Budgets.FrameTimeP95Ms, 0) || e.Budgets.FrameTimeP95Ms < 0 {
 			return loaderr.Errorf("export.budgets.frameTimeP95Ms", "set frameTimeP95Ms to a finite number >= 0", "project: export budgets frameTimeP95Ms %v must be finite and >= 0", e.Budgets.FrameTimeP95Ms)
+		}
+	}
+	for i, p := range e.AllowResources {
+		field := fmt.Sprintf("export.allowResources[%d]", i)
+		if p == "" || path.IsAbs(p) || path.Clean(p) != p || strings.HasPrefix(p, "../") || p == ".." || !strings.HasPrefix(p, "resources/") {
+			return loaderr.Errorf(field, "set an allowResources path under resources/ using slash separators", "project: export allowResources path %q must be a clean resources-relative path", p)
 		}
 	}
 	platforms := make(map[string]struct{}, len(e.Presets))

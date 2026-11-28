@@ -407,6 +407,8 @@ type Settings struct {
 	Targets []string
 	// Assets is the assets section as package project parses it with the whole file; nil when game.yaml has none, and then no credits file is written.
 	Assets *project.Assets
+	// AllowResources lists intentionally shipped dotfiles under resources/.
+	AllowResources []string
 }
 
 // SettingsFromProject extracts release Settings from an in-memory project.File.
@@ -420,6 +422,7 @@ func SettingsFromProject(f *project.File) Settings {
 		if len(f.Export.Presets) > 0 {
 			s.Targets = f.BuildTargets()
 		}
+		s.AllowResources = slices.Clone(f.Export.AllowResources)
 	}
 	s.Assets = f.Assets
 	return s

@@ -43,10 +43,16 @@ const DefaultTouchLayoutRelPath = "controls.touch.yaml"
 // EvaluateReadiness computes the release readiness checklist for platform against the project at dir and f.
 // Currently evaluates iOS checks against nsgo.yaml, resources/PrivacyInfo.xcprivacy, *.touch.yaml layouts, and game.yaml.
 func EvaluateReadiness(platform, dir string, f *project.File) []ReadinessItem {
-	if platform != "ios" {
-		return nil
+	var items []ReadinessItem
+	if platform == "ios" {
+		items = evaluateIOSReadiness(dir, f)
 	}
-	return evaluateIOSReadiness(dir, f)
+	for _, item := range CheckResources(dir, f) {
+		if item.Status != ReadinessOK {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func readOptionalNSGoSettings(dir string) (cfg NSGoSettings, present bool, err error) {
