@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/pkg/online/accounts"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 var ErrSignedOut = errors.New("liveops: signed out")
@@ -165,7 +166,12 @@ func (a *Account) request(ctx context.Context, path string, body any, out any) e
 		return errors.New("liveops: account URL is empty")
 	}
 	data, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(data))
+	method := http.MethodPost
+	if path == "/v1/me" {
+		method = http.MethodGet
+		data = nil
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -186,6 +192,124 @@ func (a *Account) request(ctx context.Context, path string, body any, out any) e
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return err
+	}
+	return nil
+}
+
+// NewAccountForScope constructs an Account using NSGo's protected keychain.
+// Secrets are accessed through the supplied scope's secure store and never
+// mirrored into ordinary storage.
+func NewAccountForScope(cx *core.Scope, opts AccountOptions) *Account {
+	if cx == nil {
+		return NewAccount(opts)
+	}
+	opts.Secrets = coreSecretStore{secrets: cx.Secrets()}
+	if opts.SecretsKey == "" {
+		opts.SecretsKey = "session"
+	}
+	return NewAccount(opts)
+}
+
+type coreSecretStore struct{ secrets core.Secrets }
+
+func (s coreSecretStore) Get(key string) (string, bool) { v, ok, _ := s.secrets.Get(key); return v, ok }
+func (s coreSecretStore) Set(key, value string) error   { return s.secrets.Set(key, value) }
+func (s coreSecretStore) Delete(key string) error       { return s.secrets.Delete(key) }
+
+// Register creates an email account and signs it in.
+func (a *Account) Register(ctx context.Context, email, password string) error {
+	var c credentials
+	if err := a.request(ctx, "/v1/register", map[string]string{"email": email, "password": password}, &c); err != nil {
+		return err
+	}
+	return a.accept(c)
+}
+
+// LinkEmail adds an email/password login to the current account.
+func (a *Account) LinkEmail(ctx context.Context, email, password string) error {
+	return a.authedRequest(ctx, "/v1/link/email", map[string]string{"email": email, "password": password}, nil)
+}
+
+// LinkIdentity links a provider credential to the current account.
+func (a *Account) LinkIdentity(ctx context.Context, provider, credential string) error {
+	return a.authedRequest(ctx, "/v1/link/identity", map[string]string{"provider": provider, "credential": credential}, nil)
+}
+
+// AccountConflict identifies a provider identity already owned by another account.
+type AccountConflict struct{ Provider string }
+
+func (e *AccountConflict) Error() string {
+	return fmt.Sprintf("liveops: identity %q belongs to another account", e.Provider)
+}
+
+// Profile returns the signed-in account profile from the account service.
+func (a *Account) Profile(ctx context.Context) (accounts.Profile, error) {
+	var out struct {
+		Account, Email, Created string
+		Guest                   bool
+		Identities              []accounts.Identity
+	}
+	if err := a.authedRequest(ctx, "/v1/me", nil, &out); err != nil {
+		return accounts.Profile{}, err
+	}
+	created, _ := time.Parse(time.RFC3339Nano, out.Created)
+	return accounts.Profile{Account: accounts.Account{ID: out.Account, Email: out.Email, Created: created}, Identities: out.Identities}, nil
+}
+
+func (a *Account) authedRequest(ctx context.Context, path string, body, out any) error {
+	tok, err := a.serviceToken(ctx)
+	if err != nil {
+		return err
+	}
+	return a.requestWithToken(ctx, path, body, out, tok)
+}
+
+func (a *Account) serviceToken(ctx context.Context) (string, error) {
+	a.mu.Lock()
+	session := a.session.Reveal()
+	a.mu.Unlock()
+	if session == "" {
+		return "", ErrSignedOut
+	}
+	var c credentials
+	if err := a.request(ctx, "/v1/refresh", map[string]string{"session": session, "audience": accounts.ServiceAudience}, &c); err != nil {
+		return "", err
+	}
+	return c.Token, nil
+}
+func (a *Account) requestWithToken(ctx context.Context, path string, body, out any, token string) error {
+	base := strings.TrimRight(a.opts.URL, "/")
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	method := http.MethodPost
+	if path == "/v1/me" {
+		method = http.MethodGet
+		data = nil
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := a.opts.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict && strings.Contains(path, "identity") {
+		return &AccountConflict{}
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return ErrSignedOut
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("liveops: account service: %s", resp.Status)
+	}
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
 }
