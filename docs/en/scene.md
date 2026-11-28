@@ -280,6 +280,18 @@ A `sceneformat.ComponentType` can declare an optional `Spawn func(w *entities.Wo
 
 This is the cell math only: scene files have no `partition:` section yet, and loading, instancing and unloading cells is up to the game.
 
-# Input-driven behaviors
+## Input-driven behavior configs
 
-Scene behavior configs use `version: 1` and a `kind` such as `platform`, `eight_direction`, `tile_movement`, `car`, `drag_drop`, `turret`, `line_of_sight`, or `path_agent`. `sceneformat.BehaviorConfig.Validate` catches unsupported kinds and invalid numeric settings before play.
+`sceneformat.BehaviorConfig` is the versioned settings schema for the input-driven behaviors planned in #1752: `platform`, `eight_direction`, `tile_movement`, `car`, `drag_drop`, `turret`, `line_of_sight` and `path_agent`. It is a schema only: it is not a registered component, and nothing steps these behaviors at runtime yet.
+
+```yaml
+version: 1
+kind: eight_direction
+axis: move
+maxSpeed: 120
+acceleration: 800
+deceleration: 1000
+directions: 8
+```
+
+`sceneformat.ParseBehaviorConfig(data)` decodes one config, refusing unknown fields and a trailing YAML document, and validates it. `BehaviorConfig.Validate` rejects a version other than 1, an unknown `kind`, a negative `maxSpeed`, `acceleration`, `deceleration`, `tileSize`, `range`, `rotateSpeed` or `fireRate`, `eight_direction` with `directions` other than 4 or 8, and `tile_movement` without a positive `tileSize`.

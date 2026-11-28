@@ -1,9 +1,14 @@
 package sceneformat
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"io"
 
-// BehaviorConfig is the shared, versioned configuration for input-driven
-// scene behaviors. Runtime components may consume the typed fields directly.
+	"go.yaml.in/yaml/v3"
+)
+
+// BehaviorConfig is the shared, versioned configuration for input-driven scene behaviors (#1752). It only describes and validates settings; no runtime component steps these behaviors yet.
 type BehaviorConfig struct {
 	Version      int      `yaml:"version"`
 	Kind         string   `yaml:"kind"`
@@ -17,7 +22,27 @@ type BehaviorConfig struct {
 	RotateSpeed  float32  `yaml:"rotateSpeed,omitempty"`
 	FireRate     float32  `yaml:"fireRate,omitempty"`
 	Targets      []string `yaml:"targets,omitempty"`
-	Enabled      bool     `yaml:"enabled,omitempty"`
+}
+
+// ParseBehaviorConfig decodes one behavior config from YAML, refusing unknown fields and trailing documents, and validates it.
+func ParseBehaviorConfig(data []byte) (BehaviorConfig, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var c BehaviorConfig
+	if err := dec.Decode(&c); err != nil {
+		return BehaviorConfig{}, fmt.Errorf("sceneformat: decode behavior: %w", err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return BehaviorConfig{}, fmt.Errorf("sceneformat: behavior: unexpected trailing YAML document")
+		}
+		return BehaviorConfig{}, fmt.Errorf("sceneformat: decode behavior: %w", err)
+	}
+	if err := c.Validate(); err != nil {
+		return BehaviorConfig{}, err
+	}
+	return c, nil
 }
 
 // Validate checks a behavior config independently of a scene registry.
