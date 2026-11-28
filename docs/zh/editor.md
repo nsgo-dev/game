@@ -1010,6 +1010,8 @@ func main() {
 
 ### 智能体设置页：模型与连接、工具、用量与隐私（#1028、#1030）
 
+桌面本地智能体集成共享 `pkg/editor/internal/acp` 提供的 JSON-RPC over stdio 传输层。它支持 ACP 初始化、新建或恢复会话、模型配置、提示、取消、流式通知以及失败关闭的权限选择。只有编辑器自有 MCP 工具的请求可以得到 allow-once 响应。文件、删除、移动和执行请求得到 reject_once，没有安全选项的请求会以错误结束。
+
 全部保存在每台电脑的 `EditorSettings`（`editor.yaml` 的 `agent` 小节，从不写入项目目录），且所有修改方法都会拒绝来自智能体的调用（`ErrAgentSettingsYouOnly`）：
 
 - **模型与连接（`SettingsPageModels`）**：展示已连接的本机 MCP 智能体（如 Claude Code）、内置 API 连接（`Anthropic API`，密钥通过 `StoreAgentAPIKey`、`HasAgentAPIKey`、`DeleteAgentAPIKey` 和 `AgentAPIKey` 仅保存在 NSGo 的 `core.Secrets`（`AgentAPIKeySecretAccount`）或系统钥匙串（`AgentKeychainServiceName`）中，绝不写入 `editor.yaml`、任何项目文件或日志）、打开 `ConnectAgentDialogView` 的 **+ 连接其他智能体或模型** 按钮，以及 **任务分工**（`AgentTaskRoute` / `SetAgentTaskRoute` / `ResolveAgentModelRoute`）。导航栏徽章实时显示已连接数量（`AgentActiveConnectionCount`，如 `2 个已连接`）。

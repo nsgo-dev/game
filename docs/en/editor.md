@@ -1010,6 +1010,8 @@ All per-computer agent controls, project-level `game.yaml` settings, and editor 
 
 ### Agent pages: Models and connections, Tools, and Usage and privacy (#1028, #1030)
 
+Desktop local-agent integrations share the JSON-RPC-over-stdio transport in `pkg/editor/internal/acp`. It supports ACP initialization, session creation or resume, model configuration, prompts, cancellation, streamed notifications, and a fail-closed permission choice. An ACP agent may receive an allow-once response only for an editor-owned MCP tool. File, delete, move and execute requests receive `reject_once`, and a request without a safe option ends with an error.
+
 Stored per computer in `EditorSettings` (`editor.yaml` under `agent`, never inside the project) with every mutator refused when invoked by an agent (`ErrAgentSettingsYouOnly`):
 
 - **Models and connections (`SettingsPageModels`)**: shows connected local MCP agents (such as Claude Code), the built-in API connection (`Anthropic API`, whose key is stored exclusively in NSGo's `core.Secrets` under `AgentAPIKeySecretAccount` / the host OS keychain under `AgentKeychainServiceName` via `StoreAgentAPIKey`, `HasAgentAPIKey`, `DeleteAgentAPIKey`, and `AgentAPIKey` — never written to `editor.yaml`, project files, or logs), **+ Connect another agent or model** (opening `ConnectAgentDialogView`), and **WHO DOES WHAT** task routing (`AgentTaskRoute` / `SetAgentTaskRoute` / `ResolveAgentModelRoute`). The sidebar meta reports the active connection count (`AgentActiveConnectionCount`, e.g. `2 on`).
