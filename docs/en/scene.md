@@ -278,7 +278,7 @@ A `sceneformat.ComponentType` can declare an optional `Spawn func(w *entities.Wo
 
 `sceneformat.Partition` is the grid math for streaming a large scene in cells: `CellSize` world units per square cell, `LoadRadius` and `UnloadRadius` in cells, and `Validate` requiring a positive finite cell size and `0 <= LoadRadius <= UnloadRadius` so a source on a cell boundary does not load and unload the same cell every frame. `Cells(sceneformat.CellObject{...})` assigns an object to every cell its bounds touch, not only the cell of its origin, so a long bridge belongs to each cell it crosses; an edge exactly on a boundary does not reach the next cell, and an `AlwaysLoaded` object belongs to no cell. `Needed(sources)` returns the cells within `LoadRadius` of any `StreamingSource` (each source's `RadiusScale` multiplies the radius), and `Retained(sources)` the cells within `UnloadRadius`; a loaded cell missing from `Retained` can be unloaded. All three return cells sorted by Y, then X, whatever the order of their input.
 
-This is the cell math only: scene files have no `partition:` section yet, and loading, instancing and unloading cells is up to the game.
+This is the cell math only: scene files have no `partition:` section yet, and loading, instancing and unloading cells is up to the game. `Partition.Cells` assigns multi-cell objects by their bounds, while `Needed` and `Retained` use deterministic row-major order and separate radii to avoid boundary thrashing.
 
 ## Input-driven behavior configs
 
