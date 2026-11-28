@@ -91,6 +91,7 @@ onDisagreePrivacy := func() {
 | `pkg/online/liveops` | 部分可用 | `CrashReporter`（及 `liveops/crashreport`）、显式同意门控的 `Analytics`、`CloudClient`（对接 `cloudsave`）、`DirCloud` 和 `Reminders`（系统原生本地通知）均不依赖 Google 服务。`PlatformCloud` 在 Android 上选择 `CloudProviderPlayGames` 并返回 `ErrCloudUnavailable`，请改用 `CloudClient`。`Purchases` 在 Android 上不可用（返回 `core.PurchasesUnavailable`；[nsgo#1369](https://github.com/nsgo-dev/nsgo/issues/1369)、[nsgo#1370](https://github.com/nsgo-dev/nsgo/issues/1370)；中国大陆 iOS 上 Apple StoreKit 可用）。`ReviewPrompt` 在 `CanRequestReview()` 为 `false` 时安全空操作。远程推送目前在所有平台均不可用（[nsgo#59](https://github.com/nsgo-dev/nsgo/issues/59)、[nsgo#1323](https://github.com/nsgo-dev/nsgo/issues/1323)）。 |
 | `pkg/online/netplay` | 可用 | 纯 Go 实现的 UDP、WebSocket、WebTransport 与回环传输（含 `netplay/wire`），无 Google 依赖。建议部署在已完成 ICP 备案的中国大陆服务器与域名上以保证连通性与延迟。 |
 | `pkg/online/presence` | 不可用 | 仅限桌面端的丰富状态集成（Steam `ISteamFriends` 与 Discord 本地 IPC）；在 Android、iOS 与 Web 上返回 `ErrUnavailable`。无 Google 依赖（中国大陆桌面端 Steam 可用，Discord 通常不可达）。 |
+| `pkg/online/steam` | 不可用 | Steam 成就、统计、排行榜与丰富状态的 Steamworks 边界；需要游戏提供桌面端 Steamworks `Driver`，没有时返回 `ErrUnavailable`。无 Google 依赖（中国大陆桌面端 Steam 可用）。 |
 | `pkg/online/storeverify/wechatpay` | 可用 | 纯服务端的微信小游戏虚拟支付订单签名，以及按 `OutTradeNo` 只发货一次的道具发货推送处理（[liveops](liveops.md)），无客户端或 Google 依赖。 |
 | `pkg/online/wsclient` | 可用 | 原生与浏览器 `js/wasm` 通用的纯 Go RFC 6455 WebSocket 客户端，无 Google 依赖（小程序暂不可用，见 [nsgo#1505](https://github.com/nsgo-dev/nsgo/issues/1505)）。 |
 
