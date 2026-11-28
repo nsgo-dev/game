@@ -54,7 +54,7 @@ func (b *Builder) remote(a *project.Assets, builtOutputs []string) (prepared, er
 		k.input(f.rel, f.data)
 	}
 
-	return prepared{key: k.key(), build: func(root string) ([]string, error) {
+	return prepared{key: k.key(), build: func(root string) ([]string, []string, error) {
 		entries := make([]assets.RemoteEntry, 0, len(files))
 		outs := make([]string, 0, len(files)+1)
 		seenHashed := make(map[string]string, len(files))
@@ -63,13 +63,13 @@ func (b *Builder) remote(a *project.Assets, builtOutputs []string) (prepared, er
 			digest := sum(f.data)
 			hashed := assets.HashedPath(f.rel, digest)
 			if prev, dup := seenHashed[hashed]; dup {
-				return nil, fmt.Errorf("files %q and %q map to the same hashed path %q", prev, f.rel, hashed)
+				return nil, nil, fmt.Errorf("files %q and %q map to the same hashed path %q", prev, f.rel, hashed)
 			}
 			seenHashed[hashed] = f.rel
 
 			dest := under(root, path.Join(r.Out, hashed))
 			if err := writeFile(dest, f.data); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			outs = append(outs, dest)
 			entries = append(entries, assets.RemoteEntry{
@@ -86,14 +86,14 @@ func (b *Builder) remote(a *project.Assets, builtOutputs []string) (prepared, er
 			Files:   entries,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		manifestDest := under(root, path.Join(r.Out, assets.RemoteManifestFile))
 		if err := writeFile(manifestDest, manifestData); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		outs = append(outs, manifestDest)
-		return outs, nil
+		return outs, nil, nil
 	}}, nil
 }
 
@@ -215,7 +215,7 @@ func (b *Builder) runRemoteStep(a *project.Assets, builtOutputs []string, prev, 
 		t.Outputs = old.paths()
 		next.Targets = append(next.Targets, *old)
 	} else if b.Check {
-		current, outs, err := b.matchesDisk(p.build)
+		current, outs, _, err := b.matchesDisk(p.build)
 		if err != nil {
 			return t, fmt.Errorf("assetbuild: %s: %w", id, err)
 		}
@@ -229,7 +229,7 @@ func (b *Builder) runRemoteStep(a *project.Assets, builtOutputs []string, prev, 
 			}
 		}
 	} else {
-		outs, err := p.build(b.Root)
+		outs, _, err := p.build(b.Root)
 		if err != nil {
 			return t, fmt.Errorf("assetbuild: %s: %w", id, err)
 		}
