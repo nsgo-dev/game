@@ -237,6 +237,7 @@ type Arena struct {
 
 	worldBounds core.Bounds
 	aimAssist   input.AimAssist
+	aimTargets  []input.AimTarget2D
 }
 
 // NewArena creates a deterministic Starburst arena with a procedural pixel-art atlas
@@ -244,10 +245,11 @@ type Arena struct {
 func NewArena(seed uint64) *Arena {
 	atlas := NewProceduralAtlas()
 	a := &Arena{
-		Atlas:     atlas,
-		Quality:   quality.DefaultPreset(quality.High),
-		aimAssist: input.AimAssist{Strength: 0.7},
-		Viewport:  gameViewport,
+		Atlas:      atlas,
+		Quality:    quality.DefaultPreset(quality.High),
+		aimAssist:  input.AimAssist{Strength: 0.7},
+		aimTargets: make([]input.AimTarget2D, 0, maxEnemies),
+		Viewport:   gameViewport,
 		worldBounds: core.Bounds{
 			Origin: core.Point{X: 0, Y: 0},
 			Size:   core.Size{Width: ArenaWidth, Height: ArenaHeight},
@@ -801,9 +803,9 @@ func (a *Arena) applyAimAssist() {
 	}
 	p := &a.Player
 	sin, cos := math.Sincos(float64(p.AimAngle))
-	targets := make([]input.AimTarget2D, 0, len(a.enemies))
-	for i, e := range a.enemies {
-		targets = append(targets, input.AimTarget2D{ID: string(rune(i)), Position: math2d.Vec2{X: e.X, Y: e.Y}, Radius: e.Radius, Priority: 1})
+	targets := a.aimTargets[:0]
+	for _, e := range a.enemies {
+		targets = append(targets, input.AimTarget2D{Position: math2d.Vec2{X: e.X, Y: e.Y}, Radius: e.Radius, Priority: 1})
 	}
 	result := a.aimAssist.Evaluate2D(math2d.Vec2{X: p.X, Y: p.Y}, math2d.Vec2{X: float32(cos), Y: float32(sin)}, targets, nil)
 	if result.Found {
