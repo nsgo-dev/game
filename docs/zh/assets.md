@@ -134,6 +134,12 @@ group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
 - 续传时收到不带 `Content-Range` 头的 `206 Partial Content`，会从第一个字节重新下载，而不是追加一段无法核对范围的响应体。
 - `ParsePackManifest` 会拒绝它未定义的字段（例如拼错的 `sha265`）、同一对象中重复出现的键，以及清单之后的多余内容，并给出行号与修复方法。
 
+## 精灵帧处理
+
+`go tool game sprite frames -in frames -out build/sprites -name hero` 会把按名称排序的 PNG 目录或 GIF 转换为图集和确定性的 `.animation.yaml` 动画片段。渲染结果带色键时可使用 `-key '#00ff00'`、`-tolerance`、`-softness`、`-despill` 和 `-fill-holes`。`-seam` 会删除重复的末帧，并旋转序列，把最不明显的帧间过渡放到循环边界。默认使用共享的 `-anchor bottom-center` 对齐帧，也可以用 `-width` 和 `-height` 使用最近邻缩放到像素网格。
+
+命令会写出 `<name>.png`、`<name>.json` 和 `<name>.animation.yaml`。图集帧名依次为 `<name>_000`、`<name>_001`，动画片段可以用常规精灵和动画资源 API 加载。
+
 ## 图片碰撞多边形与命名图像点
 
 图集源 PNG 旁的 `*.import.yaml` 伴随文件可以配置烘焙的 2D 碰撞形状（`image.collision`）与命名图像点（`image.points`，切分精灵表还可通过 `image.cellPoints` 按单元格覆写）：

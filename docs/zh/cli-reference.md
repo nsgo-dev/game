@@ -24,6 +24,32 @@ go tool game pack [flags]
 | `-scale int` | `1` | atlas scale written to meta.scale |
 | `-trim` | `true` | trim transparent borders around input images |
 
+## game sprite
+
+Turn PNG or GIF frames into a keyed sprite atlas and animation clip.
+
+```sh
+go tool game sprite [flags] frames
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-anchor string` | `bottom-center` | shared anchor: bottom-center |
+| `-despill float` |  | green spill removal from keyed edges |
+| `-fill-holes` |  | fill one-pixel transparent holes |
+| `-fps float` | `12` | animation frame rate |
+| `-height int` |  | nearest-neighbor output height (0 keeps source size) |
+| `-in string` |  | input directory of PNG frames or a GIF file (required) |
+| `-key string` |  | chroma key colour as #rrggbb or #rrggbbaa |
+| `-loop` | `true` | loop the animation |
+| `-name string` | `animation` | base name for atlas and animation clip |
+| `-out string` | `.` | output directory for atlas PNG, JSON and animation YAML |
+| `-padding int` | `1` | transparent pixels between atlas frames |
+| `-seam` |  | rotate frames to choose the least-visible loop seam |
+| `-softness int` |  | chroma key alpha softness |
+| `-tolerance int` |  | chroma key RGB tolerance |
+| `-width int` |  | nearest-neighbor output width (0 keeps source size) |
+
 ## game audio
 
 Normalize, resample and convert a WAV file to WAV, AAC or MP3.
