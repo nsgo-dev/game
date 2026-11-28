@@ -49,6 +49,8 @@ go tool nsgo dev
 
 ## 在哪里修改
 
+模板默认使用程序化英雄和敌人骨骼，以保持项目自包含。要换成蒙皮角色，可运行 `go tool game library install cc0-adventurers` 安装 CC0 角色包。包内 `animation.states.yaml` 使用统一的 `Idle`、`Walk`、`Run`、`Jump`、`Attack`、`Hit` 和 `Death` 片段名称。将模型接入 `render.go` 前，请先查看生成的片段清单。
+
 - **关卡。** 在 `scenes/keep.scene.yaml` 中移动墙、增加敌人或灯，或画一个新关卡，可以手写，也可以用场景编辑器（`go run github.com/nsgo-dev/game/cmd/game editor .`）。每个对象都位于所在图层的顶层，只有出生点可以旋转（用 `rotY`）：关卡把位置读作世界坐标、把方块读作与坐标轴对齐的盒子，所以会拒绝嵌套在其他对象里的对象和旋转过的方块。测试会检查它仍能加载；`game_test.go` 中机器人的路线说明了如何赢得一局，所以新的布局需要新的路线。
 - **战斗。** 所有数值都在 `data/actors.yaml` 中：敌人的 `attackSpeed` 小于 1 会让挥砍变慢，`health`、`reach`、`damage`、`cooldown` 和 `knockback` 不改代码就能调整难度。
 - **动画。** 编辑 `data/actors.yaml` 中片段的关键帧，或增加一个片段，并在 `rig.go` 的 `newAnimator` 中为它增加一个状态。
