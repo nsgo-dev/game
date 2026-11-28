@@ -197,3 +197,13 @@ _, _ = detour, obsID
 - **Independent tile lifecycle**: bake standalone tiles off-thread with `pathfind3d.BakeNavTile` (or voxel-bake directly from `navbake3d.Geometry` via `navbake3d.BakeTile`), then call `AddTile`, `ReplaceTile`, `SetTile`, `RemoveTile`, or `RebuildTile`; `BuildTiledNavMesh` / `BuildTiledNavMeshWithAreas` and `navbake3d.Mesh.TiledNavMesh(tileSize)` build a tiled mesh from existing polygons or baked meshes.
 - **3D dynamic obstacles**: `NavBoxObstacle`, `NavOrientedBoxObstacle`, `NavCylinderObstacle`, and `NavPolygonObstacle` check vertical Y overlap so obstacles on a ground floor never carve bridges overhead. Both `NavObstacleCarve` (exact planar subtraction) and `NavObstacleMark` (splitting and setting `NavFlagDisabled` or custom `Area`/`Flags`) are supported; group multi-obstacle edits inside `tm.Batch(func() { ... })`.
 - **Two-level 3D spatial index & path invalidation**: `FindPolygon`, `NearestPoint`, `NearestPolygon`, and `Raycast` use O(1) XZ tile lookup + per-tile 3D flat BVHs (plus a coarse 3D tile BVH for unbounded nearest lookups). Track path validity with `tm.IsPathValid(res)` (`TiledNavPathResult.Tiles`), register per-tile invalidation callbacks with `tm.WatchPath(res.TileCoords(), fn)`, or observe all tile changes via `tm.AddTileListener`.
+
+### TiledNavAgent
+
+`NewTiledNavAgent` follows a `TiledNavMesh` corridor of salted `NavPolyRef` values. It registers a one-shot `WatchPath` for the tiles in its result, so a door carve or streamed unload marks only agents crossing that tile for replan. `Step` runs the search and movement at fixed durations, while `Corridor`, `Path`, `NeedsReplan` and `ReplanCount` expose deterministic state for tests and replays. `Close` releases the watcher.
+
+```go
+agent := pathfind3d.NewTiledNavAgent(tm, start, pathfind3d.TiledNavAgentConfig{MaxSpeed: 4})
+agent.SetTarget(goal)
+agent.Step(16 * time.Millisecond)
+```
