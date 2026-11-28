@@ -231,3 +231,131 @@ func TestUDPClientConnectsDuringAFloodOfHellosWithoutCookies(t *testing.T) {
 		t.Fatalf("Peers = %v, want only the real client", p)
 	}
 }
+
+// helloForCookie builds the Noise hello for h that carries cookie.
+func helloForCookie(t *testing.T, srv *UDPServer, h hello, cookie [udpCookieSize]byte) ([]byte, *noiseNKInitiator) {
+	t.Helper()
+	dgram, init, err := encodeUDPHelloV2(srv.PublicKey(), h, cookie)
+	if err != nil {
+		t.Fatalf("encodeUDPHelloV2: %v", err)
+	}
+	return dgram, init
+}
+
+// expectIgnored sends dgram from raw and checks that the server answered nothing: the next reply raw gets is the cookie for a later request.
+func expectIgnored(t *testing.T, raw stdnet.Conn, dgram []byte) {
+	t.Helper()
+	if _, err := raw.Write(dgram); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	probe, _ := newHello(nil, resumeState{})
+	requestCookie(t, raw, probe.nonce)
+}
+
+// rebuiltHellos returns two hellos for h from raw, the first carrying the cookie of one window and the second the cookie of the next, as a client whose cookie requests straddle a window boundary sends them.
+func rebuiltHellos(t *testing.T, clock *fakeClock, raw stdnet.Conn, srv *UDPServer, h hello) (a, b []byte, initB *noiseNKInitiator) {
+	t.Helper()
+	cookieA := requestCookie(t, raw, h.nonce)
+	clock.Advance(udpCookieWindow)
+	cookieB := requestCookie(t, raw, h.nonce)
+	if cookieA == cookieB {
+		t.Fatal("cookies of two windows are equal")
+	}
+	a, _ = helloForCookie(t, srv, h, cookieA)
+	b, initB = helloForCookie(t, srv, h, cookieB)
+	return a, b, initB
+}
+
+func TestUDPServerRebindsAHelloRebuiltForANewerCookie(t *testing.T) {
+	clock := newFakeClock()
+	var calls atomic.Int32
+	srv := listenUDPServer(t, Auth{Verify: countingVerify(&calls), Now: clock.Now})
+	raw := dialRawUDP(t, srv)
+	h, _ := newHello([]byte("tok"), resumeState{})
+	helloA, helloB, initB := rebuiltHellos(t, clock, raw, srv, h)
+
+	// The server binds hello A, but its welcome reaches a client that has already replaced it with hello B.
+	udpExchange(t, raw, helloA)
+	welcomeB := udpExchange(t, raw, helloB)
+	w, _, _, err := acceptUDPServerHandshakeV2(initB, h.nonce, welcomeB)
+	if err != nil {
+		t.Fatalf("welcome to the rebuilt hello: %v", err)
+	}
+	if n, s := calls.Load(), serverSessions(srv); n != 1 || s != 1 {
+		t.Fatalf("Verify ran %d times and the server holds %d sessions, want one each", n, s)
+	}
+	if p := srv.Peers(); len(p) != 1 || p[0] != w.peer {
+		t.Fatalf("Peers = %v, want only %d", p, w.peer)
+	}
+	if ev := nextEvent(t, srv, srv.changed); ev.Kind != PeerJoined || ev.Peer != w.peer {
+		t.Fatalf("event = %+v, want PeerJoined for %d", ev, w.peer)
+	}
+	expectNoEvent(t, srv)
+
+	// A late copy of hello A must not rekey the session away from the client, and hello B still gets its welcome.
+	expectIgnored(t, raw, helloA)
+	if again := udpExchange(t, raw, helloB); !bytes.Equal(again, welcomeB) {
+		t.Fatal("hello B got a different welcome after a late hello A")
+	}
+}
+
+func TestUDPServerRebindsAResumeHelloRebuiltForANewerCookie(t *testing.T) {
+	clock := newFakeClock()
+	var calls atomic.Int32
+	srv := listenUDPServer(t, Auth{Verify: countingVerify(&calls), Now: clock.Now, GracePeriod: time.Minute})
+	raw := dialRawUDP(t, srv)
+	first, _ := newHello([]byte("tok"), resumeState{})
+	dgram, init := cookieHello(t, raw, srv, first)
+	joined, _, _, err := acceptUDPServerHandshakeV2(init, first.nonce, udpExchange(t, raw, dgram))
+	if err != nil {
+		t.Fatalf("first hello: %v", err)
+	}
+
+	h, _ := newHello([]byte("tok"), resumeState{peer: joined.peer, secret: joined.secret})
+	helloA, helloB, initB := rebuiltHellos(t, clock, raw, srv, h)
+	udpExchange(t, raw, helloA)
+	w, _, _, err := acceptUDPServerHandshakeV2(initB, h.nonce, udpExchange(t, raw, helloB))
+	if err != nil {
+		t.Fatalf("welcome to the rebuilt resume hello: %v", err)
+	}
+	if !w.resumed || w.peer != joined.peer {
+		t.Fatalf("welcome = peer %d resumed %v, want peer %d resumed", w.peer, w.resumed, joined.peer)
+	}
+	if n, s := calls.Load(), serverSessions(srv); n != 1 || s != 1 {
+		t.Fatalf("Verify ran %d times and the server holds %d sessions, want one each", n, s)
+	}
+}
+
+func TestUDPServerIgnoresAnAdmittedHelloReplayedAfterItsSessionLeft(t *testing.T) {
+	clock := newFakeClock()
+	var calls atomic.Int32
+	srv := listenUDPServer(t, Auth{Verify: countingVerify(&calls), Now: clock.Now})
+	raw := dialRawUDP(t, srv)
+	h, _ := newHello([]byte("tok"), resumeState{})
+	dgram, init := cookieHello(t, raw, srv, h)
+	w, _, _, err := acceptUDPServerHandshakeV2(init, h.nonce, udpExchange(t, raw, dgram))
+	if err != nil {
+		t.Fatalf("hello: %v", err)
+	}
+	if err := srv.Kick(w.peer, "bye"); err != nil {
+		t.Fatalf("Kick: %v", err)
+	}
+	// Drain the kick datagrams.
+	for range udpKickCopies {
+		_ = raw.SetReadDeadline(time.Now().Add(time.Second))
+		_, _ = raw.Read(make([]byte, 2048))
+	}
+
+	// The hello's cookie is still valid, but its nonce was admitted moments ago, so a replay joins nobody.
+	expectIgnored(t, raw, dgram)
+	if n, s := calls.Load(), serverSessions(srv); n != 1 || s != 0 {
+		t.Fatalf("Verify ran %d times and the server holds %d sessions, want one call and no session", n, s)
+	}
+
+	// Once the cookie has expired the replay only earns a fresh cookie.
+	clock.Advance(2 * udpCookieWindow)
+	expectCookieReply(t, raw, dgram, h.nonce, [udpCookieSize]byte(dgram[udpHelloPrefixSize:udpHelloHeader]))
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("Verify ran %d times, want once", n)
+	}
+}

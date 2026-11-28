@@ -7,6 +7,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -30,14 +31,18 @@ const (
 
 // udpLink binds a UDP session to the address and directional AEAD ciphers established by its Noise NK handshake.
 type udpLink struct {
-	addr       stdnet.Addr
-	nonce      [hsNonceSize]byte
-	helloHash  [sha256.Size]byte
-	welcome    []byte
-	sendSeq    uint32
-	sendCipher udpCipher
-	recvCipher udpCipher
-	recv       replayWindow
+	addr      stdnet.Addr
+	nonce     [hsNonceSize]byte
+	helloHash [sha256.Size]byte
+	// cookieWindow is the window of the cookie the bound hello carried, body digests the hello's decrypted resume fields and token, and resumed is whether the welcome resumed the session. Together they let the same client's hello rebuilt for a newer cookie rebind the session instead of joining a second time.
+	cookieWindow int64
+	body         [sha256.Size]byte
+	resumed      bool
+	welcome      []byte
+	sendSeq      uint32
+	sendCipher   udpCipher
+	recvCipher   udpCipher
+	recv         replayWindow
 }
 
 // UDPServer is a native UDP Transport for a server whose clients connect with DialUDP. Each client first echoes a stateless cookie the server sent to its address, proving it receives there, and then runs a Noise NK key exchange (handshake version 3) against the server's static X25519 key before its packets reach Recv; a hello without a valid cookie gets only the cookie, smaller than the hello, and takes no session slot and no Auth.Verify call. Then the token and resume secret travel encrypted, Auth.Verify checks the token, and the server assigns the client's ID in an encrypted welcome.
@@ -55,10 +60,12 @@ type UDPServer struct {
 	mu      sync.Mutex
 	table   *sessionTable
 	byNonce map[[hsNonceSize]byte]PeerID
-	inbox   packetQueue
-	closed  bool
-	err     error
-	changed chan struct{}
+	// admitted maps the nonce of every hello bound in the last two cookie windows to when it stops counting, so an exact replay of an admitted hello, still carrying a valid cookie after its session has gone, does not join again.
+	admitted map[[hsNonceSize]byte]time.Time
+	inbox    packetQueue
+	closed   bool
+	err      error
+	changed  chan struct{}
 }
 
 // ListenUDPServer binds a UDP socket on addr for a server with ID serverID (1 when zero) and starts accepting DialUDP clients under auth. If auth.StaticKey is nil, ListenUDPServer generates a fresh X25519 key pair whose public key clients obtain from PublicKey; otherwise auth.StaticKey must use X25519 or ListenUDPServer returns ErrInvalidKey.
@@ -102,6 +109,7 @@ func newUDPServerWithKey(conn stdnet.PacketConn, serverID PeerID, auth Auth, sta
 		staticKey: staticKey,
 		table:     newSessionTable(auth, serverID, true),
 		byNonce:   make(map[[hsNonceSize]byte]PeerID),
+		admitted:  make(map[[hsNonceSize]byte]time.Time),
 		changed:   make(chan struct{}, 1),
 	}
 	_, _ = rand.Read(s.cookieKey[:]) // crypto/rand.Read never fails since Go 1.24
@@ -183,7 +191,8 @@ func (s *UDPServer) handleHello(b []byte, from stdnet.Addr) {
 
 	// Until the sender shows it receives at its source address by echoing a cookie issued to that address, its hello costs one HMAC and a reply smaller than the hello: no Noise DH, no session slot and no Auth.Verify.
 	now := s.table.now()
-	if !s.validCookie([udpCookieSize]byte(b[udpHelloPrefixSize:udpHelloHeader]), nonce, from, now) {
+	window, ok := s.validCookie([udpCookieSize]byte(b[udpHelloPrefixSize:udpHelloHeader]), nonce, from, now)
+	if !ok {
 		_, _ = s.conn.WriteTo(encodeUDPCookie(nonce, s.cookie(nonce, from, cookieWindow(now))), from)
 		return
 	}
@@ -192,7 +201,7 @@ func (s *UDPServer) handleHello(b []byte, from stdnet.Addr) {
 	if err != nil {
 		return
 	}
-	if reply := s.admit(resp, h, helloHash, from, len(b)); reply != nil {
+	if reply := s.admit(resp, h, helloHash, window, from, len(b)); reply != nil {
 		_, _ = s.conn.WriteTo(reply, from)
 	}
 }
@@ -220,20 +229,33 @@ func (s *UDPServer) cookie(nonce [hsNonceSize]byte, addr stdnet.Addr, window int
 	return out
 }
 
-// validCookie reports whether c is the cookie issued to nonce and addr in the current or the previous window.
-func (s *UDPServer) validCookie(c [udpCookieSize]byte, nonce [hsNonceSize]byte, addr stdnet.Addr, now time.Time) bool {
+// validCookie reports whether c is the cookie issued to nonce and addr in the current or the previous window, and which of the two issued it.
+func (s *UDPServer) validCookie(c [udpCookieSize]byte, nonce [hsNonceSize]byte, addr stdnet.Addr, now time.Time) (int64, bool) {
 	window := cookieWindow(now)
 	for _, w := range []int64{window, window - 1} {
 		want := s.cookie(nonce, addr, w)
 		if hmac.Equal(c[:], want[:]) {
-			return true
+			return w, true
 		}
 	}
-	return false
+	return 0, false
+}
+
+// helloBody digests the fields of a decrypted hello that identify its sender: the resume request and the token.
+func helloBody(h hello) [sha256.Size]byte {
+	d := sha256.New()
+	var peer [4]byte
+	binary.BigEndian.PutUint32(peer[:], uint32(h.resumePeer))
+	d.Write(peer[:])
+	d.Write(h.resumeSecret[:])
+	d.Write(h.token)
+	var out [sha256.Size]byte
+	copy(out[:], d.Sum(nil))
+	return out
 }
 
 // admit runs the session side of the handshake and returns the encrypted Noise message 2 reply.
-func (s *UDPServer) admit(resp *noiseNKResponder, h hello, helloHash [sha256.Size]byte, from stdnet.Addr, limit int) []byte {
+func (s *UDPServer) admit(resp *noiseNKResponder, h hello, helloHash [sha256.Size]byte, window int64, from stdnet.Addr, limit int) []byte {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -241,19 +263,34 @@ func (s *UDPServer) admit(resp *noiseNKResponder, h hello, helloHash [sha256.Siz
 	}
 	now := s.table.now()
 	s.table.expire(now)
+	body := helloBody(h)
 
 	if id, ok := s.byNonce[h.nonce]; ok {
 		if sess := s.table.sessions[id]; sess != nil {
-			if link, ok := sess.link.(*udpLink); ok && link.nonce == h.nonce && link.helloHash == helloHash && sameUDPAddr(link.addr, from) {
+			if link, ok := sess.link.(*udpLink); ok && link.nonce == h.nonce && sameUDPAddr(link.addr, from) {
+				var reply []byte
+				switch {
+				case link.helloHash == helloHash:
+					reply = link.welcome
+				case window > link.cookieWindow && subtle.ConstantTimeCompare(body[:], link.body[:]) == 1:
+					// The client's cookie request crossed a window boundary, so it got a newer cookie and rebuilt its hello with a new ephemeral key after the server had already bound the first one. Rebind the same session to the new keys: no second slot, no second Verify, and no second resume, which would fail now that the first one rotated the secret.
+					reply = s.bindLocked(resp, sess, h.nonce, helloHash, window, body, from, link.resumed)
+				}
+				// Any other hello for this nonce from this address, such as a late copy of the hello the client replaced, is not the client's current one: answering it would rekey the session away from the client.
 				s.mu.Unlock()
-				return link.welcome
+				return reply
 			}
 		}
 		delete(s.byNonce, h.nonce)
 	}
+	if until, ok := s.admitted[h.nonce]; ok && now.Before(until) {
+		// A hello for a nonce admitted within the last two cookie windows whose session has gone or moved on is a replay: a real client draws a new nonce for every dial and Reconnect.
+		s.mu.Unlock()
+		return nil
+	}
 
 	if sess := s.table.resume(h, now); sess != nil {
-		reply := s.bindLocked(resp, sess, h.nonce, helloHash, from, true)
+		reply := s.bindLocked(resp, sess, h.nonce, helloHash, window, body, from, true)
 		s.mu.Unlock()
 		s.notify()
 		return reply
@@ -278,14 +315,14 @@ func (s *UDPServer) admit(resp *noiseNKResponder, h hello, helloHash [sha256.Siz
 		return nil
 	}
 	sess := s.table.commit(id, s.table.now())
-	reply := s.bindLocked(resp, sess, h.nonce, helloHash, from, false)
+	reply := s.bindLocked(resp, sess, h.nonce, helloHash, window, body, from, false)
 	s.mu.Unlock()
 	s.notify()
 	return reply
 }
 
 // bindLocked completes the Noise NK handshake for sess, binds it to from with fresh directional AEAD ciphers and a fresh replay window, and records its welcome for retransmits.
-func (s *UDPServer) bindLocked(resp *noiseNKResponder, sess *session, nonce [hsNonceSize]byte, helloHash [sha256.Size]byte, from stdnet.Addr, resumed bool) []byte {
+func (s *UDPServer) bindLocked(resp *noiseNKResponder, sess *session, nonce [hsNonceSize]byte, helloHash [sha256.Size]byte, window int64, body [sha256.Size]byte, from stdnet.Addr, resumed bool) []byte {
 	if old, ok := sess.link.(*udpLink); ok {
 		delete(s.byNonce, old.nonce)
 	}
@@ -298,16 +335,33 @@ func (s *UDPServer) bindLocked(resp *noiseNKResponder, sess *session, nonce [hsN
 	clear(c2sKey[:])
 	clear(s2cKey[:])
 	sess.link = &udpLink{
-		addr:       from,
-		nonce:      nonce,
-		helloHash:  helloHash,
-		welcome:    reply,
-		sendCipher: sendCipher,
-		recvCipher: recvCipher,
+		addr:         from,
+		nonce:        nonce,
+		helloHash:    helloHash,
+		cookieWindow: window,
+		body:         body,
+		resumed:      resumed,
+		welcome:      reply,
+		sendCipher:   sendCipher,
+		recvCipher:   recvCipher,
 	}
 	s.byNonce[nonce] = sess.id
 	s.pruneNoncesLocked()
+	s.rememberAdmittedLocked(nonce)
 	return reply
+}
+
+// rememberAdmittedLocked records nonce as admitted until every cookie that could carry it has expired, and forgets nonces whose cookies have.
+func (s *UDPServer) rememberAdmittedLocked(nonce [hsNonceSize]byte) {
+	now := s.table.now()
+	if len(s.admitted) >= 64 {
+		for n, until := range s.admitted {
+			if !now.Before(until) {
+				delete(s.admitted, n)
+			}
+		}
+	}
+	s.admitted[nonce] = now.Add(2 * udpCookieWindow)
 }
 
 // pruneNoncesLocked forgets hello nonces of sessions that have gone or moved on, once they outnumber the sessions.

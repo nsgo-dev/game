@@ -379,7 +379,7 @@ func TestUDPSessionRejectsWrongServerKeyAndInvalidKeys(t *testing.T) {
 	}
 	expectNoEvent(t, srv)
 
-	// MITM server that replies with a forged version-2 welcome encrypted with a different key: client must reject it and not open.
+	// MITM server that hands out a cookie and then replies with a forged version-3 welcome encrypted with a different key: client must reject it and not open.
 	mitmConn, err := stdnet.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
