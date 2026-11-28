@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math"
 	"slices"
-	"strings"
 	"testing"
 	"testing/fstest"
 

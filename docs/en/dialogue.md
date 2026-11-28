@@ -90,6 +90,10 @@ r := dialogue.NewRunner(script, dialogue.Options{Bus: &bus})
 
 A line's or choice's `#line:<id>` tag is its key in a string table. With `Options.StringResolver` set, a runner calls it with the id, the script's own text as the fallback and a copy of the variables, then interpolates any `{expr}` left in the returned text, so a translation can move a placeholder. The resolver usually looks the id up in an [l10n](l10n.md) string table and returns the fallback when the table has no entry.
 
+## Shared variables
+
+With `Options.Vars` set to a [flow](flow.md) `Vars` store loaded from `vars.yaml`, a runner reads and writes that store instead of a variable map of its own, so other runners and the rest of the game see every `<<set>>` at once. `<<declare>>` or `<<set>>` of a name the store does not declare returns an error wrapping `flow.ErrUndeclaredVar`, a `<<declare>>` of a declared name keeps the store's value, and assignments keep the declared kind and range. `Script.VarRefs` lists every variable a script reads or writes with its line, which `go tool game check` compares against `vars.yaml`.
+
 ## Saving
 
 `State` returns a runner's variables and node visit counts as a `State`, which marshals to JSON for a [save](save.md) slot; `LoadState` restores it into a runner made from the same script. Start the runner at the node to resume from after loading.

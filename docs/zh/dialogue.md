@@ -90,6 +90,10 @@ r := dialogue.NewRunner(script, dialogue.Options{Bus: &bus})
 
 台词或选项的 `#line:<id>` 标签是它在字符串表中的键。设置 `Options.StringResolver` 后，runner 会以该 id、脚本自身的文字（作为回退）和变量副本调用它，再对返回文字中剩下的 `{expr}` 做插值，因此译文可以移动占位符的位置。解析函数通常在 [l10n](l10n.md) 字符串表中查找该 id，表中没有条目时返回回退文字。
 
+## 共享变量
+
+把 `Options.Vars` 设为从 `vars.yaml` 加载的 [flow](flow.md) `Vars` 存储后，runner 读写这份存储而不是自己的变量表，因此其他 runner 与游戏其余部分会立即看到每次 `<<set>>`。对存储未声明的名称执行 `<<declare>>` 或 `<<set>>` 会返回包装了 `flow.ErrUndeclaredVar` 的错误；对已声明名称的 `<<declare>>` 保留存储中的值；赋值遵守声明的类型与范围。`Script.VarRefs` 列出脚本读写的每个变量及其行号，`go tool game check` 用它与 `vars.yaml` 比对。
+
 ## 存档
 
 `State` 以 `State` 返回 runner 的变量与节点访问次数，可以编码为 JSON 存入 [save](save.md) 存档槽；`LoadState` 把它恢复到由同一脚本创建的 runner 中。读档后从要继续的节点调用 `Start`。
