@@ -4,7 +4,7 @@
 import "github.com/nsgo-dev/game/pkg/online/steamworks"
 ```
 
-`steamworks` owns the one Steamworks client a process may have. It loads the Steamworks shared library through `purego` (no cgo or hand-written C), initializes Steamworks once, pumps Steam's callbacks once per display frame on the engine goroutine, and shuts Steamworks down when the last scope that opened it is disposed. [`presence.Steam`](presence.md#steam-rich-presence) and [`modding.SteamWorkshop`](modding.md#steam-workshop-workshop) attach to the same client instead of initializing Steamworks themselves.
+`steamworks` owns the one Steamworks client a process may have. It loads the Steamworks shared library through `purego` (no cgo or hand-written C), initializes Steamworks once, pumps Steam's callbacks once per display frame on the engine goroutine, and shuts Steamworks down when the last scope that opened it is disposed. [`presence.Steam`](presence.md#steam-rich-presence) and [`modding.SteamWorkshop`](modding.md#steam-workshop-workshop) attach to the same client instead of initializing Steamworks themselves. Achievements, stats and leaderboards go through [`steam`](steam-stats.md), whose `Driver` can be implemented on this client.
 
 ## Opening the client
 

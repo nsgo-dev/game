@@ -4,7 +4,7 @@
 import "github.com/nsgo-dev/game/pkg/online/steamworks"
 ```
 
-`steamworks` 管理一个进程内唯一的 Steamworks 客户端。它通过 `purego` 加载 Steamworks 共享库（无需 cgo 或手写 C），只初始化一次 Steamworks，在引擎 goroutine 上每个显示帧泵送一次 Steam 回调，并在最后一个打开它的 scope 销毁时关闭 Steamworks。[`presence.Steam`](presence.md#steam-丰富状态) 和 [`modding.SteamWorkshop`](modding.md#steam-创意工坊workshop) 挂接到同一个客户端，不再各自初始化 Steamworks。
+`steamworks` 管理一个进程内唯一的 Steamworks 客户端。它通过 `purego` 加载 Steamworks 共享库（无需 cgo 或手写 C），只初始化一次 Steamworks，在引擎 goroutine 上每个显示帧泵送一次 Steam 回调，并在最后一个打开它的 scope 销毁时关闭 Steamworks。[`presence.Steam`](presence.md#steam-丰富状态) 和 [`modding.SteamWorkshop`](modding.md#steam-创意工坊workshop) 挂接到同一个客户端，不再各自初始化 Steamworks。成就、统计和排行榜走 [`steam`](steam-stats.md)，它的 `Driver` 可以基于这个客户端实现。
 
 ## 打开客户端
 

@@ -4,7 +4,7 @@
 import "github.com/nsgo-dev/game/pkg/online/steam"
 ```
 
-`steam` 是 Steam 成就、统计、排行榜和富状态的引擎边界。它定义由 Steamworks 适配器实现的 `Driver` 接口，以及为一个 `core.Scope` 包装驱动的 `Platform`。本包不附带原生适配器：游戏注入自己的 `Driver`，在此之前用 nil 驱动调用 `New` 会返回 `ErrUnavailable`。在 Steam 上发布构建见[发布到 Steam](steam.md)。
+`steam` 是 Steam 成就、统计、排行榜和富状态的引擎边界。它定义由 Steamworks 适配器实现的 `Driver` 接口，以及为一个 `core.Scope` 包装驱动的 `Platform`。本包不附带原生适配器：游戏注入自己的 `Driver`，在此之前用 nil 驱动调用 `New` 会返回 `ErrUnavailable`。调用 Steamworks 的 `Driver` 应挂接到 [`steamworks`](steamworks.md) 提供的进程共享客户端（`steamworks.Open`，再用 `ResolveSymbol` 和 `AwaitCall` 调用 `ISteamUserStats` 扁平 API），不要自己初始化 Steamworks；该客户端已经泵送回调并负责关闭 Steamworks，因此驱动的 `RunCallbacks` 和 `Shutdown` 无需做任何事。在 Steam 上发布构建见[发布到 Steam](steam.md)。
 
 ## 使用 Platform
 
