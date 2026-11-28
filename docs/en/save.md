@@ -63,7 +63,7 @@ store := save.NewFileStore(cx.DataDir(),
 
 When `Load` reads an older version, it upgrades the JSON one version at a time (`1 -> 2 -> 3 ...`) before unmarshaling into `dst`. `Load` does not write the migrated save back, so migrations run again on every `Load` until the slot is saved: each one must be a pure function of its input that gives the same result every time.
 
-An envelope with any field besides `version` and `data`, or with either field given twice, is `ErrCorrupt`. `save.EnvelopeVersion(payload)` reads a payload's schema version without decoding its body (including envelopes written by a newer build that carry extra fields).
+An envelope with any field besides `version`, `data` and the optional `header` object (see [Slot headers](#slot-headers)), or with a field given twice, is `ErrCorrupt`. `save.EnvelopeVersion(payload)` reads a payload's schema version without decoding its body (including envelopes written by a newer build that carry extra fields).
 
 When syncing slots across devices with `liveops.CloudSyncer`, pass the store's `Version` as `CloudSyncOptions.SaveVersion`. Before writing a cloud copy locally, the syncer checks `save.EnvelopeVersion`; if the cloud copy is newer, it keeps the local slot intact and reports `liveops.OutcomeNeedsUpdate` with `LocalVersion` and `CloudVersion` so the game can ask the player to update instead of writing a future-version envelope that `Load` would refuse with `ErrFutureVersion` and risking a fresh save overwriting the cloud copy. See [cloudsave](cloudsave.md#mixed-client-versions).
 
@@ -76,6 +76,36 @@ Sentinel errors to check with `errors.Is`:
 | `ErrFutureVersion` | Save was written by a newer schema version than `Store.Version`. |
 | `ErrMissingMigration` | Store lacks a migration step needed to reach `Store.Version`. |
 | `ErrCorrupt` | Stored payload is not a valid save envelope. |
+
+## Slot headers
+
+A load screen shows a chapter, a location or a play time for each slot. `SaveWithHeader(slot, header, value)` writes a small game-defined header in the same envelope as the data, `{"version": N, "header": {...}, "data": ...}`, and `Headers()` returns every slot's header as raw JSON keyed by slot name, without unmarshaling any slot's data into a Go value:
+
+```go
+type SlotSummary struct {
+	Chapter string `json:"chapter"`
+	PlayMin int    `json:"playMin"`
+}
+
+if err := store.SaveWithHeader("slot1", SlotSummary{Chapter: "Harbor", PlayMin: 42}, progress); err != nil {
+	return err
+}
+
+headers, err := store.Headers()
+if err != nil {
+	return err
+}
+for slot, raw := range headers {
+	var sum SlotSummary
+	if json.Unmarshal(raw, &sum) == nil {
+		fmt.Println(slot, sum.Chapter, sum.PlayMin)
+	}
+}
+```
+
+The header must encode to a JSON object. Because the header and the data are one write, they cannot disagree, and the backup copy keeps the previous header with the previous data: when the primary copy is torn, `Headers` reads the header from the copy `Load` falls back to. `Load` ignores the header. A slot written with `Save`, or by a build that predates headers, has no header and is not in the map (`Slots` still lists it), and neither is a slot with no valid copy. `Headers` reads each slot's whole envelope, so keep the header small, and put a thumbnail or other image data elsewhere rather than in the header.
+
+A build older than headers reads an envelope with a header as `ErrCorrupt` and falls back to the backup, so a game that may be downgraded should not start writing headers in the same schema version.
 
 ## Atomic writes and backup recovery
 

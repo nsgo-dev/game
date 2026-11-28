@@ -1,6 +1,6 @@
 // Package save stores a game's save slots as versioned JSON in either the app's key-value storage (core.Storage) or files in a directory such as cx.DataDir.
 //
-// Each slot holds a {"version": N, "data": ...} envelope; an envelope with any other field, or with a field given twice, is corrupt. When a Store loads a save written by an older version, it runs its registered migrations one version at a time (v to v+1) before unmarshaling into the caller's value; a save from a newer version is refused with ErrFutureVersion rather than read into an older shape.
+// Each slot holds a {"version": N, "data": ...} envelope, with an optional "header" object between them when it was written by SaveWithHeader, which Headers lists without unmarshaling the data; an envelope with any other field, or with a field given twice, is corrupt. When a Store loads a save written by an older version, it runs its registered migrations one version at a time (v to v+1) before unmarshaling into the caller's value; a save from a newer version is refused with ErrFutureVersion rather than read into an older shape.
 //
 // Writes keep the previous valid save as a backup before replacing the primary copy (with a write, sync and rename on disk, or a backup key in core.Storage), so a failed write leaves the last good save intact and a corrupted primary falls back to the backup on Load.
 //
@@ -71,62 +71,6 @@ type Store struct {
 	backend Backend
 }
 
-// SlotHeader is the small optional value listed without decoding a slot's data.
-type SlotHeader struct {
-	SavedAt string          `json:"savedAt,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`
-}
-
-// SaveWithHeader writes a slot envelope with a JSON header alongside data.
-func (s *Store) SaveWithHeader(slot string, header any, value any) error {
-	if err := validateSlot(slot); err != nil {
-		return err
-	}
-	if s.backend == nil {
-		return errors.New("save: store has no backend")
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("save: marshal %q: %w", slot, err)
-	}
-	h, err := json.Marshal(header)
-	if err != nil {
-		return fmt.Errorf("save: marshal header %q: %w", slot, err)
-	}
-	payload, err := json.Marshal(struct {
-		Version int             `json:"version"`
-		Header  json.RawMessage `json:"header"`
-		Data    json.RawMessage `json:"data"`
-	}{s.version(), h, raw})
-	if err != nil {
-		return err
-	}
-	return s.backend.Write(slot, payload)
-}
-
-// Headers returns raw JSON headers for every slot that has one. Slots written
-// by older versions are omitted, and their data is never decoded.
-func (s *Store) Headers() (map[string]json.RawMessage, error) {
-	out := map[string]json.RawMessage{}
-	slots, err := s.Slots()
-	if err != nil {
-		return nil, err
-	}
-	for _, slot := range slots {
-		raw, err := s.backend.Read(slot)
-		if err != nil {
-			continue
-		}
-		var env struct {
-			Header json.RawMessage `json:"header"`
-		}
-		if json.Unmarshal(raw, &env) == nil && len(env.Header) > 0 {
-			out[slot] = append(json.RawMessage(nil), env.Header...)
-		}
-	}
-	return out, nil
-}
-
 // NewStore returns a Store backed by backend, defaulting to Version 1 before applying opts.
 func NewStore(backend Backend, opts ...Option) *Store {
 	s := &Store{
@@ -163,6 +107,25 @@ func (s *Store) RegisterMigration(from int, fn Migration) {
 //
 // Marshaling happens before the backend is touched, so an encoding error leaves any previous save in slot untouched.
 func (s *Store) Save(slot string, value any) error {
+	return s.write(slot, nil, value)
+}
+
+// SaveWithHeader is Save with a header: header, which must encode to a JSON object, is written in the same envelope as value, as {"version": N, "header": {...}, "data": ...}, so the header and the data it describes are replaced together by one write and cannot disagree. Headers lists it without unmarshaling the data. Load ignores the header.
+//
+// Keep the header small (a chapter, a location, play time, a date): Headers reads every slot's envelope to list them.
+func (s *Store) SaveWithHeader(slot string, header, value any) error {
+	h, err := json.Marshal(header)
+	if err != nil {
+		return fmt.Errorf("save: marshal header %q: %w", slot, err)
+	}
+	if t := bytes.TrimSpace(h); len(t) == 0 || t[0] != '{' {
+		return fmt.Errorf("save: header for %q is not a JSON object", slot)
+	}
+	return s.write(slot, h, value)
+}
+
+// write encodes value, with header when it is not nil, into a versioned envelope and writes it to slot.
+func (s *Store) write(slot string, header json.RawMessage, value any) error {
 	if err := validateSlot(slot); err != nil {
 		return err
 	}
@@ -175,12 +138,46 @@ func (s *Store) Save(slot string, value any) error {
 	}
 	payload, err := json.Marshal(envelope{
 		Version: s.version(),
+		Header:  header,
 		Data:    json.RawMessage(raw),
 	})
 	if err != nil {
 		return fmt.Errorf("save: encode %q: %w", slot, err)
 	}
 	return s.backend.Write(slot, payload)
+}
+
+// Headers returns the header of every slot saved with SaveWithHeader, keyed by slot name, without unmarshaling any slot's data into a Go value. A slot saved with Save, or by a build that predates headers, has no header and is left out; Slots still lists it.
+//
+// Each header comes from the copy Load would read: the primary, or the backup when the primary is missing or is not a valid envelope. A slot neither of whose copies is a valid envelope is left out too, and Load reports what is wrong with it.
+func (s *Store) Headers() (map[string]json.RawMessage, error) {
+	slots, err := s.Slots()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]json.RawMessage)
+	for _, slot := range slots {
+		env, ok := s.readEnvelope(slot)
+		if ok && len(env.Header) > 0 {
+			out[slot] = append(json.RawMessage(nil), env.Header...)
+		}
+	}
+	return out, nil
+}
+
+// readEnvelope parses the envelope of slot's primary copy, or of its backup when the primary cannot be read or parsed.
+func (s *Store) readEnvelope(slot string) (envelope, bool) {
+	if raw, err := s.backend.Read(slot); err == nil {
+		if env, err := parseEnvelope(raw); err == nil {
+			return env, true
+		}
+	}
+	if raw, err := s.backend.ReadBackup(slot); err == nil {
+		if env, err := parseEnvelope(raw); err == nil {
+			return env, true
+		}
+	}
+	return envelope{}, false
 }
 
 // Load reads slot, migrates older save versions up to s.Version one step at a time, and unmarshals the data into dst.
@@ -462,9 +459,10 @@ func underData(field string) string {
 	return "data." + field
 }
 
-// envelope is the on-disk and in-storage JSON wrapper around a slot's payload.
+// envelope is the on-disk and in-storage JSON wrapper around a slot's payload. Header is the optional object SaveWithHeader writes; Save leaves it out.
 type envelope struct {
 	Version int             `json:"version"`
+	Header  json.RawMessage `json:"header,omitempty"`
 	Data    json.RawMessage `json:"data"`
 }
 
@@ -489,17 +487,22 @@ func parseEnvelope(payload []byte) (envelope, error) {
 	if len(data) == 0 || (data[0] != '{' && data[0] != '[') {
 		return envelope{}, loaderr.Errorf("data", fixCorrupt, "save data is missing or not an object or array: %w", ErrCorrupt)
 	}
+	if env.Header != nil {
+		if h := bytes.TrimSpace(env.Header); len(h) == 0 || h[0] != '{' {
+			return envelope{}, loaderr.Errorf("header", fixCorrupt, "save header is not an object: %w", ErrCorrupt)
+		}
+	}
 	return env, nil
 }
 
-// checkEnvelopeKeys refuses an envelope with a key other than "version" and "data" or with a key given twice, which encoding/json would silently ignore or resolve to the last value (#546). A payload that is not a JSON object is left to json.Unmarshal, whose error gives the line.
+// checkEnvelopeKeys refuses an envelope with a key other than "version", "header" and "data" or with a key given twice, which encoding/json would silently ignore or resolve to the last value (#546). A payload that is not a JSON object is left to json.Unmarshal, whose error gives the line.
 func checkEnvelopeKeys(payload []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(payload))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
 		// json.Unmarshal, which parseEnvelope runs next, reports what is wrong and where.
 		return nil
 	}
-	var seenVersion, seenData bool
+	var seenVersion, seenHeader, seenData bool
 	for dec.More() {
 		tok, err := dec.Token()
 		if err != nil {
@@ -509,9 +512,11 @@ func checkEnvelopeKeys(payload []byte) error {
 		switch {
 		case key == "version" && !seenVersion:
 			seenVersion = true
+		case key == "header" && !seenHeader:
+			seenHeader = true
 		case key == "data" && !seenData:
 			seenData = true
-		case key == "version" || key == "data":
+		case key == "version" || key == "header" || key == "data":
 			return loaderr.Errorf(key, fixCorrupt, "%w: duplicate envelope field %q", ErrCorrupt, key)
 		default:
 			return loaderr.Errorf(key, fixCorrupt, "%w: unknown envelope field %q", ErrCorrupt, key)
