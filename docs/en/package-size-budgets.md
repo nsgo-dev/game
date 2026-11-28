@@ -77,8 +77,8 @@ go run ./cmd/sizecheck -kind wasm -budget ../../benchmarks/web-budget.json -mark
 | --- | --- |
 | `-kind` | Package format: `aab`, `apk`, `ipa`, or `wasm`. Inferred from the file extension when omitted; defaults to `wasm`. |
 | `-file` | Path to the package file (`.aab`, `.apk`, `.ipa`, or `.wasm`). May also be passed as a positional argument. |
-| `-budget` | Path to a JSON budget file. Defaults to `../../benchmarks/web-budget.json` for `wasm` and built-in platform defaults for mobile. |
-| `-budget-mb` | Override the total package size limit in MiB (`> 0`). |
+| `-budget` | Path to a JSON budget file. Defaults to `benchmarks/web-budget.json` for `wasm` and built-in platform defaults for mobile. |
+| `-budget-mb` | Override the raw total size limit in MiB (`> 0`). In wasm mode this replaces only the raw limit and leaves the compressed limit from the budget file. |
 | `-abi-budget-mb` | Override the per-ABI native library compressed size limit in MiB (`> 0`, Android only). |
 | `-wasm` | Existing `.wasm` path in `wasm` mode (skips building `target`). |
 | `-json` | Write the structured report as JSON to stdout. |
@@ -113,9 +113,9 @@ Any omitted or `<= 0` field is left unbounded.
 
 [`.github/workflows/quality.yml`](../../.github/workflows/quality.yml) runs three dedicated size budget jobs on every push to `main` and every pull request:
 
-1. **`web-size-budget`** (`ubuntu-24.04`): builds `./internal/sizeprobe` for `GOOS=js GOARCH=wasm` and checks `benchmarks/web-budget.json`.
-2. **`android-size-budget`** (`ubuntu-24.04`): runs `go tool nsgo build -target android -channel store ./internal/sizeprobe`, inspects the generated `.aab` against `benchmarks/android-aab-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
-3. **`ios-size-budget`** (`macos-15`): runs `go tool nsgo build -target ios ./internal/sizeprobe`, inspects the generated `.ipa` against `benchmarks/ios-ipa-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
+1. **`web-size-budget`** (`depot-ubuntu-24.04-4`): builds `./internal/sizeprobe` for `GOOS=js GOARCH=wasm` and checks `benchmarks/web-budget.json`.
+2. **`android-size-budget`** (`depot-ubuntu-24.04-4`): runs `go tool nsgo build -target android -channel store ./internal/sizeprobe`, inspects the generated `.aab` against `benchmarks/android-aab-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
+3. **`ios-size-budget`** (`depot-macos-15`): runs `go tool nsgo build -target ios ./internal/sizeprobe`, inspects the generated `.ipa` against `benchmarks/ios-ipa-budget.json`, and appends the Markdown report to `$GITHUB_STEP_SUMMARY`.
 
 When a budget fails, `sizecheck` still renders the full violation list, category table, per-ABI table, and top-10 largest files into the job summary before exiting with code `1`.
 

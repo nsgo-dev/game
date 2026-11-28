@@ -1,0 +1,1 @@
+- Document small-download and fast-start choices for web and mobile games.
