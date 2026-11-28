@@ -70,6 +70,8 @@ feel:
       max: 4
 ```
 
+The brief's art direction is also the shared style anchor for editor asset generation. Generated image and sound prompts append the deterministic style summary before the kind-specific framing constraint, so separate generator calls retain the same direction. Reference-byte integrations can use `editor.AssetReferenceHash` to record the lowercase SHA-256 digest of the exact bytes submitted.
+
 <!-- format: editor#settings -->
 ### Editor settings
 
