@@ -206,6 +206,7 @@ var formatVersions = map[string]string{
 	"rhythm.CalibrationsVersion":                    "rhythm#calibrations",
 	"rooms.FormatVersion":                           "rooms",
 	"rts.FormationsVersion":                         "rts",
+	"sceneformat.BehaviorComponentVersion":          "sceneformat",
 	"sceneformat.ConflictVersion":                   "sceneformat#conflict",
 	"sceneformat.CurrentVersion":                    "sceneformat",
 	"sceneformat.Lights2DComponentVersion":          "sceneformat",
