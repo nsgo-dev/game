@@ -54,7 +54,7 @@ type command struct {
 }
 
 // commands are game's subcommands in the order game help lists them, help itself last.
-var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand, mcpCommand, releaseCommand, replayCommand, playtestCommand, benchCommand, sizeCommand, newCommand, projectCommand, devCommand, checkCommand, assetsCommand, generateCommand, mvCommand, indexCommand, libraryCommand, creditsCommand, pixelfxCommand, navmeshCommand, mergeCommand, schemaCommand, netCommand, wireCommand}
+var commands = []*command{packCommand, spriteFramesCommand, audioCommand, manifestCommand, texCommand, editorCommand, mcpCommand, releaseCommand, replayCommand, playtestCommand, benchCommand, sizeCommand, newCommand, projectCommand, devCommand, checkCommand, assetsCommand, generateCommand, mvCommand, indexCommand, libraryCommand, creditsCommand, pixelfxCommand, navmeshCommand, mergeCommand, schemaCommand, netCommand, wireCommand}
 
 // helpSummary is the help subcommand's line in the listing.
 const helpSummary = "Show the commands, or one command's flags"
@@ -104,6 +104,9 @@ func run(args []string, a *app) int {
 		return 2
 	}
 	name, rest := args[0], args[1:]
+	if name == "sprite" && len(rest) > 0 && rest[0] == "frames" {
+		rest = rest[1:]
+	}
 	switch name {
 	case "help", "-h", "-help", "--help":
 		return help(rest, a)

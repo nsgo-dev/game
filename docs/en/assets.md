@@ -134,6 +134,12 @@ group, err := dlc.FetchGroup(ctx, mgr, spec, registerAssets, onProgress)
 - A resumed download that gets `206 Partial Content` without a `Content-Range` header starts over from the first byte rather than appending a body whose range it cannot check.
 - `ParsePackManifest` refuses fields it does not define, such as a misspelt `sha265`, a key given twice in one object, and anything after the manifest, with the line and a fix.
 
+## Sprite frame processing
+
+`go tool game sprite frames -in frames -out build/sprites -name hero` turns a sorted PNG directory or GIF into an atlas and a deterministic `.animation.yaml` clip. Use `-key '#00ff00'`, `-tolerance`, `-softness`, `-despill` and `-fill-holes` for chroma-keyed renders. `-seam` removes a duplicate terminal frame and rotates the sequence to put its least-visible transition at the loop boundary. Frames are aligned to a shared `-anchor bottom-center` by default, and `-width` and `-height` optionally apply nearest-neighbor pixel-grid scaling.
+
+The command writes `<name>.png`, `<name>.json` and `<name>.animation.yaml`. Atlas frame names use `<name>_000`, `<name>_001` and so on, so the clip can be loaded with the regular sprite and animation resource APIs.
+
 ## Image collision and named points
 
 An atlas source PNG may carry a `*.import.yaml` sidecar configuring baked 2D collision shapes (`image.collision`) and named image points (`image.points`, with optional per-cell overrides in `image.cellPoints` for sliced sheets):
