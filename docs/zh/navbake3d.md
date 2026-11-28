@@ -151,4 +151,4 @@ go tool game navmesh scenes/level1.scene.yaml
 
 ## 在编辑器中烘焙
 
-在 3D 视图模式下，[场景编辑器](editor.md#3d-导航网格烘焙-901)提供 **NavMesh** 烘焙面板（`NavMeshPanelView`），可编辑代理半径、身高、可攀爬高度、最大坡度、体素单元尺寸与高度以及输出路径，直接把当前场景烘焙为确定性的 `.navmesh.yaml`（以可撤销步骤更新 `SceneDoc.NavMesh`），并在 3D 视口上开关半透明可行走多边形与边界线叠加层。
+在 3D 视图模式下，[场景编辑器](editor.md#3d-导航网格烘焙901)提供 **NavMesh** 烘焙面板（`NavMeshPanelView`），可编辑代理半径、身高、可攀爬高度、最大坡度、体素单元尺寸与高度以及输出路径，直接把当前场景烘焙为确定性的 `.navmesh.yaml`（以可撤销步骤更新 `SceneDoc.NavMesh`），并在 3D 视口上开关半透明可行走多边形与边界线叠加层。

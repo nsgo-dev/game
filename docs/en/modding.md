@@ -19,11 +19,11 @@ The engine has three ways to extend a game, and they are not interchangeable:
 | Platforms | all, iOS and the web included | native; the web only with `ManagerOptions.WebUnisolated` | all |
 | Extends the editor | yes | no (today) | turns on built-in plugins only |
 
-An editor plugin is an `editor.Plugin` the editor binary registers with `Editor.RegisterPlugin` and a project turns on by name under `editor.plugins` in `game.yaml`; see [Editor plugins](editor.md#editor-plugins-492). A script mod is a `mod.yaml` manifest plus a TSX entry script that `modding.Manager` runs in a sandbox limited to the capabilities the manifest asks for and the host grants, as this page describes. A library pack is a set of files `library.Install` writes into the project and records in `game.yaml`; see [Asset and Plugin Library](library.md). A pack may not hold Go source or module files (`.go`, `go.mod` and the like are refused), so a plugin pack only turns on editor plugins the editor binary was already built with — it never ships their code.
+An editor plugin is an `editor.Plugin` the editor binary registers with `Editor.RegisterPlugin` and a project turns on by name under `editor.plugins` in `game.yaml`; see [Editor plugins](editor.md#editor-plugins-492-898). A script mod is a `mod.yaml` manifest plus a TSX entry script that `modding.Manager` runs in a sandbox limited to the capabilities the manifest asks for and the host grants, as this page describes. A library pack is a set of files `library.Install` writes into the project and records in `game.yaml`; see [Asset and Plugin Library](library.md). A pack may not hold Go source or module files (`.go`, `go.mod` and the like are refused), so a plugin pack only turns on editor plugins the editor binary was already built with — it never ships their code.
 
 Which one do you need?
 
-- A new panel, inspector, viewport tool or 3D gizmo in the editor, or component types the editor checks scenes against: an editor plugin — see [Editor plugins](editor.md#editor-plugins-492).
+- A new panel, inspector, viewport tool or 3D gizmo in the editor, or component types the editor checks scenes against: an editor plugin — see [Editor plugins](editor.md#editor-plugins-492-898).
 - Let players change the shipped game, within limits the game sets: a script mod, below.
 - Share sprites, scenes, sounds or a starter template: a library pack — see [Asset and Plugin Library](library.md).
 

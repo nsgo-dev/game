@@ -19,11 +19,11 @@ import "github.com/nsgo-dev/game/pkg/modding"
 | 平台 | 全部，包括 iOS 和 Web | 原生平台；Web 仅在设置 `ManagerOptions.WebUnisolated` 后可用 | 全部 |
 | 扩展编辑器 | 可以 | 不能（目前） | 只能启用内置插件 |
 
-编辑器插件是编辑器程序用 `Editor.RegisterPlugin` 注册、项目再在 `game.yaml` 的 `editor.plugins` 下按名字启用的 `editor.Plugin`；见[编辑器插件](editor.md#编辑器插件492)。脚本模组是一份 `mod.yaml` 清单加一个 TSX 入口脚本，由 `modding.Manager` 在沙箱中运行，能做什么仅限于清单申请、宿主授予的能力，本页详细说明。库包是 `library.Install` 写入项目并记录在 `game.yaml` 中的一组文件；见[资源与插件库](library.md)。包不得包含 Go 源码或模块文件（`.go`、`go.mod` 等都会被拒绝），所以插件包只能启用编辑器程序编译时已包含的插件，而不会携带它们的代码。
+编辑器插件是编辑器程序用 `Editor.RegisterPlugin` 注册、项目再在 `game.yaml` 的 `editor.plugins` 下按名字启用的 `editor.Plugin`；见[编辑器插件](editor.md#编辑器插件492898)。脚本模组是一份 `mod.yaml` 清单加一个 TSX 入口脚本，由 `modding.Manager` 在沙箱中运行，能做什么仅限于清单申请、宿主授予的能力，本页详细说明。库包是 `library.Install` 写入项目并记录在 `game.yaml` 中的一组文件；见[资源与插件库](library.md)。包不得包含 Go 源码或模块文件（`.go`、`go.mod` 等都会被拒绝），所以插件包只能启用编辑器程序编译时已包含的插件，而不会携带它们的代码。
 
 该选哪一种？
 
-- 给编辑器加新的面板、检查器、视口工具或 3D 操纵杆，或让编辑器按某些组件类型检查场景：用编辑器插件，见[编辑器插件](editor.md#编辑器插件492)。
+- 给编辑器加新的面板、检查器、视口工具或 3D 操纵杆，或让编辑器按某些组件类型检查场景：用编辑器插件，见[编辑器插件](editor.md#编辑器插件492898)。
 - 让玩家在游戏设定的限度内改动已发布的游戏：用脚本模组，见下文。
 - 分享精灵图、场景、声音或起步模板：用库包，见[资源与插件库](library.md)。
 
