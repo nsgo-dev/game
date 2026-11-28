@@ -141,3 +141,10 @@ leaderboardd serve  -config leaderboards.yaml -keyset keys.yaml -data scores -ad
 ```
 
 `init` writes a configuration with one all-time `high-score` board and no `allowedOrigins` to edit; if a web build calls the service from another origin, add the game page's origin to `allowedOrigins` in `leaderboards.yaml` before `serve`. `genkey` writes a game server signing key and prints the `serverKeys` entry to paste into the configuration. `serve` verifies player tokens with the account service's key set file (`accountsd genkey` writes it), accepts only those for the configuration's `audience`, refuses to start when that is the key set's audience, which names the game's servers, keeps scores under `-data`, and stops on SIGINT or SIGTERM. `-sync` flushes every score to the disk before acknowledging it, for a machine that may lose power.
+# Operators and seasons
+
+Self-hosted boards may declare `operator`, `metadataMaxBytes` and `reset: monthly`. Records carry optional subscores and JSON metadata.
+
+### Operators, metadata and monthly periods
+
+Boards can declare `operator: best|set|increment|decrement`, `metadataMaxBytes` and `reset: monthly`. Records and entries carry a subscore and JSON metadata for deterministic tie breaks and replay details. Monthly period IDs use `YYYY-MM` and handle short months through calendar arithmetic. Existing configurations remain valid with the default operator.
