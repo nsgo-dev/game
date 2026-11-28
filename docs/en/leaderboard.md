@@ -1,5 +1,9 @@
 # leaderboard
 
+## Mini-game friend rankings
+
+Use a `miniGame` catalog entry (`key` and `order`) with `ProviderMiniGame`. `Submit` writes only a better score to host user cloud storage, while `Show` and `Hide` control the open data context rectangle. Friend rows stay in that isolated context and `Scores` remains unsupported. Simulated mobile environments report `ProviderNone` unless the mini-program host capability is present.
+
 ```go
 import "github.com/nsgo-dev/game/pkg/online/leaderboard"
 ```

@@ -1,5 +1,7 @@
 # 线上运营（Live operations）
 
+小程序排行榜存储遵循宿主的云存储限制，并将好友数据保留在开放数据域中。在排行榜目录中配置存储键并使用 `ProviderMiniGame`，主游戏进程不能读取好友行。
+
 ```go
 import "github.com/nsgo-dev/game/pkg/online/liveops"
 ```

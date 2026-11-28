@@ -1,5 +1,7 @@
 # Live operations
 
+Mini-game leaderboard storage follows host cloud-storage limits and keeps friend data in the open data context. Configure the storage key in the leaderboard catalog and use `ProviderMiniGame`; the main game process cannot read friend rows.
+
 ```go
 import "github.com/nsgo-dev/game/pkg/online/liveops"
 ```

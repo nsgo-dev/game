@@ -1,5 +1,9 @@
 # leaderboard
 
+## 小程序好友排行
+
+在目录中使用包含 `key` 和 `order` 的 `miniGame` 条目，并通过 `ProviderMiniGame` 使用。`Submit` 只会把更好的成绩写入宿主用户云存储，`Show` 和 `Hide` 控制开放数据域矩形。好友行始终留在隔离的数据域中，因此 `Scores` 仍不支持。模拟移动环境只有在具备小程序宿主能力时才报告 `ProviderMiniGame`。
+
 ```go
 import "github.com/nsgo-dev/game/pkg/online/leaderboard"
 ```
