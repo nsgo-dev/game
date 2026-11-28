@@ -363,3 +363,6 @@ liveops.CaptureCardSnapshot(cx, gameCanvasRef, liveops.CardSnapshotOptions{}, fu
 ```
 
 `liveops/invites_test.go` 覆盖了假 `ShareHost` 往返编解码、字节上限、畸形负载拒绝、HMAC 校验、冷启动与重入各一次投递、`MiniGameShareHost`、基于 `nsgotest` 的原生与 Web `PlatformShareHost` 以及 5:4 截图裁剪测试。
+# 小程序广告
+
+`liveops.Ads` 通过 `AdHost` 封装平台广告。只有视频完整播放结束时 rewarded 回调才返回 `rewarded`。插屏广告遵守会话上限、最小间隔和 `Disabled` 条件，广告期间可暂停游戏并重置输入。
