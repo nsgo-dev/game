@@ -174,6 +174,36 @@ func DialWebSocket(rawURL string, token []byte) (*WebSocketTransport, error) {
 	return dialWebSocket(rawURL, token, clientKeepAlive)
 }
 
+// DialWebSocketResume opens a client with a stored opaque resume token. If the
+// server no longer retains the session, the handshake safely becomes a fresh join.
+func DialWebSocketResume(rawURL string, token []byte, resume string) (*WebSocketTransport, error) {
+	if len(token) > MaxTokenSize {
+		return nil, ErrTokenTooLarge
+	}
+	r, err := decodeResumeToken(resume)
+	if err != nil {
+		return nil, err
+	}
+	wt := &WebSocketTransport{rawURL: rawURL, token: slices.Clone(token), ka: clientKeepAlive, resume: r, changed: make(chan struct{}, 1)}
+	if err := wt.connect(); err != nil {
+		return nil, err
+	}
+	return wt, nil
+}
+
+// ResumeToken returns the opaque credential for the current session.
+func (wt *WebSocketTransport) ResumeToken() string {
+	if wt == nil {
+		return ""
+	}
+	wt.mu.Lock()
+	defer wt.mu.Unlock()
+	if wt.resume.peer == 0 {
+		return ""
+	}
+	return encodeResumeToken(wt.resume)
+}
+
 func dialWebSocket(rawURL string, token []byte, ka wsKeepAlive) (*WebSocketTransport, error) {
 	if len(token) > MaxTokenSize {
 		return nil, ErrTokenTooLarge

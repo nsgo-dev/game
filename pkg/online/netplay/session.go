@@ -4,6 +4,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"slices"
@@ -345,6 +346,32 @@ func newHello(token []byte, res resumeState) (hello, error) {
 type resumeState struct {
 	peer   PeerID
 	secret [hsSecretSize]byte
+}
+
+func encodeResumeToken(r resumeState) string {
+	b := make([]byte, 4+len(r.secret))
+	binary.LittleEndian.PutUint32(b[:4], uint32(r.peer))
+	copy(b[4:], r.secret[:])
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeResumeToken(s string) (resumeState, error) {
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil || len(b) != 4+hsSecretSize {
+		return resumeState{}, errors.New("net: invalid resume token")
+	}
+	r, err := copySecret(b[4:])
+	r.peer = PeerID(binary.LittleEndian.Uint32(b[:4]))
+	return r, err
+}
+
+func copySecret(b []byte) (resumeState, error) {
+	var r resumeState
+	if len(b) != len(r.secret) {
+		return r, errors.New("net: invalid resume token")
+	}
+	copy(r.secret[:], b)
+	return r, nil
 }
 
 // session is the server's record of one authenticated peer, connected or inside its grace period.
