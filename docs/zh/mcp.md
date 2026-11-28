@@ -286,6 +286,8 @@ app.Settle()
 
 ## UI 与 3D 契约
 
+可选的 `mcpui` 和 `mcp3d` 包已经覆盖提供者快照、按路径安全激活 UI、节点查找和射线命中记录的验收测试。它们仍是游戏连接自身运行时提供者的契约。工具注册和渲染器导入会留在后续桥接集成中，不进入 `pkg/mcp`。
+
 两个可选子包定义游戏为菜单和 3D 场景交给智能体的数据，`game/mcp` 本身不必导入 `gameui` 或任何 3D 包：
 
 - `game/mcp/mcpui`：`Widget` 和 `Snapshot` 描述 UI 树（路径、类型、标签、虚拟坐标中的矩形、是否启用、是否聚焦、值）。游戏基于自己的控件实现 `Provider`；`mcpui.Activate(provider, "Play", mcpui.Action{Kind: "press"})` 先按路径查找控件，找不到时再按只有一个控件使用的标签查找，对禁用的控件返回 `ErrDisabled`，对多个控件共用的标签返回 `ErrAmbiguous`，然后以控件路径调用 provider 的 `Activate`，让控件自己的处理函数执行。

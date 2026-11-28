@@ -286,6 +286,8 @@ app.Settle()
 
 ## UI and 3D contracts
 
+The optional `mcpui` and `mcp3d` packages now have acceptance coverage for provider snapshots, path-safe UI activation, node lookup and raycast records. They remain contracts games attach to their own runtime providers. Tool registration and renderer imports stay outside `pkg/mcp` until a later bridge integration.
+
 Two optional subpackages define the data a game hands to an agent for its menus and its 3D scenes, without `game/mcp` importing `gameui` or any 3D package:
 
 - `game/mcp/mcpui`: `Widget` and `Snapshot` describe the UI tree (path, kind, label, rectangle in virtual coordinates, enabled, focused, value). The game implements `Provider` over its own widgets; `mcpui.Activate(provider, "Play", mcpui.Action{Kind: "press"})` finds the widget by path, or else by a label that only one widget carries, refuses a disabled widget with `ErrDisabled` and a shared label with `ErrAmbiguous`, and calls the provider's `Activate` with the widget's path so the widget's own handler runs.
