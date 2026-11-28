@@ -205,6 +205,36 @@ lvl, err := procgen.GenerateRooms(random.New(seed), procgen.RoomsConfig{
 - `PlaceRooms` places an already-generated `LayoutGraph` in either mode.
 - For templates that reference a `.tmj` or scene via `source`, pass a `ResolveGrid` callback (using `procgen.GridFromTilemap` for Tiled maps loaded with `tilemap.LoadTiled`) to stamp its tiles into `Grid`; when `ResolveGrid` is nil, a walled floor footprint of `Width × Height` is stamped automatically. Unused door sockets are sealed with `Wall` and connected sockets are opened so `Grid.Connected` always holds.
 
+## Procedural placement
+
+A placement file (`*.placement.yaml`) lists steps that each sample points over an area and name the prefab to spawn at them:
+
+```yaml
+version: 1
+seed: 7
+steps:
+  - id: trees
+    sampler: grid
+    spacing: 2
+    count: 6
+    prefab: tree
+  - id: lamps
+    sampler: grid
+    spacing: 4
+    prefab: lamp
+```
+
+- `version` must be 1 (`PlacementVersion`), and unknown fields are refused.
+- Each step has a unique `id`, a `sampler`, and a `prefab`. `grid` (`SamplerGrid`) is the only sampler so far: it places a point at every cell whose coordinates are multiples of `spacing` (default 1). A positive `count` keeps that many of those points, chosen at random; without it every lattice point is kept.
+- Each step forks its own `random.Stream` from `seed` by its `id`, so adding, removing or reordering steps does not move the points of the others, and the same file and area give the same points on every machine.
+
+```go
+p, err := procgen.ParsePlacement(data)
+points := p.Points(width, height) // []PlacementPoint{X, Y, ID, Step, Prefab}
+```
+
+`Points` returns the steps' points in step order, each step's ordered by Y and then X, with IDs such as `trees-0`. Spawning the prefabs is up to the game. `ParsePlacement` and `EncodePlacement` round-trip canonical 2-space YAML byte for byte.
+
 ## Seeds
 
 Fork a named stream for each level from the run's seed, so regenerating one floor does not change the others:

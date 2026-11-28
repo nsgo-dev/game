@@ -2006,6 +2006,28 @@ rooms:
         offset: 2
 ```
 
+<!-- format: procgen#placement -->
+### 程序化放置
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 游戏加载的任意 `.placement.yaml` 文件，如 `forest.placement.yaml` | `version: 1` | `procgen.ParsePlacement`、`procgen.EncodePlacement` | [procgen](procgen.md) |
+
+```yaml
+version: 1
+seed: 7
+steps:
+  - id: trees
+    sampler: grid
+    spacing: 2
+    count: 6
+    prefab: tree
+  - id: lamps
+    sampler: grid
+    spacing: 4
+    prefab: lamp
+```
+
 <!-- format: vn -->
 ### 视觉小说角色表
 

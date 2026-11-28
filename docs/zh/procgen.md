@@ -205,6 +205,36 @@ lvl, err := procgen.GenerateRooms(random.New(seed), procgen.RoomsConfig{
 - `PlaceRooms` 支持将已有的 `LayoutGraph` 按上述任一模式摆放。
 - 对于通过 `source` 引用 `.tmj` 或场景文件的模板，可传入 `ResolveGrid` 回调（配合 `procgen.GridFromTilemap` 与 `tilemap.LoadTiled`）把瓦片写入 `Grid`；未提供 `ResolveGrid` 时会自动生成带外墙与地面内部的默认占位。未使用的门洞会被 `Wall` 封闭，已连接的门洞会被打开，保证 `Grid.Connected` 始终成立。
 
+## 程序化放置
+
+放置文件（`*.placement.yaml`）列出若干步骤，每个步骤在一块区域上采样点，并指定在这些点上生成的 prefab：
+
+```yaml
+version: 1
+seed: 7
+steps:
+  - id: trees
+    sampler: grid
+    spacing: 2
+    count: 6
+    prefab: tree
+  - id: lamps
+    sampler: grid
+    spacing: 4
+    prefab: lamp
+```
+
+- `version` 必须为 1（`PlacementVersion`），未知字段会被拒绝。
+- 每个步骤有唯一的 `id`、一个 `sampler` 和一个 `prefab`。目前只有 `grid`（`SamplerGrid`）一种采样器：它在坐标为 `spacing`（默认 1）整数倍的每个格子上放一个点。`count` 为正数时，从这些点中随机保留这么多个；不写时保留全部格点。
+- 每个步骤按自己的 `id` 从 `seed` 派生独立的 `random.Stream`，因此增加、删除或调整步骤顺序不会移动其他步骤的点，同一文件和区域在任何机器上都得到相同的点。
+
+```go
+p, err := procgen.ParsePlacement(data)
+points := p.Points(width, height) // []PlacementPoint{X, Y, ID, Step, Prefab}
+```
+
+`Points` 按步骤顺序返回各步骤的点，每个步骤内部先按 Y 再按 X 排序，ID 形如 `trees-0`。生成 prefab 由游戏自己完成。`ParsePlacement` 与 `EncodePlacement` 以规范的 2 空格缩进 YAML 逐字节往返。
+
 ## 种子
 
 从本局的种子为每个关卡派生一个具名流，这样重新生成某一层不会改变其他层：

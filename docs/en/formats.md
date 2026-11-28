@@ -2006,6 +2006,28 @@ rooms:
         offset: 2
 ```
 
+<!-- format: procgen#placement -->
+### Procedural placement
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Any `.placement.yaml` file the game loads, such as `forest.placement.yaml` | `version: 1` | `procgen.ParsePlacement`, `procgen.EncodePlacement` | [procgen](procgen.md) |
+
+```yaml
+version: 1
+seed: 7
+steps:
+  - id: trees
+    sampler: grid
+    spacing: 2
+    count: 6
+    prefab: tree
+  - id: lamps
+    sampler: grid
+    spacing: 4
+    prefab: lamp
+```
+
 <!-- format: vn -->
 ### Visual novel cast
 

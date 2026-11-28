@@ -1,0 +1,12 @@
+version: 1
+seed: 7
+steps:
+  - id: trees
+    sampler: grid
+    spacing: 2
+    count: 6
+    prefab: tree
+  - id: lamps
+    sampler: grid
+    spacing: 4
+    prefab: lamp
