@@ -8,6 +8,8 @@ import "github.com/nsgo-dev/game/pkg/ability"
 
 ## 技能集
 
+技能激活会发出确定性事件，游戏可以将其映射到 `stats.Effect`。将效果应用放在与施法者相同的固定步循环中，以保持计时修改器、快照和回放同步。
+
 技能定义在带版本号的 YAML 文件中：
 
 ```yaml

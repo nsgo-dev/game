@@ -8,6 +8,8 @@ import "github.com/nsgo-dev/game/pkg/ability"
 
 ## Ability sets
 
+Ability activation emits a deterministic event that games can map to a `stats.Effect`. Apply effects on the same fixed-step loop as the caster so timed modifiers, snapshots and replays stay aligned.
+
 Abilities are defined in a versioned YAML file:
 
 ```yaml
