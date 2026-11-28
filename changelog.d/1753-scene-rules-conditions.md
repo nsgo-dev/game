@@ -1,4 +1,4 @@
-# Scene rule conditions
+### Added
 
-Scene connection records now carry an optional `when` expression for conditional built-in rules.
+- `sceneformat`: conditional `when` expressions on scene connections, with deterministic dispatch gating and rule-context evaluation (#1753).
 
