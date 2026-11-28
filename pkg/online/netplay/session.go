@@ -17,7 +17,7 @@ import (
 type Auth struct {
 	// Verify checks the credential a client presented and the ID the server is about to assign it. A non-nil error rejects the client: it never reaches Recv, Peers or NextEvent, and the error's text is sent back as the reason. Nil accepts every client.
 	//
-	// The WebSocket server calls Verify on the client's own goroutine. The UDP server calls it on its receive goroutine, so a slow Verify delays every UDP peer's packets; check a signed token locally rather than calling a remote service there.
+	// The WebSocket server calls Verify on the client's own goroutine. The UDP server calls it on its receive goroutine, so a slow Verify delays every UDP peer's packets; check a signed token locally rather than calling a remote service there. The UDP server runs it only for a client that echoed the cookie sent to its address, so datagrams with spoofed source addresses never reach it.
 	Verify func(peer PeerID, token []byte) error
 	// GracePeriod is how long a dropped peer keeps its ID and session. A client that reconnects within it resumes with the same ID and NextEvent reports PeerResumed; once it passes, NextEvent reports PeerLeft. Zero reports PeerLeft as soon as the connection drops.
 	GracePeriod time.Duration

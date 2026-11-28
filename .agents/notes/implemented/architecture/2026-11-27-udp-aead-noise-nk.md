@@ -12,6 +12,8 @@ UDP sessions (`UDPServer` / `UDPClient`) use handshake version 2 with a pure-Go 
 
 ### Handshake version 2 wire contract
 
+Handshake version 3 keeps this contract and adds a stateless address cookie in front of message 1 and in the prologue ([2026-11-28-udp-hello-address-cookie.md](2026-11-28-udp-hello-address-cookie.md)); a version 3 server sends the version rejection to version 2 hellos too.
+
 - **Key distribution**: `Auth.StaticKey` (`*ecdh.PrivateKey`, X25519) configures a persistent server static key; when nil, `ListenUDPServer` generates a fresh X25519 key pair exposed via `UDPServer.PublicKey()`. `DialUDP(addr, serverKey, token)` requires the server's X25519 `*ecdh.PublicKey`, authenticating the server without certificates. Non-X25519 or nil keys fail with `ErrInvalidKey`.
 - **Prologue and transcript**: Every handshake datagram carries the 18-byte cleartext prefix `type(1) | version(1)=2 | nonce(16)`. Bytes `version(1) || nonce(16)` are fed to Noise as the prologue, binding both fields into the handshake hash.
 - **Message 1 (`-> e, es`)**: Client hello encrypts `resumePeer(4) | resumeSecret(16) | tokenLen(2) | token | zeroPadding` inside Noise message 1, padded to at least `udpMinHello` (128 bytes) so replies never amplify spoofed requests and short tokens are length-padded.

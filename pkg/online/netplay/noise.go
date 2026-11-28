@@ -14,15 +14,19 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// Noise Protocol Framework Revision 34 implementation of Noise_NK_25519_ChaChaPoly_SHA256 for UDP handshake version 2, plus per-datagram ChaCha20-Poly1305 AEAD framing.
+// Noise Protocol Framework Revision 34 implementation of Noise_NK_25519_ChaChaPoly_SHA256 for UDP handshake version 3, plus per-datagram ChaCha20-Poly1305 AEAD framing.
 //
-// UDP handshake version 2 wire layout:
+// UDP handshake version 3 wire layout:
 //
-//	hello:   hsHello(1)   version(1)=2 nonce(16) noiseMsg1(e(32) || AEAD(resumePeer(4) resumeSecret(16) tokenLen(2) token padding))
-//	welcome: hsWelcome(1) version(1)=2 nonce(16) noiseMsg2(e(32) || AEAD(hsWelcome(1) peer(4) server(4) resumed(1) secret(16)))
-//	reject:  hsReject(1)  version(1)=2 nonce(16) noiseMsg2(e(32) || AEAD(hsReject(1) reasonLen(2) reason))
+//	cookie request: hsHello(1)   version(1)=3 nonce(16) cookie(16)=0 zero padding to udpMinHello
+//	cookie:         hsCookie(1)  version(1)=3 nonce(16) cookie(16)
+//	hello:          hsHello(1)   version(1)=3 nonce(16) cookie(16) noiseMsg1(e(32) || AEAD(resumePeer(4) resumeSecret(16) tokenLen(2) token padding))
+//	welcome:        hsWelcome(1) version(1)=3 nonce(16) noiseMsg2(e(32) || AEAD(hsWelcome(1) peer(4) server(4) resumed(1) secret(16)))
+//	reject:         hsReject(1)  version(1)=3 nonce(16) noiseMsg2(e(32) || AEAD(hsReject(1) reasonLen(2) reason))
 //
-// The 17-byte slice version(1) || nonce(16) is passed as the Noise prologue so both endpoints bind the protocol version and handshake nonce into the transcript hash.
+// A server answers a hello whose cookie it did not issue to that source address within the last two cookie windows with a cookie, a stateless HMAC over the window, the nonce and the address, and keeps no state for it. Only a hello that carries a valid cookie is decrypted, reserves a session slot and reaches Auth.Verify, so a sender that cannot receive at its source address never gets that far. Version 3 differs from version 2 only by this round trip and the cookie field.
+//
+// The 33-byte slice version(1) || nonce(16) || cookie(16) is passed as the Noise prologue so both endpoints bind the protocol version, handshake nonce and cookie into the transcript hash: a captured hello cannot be given another address's cookie.
 //
 // After the handshake, every UDP datagram is sealed with ChaCha20-Poly1305 using the directional keys from Noise Split (or a peer's pre-shared key on UDPTransport):
 //
@@ -32,14 +36,17 @@ import (
 const (
 	noiseNKProtocolName = "Noise_NK_25519_ChaChaPoly_SHA256"
 
-	udpHandshakeVersion = 2
-	udpHelloPrefixSize  = 2 + hsNonceSize // type(1) version(1) nonce(16)
+	udpHandshakeVersion = 3
+	udpHelloPrefixSize  = 2 + hsNonceSize // type(1) version(1) nonce(16), the prefix of every handshake message
+	udpCookieSize       = 16
+	udpHelloHeader      = udpHelloPrefixSize + udpCookieSize // a hello's prefix followed by its cookie, which is also the cookie reply
+	hsCookie            = 0xA4
 	udpHelloBodyHeader  = 4 + hsSecretSize + 2
 	udpWelcomeBodySize  = 1 + 4 + 4 + 1 + hsSecretSize
 	udpRejectBodyHeader = 1 + 2
 	udpNoiseMsgOverhead = 32 + chacha20poly1305.Overhead
-	udpMinHelloPlain    = udpMinHello - udpHelloPrefixSize - udpNoiseMsgOverhead
-	udpMaxHello         = udpHelloPrefixSize + udpNoiseMsgOverhead + udpHelloBodyHeader + MaxTokenSize
+	udpMinHelloPlain    = udpMinHello - udpHelloHeader - udpNoiseMsgOverhead
+	udpMaxHello         = udpHelloHeader + udpNoiseMsgOverhead + udpHelloBodyHeader + MaxTokenSize
 	udpWelcomeSize      = udpHelloPrefixSize + udpNoiseMsgOverhead + udpWelcomeBodySize
 	udpRejectOverhead   = udpHelloPrefixSize + udpNoiseMsgOverhead + udpRejectBodyHeader
 
@@ -340,17 +347,47 @@ func (r *noiseNKResponder) writeMessage2(payload []byte, ephemeral *ecdh.Private
 	return out, c2sKey, s2cKey, nil
 }
 
-// encodeUDPHelloV2 builds a padded UDP handshake version 2 hello encrypted with Noise NK.
-func encodeUDPHelloV2(serverKey *ecdh.PublicKey, h hello) ([]byte, *noiseNKInitiator, error) {
+// encodeUDPCookieRequest builds the first datagram of a UDP handshake: a hello with an all-zero cookie and no Noise message, zero-padded to udpMinHello so the cookie that answers it is smaller.
+func encodeUDPCookieRequest(nonce [hsNonceSize]byte) []byte {
+	b := make([]byte, udpMinHello)
+	b[0] = hsHello
+	b[1] = udpHandshakeVersion
+	copy(b[2:udpHelloPrefixSize], nonce[:])
+	return b
+}
+
+// encodeUDPCookie builds the server's cookie reply to the hello with nonce.
+func encodeUDPCookie(nonce [hsNonceSize]byte, cookie [udpCookieSize]byte) []byte {
+	b := make([]byte, udpHelloHeader)
+	b[0] = hsCookie
+	b[1] = udpHandshakeVersion
+	copy(b[2:udpHelloPrefixSize], nonce[:])
+	copy(b[udpHelloPrefixSize:], cookie[:])
+	return b
+}
+
+// decodeUDPCookie parses a cookie reply to the hello with nonce.
+func decodeUDPCookie(b []byte, nonce [hsNonceSize]byte) ([udpCookieSize]byte, bool) {
+	var cookie [udpCookieSize]byte
+	if len(b) != udpHelloHeader || b[0] != hsCookie || b[1] != udpHandshakeVersion || [hsNonceSize]byte(b[2:udpHelloPrefixSize]) != nonce {
+		return cookie, false
+	}
+	copy(cookie[:], b[udpHelloPrefixSize:])
+	return cookie, cookie != [udpCookieSize]byte{}
+}
+
+// encodeUDPHelloV2 builds a padded UDP handshake hello carrying cookie, encrypted with Noise NK.
+func encodeUDPHelloV2(serverKey *ecdh.PublicKey, h hello, cookie [udpCookieSize]byte) ([]byte, *noiseNKInitiator, error) {
 	if len(h.token) > MaxTokenSize {
 		return nil, nil, ErrTokenTooLarge
 	}
-	var prefix [udpHelloPrefixSize]byte
+	var prefix [udpHelloHeader]byte
 	prefix[0] = hsHello
 	prefix[1] = udpHandshakeVersion
 	copy(prefix[2:udpHelloPrefixSize], h.nonce[:])
+	copy(prefix[udpHelloPrefixSize:], cookie[:])
 
-	init, err := newNoiseNKInitiator(prefix[1:udpHelloPrefixSize], serverKey, nil)
+	init, err := newNoiseNKInitiator(prefix[1:], serverKey, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -366,13 +403,13 @@ func encodeUDPHelloV2(serverKey *ecdh.PublicKey, h hello) ([]byte, *noiseNKIniti
 	if err != nil {
 		return nil, nil, err
 	}
-	dgram := make([]byte, udpHelloPrefixSize+len(msg1))
-	copy(dgram[:udpHelloPrefixSize], prefix[:])
-	copy(dgram[udpHelloPrefixSize:], msg1)
+	dgram := make([]byte, udpHelloHeader+len(msg1))
+	copy(dgram[:udpHelloHeader], prefix[:])
+	copy(dgram[udpHelloHeader:], msg1)
 	return dgram, init, nil
 }
 
-// decodeUDPHelloV2 decrypts a UDP handshake version 2 hello. A hello of another version returns its nonce with errHandshakeVersion.
+// decodeUDPHelloV2 decrypts a UDP handshake hello whose cookie the caller has already checked. A hello of another version returns its nonce with errHandshakeVersion.
 func decodeUDPHelloV2(staticKey *ecdh.PrivateKey, b []byte) (*noiseNKResponder, hello, error) {
 	var h hello
 	if len(b) < 2 || b[0] != hsHello {
@@ -384,14 +421,14 @@ func decodeUDPHelloV2(staticKey *ecdh.PrivateKey, b []byte) (*noiseNKResponder, 
 	if b[1] != udpHandshakeVersion {
 		return nil, h, errHandshakeVersion
 	}
-	if len(b) < udpHelloPrefixSize+udpNoiseMsgOverhead+udpHelloBodyHeader || len(b) > udpMaxHello {
+	if len(b) < udpHelloHeader+udpNoiseMsgOverhead+udpHelloBodyHeader || len(b) > udpMaxHello {
 		return nil, h, ErrInvalidPacket
 	}
-	resp, err := newNoiseNKResponder(b[1:udpHelloPrefixSize], staticKey)
+	resp, err := newNoiseNKResponder(b[1:udpHelloHeader], staticKey)
 	if err != nil {
 		return nil, h, err
 	}
-	plain, err := resp.readMessage1(b[udpHelloPrefixSize:])
+	plain, err := resp.readMessage1(b[udpHelloHeader:])
 	if err != nil {
 		return nil, h, err
 	}
@@ -459,7 +496,7 @@ func encodeUDPRejectV2(resp *noiseNKResponder, nonce [hsNonceSize]byte, reason s
 	return dgram, nil
 }
 
-// acceptUDPServerHandshakeV2 parses and authenticates a version 2 welcome or reject. A version-1 cleartext version rejection (such as from an older server) is also recognized as a *RejectError.
+// acceptUDPServerHandshakeV2 parses and authenticates a version 3 welcome or reject. A version-1 cleartext version rejection (such as from an older server) is also recognized as a *RejectError.
 func acceptUDPServerHandshakeV2(init *noiseNKInitiator, nonce [hsNonceSize]byte, b []byte) (w welcome, c2sKey, s2cKey [32]byte, err error) {
 	if len(b) < udpHelloPrefixSize {
 		return w, c2sKey, s2cKey, ErrInvalidPacket

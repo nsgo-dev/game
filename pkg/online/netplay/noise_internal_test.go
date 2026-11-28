@@ -15,6 +15,9 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
+// testCookie stands in for a cookie a server issued, for tests that encode hellos without a server.
+var testCookie = [udpCookieSize]byte{0xC0, 0x0C, 0x1E, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+
 // TestNoiseNKMatchesSpecStepByStep independently recomputes every Noise_NK_25519_ChaChaPoly_SHA256 Revision 34 step from raw RFC 7748 X25519, RFC 8439 ChaCha20-Poly1305, and SHA-256/HMAC-SHA256 equations, confirming exact protocol conformance and transcript binding.
 func TestNoiseNKMatchesSpecStepByStep(t *testing.T) {
 	mustHex := func(s string) []byte {
@@ -157,7 +160,7 @@ func TestUDPHandshakeV2RoundTripAndAmplificationBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dgram, init, err := encodeUDPHelloV2(srvKey.PublicKey(), h)
+	dgram, init, err := encodeUDPHelloV2(srvKey.PublicKey(), h, testCookie)
 	if err != nil {
 		t.Fatalf("encodeUDPHelloV2: %v", err)
 	}
@@ -208,7 +211,7 @@ func TestUDPHandshakeV2RejectAndTamper(t *testing.T) {
 	wrongKey, _ := ecdh.X25519().GenerateKey(rand.Reader)
 
 	h, _ := newHello([]byte("bad-token"), resumeState{})
-	dgram, init, err := encodeUDPHelloV2(srvKey.PublicKey(), h)
+	dgram, init, err := encodeUDPHelloV2(srvKey.PublicKey(), h, testCookie)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,11 +354,57 @@ func TestNextSeqAndReplayWindowWrapRefusal(t *testing.T) {
 func FuzzDecodeUDPHelloV2(f *testing.F) {
 	srvKey, _ := ecdh.X25519().GenerateKey(rand.Reader)
 	h, _ := newHello([]byte("tok"), resumeState{peer: 3})
-	good, _, _ := encodeUDPHelloV2(srvKey.PublicKey(), h)
+	good, _, _ := encodeUDPHelloV2(srvKey.PublicKey(), h, testCookie)
 	f.Add(good)
 	f.Add([]byte{hsHello, udpHandshakeVersion})
 	f.Add(encodeHello(h, udpMinHello))
 	f.Fuzz(func(t *testing.T, b []byte) {
 		_, _, _ = decodeUDPHelloV2(srvKey, b)
+	})
+}
+
+func TestUDPCookieMessages(t *testing.T) {
+	var nonce [hsNonceSize]byte
+	nonce[0] = 9
+	req := encodeUDPCookieRequest(nonce)
+	if len(req) != udpMinHello || req[0] != hsHello || req[1] != udpHandshakeVersion {
+		t.Fatalf("cookie request = %x, want a %d-byte hello", req, udpMinHello)
+	}
+	if [udpCookieSize]byte(req[udpHelloPrefixSize:udpHelloHeader]) != ([udpCookieSize]byte{}) {
+		t.Fatal("cookie request carries a cookie")
+	}
+	reply := encodeUDPCookie(nonce, testCookie)
+	if len(reply) >= len(req) {
+		t.Fatalf("cookie reply of %d bytes to a %d-byte request", len(reply), len(req))
+	}
+	if c, ok := decodeUDPCookie(reply, nonce); !ok || c != testCookie {
+		t.Fatalf("decodeUDPCookie = %x, %v", c, ok)
+	}
+	var other [hsNonceSize]byte
+	if _, ok := decodeUDPCookie(reply, other); ok {
+		t.Fatal("accepted a cookie for another nonce")
+	}
+	if _, ok := decodeUDPCookie(encodeUDPCookie(nonce, [udpCookieSize]byte{}), nonce); ok {
+		t.Fatal("accepted an all-zero cookie")
+	}
+	for i := range 2 {
+		tampered := bytes.Clone(reply)
+		tampered[i] ^= 0x01
+		if _, ok := decodeUDPCookie(tampered, nonce); ok {
+			t.Fatalf("accepted a cookie reply with header byte %d changed", i)
+		}
+	}
+}
+
+func FuzzDecodeUDPCookie(f *testing.F) {
+	var nonce [hsNonceSize]byte
+	f.Add(encodeUDPCookie(nonce, testCookie))
+	f.Add(encodeUDPCookieRequest(nonce))
+	f.Add([]byte{hsCookie, udpHandshakeVersion})
+	f.Fuzz(func(t *testing.T, b []byte) {
+		c, ok := decodeUDPCookie(b, nonce)
+		if ok && (c == [udpCookieSize]byte{} || !bytes.Equal(encodeUDPCookie(nonce, c), b)) {
+			t.Fatalf("decodeUDPCookie(%x) = %x, which does not re-encode to its input", b, c)
+		}
 	})
 }
